@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #1a1a18;
+  --paper: #f5f0e8;
+  --accent: #c4421a;
+  --muted: #9e9a90;
+}
+
+body {
+  font-family: "DM Mono", monospace;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.font-serif {
+  font-family: "Instrument Serif", serif;
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ticker {
+  animation: ticker 30s linear infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.8s ease both;
+}
+
+.fade-up-delay {
+  animation: fadeUp 0.8s ease 0.2s both;
+}
