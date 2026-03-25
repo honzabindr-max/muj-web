@@ -85,49 +85,53 @@ function getStatusText(state: CrawlState | null) {
 }
 
 function getStatusBadgeClasses(state: CrawlState | null) {
-  if (!state) return "border-zinc-200 bg-white/80 text-zinc-600";
+  if (!state) return "border-white/70 bg-white/55 text-zinc-600";
   if (state.status === "running") {
     if (
       state.updated_at &&
       (Date.now() - new Date(state.updated_at).getTime()) / 1000 > 180
     ) {
-      return "border-zinc-200 bg-white/80 text-zinc-600";
+      return "border-white/70 bg-white/55 text-zinc-600";
     }
-    return "border-emerald-200 bg-emerald-50/90 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
+    return "border-emerald-200/80 bg-emerald-50/80 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
   }
-  if (state.status === "completed") return "border-blue-200 bg-blue-50/90 text-blue-700";
-  if (state.status === "paused") return "border-amber-200 bg-amber-50/90 text-amber-700";
-  return "border-zinc-200 bg-white/80 text-zinc-600";
+  if (state.status === "completed") return "border-blue-200/80 bg-blue-50/80 text-blue-700";
+  if (state.status === "paused") return "border-amber-200/80 bg-amber-50/80 text-amber-700";
+  return "border-white/70 bg-white/55 text-zinc-600";
 }
 
 function getEngineTheme(engine: "seznam" | "google") {
   if (engine === "seznam") {
     return {
       dot: "bg-red-500",
-      panelBorder: "border-red-100",
+      panelBorder: "border-red-100/80",
       panelGlow:
-        "shadow-[0_1px_2px_rgba(0,0,0,0.03),0_0_0_1px_rgba(239,68,68,0.03)]",
-      topTint: "from-red-50 via-white to-white",
-      softBlock: "bg-red-50/45",
+        "shadow-[0_8px_30px_rgba(239,68,68,0.05),0_1px_2px_rgba(0,0,0,0.04)]",
+      topTint: "from-red-50/95 via-white/75 to-white/65",
+      softBlock: "bg-white/55",
       progress: "#ef4444",
       progressTrack: "#fee2e2",
       accentText: "text-red-600",
-      miniPill: "border-red-100 bg-red-50 text-red-700",
+      miniPill: "border-red-100/80 bg-red-50/80 text-red-700",
       sparkFill: "rgba(239,68,68,0.10)",
+      ambientA: "bg-red-200/16",
+      ambientB: "bg-orange-200/12",
     };
   }
   return {
     dot: "bg-blue-500",
-    panelBorder: "border-blue-100",
+    panelBorder: "border-blue-100/80",
     panelGlow:
-      "shadow-[0_1px_2px_rgba(0,0,0,0.03),0_0_0_1px_rgba(59,130,246,0.03)]",
-    topTint: "from-blue-50 via-white to-white",
-    softBlock: "bg-blue-50/45",
+      "shadow-[0_8px_30px_rgba(59,130,246,0.05),0_1px_2px_rgba(0,0,0,0.04)]",
+    topTint: "from-blue-50/95 via-white/75 to-white/65",
+    softBlock: "bg-white/55",
     progress: "#0ea5e9",
     progressTrack: "#dbeafe",
     accentText: "text-blue-600",
-    miniPill: "border-blue-100 bg-blue-50 text-blue-700",
+    miniPill: "border-blue-100/80 bg-blue-50/80 text-blue-700",
     sparkFill: "rgba(14,165,233,0.10)",
+    ambientA: "bg-blue-200/16",
+    ambientB: "bg-cyan-200/12",
   };
 }
 
@@ -183,6 +187,22 @@ function AnimatedNumber({
       {formatNumber(animated)}
       {suffix}
     </span>
+  );
+}
+
+function GlassCard({
+  className = "",
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`border border-white/70 bg-white/55 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] ${className}`}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -340,8 +360,8 @@ function StatMiniCard({
   shimmer?: boolean;
 }) {
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-zinc-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] ${
+    <GlassCard
+      className={`relative overflow-hidden rounded-2xl p-3.5 ${
         shimmer
           ? "before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2.8s_linear_infinite] before:bg-gradient-to-r before:from-transparent before:via-white/50 before:to-transparent"
           : ""
@@ -354,7 +374,7 @@ function StatMiniCard({
         {value}
       </div>
       {hint ? <div className="relative mt-1.5 text-sm text-zinc-500">{hint}</div> : null}
-    </div>
+    </GlassCard>
   );
 }
 
@@ -368,7 +388,7 @@ function TopMetric({
   hint?: string;
 }) {
   return (
-    <div className="min-w-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white/75 backdrop-blur-sm p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+    <GlassCard className="min-w-0 overflow-hidden rounded-3xl p-4">
       <div className="truncate text-[10px] uppercase tracking-[0.18em] text-zinc-500">
         {label}
       </div>
@@ -376,7 +396,7 @@ function TopMetric({
         {value}
       </div>
       {hint ? <div className="mt-1.5 text-sm text-zinc-500">{hint}</div> : null}
-    </div>
+    </GlassCard>
   );
 }
 
@@ -411,13 +431,13 @@ function RecentPhraseItem({
   index: number;
 }) {
   return (
-    <div
-      className={`rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 transition hover:border-zinc-200 hover:bg-white ${
-        index === 0 ? "ring-1 ring-zinc-200" : ""
+    <GlassCard
+      className={`rounded-xl px-3 py-2 text-sm text-zinc-700 transition hover:bg-white/70 ${
+        index === 0 ? "ring-1 ring-white/70" : ""
       }`}
     >
       <div className="truncate">{phrase}</div>
-    </div>
+    </GlassCard>
   );
 }
 
@@ -432,7 +452,7 @@ function LiveRail({
   const label = engine === "seznam" ? "Seznam" : "Google";
 
   return (
-    <div className="rounded-[28px] border border-zinc-200 bg-zinc-50/80 p-5">
+    <GlassCard className="rounded-[28px] p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-base font-medium text-zinc-950">Live feed</div>
@@ -440,7 +460,7 @@ function LiveRail({
             Poslední zachycené fráze v živém proudu.
           </div>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600">
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 backdrop-blur-sm">
           <span className={`h-2 w-2 rounded-full ${dot} animate-pulse`} />
           {label}
         </div>
@@ -449,21 +469,21 @@ function LiveRail({
       <div className="mt-4 space-y-2">
         {recent.length > 0 ? (
           recent.slice(0, 6).map((phrase, index) => (
-            <div
+            <GlassCard
               key={`${phrase}-${index}`}
-              className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-white px-3 py-2.5"
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5"
             >
               <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
               <span className="truncate text-sm text-zinc-700">{phrase}</span>
-            </div>
+            </GlassCard>
           ))
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500">
+          <GlassCard className="rounded-xl px-4 py-6 text-center text-sm text-zinc-500">
             Zatím nejsou k dispozici žádné nové fráze.
-          </div>
+          </GlassCard>
         )}
       </div>
-    </div>
+    </GlassCard>
   );
 }
 
@@ -483,7 +503,7 @@ function CompactGaugeCard({
   pulse: boolean;
 }) {
   return (
-    <div className="rounded-[24px] border border-zinc-200 bg-white/70 p-4">
+    <GlassCard className="rounded-[24px] p-4">
       <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
         {label}
       </div>
@@ -505,7 +525,7 @@ function CompactGaugeCard({
           </div>
         </div>
       </div>
-    </div>
+    </GlassCard>
   );
 }
 
@@ -549,9 +569,13 @@ function SourcePanel({
 
   return (
     <section
-      className={`overflow-hidden rounded-[32px] border ${theme.panelBorder} bg-white ${theme.panelGlow} h-full`}
+      className={`relative overflow-hidden rounded-[36px] border ${theme.panelBorder} bg-gradient-to-br ${theme.topTint} ${theme.panelGlow} h-full backdrop-blur-xl`}
     >
-      <div className={`bg-gradient-to-b ${theme.topTint} px-5 py-5 md:px-6 md:py-6`}>
+      <div className={`pointer-events-none absolute -top-16 left-8 h-44 w-44 rounded-full ${theme.ambientA} blur-3xl`} />
+      <div className={`pointer-events-none absolute -bottom-20 right-10 h-56 w-56 rounded-full ${theme.ambientB} blur-3xl`} />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.10)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.10)_1px,transparent_1px)] bg-[size:34px_34px] opacity-[0.12]" />
+
+      <div className="relative px-5 py-5 md:px-6 md:py-6">
         <div className="flex h-full flex-col gap-5">
           <div className="flex items-center gap-3">
             <span
@@ -569,14 +593,14 @@ function SourcePanel({
               {title}
             </h2>
             <span
-              className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium ${getStatusBadgeClasses(
+              className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium backdrop-blur-sm ${getStatusBadgeClasses(
                 state
               )}`}
             >
               {statusText}
             </span>
             <span
-              className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium ${theme.miniPill}`}
+              className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium backdrop-blur-sm ${theme.miniPill}`}
             >
               Hloubka {currentDepth}
             </span>
@@ -627,7 +651,7 @@ function SourcePanel({
                   </div>
                 </div>
 
-                <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-zinc-100">
+                <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/55 backdrop-blur-sm">
                   <div
                     className="h-full rounded-full transition-all duration-700"
                     style={{
@@ -665,7 +689,7 @@ function SourcePanel({
                 />
               </div>
 
-              <div className="mt-5 rounded-[28px] border border-zinc-200 bg-white p-5">
+              <GlassCard className="mt-5 rounded-[28px] p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-base font-medium text-zinc-950">
@@ -685,11 +709,11 @@ function SourcePanel({
                     fill={theme.sparkFill}
                   />
                 </div>
-              </div>
+              </GlassCard>
             </div>
 
             <div className="grid gap-4 min-w-0">
-              <div className="flex flex-col rounded-[28px] border border-zinc-200 bg-zinc-50/80 p-5 min-w-0">
+              <GlassCard className="flex flex-col rounded-[28px] p-5 min-w-0">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-base font-medium text-zinc-950">Live detail</div>
@@ -700,7 +724,7 @@ function SourcePanel({
 
                   <div className="flex shrink-0 flex-col items-end">
                     <div className="text-xs text-zinc-500">Aktivní prefix</div>
-                    <div className="mt-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-sm font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.03)] max-w-[150px] truncate">
+                    <div className="mt-2 max-w-[150px] truncate rounded-2xl border border-white/70 bg-white/75 px-3 py-2 font-mono text-sm font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-sm">
                       {state?.current_prefix ? `"${state.current_prefix}"` : "—"}
                     </div>
                   </div>
@@ -723,7 +747,7 @@ function SourcePanel({
                   />
                 </div>
 
-                <div className="my-5 h-px bg-zinc-200" />
+                <div className="my-5 h-px bg-zinc-200/70" />
 
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm font-medium text-zinc-950">Poslední fráze</div>
@@ -742,12 +766,12 @@ function SourcePanel({
                       />
                     ))
                   ) : (
-                    <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500">
+                    <GlassCard className="rounded-xl px-4 py-6 text-center text-sm text-zinc-500">
                       Zatím nejsou k dispozici žádné nové fráze.
-                    </div>
+                    </GlassCard>
                   )}
                 </div>
-              </div>
+              </GlassCard>
 
               <LiveRail recent={recent} engine={engine} />
             </div>
@@ -838,7 +862,7 @@ export default function SuggestPage() {
   const activeCount = [seznamState, googleState].filter((s) => isActuallyRunning(s)).length;
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#f5f7fb_38%,#f8fafc_100%)] text-zinc-950">
       <style jsx global>{`
         @keyframes shimmer {
           100% {
@@ -847,19 +871,25 @@ export default function SuggestPage() {
         }
       `}</style>
 
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute left-[8%] top-[6%] h-[380px] w-[380px] rounded-full bg-red-200/10 blur-3xl" />
+        <div className="absolute right-[8%] top-[12%] h-[420px] w-[420px] rounded-full bg-blue-200/10 blur-3xl" />
+        <div className="absolute left-[32%] bottom-[10%] h-[420px] w-[420px] rounded-full bg-emerald-200/8 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-        <header className="relative overflow-hidden rounded-[40px] border border-zinc-200 bg-gradient-to-br from-white via-zinc-50 to-zinc-100 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)] md:p-6">
-          <div className="pointer-events-none absolute -top-24 left-20 h-72 w-72 rounded-full bg-blue-200/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 left-1/3 h-72 w-72 rounded-full bg-red-200/15 blur-3xl" />
-          <div className="pointer-events-none absolute top-0 right-24 h-64 w-64 rounded-full bg-emerald-200/15 blur-3xl" />
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.14)_1px,transparent_1px)] bg-[size:36px_36px] opacity-[0.18]" />
+        <header className="relative overflow-hidden rounded-[40px] border border-white/70 bg-white/52 p-5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,0.65)] md:p-6">
+          <div className="pointer-events-none absolute -top-24 left-20 h-72 w-72 rounded-full bg-blue-200/14 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 left-1/3 h-72 w-72 rounded-full bg-red-200/12 blur-3xl" />
+          <div className="pointer-events-none absolute top-0 right-24 h-64 w-64 rounded-full bg-emerald-200/12 blur-3xl" />
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.14)_1px,transparent_1px)] bg-[size:36px_36px] opacity-[0.14]" />
 
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
               <Link
                 href="/"
                 prefetch={false}
-                className="inline-flex h-10 items-center rounded-full border border-zinc-200 bg-white/90 backdrop-blur-sm px-4 text-sm font-medium text-zinc-700 transition hover:bg-white hover:text-zinc-950"
+                className="inline-flex h-10 items-center rounded-full border border-white/70 bg-white/80 backdrop-blur-md px-4 text-sm font-medium text-zinc-700 transition hover:bg-white hover:text-zinc-950"
               >
                 ← Zpět
               </Link>
@@ -872,8 +902,8 @@ export default function SuggestPage() {
                   <span
                     className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium backdrop-blur-sm ${
                       activeCount > 0
-                        ? "border-emerald-200 bg-emerald-50/95 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]"
-                        : "border-zinc-200 bg-white/85 text-zinc-600"
+                        ? "border-emerald-200/90 bg-emerald-50/85 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]"
+                        : "border-white/70 bg-white/75 text-zinc-600"
                     }`}
                   >
                     {activeCount > 0 ? `${activeCount} aktivní` : "Standby"}
@@ -886,29 +916,29 @@ export default function SuggestPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:w-auto">
-              <div className="rounded-3xl border border-white/70 bg-white/65 backdrop-blur-md px-5 py-4 text-right shadow-[0_8px_20px_rgba(255,255,255,0.35)_inset]">
+              <GlassCard className="rounded-3xl px-5 py-4 text-right">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
                   Aktualizace
                 </div>
                 <div className="mt-2 text-[clamp(1rem,2vw,1.35rem)] font-semibold leading-none text-zinc-950">
                   každé 3 s
                 </div>
-              </div>
-              <div className="rounded-3xl border border-white/70 bg-white/65 backdrop-blur-md px-5 py-4 text-right shadow-[0_8px_20px_rgba(255,255,255,0.35)_inset]">
+              </GlassCard>
+              <GlassCard className="rounded-3xl px-5 py-4 text-right">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
                   Projekt
                 </div>
                 <div className="mt-2 break-all text-[clamp(0.95rem,1.3vw,1.1rem)] font-semibold leading-none text-zinc-950">
                   good-inventions.work
                 </div>
-              </div>
+              </GlassCard>
             </div>
           </div>
         </header>
 
-        <section className="relative mt-6 overflow-hidden rounded-[36px] border border-zinc-200 bg-gradient-to-br from-white via-zinc-50 to-zinc-100 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.03)] md:p-8">
-          <div className="pointer-events-none absolute -top-20 left-10 h-56 w-56 rounded-full bg-red-200/10 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-20 right-10 h-56 w-56 rounded-full bg-blue-200/10 blur-3xl" />
+        <section className="relative mt-6 overflow-hidden rounded-[36px] border border-white/70 bg-white/48 p-6 backdrop-blur-2xl shadow-[0_10px_30px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] md:p-8">
+          <div className="pointer-events-none absolute -top-20 left-10 h-56 w-56 rounded-full bg-red-200/8 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 right-10 h-56 w-56 rounded-full bg-blue-200/8 blur-3xl" />
 
           <div className="relative grid gap-6 xl:grid-cols-[1.3fr_0.7fr] xl:items-center">
             <div className="min-w-0">
@@ -964,7 +994,7 @@ export default function SuggestPage() {
           />
         </div>
 
-        <footer className="mt-8 flex flex-col gap-2 border-t border-zinc-200 px-1 pt-5 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+        <footer className="mt-8 flex flex-col gap-2 border-t border-zinc-200/70 px-1 pt-5 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
           <span>Monitoring crawlerů v reálném čase</span>
           <span>{new Date().toLocaleDateString("cs-CZ")} · good-inventions.work</span>
         </footer>
