@@ -2,7 +2,7 @@ name: Google Crawl
 
 on:
   schedule:
-    - cron: '15 */1 * * *'
+    - cron: '*/40 * * * *'
   workflow_dispatch:
 
 jobs:
