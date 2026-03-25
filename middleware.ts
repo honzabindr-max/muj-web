@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export function middleware(req: NextRequest) {
-  if (!req.nextUrl.pathname.startsWith("/suggest")) {
-    return NextResponse.next();
-  }
+export const config = {
+  matcher: ["/suggest/:path*"],
+};
 
+export function middleware(req: NextRequest) {
   const auth = req.headers.get("authorization");
 
   if (auth) {
