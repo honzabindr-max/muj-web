@@ -725,7 +725,7 @@ function SourcePanel({
                   <div className="flex shrink-0 flex-col items-end">
                     <div className="text-xs text-zinc-500">Aktivní prefix</div>
                     <div className="mt-2 max-w-[150px] truncate rounded-2xl border border-white/70 bg-white/75 px-3 py-2 font-mono text-sm font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-sm">
-                      {state?.current_prefix ? `"${state.current_prefix}"` : "—"}
+                      {state?.current_prefix ? `\"${state.current_prefix}\"` : "—"}
                     </div>
                   </div>
                 </div>
