@@ -85,19 +85,19 @@ function getStatusText(state: CrawlState | null) {
 }
 
 function getStatusBadgeClasses(state: CrawlState | null) {
-  if (!state) return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  if (!state) return "border-zinc-200 bg-white/80 text-zinc-600";
   if (state.status === "running") {
     if (
       state.updated_at &&
       (Date.now() - new Date(state.updated_at).getTime()) / 1000 > 180
     ) {
-      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+      return "border-zinc-200 bg-white/80 text-zinc-600";
     }
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
+    return "border-emerald-200 bg-emerald-50/90 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
   }
-  if (state.status === "completed") return "border-blue-200 bg-blue-50 text-blue-700";
-  if (state.status === "paused") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  if (state.status === "completed") return "border-blue-200 bg-blue-50/90 text-blue-700";
+  if (state.status === "paused") return "border-amber-200 bg-amber-50/90 text-amber-700";
+  return "border-zinc-200 bg-white/80 text-zinc-600";
 }
 
 function getEngineTheme(engine: "seznam" | "google") {
@@ -368,7 +368,7 @@ function TopMetric({
   hint?: string;
 }) {
   return (
-    <div className="min-w-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+    <div className="min-w-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white/75 backdrop-blur-sm p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
       <div className="truncate text-[10px] uppercase tracking-[0.18em] text-zinc-500">
         {label}
       </div>
@@ -848,13 +848,18 @@ export default function SuggestPage() {
       `}</style>
 
       <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-        <header className="rounded-[32px] border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] md:p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <header className="relative overflow-hidden rounded-[40px] border border-zinc-200 bg-gradient-to-br from-white via-zinc-50 to-zinc-100 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)] md:p-6">
+          <div className="pointer-events-none absolute -top-24 left-20 h-72 w-72 rounded-full bg-blue-200/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 left-1/3 h-72 w-72 rounded-full bg-red-200/15 blur-3xl" />
+          <div className="pointer-events-none absolute top-0 right-24 h-64 w-64 rounded-full bg-emerald-200/15 blur-3xl" />
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.14)_1px,transparent_1px)] bg-[size:36px_36px] opacity-[0.18]" />
+
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
               <Link
                 href="/"
                 prefetch={false}
-                className="inline-flex h-10 items-center rounded-full border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 hover:text-zinc-950"
+                className="inline-flex h-10 items-center rounded-full border border-zinc-200 bg-white/90 backdrop-blur-sm px-4 text-sm font-medium text-zinc-700 transition hover:bg-white hover:text-zinc-950"
               >
                 ← Zpět
               </Link>
@@ -865,23 +870,23 @@ export default function SuggestPage() {
                     Crawler Dashboard
                   </h1>
                   <span
-                    className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${
+                    className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium backdrop-blur-sm ${
                       activeCount > 0
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]"
-                        : "border-zinc-200 bg-zinc-50 text-zinc-600"
+                        ? "border-emerald-200 bg-emerald-50/95 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]"
+                        : "border-zinc-200 bg-white/85 text-zinc-600"
                     }`}
                   >
                     {activeCount > 0 ? `${activeCount} aktivní` : "Standby"}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-zinc-500">
+                <p className="mt-2 text-sm text-zinc-600">
                   Přehled sběru návrhů v reálném čase.
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:w-auto">
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 px-5 py-4 text-right">
+              <div className="rounded-3xl border border-white/70 bg-white/65 backdrop-blur-md px-5 py-4 text-right shadow-[0_8px_20px_rgba(255,255,255,0.35)_inset]">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
                   Aktualizace
                 </div>
@@ -889,7 +894,7 @@ export default function SuggestPage() {
                   každé 3 s
                 </div>
               </div>
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 px-5 py-4 text-right">
+              <div className="rounded-3xl border border-white/70 bg-white/65 backdrop-blur-md px-5 py-4 text-right shadow-[0_8px_20px_rgba(255,255,255,0.35)_inset]">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
                   Projekt
                 </div>
@@ -901,8 +906,11 @@ export default function SuggestPage() {
           </div>
         </header>
 
-        <section className="mt-6 rounded-[32px] border border-zinc-200 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.03)] md:p-8">
-          <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr] xl:items-center">
+        <section className="relative mt-6 overflow-hidden rounded-[36px] border border-zinc-200 bg-gradient-to-br from-white via-zinc-50 to-zinc-100 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.03)] md:p-8">
+          <div className="pointer-events-none absolute -top-20 left-10 h-56 w-56 rounded-full bg-red-200/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 right-10 h-56 w-56 rounded-full bg-blue-200/10 blur-3xl" />
+
+          <div className="relative grid gap-6 xl:grid-cols-[1.3fr_0.7fr] xl:items-center">
             <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">
                 Celkový přehled
