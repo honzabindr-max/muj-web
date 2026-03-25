@@ -9,13 +9,35 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Notify start
+        run: python notify.py "🔴 *Seznam crawler* spuštěn"
       - name: Run crawler
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python crawler_auto.py
+      - name: Notify done
+        if: always()
+        run: |
+          python -c "
+import json,os,urllib.request
+url=os.environ['SUPABASE_URL']+'/rest/v1/crawl_state?select=*&id=eq.1'
+h={'apikey':os.environ['SUPABASE_KEY'],'Authorization':'Bearer '+os.environ['SUPABASE_KEY']}
+r=urllib.request.urlopen(urllib.request.Request(url,headers=h))
+s=json.loads(r.read())[0]
+total_url=os.environ['SUPABASE_URL']+'/rest/v1/suggestions?select=id'
+t=len(json.loads(urllib.request.urlopen(urllib.request.Request(total_url,headers=h)).read()))
+msg='✅ *Seznam crawler* dokončen\n'
+msg+='📊 Nových: +'+str(s.get('new_total',0))+'\n'
+msg+='📁 Celkem v DB: '+str(t)+'\n'
+msg+='🔍 Dotazů: '+str(s.get('queries_total',0))+'\n'
+msg+='📏 Hloubka: '+str(s.get('current_depth',0))
+import notify;notify.send(msg)
+"
