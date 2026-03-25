@@ -21,8 +21,13 @@ jobs:
           python-version: '3.12'
       - name: Notify start
         run: python notify.py "🔵 Google crawler spuštěn"
+      - name: Count before
+        id: before
+        run: echo "count=$(python count_db.py google_suggestions)" >> $GITHUB_OUTPUT
       - name: Run crawler
         run: python crawler_google.py
-      - name: Notify done
+      - name: Count after and notify
         if: always()
-        run: python notify_done.py google
+        run: |
+          AFTER=$(python count_db.py google_suggestions)
+          python notify_done.py google ${{ steps.before.outputs.count }} $AFTER

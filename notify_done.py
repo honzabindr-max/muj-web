@@ -1,34 +1,20 @@
-import json,os,sys,urllib.request
+import os,sys
 import notify
 
 engine = sys.argv[1] if len(sys.argv) > 1 else "seznam"
-url = os.environ.get("SUPABASE_URL","")
-key = os.environ.get("SUPABASE_KEY","")
-h = {"apikey": key, "Authorization": "Bearer " + key}
+before = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+after = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+added = after - before
 
 if engine == "google":
-    state_table = "google_crawl_state"
-    data_table = "google_suggestions"
     label = "Google crawler"
+    emoji = "🔵"
 else:
-    state_table = "crawl_state"
-    data_table = "suggestions"
     label = "Seznam crawler"
+    emoji = "🔴"
 
-try:
-    state_url = url + "/rest/v1/" + state_table + "?select=*&id=eq.1"
-    r = urllib.request.urlopen(urllib.request.Request(state_url, headers=h), timeout=10)
-    s = json.loads(r.read())[0]
-
-    total_url = url + "/rest/v1/" + data_table + "?select=id"
-    r2 = urllib.request.urlopen(urllib.request.Request(total_url, headers=h), timeout=10)
-    total = len(json.loads(r2.read()))
-
-    msg = "✅ *" + label + "* dokončen\n"
-    msg += "📊 Nových: +" + str(s.get("new_total", 0)) + "\n"
-    msg += "📁 Celkem v DB: " + str(total) + "\n"
-    msg += "🔍 Dotazů: " + str(s.get("queries_total", 0)) + "\n"
-    msg += "📏 Hloubka: " + str(s.get("current_depth", 0))
-    notify.send(msg)
-except Exception as e:
-    notify.send("⚠️ *" + label + "* — chyba při notifikaci: " + str(e))
+msg = emoji + " *" + label + "* dokončen\n"
+msg += "✅ Nových frází: +" + str(added) + "\n"
+msg += "📁 Celkem v DB: " + str(after) + "\n"
+msg += "📈 Před: " + str(before) + " → Po: " + str(after)
+notify.send(msg)
