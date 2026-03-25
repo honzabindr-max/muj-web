@@ -18,7 +18,7 @@ class DB:
     def _req(s,m,p,d=None,eh=None):
         u=s.base+"/"+p;b=json.dumps(d).encode() if d else None;h=dict(s.h);h.update(eh or {})
         try:
-            r=urllib.request.urlopen(urllib.request.Request(u,data=b,headers=h,method=m),timeout=15);t=r.read().decode()
+            r=urllib.request.urlopen(urllib.request.Request(u,data=b,headers=h,method=m),timeout=30);t=r.read().decode()
             return json.loads(t) if t.strip() else None
         except urllib.error.HTTPError as e:
             code=e.code;err=e.read().decode()[:200]
@@ -150,4 +150,7 @@ db=DB(url,key);api=GoogleAPI(0.5)
 print("🔍 Google Suggest Crawler (cs)")
 print("   Delay: 0.5s (adaptive)")
 print("   Max runtime: 25 min")
-run(db,api)
+try:
+    run(db,api)
+except Exception as e:
+    print("FATAL: "+str(e))
