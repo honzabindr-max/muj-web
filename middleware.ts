@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export function middleware(req: NextRequest) {
+  if (!req.nextUrl.pathname.startsWith("/suggest")) {
+    return NextResponse.next();
+  }
+
   const auth = req.headers.get("authorization");
 
   if (auth) {
@@ -19,7 +23,3 @@ export function middleware(req: NextRequest) {
     headers: { "WWW-Authenticate": 'Basic realm="Suggest Dashboard"' },
   });
 }
-
-export const config = {
-  matcher: ["/suggest/:path*"],
-};
