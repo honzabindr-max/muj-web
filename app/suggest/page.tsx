@@ -26,12 +26,7 @@ function formatNumber(value: number) {
 
 function safeQueueLength(raw?: string) {
   if (!raw) return 0;
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.length : 0;
-  } catch {
-    return 0;
-  }
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p.length : 0; } catch { return 0; }
 }
 
 function getProgress(state: CrawlState | null) {
@@ -39,13 +34,17 @@ function getProgress(state: CrawlState | null) {
   return Math.max(0, Math.min(100, Math.round((state.processed / state.queue_size) * 100)));
 }
 
+function isActuallyRunning(state: CrawlState | null) {
+  if (!state || state.status !== "running") return false;
+  if (!state.updated_at) return false;
+  return (Date.now() - new Date(state.updated_at).getTime()) / 1000 < 180;
+}
+
 function getElapsedLabel(startedAt?: string) {
   if (!startedAt) return "—";
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000));
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return h + "h " + m + "m";
-  return m + "m";
+  const s = Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000));
+  const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? h + "h " + m + "m" : m + "m";
 }
 
 function getUpdatedTime(updatedAt?: string) {
@@ -54,24 +53,22 @@ function getUpdatedTime(updatedAt?: string) {
 }
 
 function getStatusText(state: CrawlState | null) {
-  if (state && state.status === "running" && state.updated_at) {
-    const age = (Date.now() - new Date(state.updated_at).getTime()) / 1000;
-    if (age > 180) return "Čeká na další běh";
-  }
   if (!state) return "Neznámý stav";
-  if (state.status === "running") return "Crawluje";
+  if (state.status === "running") {
+    if (state.updated_at && (Date.now() - new Date(state.updated_at).getTime()) / 1000 > 180) return "Čeká na další běh";
+    return "Crawluje";
+  }
   if (state.status === "completed") return "Dokončeno";
   if (state.status === "paused") return "Pozastaveno";
   return "Idle";
 }
 
 function getStatusBadgeClasses(state: CrawlState | null) {
-  if (state && state.status === "running" && state.updated_at) {
-    const age = (Date.now() - new Date(state.updated_at).getTime()) / 1000;
-    if (age > 180) return "border-zinc-200 bg-zinc-50 text-zinc-600";
-  }
   if (!state) return "border-zinc-200 bg-zinc-50 text-zinc-600";
-  if (state.status === "running") return "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
+  if (state.status === "running") {
+    if (state.updated_at && (Date.now() - new Date(state.updated_at).getTime()) / 1000 > 180) return "border-zinc-200 bg-zinc-50 text-zinc-600";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
+  }
   if (state.status === "completed") return "border-blue-200 bg-blue-50 text-blue-700";
   if (state.status === "paused") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-zinc-200 bg-zinc-50 text-zinc-600";
@@ -88,16 +85,13 @@ function useAnimatedNumber(value: number, duration = 700) {
   const [display, setDisplay] = useState(value);
   const previousRef = useRef(value);
   useEffect(() => {
-    const start = previousRef.current;
-    const end = value;
+    const start = previousRef.current; const end = value;
     if (start === end) { setDisplay(end); return; }
-    const startTime = performance.now();
-    let raf = 0;
+    const startTime = performance.now(); let raf = 0;
     const tick = (now: number) => {
       const progress = Math.min((now - startTime) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
-      const current = Math.round(start + (end - start) * eased);
-      setDisplay(current);
+      setDisplay(Math.round(start + (end - start) * eased));
       if (progress < 1) { raf = requestAnimationFrame(tick); } else { previousRef.current = end; }
     };
     raf = requestAnimationFrame(tick);
@@ -111,22 +105,20 @@ function AnimatedNumber({ value, className = "", prefix = "", suffix = "" }: { v
   return <span className={"tabular-nums " + className}>{prefix}{formatNumber(animated)}{suffix}</span>;
 }
 
-function DonutProgress({ value, size = 118, stroke = 10, color, track, label, subtitle, pulse = false }: { value: number; size?: number; stroke?: number; color: string; track: string; label: string; subtitle: string; pulse?: boolean }) {
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progress = Math.max(0, Math.min(100, value));
-  const offset = circumference - (progress / 100) * circumference;
+function DonutProgress({ value, size = 86, stroke = 8, color, track, label, subtitle, pulse = false }: { value: number; size?: number; stroke?: number; color: string; track: string; label: string; subtitle: string; pulse?: boolean }) {
+  const radius = (size - stroke) / 2; const circumference = 2 * Math.PI * radius;
+  const progress = Math.max(0, Math.min(100, value)); const offset = circumference - (progress / 100) * circumference;
   return (
     <div className="relative flex items-center justify-center">
       {pulse ? <div className="absolute inset-0 animate-pulse rounded-full opacity-20 blur-xl" style={{ backgroundColor: color }} /> : null}
       <svg width={size} height={size} className="relative -rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="transparent" stroke={track} strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="transparent" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} style={{ transition: "stroke-dashoffset 900ms ease" }} />
+        <circle cx={size/2} cy={size/2} r={radius} fill="transparent" stroke={track} strokeWidth={stroke} />
+        <circle cx={size/2} cy={size/2} r={radius} fill="transparent" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} style={{ transition: "stroke-dashoffset 900ms ease" }} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="text-[clamp(1rem,2vw,1.35rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{progress}%</div>
-        <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
-        <div className="mt-1 text-[11px] text-zinc-500">{subtitle}</div>
+        <div className="text-[0.95rem] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{progress}%</div>
+        <div className="mt-1 text-[9px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
+        <div className="mt-1 text-[10px] text-zinc-500">{subtitle}</div>
       </div>
     </div>
   );
@@ -136,8 +128,7 @@ function Sparkline({ values, color, fill }: { values: number[]; color: string; f
   const width = 280; const height = 72; const padding = 6;
   const min = Math.min(...values); const max = Math.max(...values); const range = Math.max(max - min, 1);
   const points = values.map((v, i) => { const x = padding + (i / (values.length - 1)) * (width - padding * 2); const y = height - padding - ((v - min) / range) * (height - padding * 2); return x + "," + y; }).join(" ");
-  const firstX = padding; const lastX = width - padding;
-  const area = firstX + "," + (height - padding) + " " + points + " " + lastX + "," + (height - padding);
+  const area = padding + "," + (height - padding) + " " + points + " " + (width - padding) + "," + (height - padding);
   return (
     <svg viewBox={"0 0 " + width + " " + height} className="h-[72px] w-full overflow-visible" preserveAspectRatio="none">
       <polygon points={area} fill={fill} />
@@ -147,18 +138,16 @@ function Sparkline({ values, color, fill }: { values: number[]; color: string; f
 }
 
 function buildSparklineSeries(count: number, processed: number, progress: number, recentLength: number) {
-  const base = Math.max(12, Math.round(count / 120));
-  const amp = Math.max(8, Math.round(processed / 300));
-  const p = Math.max(4, progress);
-  const r = Math.max(1, recentLength);
-  return Array.from({ length: 12 }, (_, i) => { const wave = Math.sin(i * 0.78) * amp; const slope = i * (p / 2.4); const micro = ((i % 3) - 1) * r * 4; return Math.max(8, Math.round(base + slope + wave + micro)); });
+  const base = Math.max(12, Math.round(count / 120)); const amp = Math.max(8, Math.round(processed / 300));
+  const p = Math.max(4, progress); const r = Math.max(1, recentLength);
+  return Array.from({ length: 12 }, (_, i) => Math.max(8, Math.round(base + i * (p / 2.4) + Math.sin(i * 0.78) * amp + ((i % 3) - 1) * r * 4)));
 }
 
 function StatMiniCard({ label, value, hint, shimmer = false }: { label: string; value: React.ReactNode; hint?: string; shimmer?: boolean }) {
   return (
     <div className={"relative overflow-hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)] " + (shimmer ? "before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2.8s_linear_infinite] before:bg-gradient-to-r before:from-transparent before:via-white/50 before:to-transparent" : "")}>
       <div className="relative text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
-      <div className="relative mt-2 min-w-0 text-[clamp(1.2rem,2vw,2rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{value}</div>
+      <div className="relative mt-2 min-w-0 overflow-hidden text-[clamp(1.1rem,1.8vw,1.8rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{value}</div>
       {hint ? <div className="relative mt-2 text-sm text-zinc-500">{hint}</div> : null}
     </div>
   );
@@ -166,9 +155,9 @@ function StatMiniCard({ label, value, hint, shimmer = false }: { label: string; 
 
 function TopMetric({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
-    <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
-      <div className="mt-3 min-w-0 text-[clamp(1.7rem,2.6vw,3rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{value}</div>
+    <div className="min-w-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+      <div className="truncate text-[11px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
+      <div className="mt-3 min-w-0 overflow-hidden text-[clamp(1.15rem,2vw,2.3rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{value}</div>
       {hint ? <div className="mt-2 text-sm text-zinc-500">{hint}</div> : null}
     </div>
   );
@@ -184,11 +173,7 @@ function DetailRow({ label, value, emphasize = false }: { label: string; value: 
 }
 
 function RecentPhraseItem({ phrase, index }: { phrase: string; index: number }) {
-  return (
-    <div className={"rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 transition hover:border-zinc-200 hover:bg-white " + (index === 0 ? "ring-1 ring-zinc-200" : "")}>
-      <div className="truncate">{phrase}</div>
-    </div>
-  );
+  return (<div className={"rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 transition hover:border-zinc-200 hover:bg-white " + (index === 0 ? "ring-1 ring-zinc-200" : "")}><div className="truncate">{phrase}</div></div>);
 }
 
 function LiveRail({ recent, engine }: { recent: string[]; engine: "seznam" | "google" }) {
@@ -202,12 +187,8 @@ function LiveRail({ recent, engine }: { recent: string[]; engine: "seznam" | "go
       </div>
       <div className="mt-4 space-y-2">
         {recent.length > 0 ? recent.slice(0, 6).map((phrase, index) => (
-          <div key={phrase + "-" + index} className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-white px-3 py-2.5">
-            <span className={"h-2 w-2 shrink-0 rounded-full " + dot} /><span className="truncate text-sm text-zinc-700">{phrase}</span>
-          </div>
-        )) : (
-          <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500">Zatím nejsou k dispozici žádné nové fráze.</div>
-        )}
+          <div key={phrase + "-" + index} className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-white px-3 py-2.5"><span className={"h-2 w-2 shrink-0 rounded-full " + dot} /><span className="truncate text-sm text-zinc-700">{phrase}</span></div>
+        )) : (<div className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500">Zatím nejsou k dispozici žádné nové fráze.</div>)}
       </div>
     </div>
   );
@@ -221,51 +202,47 @@ function SourcePanel({ title, engine, count, total, state, latest, recent }: { t
   const processed = state?.processed ?? 0;
   const queueSize = state?.queue_size ?? 0;
   const currentDepth = state?.current_depth ?? 0;
-  const isRunning = state?.status === "running" && state?.updated_at ? (Date.now() - new Date(state.updated_at).getTime()) / 1000 < 180 : false;
+  const isRunning = isActuallyRunning(state);
   const statusText = getStatusText(state);
   const share = total > 0 ? Math.round((count / total) * 100) : 0;
   const realAdded = Math.max(0, (state?.count_after ?? 0) - (state?.count_before ?? 0));
   const sparkline = buildSparklineSeries(count, processed, progress, recent.length);
 
   return (
-    <section className={"overflow-hidden rounded-[32px] border " + theme.panelBorder + " bg-white " + theme.panelGlow}>
-      <div className={"bg-gradient-to-b " + theme.topTint + " px-6 py-6 md:px-8 md:py-7"}>
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-3">
-                <span className={"h-2.5 w-2.5 rounded-full " + theme.dot + (isRunning ? " animate-pulse" : "")} />
-                <span className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Zdroj</span>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <h2 className="text-[clamp(2rem,4vw,3.4rem)] font-semibold leading-none tracking-tight text-zinc-950">{title}</h2>
-                <span className={"inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium " + getStatusBadgeClasses(state)}>{statusText}</span>
-                <span className={"inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium " + theme.miniPill}>Hloubka {currentDepth}</span>
-              </div>
-              <p className="mt-3 text-sm text-zinc-500">{latest ? "Poslední zachycená fráze: " + latest : "Zatím bez nových frází"}</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className={"rounded-[28px] border border-zinc-200 " + theme.softBlock + " p-4"}>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Podíl na celku</div>
-                <div className="mt-3 flex items-center gap-4">
-                  <DonutProgress value={share} size={86} stroke={8} color={theme.progress} track={theme.progressTrack} label="share" subtitle="celku" pulse={isRunning} />
-                  <div className="min-w-0"><div className="text-sm text-zinc-500">Objem tohoto zdroje</div><div className="mt-1 text-[clamp(1.4rem,2vw,2.1rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{share}%</div></div>
-                </div>
-              </div>
-              <div className={"rounded-[28px] border border-zinc-200 " + theme.softBlock + " p-4"}>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Dokončení hloubky</div>
-                <div className="mt-3 flex items-center gap-4">
-                  <DonutProgress value={progress} size={86} stroke={8} color={theme.progress} track={theme.progressTrack} label="crawl" subtitle="progress" pulse={isRunning} />
-                  <div className="min-w-0"><div className="text-sm text-zinc-500">Aktuální průběh</div><div className="mt-1 text-[clamp(1.4rem,2vw,2.1rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{progress}%</div></div>
-                </div>
-              </div>
-            </div>
+    <section className={"overflow-hidden rounded-[32px] border " + theme.panelBorder + " bg-white " + theme.panelGlow + " h-full"}>
+      <div className={"bg-gradient-to-b " + theme.topTint + " px-5 py-5 md:px-6 md:py-6"}>
+        <div className="flex h-full flex-col gap-5">
+          <div className="flex items-center gap-3">
+            <span className={"h-2.5 w-2.5 rounded-full " + theme.dot + (isRunning ? " animate-pulse" : "")} />
+            <span className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Zdroj</span>
           </div>
-          <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-[clamp(2rem,3vw,3rem)] font-semibold leading-none tracking-tight text-zinc-950">{title}</h2>
+            <span className={"inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium " + getStatusBadgeClasses(state)}>{statusText}</span>
+            <span className={"inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium " + theme.miniPill}>Hloubka {currentDepth}</span>
+          </div>
+          <p className="text-sm text-zinc-500">{latest ? "Poslední zachycená fráze: " + latest : "Zatím bez nových frází"}</p>
+          <div className="grid gap-4 xl:grid-cols-2">
             <div className="min-w-0">
               <div className="text-sm text-zinc-500">Celkem frází</div>
-              <div className="mt-2 min-w-0 text-[clamp(2.6rem,7vw,5.4rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums"><AnimatedNumber value={count} /></div>
-              <div className="mt-8">
+              <div className="mt-2 min-w-0 overflow-hidden text-[clamp(2.2rem,5.5vw,4.5rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums"><AnimatedNumber value={count} /></div>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className={"rounded-[24px] border border-zinc-200 " + theme.softBlock + " p-4"}>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Podíl na celku</div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <DonutProgress value={share} color={theme.progress} track={theme.progressTrack} label="share" subtitle="celku" pulse={isRunning} />
+                    <div className="min-w-0"><div className="text-sm text-zinc-500">Objem zdroje</div><div className="mt-1 text-[clamp(1.1rem,1.8vw,1.8rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{share}%</div></div>
+                  </div>
+                </div>
+                <div className={"rounded-[24px] border border-zinc-200 " + theme.softBlock + " p-4"}>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Dokončení hloubky</div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <DonutProgress value={progress} color={theme.progress} track={theme.progressTrack} label="crawl" subtitle="progress" pulse={isRunning} />
+                    <div className="min-w-0"><div className="text-sm text-zinc-500">Aktuální průběh</div><div className="mt-1 text-[clamp(1.1rem,1.8vw,1.8rem)] font-semibold leading-none tracking-tight text-zinc-950 tabular-nums">{progress}%</div></div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6">
                 <div className="flex items-end justify-between gap-4">
                   <div className="min-w-0"><div className="text-base font-medium text-zinc-950">Průběh crawleru</div><div className="mt-1 text-sm text-zinc-500 tabular-nums">Hloubka {currentDepth} — {formatNumber(processed)} / {formatNumber(queueSize)}</div></div>
                   <div className="shrink-0 text-sm font-semibold text-zinc-900 tabular-nums">{progress}%</div>
@@ -274,13 +251,13 @@ function SourcePanel({ title, engine, count, total, state, latest, recent }: { t
                   <div className="h-full rounded-full transition-all duration-700" style={{ width: progress + "%", background: "linear-gradient(90deg, " + theme.progress + " 0%, " + theme.progress + "CC 100%)", boxShadow: isRunning ? "0 0 18px " + theme.progress + "40" : "none" }} />
                 </div>
               </div>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <StatMiniCard label="Dotazy" value={<AnimatedNumber value={state?.queries_total ?? 0} />} shimmer={isRunning} />
                 <StatMiniCard label="Nové fráze (běh)" value={<>+<AnimatedNumber value={realAdded} /></>} shimmer={isRunning} />
                 <StatMiniCard label="Fronta teď" value={<AnimatedNumber value={queueNow} />} />
                 <StatMiniCard label="Další hloubka" value={<AnimatedNumber value={queueNext} />} hint="prefixů" />
               </div>
-              <div className="mt-6 rounded-[28px] border border-zinc-200 bg-white p-5">
+              <div className="mt-5 rounded-[28px] border border-zinc-200 bg-white p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div><div className="text-base font-medium text-zinc-950">Aktivita zdroje</div><div className="mt-1 text-sm text-zinc-500">Vizualizace intenzity běhu a přírůstků.</div></div>
                   <div className={"text-sm font-medium " + theme.accentText}>live</div>
@@ -288,8 +265,8 @@ function SourcePanel({ title, engine, count, total, state, latest, recent }: { t
                 <div className="mt-4"><Sparkline values={sparkline} color={theme.progress} fill={theme.sparkFill} /></div>
               </div>
             </div>
-            <div className="grid h-full gap-4">
-              <div className="flex h-full flex-col rounded-[28px] border border-zinc-200 bg-zinc-50/80 p-5">
+            <div className="grid gap-4">
+              <div className="flex flex-col rounded-[28px] border border-zinc-200 bg-zinc-50/80 p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div><div className="text-base font-medium text-zinc-950">Live detail</div><div className="mt-1 text-sm text-zinc-500">Aktuální stav zdroje a poslední zachycené fráze.</div></div>
                   <div className="flex shrink-0 flex-col items-end">
@@ -312,9 +289,7 @@ function SourcePanel({ title, engine, count, total, state, latest, recent }: { t
                 <div className="mt-4 grid gap-2">
                   {recent.length > 0 ? recent.slice(0, 6).map((phrase, index) => (
                     <RecentPhraseItem key={phrase + "-" + index} phrase={phrase} index={index} />
-                  )) : (
-                    <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500">Zatím nejsou k dispozici žádné nové fráze.</div>
-                  )}
+                  )) : (<div className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500">Zatím nejsou k dispozici žádné nové fráze.</div>)}
                 </div>
               </div>
               <LiveRail recent={recent} engine={engine} />
@@ -371,12 +346,12 @@ export default function SuggestPage() {
   }, []);
 
   const total = useMemo(() => seznamCount + googleCount, [seznamCount, googleCount]);
-  const activeCount = [seznamState, googleState].filter((s) => s?.status === "running" && s?.updated_at && (Date.now() - new Date(s.updated_at).getTime()) / 1000 < 180).length;
+  const activeCount = [seznamState, googleState].filter((s) => isActuallyRunning(s)).length;
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <style jsx global>{"@keyframes shimmer { 100% { transform: translateX(100%); } }"}</style>
-      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
         <header className="rounded-[32px] border border-zinc-200 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] md:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -396,16 +371,16 @@ export default function SuggestPage() {
               </div>
               <div className="rounded-3xl border border-zinc-200 bg-zinc-50 px-5 py-4 text-right">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Projekt</div>
-                <div className="mt-2 text-[clamp(1rem,2vw,1.35rem)] font-semibold leading-none text-zinc-950">good-inventions.work</div>
+                <div className="mt-2 break-all text-[clamp(0.95rem,1.5vw,1.2rem)] font-semibold leading-none text-zinc-950">good-inventions.work</div>
               </div>
             </div>
           </div>
         </header>
         <section className="mt-6 rounded-[32px] border border-zinc-200 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.03)] md:p-8">
-          <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr] xl:items-center">
+          <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr] xl:items-center">
             <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Celkový přehled</div>
-              <h2 className="mt-4 min-w-0 text-[clamp(2.6rem,7vw,5.8rem)] font-semibold leading-none tracking-tight text-zinc-950"><AnimatedNumber value={total} /> unikátních frází</h2>
+              <h2 className="mt-4 min-w-0 text-[clamp(2.5rem,7vw,5.2rem)] font-semibold leading-[0.95] tracking-tight text-zinc-950"><AnimatedNumber value={total} /> unikátních frází</h2>
               <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-600">Data ze Seznamu a Googlu. Crawlery běží non-stop přes GitHub Actions.</p>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -415,7 +390,7 @@ export default function SuggestPage() {
             </div>
           </div>
         </section>
-        <div className="mt-6 space-y-6">
+        <div className="mt-6 grid gap-6 xl:grid-cols-2">
           <SourcePanel title="Seznam.cz" engine="seznam" count={seznamCount} total={total} state={seznamState} latest={seznamLatest} recent={seznamRecent} />
           <SourcePanel title="Google.cz" engine="google" count={googleCount} total={total} state={googleState} latest={googleLatest} recent={googleRecent} />
         </div>
