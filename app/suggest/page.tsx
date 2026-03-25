@@ -169,7 +169,7 @@ function SourcePanel({ title, engine, count, state, latest, recent }: {
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatMiniCard label="Dotazy" value={state ? formatNumber(state.queries_total) : "—"} />
-              <StatMiniCard label="Nové fráze" value={state ? "+" + formatNumber(state.new_total) : "—"} />
+              <StatMiniCard label="Nové fráze" value={state ? "+" + formatNumber(Math.max(0, ((state as any).count_after || 0) - ((state as any).count_before || 0))) : "—"} />
               <StatMiniCard label="Fronta teď" value={formatNumber(queueNow)} />
               <StatMiniCard label="Další hloubka" value={formatNumber(queueNext)} hint="prefixů" />
             </div>
