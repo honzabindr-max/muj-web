@@ -10,7 +10,7 @@ export default function Home() {
         Analyzujeme, co lidé v Česku hledají na internetu.
       </p>
       <Link
-        href="/suggest"
+        href="/suggest" prefetch={false}
         className="mt-8 inline-flex items-center rounded-full border border-zinc-200 bg-white px-6 py-3 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-100 hover:text-zinc-950"
       >
         Otevřít dashboard →
