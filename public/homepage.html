@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Good Inventions — Good Inventions</title>
+<style>
+:root{
+  --bg:#f4f0e8;--bg2:#ece7dd;--panel:rgba(255,255,255,.46);--text:#101010;--muted:#666057;--line:rgba(18,18,18,.10);
+  --cream:#f7f1e4;--cream2:#efe6d4;--char:#272a31;--char2:#555861;--stone:#c8c0b3;--stone2:#b8b0a4;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:linear-gradient(180deg,var(--bg),var(--bg2))}
+body{position:relative;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.14;background-image:linear-gradient(rgba(18,18,18,.05) 1px, transparent 1px),linear-gradient(90deg, rgba(18,18,18,.05) 1px, transparent 1px);background-size:60px 60px;mask-image:linear-gradient(180deg, transparent, black 10%, black 90%, transparent)}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.05;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.08' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E")}
+.wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:34px}
+.hero{width:min(1240px,100%);min-height:760px;display:grid;grid-template-columns:minmax(0,1.07fr) minmax(430px,.93fr);border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(8px);position:relative;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.03)}
+.left{padding:clamp(34px,5vw,82px);position:relative;display:flex;flex-direction:column;justify-content:center;z-index:3}
+.left::before{content:"";position:absolute;left:clamp(34px,5vw,82px);top:clamp(34px,5vw,82px);width:74px;height:1px;background:#191919}
+.right{border-left:1px solid var(--line);padding:42px 42px 34px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;background:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.04)),linear-gradient(90deg, rgba(255,255,255,.20), rgba(255,255,255,.05));z-index:2}
+.eyebrow,.meta-title,.block p,.index{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em}.eyebrow{margin-top:22px}
+h1{margin:38px 0 0;font-size:clamp(58px,8vw,116px);line-height:.92;letter-spacing:-.065em;font-weight:680;max-width:7.4ch;position:relative;z-index:5}
+h2{margin:28px 0 0;font-size:clamp(34px,4.5vw,62px);line-height:1.02;letter-spacing:-.055em;font-weight:560;max-width:11ch;position:relative;z-index:5}
+.lead{margin:22px 0 0;max-width:34ch;color:var(--muted);font-size:clamp(18px,1.9vw,22px);line-height:1.6;position:relative;z-index:5}
+.cta-row{margin-top:34px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;position:relative;z-index:5}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 18px;border:1px solid var(--line);background:rgba(255,255,255,.54);color:var(--text);text-decoration:none;font-size:14px;border-radius:999px;box-shadow:0 1px 0 rgba(255,255,255,.6) inset}
+.network-bg{position:absolute;inset:120px 0 70px 34%;z-index:1;pointer-events:none;opacity:.97}
+.network-bg::before{content:"";position:absolute;inset:-8% -6% -8% -14%;background:radial-gradient(circle at 72% 46%, rgba(255,247,228,.52), transparent 18%),radial-gradient(circle at 66% 50%, rgba(255,248,234,.30), transparent 28%),linear-gradient(90deg, rgba(244,240,232,.90) 0%, rgba(244,240,232,.72) 14%, rgba(244,240,232,.34) 32%, rgba(244,240,232,.07) 50%, rgba(244,240,232,0) 66%);z-index:2}
+.network{width:100%;height:100%;overflow:visible;position:relative;z-index:1;filter:saturate(1) contrast(1.04)}
+.cream{stroke:var(--cream);fill:var(--cream)}.cream2{stroke:var(--cream2);fill:var(--cream2)}.char{stroke:var(--char);fill:var(--char)}.char2{stroke:var(--char2);fill:var(--char2)}.stone{stroke:var(--stone);fill:var(--stone)}.stone2{stroke:var(--stone2);fill:var(--stone2)}
+.soft{opacity:.16}.mid{opacity:.34}.main{opacity:.62}.hard{opacity:.88}.thin{stroke-width:1.05}.med{stroke-width:1.55}
+.network path,.network line,.network polyline{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.top-copy{position:relative;z-index:4;padding-right:40px}.meta-title{margin-bottom:18px}.block{padding-top:18px;border-top:1px solid var(--line);max-width:340px}.block p{margin:0;line-height:1.9}.index{position:relative;z-index:4}
+@media (max-width:980px){.hero{grid-template-columns:1fr;min-height:auto}.network-bg{inset:220px -6% 80px 8%;opacity:.85}.right{border-left:none;border-top:1px solid var(--line);min-height:380px;padding:28px 24px}.top-copy{padding-right:0}}
+@media (max-width:640px){.wrap{padding:18px}.left{padding:28px 24px 34px}.right{min-height:340px}.network-bg{inset:240px -12% 100px 2%;opacity:.74}.eyebrow,.meta-title,.block p,.index{letter-spacing:.16em}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<section class="hero">
+<div class="network-bg" aria-hidden="true">
+<svg class="network" viewBox="0 0 980 620" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fff7e6" stop-opacity=".95"/><stop offset="55%" stop-color="#fff7e6" stop-opacity=".14"/><stop offset="100%" stop-color="#fff7e6" stop-opacity="0"/></radialGradient>
+<filter id="blurGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="16"/></filter>
+</defs>
+<g class="soft stone">
+<path class="thin" d="M10 318 C104 190, 220 202, 332 284 S552 390, 708 318"/>
+<path class="thin" d="M24 246 C126 286, 226 218, 332 248 S544 292, 718 244"/>
+<path class="thin" d="M20 388 C134 320, 236 402, 364 348 S578 286, 742 330"/>
+<path class="thin" d="M36 194 C142 274, 248 192, 364 224 S582 258, 748 232"/>
+<path class="thin" d="M54 438 C170 358, 272 442, 404 398 S612 342, 778 350"/>
+<path class="thin" d="M84 286 C170 218, 278 310, 386 280 S602 248, 770 266"/>
+<path class="thin" d="M74 354 C174 292, 286 378, 414 340 S626 296, 794 292"/>
+<path class="thin" d="M36 326 C148 302, 268 338, 396 316 S614 284, 782 286"/>
+<path class="thin" d="M66 228 C176 170, 286 262, 414 238 S622 212, 794 212"/>
+<path class="thin" d="M62 408 C172 372, 302 432, 442 396 S652 338, 820 346"/>
+<path class="thin" d="M110 260 C196 206, 306 250, 430 290 S644 332, 830 314"/>
+<path class="thin" d="M112 332 C210 260, 330 332, 458 308 S668 250, 844 248"/>
+</g>
+<g class="mid char2">
+<path class="med" d="M154 234 C268 154, 390 180, 500 246 S670 336, 806 278"/>
+<path class="med" d="M180 336 C292 266, 388 334, 500 316 S696 246, 836 236"/>
+<path class="med" d="M126 374 C252 330, 358 404, 486 372 S706 326, 848 352"/>
+<path class="med" d="M230 188 C330 218, 404 158, 518 202 S708 260, 846 220"/>
+<path class="med" d="M146 286 C272 248, 376 288, 508 276 S716 220, 860 208"/>
+<path class="med" d="M198 304 C316 246, 422 252, 544 290 S740 346, 884 322"/>
+<path class="med" d="M220 238 C338 288, 396 198, 516 234 S734 276, 868 258"/>
+</g>
+<g opacity=".28">
+<circle cx="600" cy="278" r="112" fill="url(#nodeGlow)" filter="url(#blurGlow)"/>
+<circle cx="736" cy="244" r="92" fill="url(#nodeGlow)" filter="url(#blurGlow)"/>
+</g>
+<g class="main cream">
+<circle cx="590" cy="278" r="11"/><circle cx="660" cy="238" r="9"/><circle cx="720" cy="266" r="10"/><circle cx="642" cy="332" r="8"/>
+<circle cx="776" cy="214" r="8"/><circle cx="824" cy="270" r="9"/><circle cx="856" cy="222" r="7"/><circle cx="682" cy="184" r="7"/>
+<circle cx="724" cy="146" r="6"/><circle cx="694" cy="360" r="6"/><circle cx="768" cy="352" r="6"/><circle cx="836" cy="348" r="6"/>
+<circle cx="536" cy="230" r="7"/><circle cx="500" cy="330" r="6"/><circle cx="466" cy="272" r="5.5"/><circle cx="430" cy="214" r="5"/>
+<path class="thin" d="M590 278 C620 252, 636 244, 660 238"/><path class="thin" d="M590 278 C626 292, 644 312, 642 332"/>
+<path class="thin" d="M590 278 C646 270, 680 266, 720 266"/><path class="thin" d="M660 238 C674 218, 680 200, 682 184"/>
+<path class="thin" d="M660 238 C708 222, 742 220, 776 214"/><path class="thin" d="M720 266 C752 260, 790 262, 824 270"/>
+<path class="thin" d="M720 266 C744 236, 774 230, 856 222"/><path class="thin" d="M642 332 C664 346, 680 354, 694 360"/>
+<path class="thin" d="M642 332 C704 344, 732 348, 768 352"/><path class="thin" d="M720 266 C742 298, 784 326, 836 348"/>
+<path class="thin" d="M590 278 C566 248, 554 238, 536 230"/><path class="thin" d="M590 278 C556 304, 534 318, 500 330"/>
+<path class="thin" d="M590 278 C546 274, 512 272, 466 272"/><path class="thin" d="M590 278 C540 246, 496 224, 430 214"/>
+</g>
+<g class="mid char">
+<circle cx="666" cy="282" r="9"/><circle cx="620" cy="226" r="8"/><circle cx="730" cy="340" r="8"/><circle cx="792" cy="204" r="7"/>
+<circle cx="784" cy="302" r="7"/><circle cx="866" cy="388" r="5.5"/><circle cx="902" cy="454" r="4.5"/><circle cx="894" cy="126" r="4.5"/>
+<circle cx="544" cy="248" r="6"/><circle cx="560" cy="356" r="5.5"/><circle cx="382" cy="286" r="4.5"/><circle cx="348" cy="226" r="4"/>
+</g>
+<g class="hard cream">
+<line class="med" x1="824" y1="270" x2="974" y2="270"/><line class="med" x1="792" y1="204" x2="974" y2="204"/><line class="med" x1="784" y1="302" x2="974" y2="302"/>
+<line class="med" x1="776" y1="214" x2="974" y2="214"/><line class="med" x1="836" y1="348" x2="974" y2="348"/><line class="med" x1="768" y1="352" x2="974" y2="352"/>
+<line class="thin" x1="856" y1="222" x2="974" y2="222"/><line class="thin" x1="866" y1="388" x2="974" y2="388"/><line class="thin" x1="894" y1="126" x2="974" y2="126"/><line class="thin" x1="902" y1="454" x2="974" y2="454"/>
+<polyline class="thin" points="720,266 756,266 756,176 974,176"/><polyline class="thin" points="720,266 742,266 742,150 974,150"/><polyline class="thin" points="720,266 760,266 760,238 974,238"/>
+<polyline class="thin" points="720,266 742,266 742,322 974,322"/><polyline class="thin" points="720,266 760,266 760,374 974,374"/><polyline class="thin" points="720,266 744,266 744,410 974,410"/>
+<polyline class="thin" points="730,340 744,340 744,430 974,430"/><polyline class="thin" points="666,282 684,282 684,98 974,98"/><polyline class="thin" points="620,226 640,226 640,70 974,70"/>
+<polyline class="thin" points="784,302 820,302 820,42 974,42"/><polyline class="thin" points="768,352 796,352 796,476 974,476"/>
+</g>
+<g class="mid stone2">
+<line class="thin" x1="694" y1="360" x2="694" y2="566"/><line class="thin" x1="730" y1="340" x2="730" y2="576"/><line class="thin" x1="768" y1="352" x2="768" y2="560"/>
+<line class="thin" x1="836" y1="348" x2="836" y2="570"/><line class="thin" x1="824" y1="270" x2="824" y2="78"/><line class="thin" x1="792" y1="204" x2="792" y2="34"/>
+<line class="thin" x1="776" y1="214" x2="776" y2="58"/><line class="thin" x1="856" y1="222" x2="856" y2="40"/><line class="thin" x1="894" y1="126" x2="894" y2="6"/><line class="thin" x1="902" y1="454" x2="902" y2="610"/>
+</g>
+<g class="soft char">
+<circle cx="694" cy="360" r="3"/><circle cx="730" cy="340" r="3.5"/><circle cx="768" cy="352" r="3.2"/><circle cx="836" cy="348" r="3.2"/><circle cx="824" cy="270" r="3.4"/>
+<circle cx="792" cy="204" r="3.1"/><circle cx="776" cy="214" r="3"/><circle cx="856" cy="222" r="3"/><circle cx="894" cy="126" r="2.8"/><circle cx="902" cy="454" r="2.8"/>
+</g>
+</svg>
+</div>
+
+<div class="left">
+<div class="eyebrow">Good Inventions / Coming soon</div>
+<h1>Good Inventions</h1>
+<h2>Less noise.<br>Better inventions.</h2>
+<p class="lead">AI-powered projects shaped by human thinking.</p>
+<div class="cta-row"><a class="btn" href="#">Launching soon</a></div>
+</div>
+
+<aside class="right">
+<div class="top-copy">
+<div class="meta-title">Invention studio</div>
+<div class="block"><p>Editorial discipline<br>Organic-to-digital transition<br>AI-powered, quietly expressed</p></div>
+</div>
+
+</aside>
+</section>
+</main>
+</body>
+</html>
