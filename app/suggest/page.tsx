@@ -66,6 +66,10 @@ function getStatusText(state: CrawlState | null) {
 }
 
 function getStatusBadgeClasses(state: CrawlState | null) {
+  if (state && state.status === "running" && state.updated_at) {
+    const age = (Date.now() - new Date(state.updated_at).getTime()) / 1000;
+    if (age > 180) return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  }
   if (!state) return "border-zinc-200 bg-zinc-50 text-zinc-600";
   if (state.status === "running") return "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_0_4px_rgba(16,185,129,0.06)]";
   if (state.status === "completed") return "border-blue-200 bg-blue-50 text-blue-700";
