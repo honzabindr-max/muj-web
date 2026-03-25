@@ -54,6 +54,10 @@ function getUpdatedTime(updatedAt?: string) {
 }
 
 function getStatusText(state: CrawlState | null) {
+  if (state && state.status === "running" && state.updated_at) {
+    const age = (Date.now() - new Date(state.updated_at).getTime()) / 1000;
+    if (age > 180) return "Čeká na další běh";
+  }
   if (!state) return "Neznámý stav";
   if (state.status === "running") return "Crawluje";
   if (state.status === "completed") return "Dokončeno";
@@ -213,7 +217,7 @@ function SourcePanel({ title, engine, count, total, state, latest, recent }: { t
   const processed = state?.processed ?? 0;
   const queueSize = state?.queue_size ?? 0;
   const currentDepth = state?.current_depth ?? 0;
-  const isRunning = state?.status === "running";
+  const isRunning = state?.status === "running" && state?.updated_at ? (Date.now() - new Date(state.updated_at).getTime()) / 1000 < 180 : false;
   const statusText = getStatusText(state);
   const share = total > 0 ? Math.round((count / total) * 100) : 0;
   const realAdded = Math.max(0, (state?.count_after ?? 0) - (state?.count_before ?? 0));
@@ -363,7 +367,7 @@ export default function SuggestPage() {
   }, []);
 
   const total = useMemo(() => seznamCount + googleCount, [seznamCount, googleCount]);
-  const activeCount = [seznamState, googleState].filter((s) => s?.status === "running").length;
+  const activeCount = [seznamState, googleState].filter((s) => s?.status === "running" && s?.updated_at && (Date.now() - new Date(s.updated_at).getTime()) / 1000 < 180).length;
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
