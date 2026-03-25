@@ -21,12 +21,14 @@ jobs:
           python-version: '3.12'
       - name: Notify start
         run: python notify.py "🔵 Google crawler spuštěn"
+        continue-on-error: true
       - name: Count before
         id: before
         run: |
           COUNT=$(python count_db.py google_suggestions)
           echo "count=$COUNT" >> $GITHUB_OUTPUT
           python save_count.py google_crawl_state count_before $COUNT
+        continue-on-error: true
       - name: Run crawler
         run: python crawler_google.py
       - name: Count after and notify
@@ -35,3 +37,4 @@ jobs:
           AFTER=$(python count_db.py google_suggestions)
           python save_count.py google_crawl_state count_after $AFTER
           python notify_done.py google ${{ steps.before.outputs.count }} $AFTER
+        continue-on-error: true
