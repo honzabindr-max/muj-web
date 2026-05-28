@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
+export const dynamic = 'force-static'
+export const revalidate = false
+
 export async function GET() {
   const html = fs.readFileSync(
     path.join(process.cwd(), 'public', 'homepage.html'),
