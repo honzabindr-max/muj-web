@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 node_modules/
 .env.local
+
+# Claude Code — osobní lokální overrides (projektový settings.json zůstává verzovaný)
+/.claude/settings.local.json
