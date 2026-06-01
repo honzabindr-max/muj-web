@@ -82,7 +82,9 @@ function getStatusBadgeClasses(state: CrawlState | null) {
   return "border-white/70 bg-white/55 text-zinc-600";
 }
 
-function getEngineTheme(engine: "seznam" | "google") {
+type EngineId = "seznam" | "google" | "google_de" | "google_at";
+
+function getEngineTheme(engine: EngineId) {
   if (engine === "seznam") {
     return {
       dot: "bg-red-500",
@@ -98,6 +100,40 @@ function getEngineTheme(engine: "seznam" | "google") {
       sparkFill: "rgba(239,68,68,0.10)",
       ambientA: "bg-red-200/16",
       ambientB: "bg-orange-200/12",
+    };
+  }
+  if (engine === "google_de") {
+    return {
+      dot: "bg-amber-500",
+      panelBorder: "border-amber-100/80",
+      panelGlow:
+        "shadow-[0_8px_30px_rgba(245,158,11,0.05),0_1px_2px_rgba(0,0,0,0.04)]",
+      topTint: "from-amber-50/95 via-white/75 to-white/65",
+      softBlock: "bg-white/55",
+      progress: "#f59e0b",
+      progressTrack: "#fef3c7",
+      accentText: "text-amber-600",
+      miniPill: "border-amber-100/80 bg-amber-50/80 text-amber-700",
+      sparkFill: "rgba(245,158,11,0.10)",
+      ambientA: "bg-amber-200/16",
+      ambientB: "bg-yellow-200/12",
+    };
+  }
+  if (engine === "google_at") {
+    return {
+      dot: "bg-violet-500",
+      panelBorder: "border-violet-100/80",
+      panelGlow:
+        "shadow-[0_8px_30px_rgba(139,92,246,0.05),0_1px_2px_rgba(0,0,0,0.04)]",
+      topTint: "from-violet-50/95 via-white/75 to-white/65",
+      softBlock: "bg-white/55",
+      progress: "#8b5cf6",
+      progressTrack: "#ede9fe",
+      accentText: "text-violet-600",
+      miniPill: "border-violet-100/80 bg-violet-50/80 text-violet-700",
+      sparkFill: "rgba(139,92,246,0.10)",
+      ambientA: "bg-violet-200/16",
+      ambientB: "bg-purple-200/12",
     };
   }
   return {
@@ -257,75 +293,6 @@ function DonutProgress({
   );
 }
 
-function Sparkline({
-  values,
-  color,
-  fill,
-}: {
-  values: number[];
-  color: string;
-  fill: string;
-}) {
-  const width = 280;
-  const height = 72;
-  const padding = 6;
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(max - min, 1);
-
-  const points = values
-    .map((v, i) => {
-      const x = padding + (i / (values.length - 1)) * (width - padding * 2);
-      const y = height - padding - ((v - min) / range) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  const area = `${padding},${height - padding} ${points} ${width - padding},${
-    height - padding
-  }`;
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-[72px] w-full overflow-visible"
-      preserveAspectRatio="none"
-    >
-      <polygon points={area} fill={fill} />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function buildSparklineSeries(
-  count: number,
-  processed: number,
-  progress: number,
-  recentLength: number,
-) {
-  const base = Math.max(12, Math.round(count / 120));
-  const amp = Math.max(8, Math.round(processed / 300));
-  const p = Math.max(4, progress);
-  const r = Math.max(1, recentLength);
-
-  return Array.from({ length: 12 }, (_, i) =>
-    Math.max(
-      8,
-      Math.round(
-        base + i * (p / 2.4) + Math.sin(i * 0.78) * amp + ((i % 3) - 1) * r * 4,
-      ),
-    ),
-  );
-}
-
 function StatMiniCard({
   label,
   value,
@@ -431,15 +398,13 @@ function SourcePanel({
   total,
   state,
   latest,
-  recent,
 }: {
   title: string;
-  engine: "seznam" | "google";
+  engine: EngineId;
   count: number;
   total: number;
   state: CrawlState | null;
   latest: string;
-  recent: string[];
 }) {
   const theme = getEngineTheme(engine);
   const progress = getProgress(state);
@@ -454,12 +419,6 @@ function SourcePanel({
   const realAdded = Math.max(
     0,
     (state?.count_after ?? 0) - (state?.count_before ?? 0),
-  );
-  const sparkline = buildSparklineSeries(
-    count,
-    processed,
-    progress,
-    recent.length,
   );
 
   return (
@@ -592,30 +551,6 @@ function SourcePanel({
                   hint="prefixů"
                 />
               </div>
-
-              <GlassCard className="mt-5 rounded-[28px] p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-base font-medium text-zinc-950">
-                      Aktivita zdroje
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-500">
-                      Vizualizace intenzity běhu a přírůstků.
-                    </div>
-                  </div>
-                  <div className={`text-sm font-medium ${theme.accentText}`}>
-                    live
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <Sparkline
-                    values={sparkline}
-                    color={theme.progress}
-                    fill={theme.sparkFill}
-                  />
-                </div>
-              </GlassCard>
             </div>
           </div>
         </div>
@@ -627,23 +562,33 @@ function SourcePanel({
 export default function SuggestPage() {
   const [seznamCount, setSeznamCount] = useState(0);
   const [googleCount, setGoogleCount] = useState(0);
+  const [deCount, setDeCount] = useState(0);
+  const [atCount, setAtCount] = useState(0);
   const [seznamState, setSeznamState] = useState<CrawlState | null>(null);
   const [googleState, setGoogleState] = useState<CrawlState | null>(null);
+  const [deState, setDeState] = useState<CrawlState | null>(null);
+  const [atState, setAtState] = useState<CrawlState | null>(null);
   const [seznamLatest, setSeznamLatest] = useState("");
   const [googleLatest, setGoogleLatest] = useState("");
-  const [seznamRecent, setSeznamRecent] = useState<string[]>([]);
-  const [googleRecent, setGoogleRecent] = useState<string[]>([]);
+  const [deLatest, setDeLatest] = useState("");
+  const [atLatest, setAtLatest] = useState("");
 
   useEffect(() => {
     let mounted = true;
 
     async function poll() {
-      const [sc, gc] = await Promise.all([
+      const [sc, gc, dc, ac] = await Promise.all([
         supabase
           .from("suggestions")
           .select("*", { count: "exact", head: true }),
         supabase
           .from("google_suggestions")
+          .select("*", { count: "exact", head: true }),
+        supabase
+          .from("google_suggestions_de")
+          .select("*", { count: "exact", head: true }),
+        supabase
+          .from("google_suggestions_at")
           .select("*", { count: "exact", head: true }),
       ]);
 
@@ -651,18 +596,24 @@ export default function SuggestPage() {
 
       if (sc.count !== null) setSeznamCount(sc.count);
       if (gc.count !== null) setGoogleCount(gc.count);
+      if (dc.count !== null) setDeCount(dc.count);
+      if (ac.count !== null) setAtCount(ac.count);
 
-      const [ss, gs] = await Promise.all([
+      const [ss, gs, ds, ats] = await Promise.all([
         supabase.from("crawl_state").select("*").eq("id", 1).single(),
         supabase.from("google_crawl_state").select("*").eq("id", 1).single(),
+        supabase.from("google_crawl_state_de").select("*").eq("id", 1).single(),
+        supabase.from("google_crawl_state_at").select("*").eq("id", 1).single(),
       ]);
 
       if (!mounted) return;
 
       if (ss.data) setSeznamState(ss.data as CrawlState);
       if (gs.data) setGoogleState(gs.data as CrawlState);
+      if (ds.data) setDeState(ds.data as CrawlState);
+      if (ats.data) setAtState(ats.data as CrawlState);
 
-      const [sl, gl, sr, gr] = await Promise.all([
+      const [sl, gl, dl, al] = await Promise.all([
         supabase
           .from("suggestions")
           .select("phrase")
@@ -676,23 +627,25 @@ export default function SuggestPage() {
           .limit(1)
           .single(),
         supabase
-          .from("suggestions")
+          .from("google_suggestions_de")
           .select("phrase")
           .order("id", { ascending: false })
-          .limit(8),
+          .limit(1)
+          .single(),
         supabase
-          .from("google_suggestions")
+          .from("google_suggestions_at")
           .select("phrase")
           .order("id", { ascending: false })
-          .limit(8),
+          .limit(1)
+          .single(),
       ]);
 
       if (!mounted) return;
 
       if (sl.data?.phrase) setSeznamLatest(sl.data.phrase);
       if (gl.data?.phrase) setGoogleLatest(gl.data.phrase);
-      if (sr.data) setSeznamRecent(sr.data.map((r: any) => r.phrase));
-      if (gr.data) setGoogleRecent(gr.data.map((r: any) => r.phrase));
+      if (dl.data?.phrase) setDeLatest(dl.data.phrase);
+      if (al.data?.phrase) setAtLatest(al.data.phrase);
     }
 
     poll();
@@ -705,10 +658,10 @@ export default function SuggestPage() {
   }, []);
 
   const total = useMemo(
-    () => seznamCount + googleCount,
-    [seznamCount, googleCount],
+    () => seznamCount + googleCount + deCount + atCount,
+    [seznamCount, googleCount, deCount, atCount],
   );
-  const activeCount = [seznamState, googleState].filter((s) =>
+  const activeCount = [seznamState, googleState, deState, atState].filter((s) =>
     isActuallyRunning(s),
   ).length;
 
@@ -800,12 +753,12 @@ export default function SuggestPage() {
                 <AnimatedNumber value={total} /> unikátních frází
               </h2>
               <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-600">
-                Data ze Seznamu a Googlu. Crawlery běží non-stop přes GitHub
-                Actions.
+                Data ze Seznamu a Googlu (CZ, DE, AT). Crawlery běží non-stop
+                přes GitHub Actions.
               </p>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4">
               <TopMetric
                 label="Seznam.cz"
                 value={<AnimatedNumber value={seznamCount} />}
@@ -817,9 +770,14 @@ export default function SuggestPage() {
                 hint={getStatusText(googleState)}
               />
               <TopMetric
-                label="Aktivních"
-                value={<AnimatedNumber value={activeCount} />}
-                hint={activeCount > 0 ? "crawluje" : "žádný aktivní"}
+                label="Google.de"
+                value={<AnimatedNumber value={deCount} />}
+                hint={getStatusText(deState)}
+              />
+              <TopMetric
+                label="Google.at"
+                value={<AnimatedNumber value={atCount} />}
+                hint={getStatusText(atState)}
               />
             </div>
           </div>
@@ -833,7 +791,6 @@ export default function SuggestPage() {
             total={total}
             state={seznamState}
             latest={seznamLatest}
-            recent={seznamRecent}
           />
           <SourcePanel
             title="Google.cz"
@@ -842,7 +799,22 @@ export default function SuggestPage() {
             total={total}
             state={googleState}
             latest={googleLatest}
-            recent={googleRecent}
+          />
+          <SourcePanel
+            title="Google.de"
+            engine="google_de"
+            count={deCount}
+            total={total}
+            state={deState}
+            latest={deLatest}
+          />
+          <SourcePanel
+            title="Google.at"
+            engine="google_at"
+            count={atCount}
+            total={total}
+            state={atState}
+            latest={atLatest}
           />
         </div>
 
