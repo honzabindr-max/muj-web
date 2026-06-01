@@ -27,7 +27,7 @@ class DB:
     def select(s,t,p=""):return s._req("GET",t+"?"+urllib.parse.quote(p,safe=SAFE)) or []
     def insert(s,t,d):return s._req("POST",t,d,{"Prefer":"return=representation"})
     def upsert(s,t,d):return s._req("POST",t,d,{"Prefer":"resolution=merge-duplicates,return=representation"})
-    def update(s,t,p,d):return s._req("PATCH",t+"?"+urllib.parse.quote(p,safe=SAFE),d,{"Prefer":"return=representation"})
+    def update(s,t,p,d):return s._req("PATCH",t+"?"+urllib.parse.quote(p,safe=SAFE),d,{"Prefer":"return=minimal"})
     def count(s,t):return len(s.select(t,"select=id"))
 
 class SuggestAPI:
@@ -62,6 +62,16 @@ def save_state(db,state):
     db.update("crawl_state","id=eq.1",{
         "current_depth":state["current_depth"],"status":state["status"],
         "queue":json.dumps(state["queue"]),"next_queue":json.dumps(state["next_queue"]),
+        "processed":state["processed"],"queue_size":state["queue_size"],
+        "current_prefix":state["current_prefix"],
+        "queries_total":state["queries_total"],"new_total":state["new_total"],
+        "updated_at":datetime.now(timezone.utc).isoformat()
+    })
+
+def save_heartbeat(db,state):
+    # lehký zápis bez velkých queue/next_queue → drží updated_at čerstvý bez statement_timeout
+    db.update("crawl_state","id=eq.1",{
+        "current_depth":state["current_depth"],"status":state["status"],
         "processed":state["processed"],"queue_size":state["queue_size"],
         "current_prefix":state["current_prefix"],
         "queries_total":state["queries_total"],"new_total":state["new_total"],
@@ -117,8 +127,10 @@ def run(db,api):
     print("  ▶ Depth "+str(depth)+" | Queue: "+str(len(queue))+" remaining / "+str(total_in_q)+" total | DB: "+str(db.count("suggestions"))+" frází")
     print("─"*60)
 
-    save_interval=30  # save state every 30s
+    save_interval=30  # heartbeat každých 30s
+    full_interval=300  # plný zápis queue/next_queue jen každých 5 min
     last_save=time.time()
+    last_full=time.time()
 
     while queue:
         # Check time limit
@@ -163,11 +175,14 @@ def run(db,api):
         if processed%10==0 or new_count>0:
             print("  [d"+str(depth)+" "+str(pct)+"%] '"+prefix+"' → "+str(len(suggs))+" suggs, +"+str(new_count)+" new | q="+str(queries)+" | "+str(elapsed)+"s | next_d: "+str(len(next_q)))
 
-        # Periodic save
-        if time.time()-last_save>save_interval:
-            state["queue"]=queue;state["next_queue"]=next_q;state["processed"]=processed
-            state["queries_total"]=queries;state["new_total"]=new_total
+        # Periodic save: lehký heartbeat každých 30s, plný stav jen každých 5 min
+        state["queue"]=queue;state["next_queue"]=next_q;state["processed"]=processed
+        state["queries_total"]=queries;state["new_total"]=new_total
+        if time.time()-last_full>full_interval:
             save_state(db,state)
+            last_full=time.time();last_save=time.time()
+        elif time.time()-last_save>save_interval:
+            save_heartbeat(db,state)
             last_save=time.time()
 
     # Final save
