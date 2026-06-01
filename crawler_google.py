@@ -65,7 +65,17 @@ class DB:
         )
 
     def count(s, t):
-        return len(s.select(t, "select=id"))
+        req = urllib.request.Request(s.base + "/" + t + "?select=id")
+        req.add_header("apikey", s.h["apikey"])
+        req.add_header("Authorization", s.h["Authorization"])
+        req.add_header("Range", "0-0")
+        req.add_header("Prefer", "count=exact")
+        try:
+            r = urllib.request.urlopen(req, timeout=10)
+            cr = r.headers.get("Content-Range", "")
+            return int(cr.split("/")[1]) if "/" in cr else 0
+        except Exception:
+            return 0
 
 
 class GoogleAPI:
