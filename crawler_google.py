@@ -26,7 +26,7 @@ class DB:
             return None
     def select(s,t,p=""):return s._req("GET",t+"?"+urllib.parse.quote(p,safe=SAFE)) or []
     def insert(s,t,d):return s._req("POST",t,d,{"Prefer":"return=representation"})
-    def update(s,t,p,d):return s._req("PATCH",t+"?"+urllib.parse.quote(p,safe=SAFE),d,{"Prefer":"return=representation"})
+    def update(s,t,p,d):return s._req("PATCH",t+"?"+urllib.parse.quote(p,safe=SAFE),d,{"Prefer":"return=minimal"})
     def count(s,t):return len(s.select(t,"select=id"))
 
 class GoogleAPI:
@@ -74,6 +74,16 @@ def save_state(db,state):
         "updated_at":datetime.now(timezone.utc).isoformat()
     })
 
+def save_heartbeat(db,state):
+    # lehký zápis bez 32MB queue/next_queue → drží updated_at čerstvý bez statement_timeout
+    db.update(STATE_TABLE,"id=eq.1",{
+        "current_depth":state["current_depth"],"status":state["status"],
+        "processed":state["processed"],"queue_size":state["queue_size"],
+        "current_prefix":state["current_prefix"],
+        "queries_total":state["queries_total"],"new_total":state["new_total"],
+        "updated_at":datetime.now(timezone.utc).isoformat()
+    })
+
 def run(db,api):
     state=load_state(db)
     if not state:print("✗ No "+STATE_TABLE+" row");return
@@ -99,7 +109,7 @@ def run(db,api):
     total_in_q=state["queue_size"]
     print("  ▶ Depth "+str(depth)+" | Queue: "+str(len(queue))+" remaining / "+str(total_in_q)+" total | DB: "+str(db.count(TABLE))+" frází")
     print("─"*60)
-    last_save=time.time()
+    last_save=time.time();last_full=time.time()
     while queue:
         if time.time()-start>MAX_RUNTIME:
             print("\n  ⏰ Time limit (25 min). Saving state...");break
@@ -123,8 +133,10 @@ def run(db,api):
         elapsed=round(time.time()-start)
         if processed%10==0 or new_count>0:
             print("  [d"+str(depth)+" "+str(pct)+"%] '"+prefix+"' → "+str(len(suggs))+" suggs, +"+str(new_count)+" new | q="+str(queries)+" | "+str(elapsed)+"s | delay="+str(round(api.delay,2))+"s")
-        if time.time()-last_save>30:
-            save_state(db,state);last_save=time.time()
+        if time.time()-last_full>300:
+            save_state(db,state);last_full=time.time();last_save=time.time()
+        elif time.time()-last_save>30:
+            save_heartbeat(db,state);last_save=time.time()
     state["queue"]=queue;state["next_queue"]=next_q;state["processed"]=processed
     state["queries_total"]=queries;state["new_total"]=new_total
     if not queue and not next_q:
