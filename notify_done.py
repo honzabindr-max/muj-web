@@ -1,4 +1,4 @@
-import os,sys
+import os, sys
 import notify
 
 engine = sys.argv[1] if len(sys.argv) > 1 else "seznam"
@@ -9,6 +9,12 @@ added = after - before
 if engine == "google":
     label = "Google crawler"
     emoji = "🔵"
+elif engine == "google_de":
+    label = "Google DE crawler"
+    emoji = "🇩🇪"
+elif engine == "google_at":
+    label = "Google AT crawler"
+    emoji = "🇦🇹"
 else:
     label = "Seznam crawler"
     emoji = "🔴"
