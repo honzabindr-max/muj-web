@@ -50,6 +50,15 @@ class DB:
     def insert(s, t, d):
         return s._req("POST", t, d, {"Prefer": "return=representation"})
 
+    def upsert(s, t, d):
+        # batch insert, ignoruj existující phrase (žádné 409); vrací jen nově vložené řádky
+        return s._req(
+            "POST",
+            t + "?on_conflict=phrase",
+            d,
+            {"Prefer": "resolution=ignore-duplicates,return=representation"},
+        )
+
     def update(s, t, p, d):
         return s._req(
             "PATCH",
@@ -250,25 +259,20 @@ def run(db, api):
         suggs = api.fetch(prefix)
         queries += 1
         new_count = 0
-        for s in suggs:
-            ex = db.select(
-                TABLE, "select=id&phrase=eq." + urllib.parse.quote(s) + "&limit=1"
+        if suggs:
+            res = db.upsert(
+                TABLE,
+                [
+                    {
+                        "phrase": s,
+                        "first_seen_at": now,
+                        "last_seen_at": now,
+                        "seen_count": 1,
+                    }
+                    for s in suggs
+                ],
             )
-            if not ex:
-                db.insert(
-                    TABLE,
-                    [
-                        {
-                            "phrase": s,
-                            "first_seen_at": now,
-                            "last_seen_at": now,
-                            "seen_count": 1,
-                        }
-                    ],
-                )
-                new_count += 1
-            else:
-                db.update(TABLE, "id=eq." + str(ex[0]["id"]), {"last_seen_at": now})
+            new_count = len(res) if isinstance(res, list) else 0
         new_total += new_count
         if len(suggs) >= SUGGEST_LIMIT:
             for c in EXPAND_CHARS:
