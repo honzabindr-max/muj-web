@@ -13,6 +13,8 @@ STALE_SECONDS = STALE_HOURS * 3600
 ENGINES = [
     ("Seznam", "\U0001f534", "crawl_state"),
     ("Google", "\U0001f535", "google_crawl_state"),
+    ("Google DE", "\U0001f1e9\U0001f1ea", "google_crawl_state_de"),
+    ("Google AT", "\U0001f1e6\U0001f1f9", "google_crawl_state_at"),
 ]
 
 

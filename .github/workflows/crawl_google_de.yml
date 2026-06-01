@@ -1,0 +1,40 @@
+name: Google DE Crawl
+
+on:
+  schedule:
+    - cron: '13,53 * * * *'
+  workflow_dispatch:
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Notify start
+        run: python notify.py "🇩🇪 Google DE crawler spuštěn"
+        continue-on-error: true
+      - name: Count before
+        id: before
+        run: |
+          COUNT=$(python count_db.py google_suggestions_de)
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          python save_count.py google_crawl_state_de count_before $COUNT
+        continue-on-error: true
+      - name: Run crawler
+        run: python crawler_google_de.py
+      - name: Count after and notify
+        if: always()
+        run: |
+          AFTER=$(python count_db.py google_suggestions_de)
+          python save_count.py google_crawl_state_de count_after $AFTER
+          python notify_done.py google_de ${{ steps.before.outputs.count }} $AFTER
+        continue-on-error: true
