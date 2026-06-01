@@ -1,4 +1,4 @@
-import os, sys, json, urllib.request
+import os, sys, json, time, urllib.request
 from datetime import datetime, timezone
 import notify  # znovupoužití existujícího Telegram odesílání (TELEGRAM_TOKEN/CHAT_ID)
 
@@ -8,6 +8,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 # Práh: engine je "stojí", když je updated_at starší než tolik hodin. Laditelné přes env.
 STALE_HOURS = float(os.environ.get("STALE_HOURS", "6"))
 STALE_SECONDS = STALE_HOURS * 3600
+
+# HTTP odolnost: Supabase REST občas reaguje pomalu (zátěž crawlerů) → delší timeout + retry,
+# ať transientní pomalé čtení neznamená falešný "watchdog selhal" alert.
+HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", "30"))
+FETCH_RETRIES = int(os.environ.get("FETCH_RETRIES", "4"))
 
 # (zobrazované jméno, emoji, tabulka stavu)
 ENGINES = [
@@ -20,12 +25,33 @@ ENGINES = [
 
 def fetch_updated_at(table):
     h = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY}
-    req = urllib.request.Request(
-        SUPABASE_URL + "/rest/v1/" + table + "?id=eq.1&select=updated_at", headers=h
-    )
-    r = urllib.request.urlopen(req, timeout=15)
-    rows = json.loads(r.read().decode())
-    return rows[0].get("updated_at") if rows else None
+    url = SUPABASE_URL + "/rest/v1/" + table + "?id=eq.1&select=updated_at"
+    last_err = None
+    for attempt in range(FETCH_RETRIES):
+        try:
+            req = urllib.request.Request(url, headers=h)
+            r = urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
+            rows = json.loads(r.read().decode())
+            return rows[0].get("updated_at") if rows else None
+        except Exception as e:
+            last_err = e
+            if attempt + 1 < FETCH_RETRIES:
+                wait = 5 * (2**attempt)  # 5, 10, 20 s backoff
+                print(
+                    "  ⚠ "
+                    + table
+                    + " fetch pokus "
+                    + str(attempt + 1)
+                    + "/"
+                    + str(FETCH_RETRIES)
+                    + " selhal ("
+                    + str(e)
+                    + ") -> retry za "
+                    + str(wait)
+                    + "s"
+                )
+                time.sleep(wait)
+    raise last_err
 
 
 def parse_ts(s):
