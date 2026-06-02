@@ -1,265 +1,249 @@
 # config/google_markets.yml
-# Konfigurace Google autocomplete marketů (gl + hl kombinace).
-#
-# Market = kombinace gl + hl — jedna země může mít více jazyků
-# (Kanada: ca/en + ca/fr; Švýcarsko: ch/de + ch/fr + ch/it).
-#
-# Fáze 1: enabled jen cz/cs (validační market).
-# Další markety se povolují postupně dle rollout plánu.
+# Vygenerováno z google_autocomplete_countries.xlsx (234 zemí, zdroj pravdy).
+# Vyřazeno 6 neúzemních/neobydlených kódů: ac, an, bv, cat, io, pn.
+# Duplicitní skupiny (Google po 15.4.2025 přesměrovává ccTLD → google.com):
+#   A (google.com+en, →us/en): 14 disabled | B (google.com+fr, →mc/fr): 8
+#   C (google.com+ar, →sy/ar): 5 | D (google.bs+en, →bs/en): 1
+#   E (google.com.hk): cn/zh-CN + hk/zh-TW = různý jazyk → OBĚ enabled
+# Vícejazyčné (víc hl): be(fr,nl), ca(en,fr), ch(de,fr,it)
+# Celkem 232 entries: 204 enabled, 28 disabled.
 
 defaults:
   max_depth: 1
+  batch_size: 250
   max_runtime_minutes: 25
   delay_between_requests_ms: 500
-  batch_size: 250
 
 markets:
-  # ── Validační market (fáze 2) ──────────────────────────
-  - gl: cz
-    hl: cs
-    enabled: true
-    notes: "validační market fáze 1"
-
-  # ── Existující Google data (fáze 3+) ──────────────────
-  - gl: de
-    hl: de
-    enabled: false
-    notes: "Německo"
-
-  - gl: at
-    hl: de
-    enabled: false
-    notes: "Rakousko"
-
-  # ── Anglicky mluvící trhy ──────────────────────────────
-  - gl: us
-    hl: en
-    enabled: false
-    notes: "USA"
-
-  - gl: gb
-    hl: en
-    enabled: false
-    notes: "Velká Británie"
-
-  - gl: ca
-    hl: en
-    enabled: false
-    notes: "Kanada anglicky"
-
-  - gl: au
-    hl: en
-    enabled: false
-    notes: "Austrálie"
-
-  - gl: nz
-    hl: en
-    enabled: false
-    notes: "Nový Zéland"
-
-  - gl: ie
-    hl: en
-    enabled: false
-    notes: "Irsko"
-
-  # ── Vícejazyčné trhy ──────────────────────────────────
-  - gl: ca
-    hl: fr
-    enabled: false
-    notes: "Kanada francouzsky"
-
-  - gl: ch
-    hl: de
-    enabled: false
-    notes: "Švýcarsko německy"
-
-  - gl: ch
-    hl: fr
-    enabled: false
-    notes: "Švýcarsko francouzsky"
-
-  - gl: ch
-    hl: it
-    enabled: false
-    notes: "Švýcarsko italsky"
-
-  - gl: be
-    hl: fr
-    enabled: false
-    notes: "Belgie francouzsky"
-
-  - gl: be
-    hl: nl
-    enabled: false
-    notes: "Belgie holandsky"
-
-  # ── Románské jazyky ───────────────────────────────────
-  - gl: fr
-    hl: fr
-    enabled: false
-    notes: "Francie"
-
-  - gl: es
-    hl: es
-    enabled: false
-    notes: "Španělsko"
-
-  - gl: mx
-    hl: es
-    enabled: false
-    notes: "Mexiko"
-
-  - gl: ar
-    hl: es
-    enabled: false
-    notes: "Argentina"
-
-  - gl: it
-    hl: it
-    enabled: false
-    notes: "Itálie"
-
-  - gl: pt
-    hl: pt
-    enabled: false
-    notes: "Portugalsko"
-
-  - gl: br
-    hl: pt
-    enabled: false
-    notes: "Brazílie"
-
-  - gl: ro
-    hl: ro
-    enabled: false
-    notes: "Rumunsko"
-
-  # ── Střední/východní Evropa ───────────────────────────
-  - gl: pl
-    hl: pl
-    enabled: false
-    notes: "Polsko"
-
-  - gl: sk
-    hl: sk
-    enabled: false
-    notes: "Slovensko"
-
-  - gl: hu
-    hl: hu
-    enabled: false
-    notes: "Maďarsko"
-
-  - gl: hr
-    hl: hr
-    enabled: false
-    notes: "Chorvatsko"
-
-  - gl: si
-    hl: sl
-    enabled: false
-    notes: "Slovinsko"
-
-  - gl: bg
-    hl: bg
-    enabled: false
-    notes: "Bulharsko — latin seed (cyrilice)"
-
-  - gl: ua
-    hl: uk
-    enabled: false
-    notes: "Ukrajina — latin seed (cyrilice)"
-
-  - gl: ru
-    hl: ru
-    enabled: false
-    notes: "Rusko — latin seed (cyrilice)"
-
-  # ── Severská Evropa ───────────────────────────────────
-  - gl: se
-    hl: sv
-    enabled: false
-    notes: "Švédsko"
-
-  - gl: no
-    hl: "no"
-    enabled: false
-    notes: "Norsko"
-
-  - gl: dk
-    hl: da
-    enabled: false
-    notes: "Dánsko"
-
-  - gl: fi
-    hl: fi
-    enabled: false
-    notes: "Finsko"
-
-  - gl: nl
-    hl: nl
-    enabled: false
-    notes: "Holandsko"
-
-  # ── Ostatní evropské trhy ─────────────────────────────
-  - gl: gr
-    hl: el
-    enabled: false
-    notes: "Řecko — latin seed (řecká abeceda)"
-
-  - gl: tr
-    hl: tr
-    enabled: false
-    notes: "Turecko"
-
-  # ── Asijsko-pacifické trhy ────────────────────────────
-  - gl: jp
-    hl: ja
-    enabled: false
-    notes: "Japonsko — latin seed (kanji/kana)"
-
-  - gl: kr
-    hl: ko
-    enabled: false
-    notes: "Korea — latin seed (hangul)"
-
-  - gl: in
-    hl: en
-    enabled: false
-    notes: "Indie anglicky"
-
-  - gl: sg
-    hl: en
-    enabled: false
-    notes: "Singapur"
-
-  - gl: id
-    hl: id
-    enabled: false
-    notes: "Indonésie"
-
-  - gl: vn
-    hl: vi
-    enabled: false
-    notes: "Vietnam"
-
-  # ── Střední východ / Afrika ───────────────────────────
-  - gl: il
-    hl: iw
-    enabled: false
-    notes: "Izrael — latin seed (hebrejština)"
-
-  - gl: sa
-    hl: ar
-    enabled: false
-    notes: "Saúdská Arábie — latin seed (arabština)"
-
-  - gl: ae
-    hl: ar
-    enabled: false
-    notes: "SAE — latin seed (arabština)"
-
-  - gl: za
-    hl: en
-    enabled: false
-    notes: "Jihoafrická republika"
+  - { gl: ad, hl: ca, enabled: true, notes: "Andorra" }
+  - { gl: ae, hl: ar, enabled: true, notes: "United Arab Emirates" }
+  - { gl: af, hl: ps, enabled: true, notes: "Afghanistan" }
+  - { gl: ag, hl: en, enabled: true, notes: "Antigua and Barbuda" }
+  - { gl: ai, hl: en, enabled: true, notes: "Anguilla" }
+  - { gl: al, hl: sq, enabled: true, notes: "Albania" }
+  - { gl: am, hl: hy, enabled: true, notes: "Armenia" }
+  - { gl: ao, hl: pt, enabled: true, notes: "Angola" }
+  - { gl: ar, hl: es, enabled: true, notes: "Argentina" }
+  - { gl: as, hl: en, enabled: true, notes: "American Samoa" }
+  - { gl: at, hl: de, enabled: true, notes: "Austria" }
+  - { gl: au, hl: en, enabled: true, notes: "Australia" }
+  - { gl: az, hl: az, enabled: true, notes: "Azerbaijan" }
+  - { gl: ba, hl: bs, enabled: true, notes: "Bosnia and Herzegovina" }
+  - { gl: bb, hl: en, enabled: false, notes: "Barbados — duplikat skupiny D -> bs/en" }
+  - { gl: bd, hl: bn, enabled: true, notes: "Bangladesh" }
+  - { gl: be, hl: fr, enabled: true, notes: "Belgium (vicejazycna)" }
+  - { gl: be, hl: nl, enabled: true, notes: "Belgium (vicejazycna)" }
+  - { gl: bf, hl: fr, enabled: true, notes: "Burkina Faso" }
+  - { gl: bg, hl: bg, enabled: true, notes: "Bulgaria" }
+  - { gl: bh, hl: ar, enabled: true, notes: "Bahrain" }
+  - { gl: bi, hl: fr, enabled: true, notes: "Burundi" }
+  - { gl: bj, hl: fr, enabled: true, notes: "Benin" }
+  - { gl: bm, hl: en, enabled: false, notes: "Bermuda — duplikat skupiny A -> us/en" }
+  - { gl: bn, hl: ms, enabled: true, notes: "Brunei Darussalam" }
+  - { gl: bo, hl: es, enabled: true, notes: "Bolivia" }
+  - { gl: br, hl: pt, enabled: true, notes: "Brazil" }
+  - { gl: bs, hl: en, enabled: true, notes: "Bahamas" }
+  - { gl: bt, hl: dz, enabled: true, notes: "Bhutan" }
+  - { gl: bw, hl: en, enabled: true, notes: "Botswana" }
+  - { gl: by, hl: be, enabled: true, notes: "Belarus" }
+  - { gl: bz, hl: en, enabled: true, notes: "Belize" }
+  - { gl: ca, hl: en, enabled: true, notes: "Canada (vicejazycna)" }
+  - { gl: ca, hl: fr, enabled: true, notes: "Canada (vicejazycna)" }
+  - { gl: cd, hl: fr, enabled: true, notes: "Congo (Democratic Republic)" }
+  - { gl: cf, hl: fr, enabled: true, notes: "Central African Republic" }
+  - { gl: cg, hl: fr, enabled: true, notes: "Congo (Republic)" }
+  - { gl: ch, hl: de, enabled: true, notes: "Switzerland (vicejazycna)" }
+  - { gl: ch, hl: fr, enabled: true, notes: "Switzerland (vicejazycna)" }
+  - { gl: ch, hl: it, enabled: true, notes: "Switzerland (vicejazycna)" }
+  - { gl: ci, hl: fr, enabled: true, notes: "Cote d'Ivoire" }
+  - { gl: ck, hl: en, enabled: true, notes: "Cook Islands" }
+  - { gl: cl, hl: es, enabled: true, notes: "Chile" }
+  - { gl: cm, hl: fr, enabled: true, notes: "Cameroon" }
+  - { gl: cn, hl: zh-CN, enabled: true, notes: "China" }
+  - { gl: co, hl: es, enabled: true, notes: "Colombia" }
+  - { gl: cr, hl: es, enabled: true, notes: "Costa Rica" }
+  - { gl: cu, hl: es, enabled: true, notes: "Cuba" }
+  - { gl: cv, hl: pt, enabled: true, notes: "Cape Verde" }
+  - { gl: cy, hl: el, enabled: true, notes: "Cyprus" }
+  - { gl: cz, hl: cs, enabled: true, notes: "Czech Republic — DONE depth 1" }
+  - { gl: de, hl: de, enabled: true, notes: "Germany" }
+  - { gl: dj, hl: fr, enabled: true, notes: "Djibouti" }
+  - { gl: dk, hl: da, enabled: true, notes: "Denmark" }
+  - { gl: dm, hl: en, enabled: true, notes: "Dominica" }
+  - { gl: do, hl: es, enabled: true, notes: "Dominican Republic" }
+  - { gl: dz, hl: ar, enabled: true, notes: "Algeria" }
+  - { gl: ec, hl: es, enabled: true, notes: "Ecuador" }
+  - { gl: ee, hl: et, enabled: true, notes: "Estonia" }
+  - { gl: eg, hl: ar, enabled: true, notes: "Egypt" }
+  - { gl: eh, hl: ar, enabled: false, notes: "Western Sahara — duplikat skupiny C -> sy/ar" }
+  - { gl: er, hl: ti, enabled: true, notes: "Eritrea" }
+  - { gl: es, hl: es, enabled: true, notes: "Spain" }
+  - { gl: et, hl: am, enabled: true, notes: "Ethiopia" }
+  - { gl: fi, hl: fi, enabled: true, notes: "Finland" }
+  - { gl: fj, hl: en, enabled: true, notes: "Fiji" }
+  - { gl: fk, hl: en, enabled: false, notes: "Falkland Islands — duplikat skupiny A -> us/en" }
+  - { gl: fm, hl: en, enabled: true, notes: "Micronesia" }
+  - { gl: fo, hl: fo, enabled: true, notes: "Faroe Islands" }
+  - { gl: fr, hl: fr, enabled: true, notes: "France" }
+  - { gl: ga, hl: fr, enabled: true, notes: "Gabon" }
+  - { gl: gd, hl: en, enabled: false, notes: "Grenada — duplikat skupiny A -> us/en" }
+  - { gl: ge, hl: ka, enabled: true, notes: "Georgia" }
+  - { gl: gf, hl: fr, enabled: true, notes: "French Guiana" }
+  - { gl: gg, hl: en, enabled: true, notes: "Guernsey" }
+  - { gl: gh, hl: en, enabled: true, notes: "Ghana" }
+  - { gl: gi, hl: en, enabled: true, notes: "Gibraltar" }
+  - { gl: gl, hl: kl, enabled: true, notes: "Greenland" }
+  - { gl: gm, hl: en, enabled: true, notes: "Gambia" }
+  - { gl: gn, hl: fr, enabled: false, notes: "Guinea — duplikat skupiny B -> mc/fr" }
+  - { gl: gp, hl: fr, enabled: true, notes: "Guadeloupe" }
+  - { gl: gq, hl: es, enabled: true, notes: "Equatorial Guinea" }
+  - { gl: gr, hl: el, enabled: true, notes: "Greece" }
+  - { gl: gt, hl: es, enabled: true, notes: "Guatemala" }
+  - { gl: gu, hl: en, enabled: false, notes: "Guam — duplikat skupiny A -> us/en" }
+  - { gl: gw, hl: pt, enabled: true, notes: "Guinea-Bissau" }
+  - { gl: gy, hl: en, enabled: true, notes: "Guyana" }
+  - { gl: hk, hl: zh-TW, enabled: true, notes: "Hong Kong" }
+  - { gl: hn, hl: es, enabled: true, notes: "Honduras" }
+  - { gl: hr, hl: hr, enabled: true, notes: "Croatia" }
+  - { gl: ht, hl: fr, enabled: true, notes: "Haiti" }
+  - { gl: hu, hl: hu, enabled: true, notes: "Hungary" }
+  - { gl: id, hl: id, enabled: true, notes: "Indonesia" }
+  - { gl: ie, hl: en, enabled: true, notes: "Ireland" }
+  - { gl: il, hl: iw, enabled: true, notes: "Israel" }
+  - { gl: im, hl: en, enabled: true, notes: "Isle of Man" }
+  - { gl: in, hl: hi, enabled: true, notes: "India" }
+  - { gl: iq, hl: ar, enabled: true, notes: "Iraq" }
+  - { gl: ir, hl: fa, enabled: true, notes: "Iran" }
+  - { gl: is, hl: is, enabled: true, notes: "Iceland" }
+  - { gl: it, hl: it, enabled: true, notes: "Italy" }
+  - { gl: je, hl: en, enabled: true, notes: "Jersey" }
+  - { gl: jm, hl: en, enabled: true, notes: "Jamaica" }
+  - { gl: jo, hl: ar, enabled: true, notes: "Jordan" }
+  - { gl: jp, hl: ja, enabled: true, notes: "Japan" }
+  - { gl: ke, hl: sw, enabled: true, notes: "Kenya" }
+  - { gl: kg, hl: ky, enabled: true, notes: "Kyrgyzstan" }
+  - { gl: kh, hl: km, enabled: true, notes: "Cambodia" }
+  - { gl: ki, hl: en, enabled: true, notes: "Kiribati" }
+  - { gl: km, hl: ar, enabled: false, notes: "Comoros — duplikat skupiny C -> sy/ar" }
+  - { gl: kn, hl: en, enabled: false, notes: "Saint Kitts and Nevis — duplikat skupiny A -> us/en" }
+  - { gl: kp, hl: ko, enabled: true, notes: "Korea (North)" }
+  - { gl: kr, hl: ko, enabled: true, notes: "Korea (South)" }
+  - { gl: kw, hl: ar, enabled: true, notes: "Kuwait" }
+  - { gl: ky, hl: en, enabled: false, notes: "Cayman Islands — duplikat skupiny A -> us/en" }
+  - { gl: kz, hl: kk, enabled: true, notes: "Kazakhstan" }
+  - { gl: la, hl: lo, enabled: true, notes: "Laos" }
+  - { gl: lb, hl: ar, enabled: true, notes: "Lebanon" }
+  - { gl: lc, hl: en, enabled: true, notes: "Saint Lucia" }
+  - { gl: li, hl: de, enabled: true, notes: "Liechtenstein" }
+  - { gl: lk, hl: si, enabled: true, notes: "Sri Lanka" }
+  - { gl: lr, hl: en, enabled: false, notes: "Liberia — duplikat skupiny A -> us/en" }
+  - { gl: ls, hl: en, enabled: true, notes: "Lesotho" }
+  - { gl: lt, hl: lt, enabled: true, notes: "Lithuania" }
+  - { gl: lu, hl: fr, enabled: true, notes: "Luxembourg" }
+  - { gl: lv, hl: lv, enabled: true, notes: "Latvia" }
+  - { gl: ly, hl: ar, enabled: true, notes: "Libya" }
+  - { gl: ma, hl: ar, enabled: true, notes: "Morocco" }
+  - { gl: mc, hl: fr, enabled: true, notes: "Monaco" }
+  - { gl: md, hl: ro, enabled: true, notes: "Moldova" }
+  - { gl: me, hl: sr, enabled: true, notes: "Montenegro" }
+  - { gl: mg, hl: mg, enabled: true, notes: "Madagascar" }
+  - { gl: mh, hl: en, enabled: false, notes: "Marshall Islands — duplikat skupiny A -> us/en" }
+  - { gl: ml, hl: fr, enabled: true, notes: "Mali" }
+  - { gl: mm, hl: my, enabled: true, notes: "Myanmar" }
+  - { gl: mn, hl: mn, enabled: true, notes: "Mongolia" }
+  - { gl: mo, hl: zh-TW, enabled: true, notes: "Macao" }
+  - { gl: mp, hl: en, enabled: false, notes: "Northern Mariana Islands — duplikat skupiny A -> us/en" }
+  - { gl: mq, hl: fr, enabled: false, notes: "Martinique — duplikat skupiny B -> mc/fr" }
+  - { gl: mr, hl: ar, enabled: false, notes: "Mauritania — duplikat skupiny C -> sy/ar" }
+  - { gl: ms, hl: en, enabled: true, notes: "Montserrat" }
+  - { gl: mt, hl: mt, enabled: true, notes: "Malta" }
+  - { gl: mu, hl: en, enabled: true, notes: "Mauritius" }
+  - { gl: mv, hl: dv, enabled: true, notes: "Maldives" }
+  - { gl: mw, hl: en, enabled: true, notes: "Malawi" }
+  - { gl: mx, hl: es, enabled: true, notes: "Mexico" }
+  - { gl: my, hl: ms, enabled: true, notes: "Malaysia" }
+  - { gl: mz, hl: pt, enabled: true, notes: "Mozambique" }
+  - { gl: na, hl: en, enabled: true, notes: "Namibia" }
+  - { gl: nc, hl: fr, enabled: false, notes: "New Caledonia — duplikat skupiny B -> mc/fr" }
+  - { gl: ne, hl: fr, enabled: true, notes: "Niger" }
+  - { gl: nf, hl: en, enabled: false, notes: "Norfolk Island — duplikat skupiny A -> us/en" }
+  - { gl: ng, hl: en, enabled: true, notes: "Nigeria" }
+  - { gl: ni, hl: es, enabled: true, notes: "Nicaragua" }
+  - { gl: nl, hl: nl, enabled: true, notes: "Netherlands" }
+  - { gl: no, hl: no, enabled: true, notes: "Norway" }
+  - { gl: np, hl: ne, enabled: true, notes: "Nepal" }
+  - { gl: nr, hl: en, enabled: true, notes: "Nauru" }
+  - { gl: nu, hl: en, enabled: true, notes: "Niue" }
+  - { gl: nz, hl: en, enabled: true, notes: "New Zealand" }
+  - { gl: om, hl: ar, enabled: true, notes: "Oman" }
+  - { gl: pa, hl: es, enabled: true, notes: "Panama" }
+  - { gl: pe, hl: es, enabled: true, notes: "Peru" }
+  - { gl: pf, hl: fr, enabled: false, notes: "French Polynesia — duplikat skupiny B -> mc/fr" }
+  - { gl: pg, hl: en, enabled: true, notes: "Papua New Guinea" }
+  - { gl: ph, hl: tl, enabled: true, notes: "Philippines" }
+  - { gl: pk, hl: ur, enabled: true, notes: "Pakistan" }
+  - { gl: pl, hl: pl, enabled: true, notes: "Poland" }
+  - { gl: pm, hl: fr, enabled: false, notes: "Saint Pierre and Miquelon — duplikat skupiny B -> mc/fr" }
+  - { gl: pr, hl: es, enabled: true, notes: "Puerto Rico" }
+  - { gl: ps, hl: ar, enabled: true, notes: "Palestine" }
+  - { gl: pt, hl: pt, enabled: true, notes: "Portugal" }
+  - { gl: pw, hl: en, enabled: false, notes: "Palau — duplikat skupiny A -> us/en" }
+  - { gl: py, hl: es, enabled: true, notes: "Paraguay" }
+  - { gl: qa, hl: ar, enabled: true, notes: "Qatar" }
+  - { gl: re, hl: fr, enabled: false, notes: "Reunion — duplikat skupiny B -> mc/fr" }
+  - { gl: ro, hl: ro, enabled: true, notes: "Romania" }
+  - { gl: rs, hl: sr, enabled: true, notes: "Serbia" }
+  - { gl: ru, hl: ru, enabled: true, notes: "Russia" }
+  - { gl: rw, hl: rw, enabled: true, notes: "Rwanda" }
+  - { gl: sa, hl: ar, enabled: true, notes: "Saudi Arabia" }
+  - { gl: sb, hl: en, enabled: true, notes: "Solomon Islands" }
+  - { gl: sc, hl: fr, enabled: true, notes: "Seychelles" }
+  - { gl: sd, hl: ar, enabled: false, notes: "Sudan — duplikat skupiny C -> sy/ar" }
+  - { gl: se, hl: sv, enabled: true, notes: "Sweden" }
+  - { gl: sg, hl: en, enabled: true, notes: "Singapore" }
+  - { gl: sh, hl: en, enabled: true, notes: "Saint Helena" }
+  - { gl: si, hl: sl, enabled: true, notes: "Slovenia" }
+  - { gl: sk, hl: sk, enabled: true, notes: "Slovakia" }
+  - { gl: sl, hl: en, enabled: true, notes: "Sierra Leone" }
+  - { gl: sm, hl: it, enabled: true, notes: "San Marino" }
+  - { gl: sn, hl: fr, enabled: true, notes: "Senegal" }
+  - { gl: so, hl: so, enabled: true, notes: "Somalia" }
+  - { gl: sr, hl: nl, enabled: true, notes: "Suriname" }
+  - { gl: st, hl: pt, enabled: true, notes: "Sao Tome and Principe" }
+  - { gl: sv, hl: es, enabled: true, notes: "El Salvador" }
+  - { gl: sy, hl: ar, enabled: true, notes: "Syria" }
+  - { gl: sz, hl: en, enabled: false, notes: "Swaziland (Eswatini) — duplikat skupiny A -> us/en" }
+  - { gl: tc, hl: en, enabled: false, notes: "Turks and Caicos Islands — duplikat skupiny A -> us/en" }
+  - { gl: td, hl: fr, enabled: true, notes: "Chad" }
+  - { gl: tg, hl: fr, enabled: true, notes: "Togo" }
+  - { gl: th, hl: th, enabled: true, notes: "Thailand" }
+  - { gl: tj, hl: tg, enabled: true, notes: "Tajikistan" }
+  - { gl: tk, hl: en, enabled: true, notes: "Tokelau" }
+  - { gl: tl, hl: pt, enabled: true, notes: "Timor-Leste" }
+  - { gl: tm, hl: tk, enabled: true, notes: "Turkmenistan" }
+  - { gl: tn, hl: ar, enabled: true, notes: "Tunisia" }
+  - { gl: to, hl: to, enabled: true, notes: "Tonga" }
+  - { gl: tr, hl: tr, enabled: true, notes: "Turkey" }
+  - { gl: tt, hl: en, enabled: true, notes: "Trinidad and Tobago" }
+  - { gl: tv, hl: en, enabled: false, notes: "Tuvalu — duplikat skupiny A -> us/en" }
+  - { gl: tw, hl: zh-TW, enabled: true, notes: "Taiwan" }
+  - { gl: tz, hl: sw, enabled: true, notes: "Tanzania" }
+  - { gl: ua, hl: uk, enabled: true, notes: "Ukraine" }
+  - { gl: ug, hl: en, enabled: true, notes: "Uganda" }
+  - { gl: uk, hl: en, enabled: true, notes: "United Kingdom" }
+  - { gl: us, hl: en, enabled: true, notes: "United States" }
+  - { gl: uy, hl: es, enabled: true, notes: "Uruguay" }
+  - { gl: uz, hl: uz, enabled: true, notes: "Uzbekistan" }
+  - { gl: vc, hl: en, enabled: true, notes: "Saint Vincent and the Grenadines" }
+  - { gl: ve, hl: es, enabled: true, notes: "Venezuela" }
+  - { gl: vg, hl: en, enabled: true, notes: "Virgin Islands (British)" }
+  - { gl: vi, hl: en, enabled: true, notes: "United States Virgin Islands" }
+  - { gl: vn, hl: vi, enabled: true, notes: "Vietnam" }
+  - { gl: vu, hl: bi, enabled: true, notes: "Vanuatu" }
+  - { gl: wf, hl: fr, enabled: false, notes: "Wallis and Futuna — duplikat skupiny B -> mc/fr" }
+  - { gl: ws, hl: sm, enabled: true, notes: "Samoa" }
+  - { gl: ye, hl: ar, enabled: false, notes: "Yemen — duplikat skupiny C -> sy/ar" }
+  - { gl: yt, hl: fr, enabled: false, notes: "Mayotte — duplikat skupiny B -> mc/fr" }
+  - { gl: za, hl: af, enabled: true, notes: "South Africa" }
+  - { gl: zm, hl: en, enabled: true, notes: "Zambia" }
+  - { gl: zw, hl: en, enabled: true, notes: "Zimbabwe" }
