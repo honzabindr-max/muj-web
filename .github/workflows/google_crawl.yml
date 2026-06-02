@@ -59,6 +59,14 @@ jobs:
             --max-depth "${{ inputs.max_depth }}" \
             --market-filter "${{ inputs.market_filter }}"
 
+      - name: Upload emergency state artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawler-emergency-state-${{ github.run_id }}
+          path: crawler_state_emergency_*.json
+          if-no-files-found: ignore
+
       - name: Notify done
         if: always() && ${{ inputs.dry_run == 'false' }}
         run: python notify.py "✅ Google Crawl v2 dokončen (depth=${{ inputs.max_depth }}, filter=${{ inputs.market_filter }})"
