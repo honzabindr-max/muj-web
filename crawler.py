@@ -19,7 +19,7 @@ Resilience:
   - load_state() zpětně kompatibilní (zvládá obě varianty)
 """
 from __future__ import annotations
-import argparse, hashlib, http.client, json, os, random, re, socket, ssl, sys, time
+import argparse, concurrent.futures, hashlib, http.client, json, os, random, re, socket, ssl, sys, threading, time
 import urllib.request, urllib.parse, uuid
 from datetime import datetime, timezone
 
@@ -46,6 +46,9 @@ CIRCUIT_BREAKER_THRESHOLD = 3    # Počet vyčerpaných flush bloků před emerg
 # Sentinel: 2xx s prázdným tělem (return=minimal / 204 No Content).
 # Odlišuje "úspěch bez dat" od "selhání" (None).
 _EMPTY_SUCCESS = object()
+
+# Zámek pro emergency_save log blok — zabrání míchání EMERGENCY_STATE_SNAPSHOT výstupu ze dvou threadů.
+_emergency_lock = threading.Lock()
 
 # ─────────────────────────────────────────────────────────────
 # Abecedy pro BFS expand_chars (per hl kód)
@@ -382,7 +385,7 @@ def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: s
         "emergency_reason": reason,
         "emergency_at": datetime.now(timezone.utc).isoformat(),
     }
-    filename = f"crawler_state_emergency_{run_id}.json"
+    filename = f"crawler_state_emergency_{run_id}_{gl}_{hl}.json"
     snapshot_json = json.dumps(snapshot, ensure_ascii=False, indent=2)
     snapshot_hash = hashlib.sha256(snapshot_json.encode()).hexdigest()[:16]
     file_ok = False
@@ -394,27 +397,28 @@ def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: s
     except Exception as write_err:
         print(f"  ✗ Nepodařilo se zapsat emergency soubor: {write_err}")
 
-    # 3. Log marker (shrnutí — celý JSON jen pokud < 50 KB)
+    # 3. Log marker — atomicky pod zámkem, aby se výstup dvou threadů nemíchal.
     q_len  = len(payload["queue"])
     nq_len = len(payload["next_queue"])
-    print("EMERGENCY_STATE_SNAPSHOT")
-    print(f"  soubor:      {filename}")
-    print(f"  run_id:      {run_id}")
-    print(f"  market:      {gl}/{hl}")
-    print(f"  depth:       {payload['current_depth']}")
-    print(f"  prefix:      {payload['current_prefix']}")
-    print(f"  queue:       {q_len} prefixů")
-    print(f"  next_queue:  {nq_len} prefixů")
-    print(f"  new_total:   {payload['new_total']}")
-    print(f"  queries:     {payload['queries_total']}")
-    print(f"  důvod:       {reason[:200]}")
-    if file_ok:
-        print(f"  hash:        sha256:{snapshot_hash}")
-        if len(snapshot_json) < 50_000:
-            print("  [JSON < 50 KB, vypisuji celý snapshot do logu]")
-            print(snapshot_json)
-        else:
-            print(f"  [JSON {len(snapshot_json)//1024} KB — jen v souboru/artifactu]")
+    with _emergency_lock:
+        print("EMERGENCY_STATE_SNAPSHOT")
+        print(f"  soubor:      {filename}")
+        print(f"  run_id:      {run_id}")
+        print(f"  market:      {gl}/{hl}")
+        print(f"  depth:       {payload['current_depth']}")
+        print(f"  prefix:      {payload['current_prefix']}")
+        print(f"  queue:       {q_len} prefixů")
+        print(f"  next_queue:  {nq_len} prefixů")
+        print(f"  new_total:   {payload['new_total']}")
+        print(f"  queries:     {payload['queries_total']}")
+        print(f"  důvod:       {reason[:200]}")
+        if file_ok:
+            print(f"  hash:        sha256:{snapshot_hash}")
+            if len(snapshot_json) < 50_000:
+                print("  [JSON < 50 KB, vypisuji celý snapshot do logu]")
+                print(snapshot_json)
+            else:
+                print(f"  [JSON {len(snapshot_json)//1024} KB — jen v souboru/artifactu]")
 
     return file_ok
 
@@ -802,13 +806,6 @@ def main():
     dry_run = args.dry_run.lower() in ("true", "1", "yes")
     run_id  = args.run_id or uuid.uuid4().hex[:8]
 
-    if args.max_parallel > 1:
-        print(
-            "⚠  max_parallel > 1 není v fázi 1 podporováno. "
-            "Paralelní zápis je povolen až po ověření stability na Micro (fáze 5)."
-        )
-        print("   Pokračuji se max_parallel=1.")
-
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     if not dry_run and (not url or not key):
@@ -843,7 +840,8 @@ def main():
 
     print(
         f"🔍 Google Suggest Crawler v2  |  dry_run={dry_run}  "
-        f"|  max_depth={args.max_depth}  |  run_id={run_id}"
+        f"|  max_depth={args.max_depth}  |  max_parallel={args.max_parallel}  "
+        f"|  run_id={run_id}"
     )
     print(f"   Markety v tomto běhu: {len(markets)}")
     for m in markets:
@@ -853,14 +851,40 @@ def main():
     print()
 
     results: dict[str, str] = {}
-    for market in markets:
-        label = f"{market['gl']}/{market['hl']}"
-        status = run_market(
-            db, market, cfg, dry_run,
-            run_id=run_id,
-            resume_from=args.resume_from,
-        )
-        results[label] = status
+
+    if args.max_parallel <= 1 or dry_run:
+        # Sekvenční — původní chování
+        for market in markets:
+            label = f"{market['gl']}/{market['hl']}"
+            status = run_market(
+                db, market, cfg, dry_run,
+                run_id=run_id,
+                resume_from=args.resume_from,
+            )
+            results[label] = status
+    else:
+        # Paralelní — každý thread dostane vlastní DB instanci (thread-safe)
+        def _run_one(market: dict) -> tuple:
+            thread_db = DB(url, key)
+            label = f"{market['gl']}/{market['hl']}"
+            status = run_market(
+                thread_db, market, cfg, dry_run,
+                run_id=run_id,
+                resume_from=args.resume_from,
+            )
+            return label, status
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_parallel) as pool:
+            futures = {pool.submit(_run_one, m): m for m in markets}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    label, status = future.result()
+                    results[label] = status
+                except Exception as e:
+                    m = futures[future]
+                    label = f"{m['gl']}/{m['hl']}"
+                    print(f"  ✗ Thread pro {label} selhal s výjimkou: {e}")
+                    results[label] = "emergency"
 
     print(f"\n{'═'*60}")
     print("  Výsledky běhu:")
