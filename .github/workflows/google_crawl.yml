@@ -1,0 +1,65 @@
+name: Google Crawl v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only — žádný zápis do DB (true/false)"
+        default: "true"
+      max_parallel:
+        description: "Souběžné markety. NEZVYŠOVAT na 2 bez ověření metrik (fáze 5)"
+        default: "1"
+      batch_limit:
+        description: "Max marketů v jednom běhu"
+        default: "5"
+      max_depth:
+        description: "BFS hloubka (1 = validační fáze; depth 2 až po ověření)"
+        default: "1"
+      market_filter:
+        description: "Volitelný gl/hl filtr, např. cz/cs (prázdné = všechny enabled)"
+        default: ""
+
+# Concurrency guard: zabrání překryvu dvou ručních dispatchů.
+# cancel-in-progress: false → běžící run doběhne, nový čeká ve frontě.
+concurrency:
+  group: google-crawl-v2
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # pod GitHub limitem 360 min; crawler sám ukládá stav před limitem
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Notify start
+        if: ${{ inputs.dry_run == 'false' }}
+        run: python notify.py "🔍 Google Crawl v2 spuštěn (depth=${{ inputs.max_depth }}, markets=${{ inputs.batch_limit }}, filter=${{ inputs.market_filter }})"
+        continue-on-error: true
+
+      - name: Run Google crawler
+        run: |
+          python crawler.py \
+            --dry-run "${{ inputs.dry_run }}" \
+            --max-parallel "${{ inputs.max_parallel }}" \
+            --batch-limit "${{ inputs.batch_limit }}" \
+            --max-depth "${{ inputs.max_depth }}" \
+            --market-filter "${{ inputs.market_filter }}"
+
+      - name: Notify done
+        if: always() && ${{ inputs.dry_run == 'false' }}
+        run: python notify.py "✅ Google Crawl v2 dokončen (depth=${{ inputs.max_depth }}, filter=${{ inputs.market_filter }})"
+        continue-on-error: true

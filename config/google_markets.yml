@@ -1,0 +1,265 @@
+# config/google_markets.yml
+# Konfigurace Google autocomplete marketů (gl + hl kombinace).
+#
+# Market = kombinace gl + hl — jedna země může mít více jazyků
+# (Kanada: ca/en + ca/fr; Švýcarsko: ch/de + ch/fr + ch/it).
+#
+# Fáze 1: enabled jen cz/cs (validační market).
+# Další markety se povolují postupně dle rollout plánu.
+
+defaults:
+  max_depth: 1
+  max_runtime_minutes: 25
+  delay_between_requests_ms: 500
+  batch_size: 250
+
+markets:
+  # ── Validační market (fáze 2) ──────────────────────────
+  - gl: cz
+    hl: cs
+    enabled: true
+    notes: "validační market fáze 1"
+
+  # ── Existující Google data (fáze 3+) ──────────────────
+  - gl: de
+    hl: de
+    enabled: false
+    notes: "Německo"
+
+  - gl: at
+    hl: de
+    enabled: false
+    notes: "Rakousko"
+
+  # ── Anglicky mluvící trhy ──────────────────────────────
+  - gl: us
+    hl: en
+    enabled: false
+    notes: "USA"
+
+  - gl: gb
+    hl: en
+    enabled: false
+    notes: "Velká Británie"
+
+  - gl: ca
+    hl: en
+    enabled: false
+    notes: "Kanada anglicky"
+
+  - gl: au
+    hl: en
+    enabled: false
+    notes: "Austrálie"
+
+  - gl: nz
+    hl: en
+    enabled: false
+    notes: "Nový Zéland"
+
+  - gl: ie
+    hl: en
+    enabled: false
+    notes: "Irsko"
+
+  # ── Vícejazyčné trhy ──────────────────────────────────
+  - gl: ca
+    hl: fr
+    enabled: false
+    notes: "Kanada francouzsky"
+
+  - gl: ch
+    hl: de
+    enabled: false
+    notes: "Švýcarsko německy"
+
+  - gl: ch
+    hl: fr
+    enabled: false
+    notes: "Švýcarsko francouzsky"
+
+  - gl: ch
+    hl: it
+    enabled: false
+    notes: "Švýcarsko italsky"
+
+  - gl: be
+    hl: fr
+    enabled: false
+    notes: "Belgie francouzsky"
+
+  - gl: be
+    hl: nl
+    enabled: false
+    notes: "Belgie holandsky"
+
+  # ── Románské jazyky ───────────────────────────────────
+  - gl: fr
+    hl: fr
+    enabled: false
+    notes: "Francie"
+
+  - gl: es
+    hl: es
+    enabled: false
+    notes: "Španělsko"
+
+  - gl: mx
+    hl: es
+    enabled: false
+    notes: "Mexiko"
+
+  - gl: ar
+    hl: es
+    enabled: false
+    notes: "Argentina"
+
+  - gl: it
+    hl: it
+    enabled: false
+    notes: "Itálie"
+
+  - gl: pt
+    hl: pt
+    enabled: false
+    notes: "Portugalsko"
+
+  - gl: br
+    hl: pt
+    enabled: false
+    notes: "Brazílie"
+
+  - gl: ro
+    hl: ro
+    enabled: false
+    notes: "Rumunsko"
+
+  # ── Střední/východní Evropa ───────────────────────────
+  - gl: pl
+    hl: pl
+    enabled: false
+    notes: "Polsko"
+
+  - gl: sk
+    hl: sk
+    enabled: false
+    notes: "Slovensko"
+
+  - gl: hu
+    hl: hu
+    enabled: false
+    notes: "Maďarsko"
+
+  - gl: hr
+    hl: hr
+    enabled: false
+    notes: "Chorvatsko"
+
+  - gl: si
+    hl: sl
+    enabled: false
+    notes: "Slovinsko"
+
+  - gl: bg
+    hl: bg
+    enabled: false
+    notes: "Bulharsko — latin seed (cyrilice)"
+
+  - gl: ua
+    hl: uk
+    enabled: false
+    notes: "Ukrajina — latin seed (cyrilice)"
+
+  - gl: ru
+    hl: ru
+    enabled: false
+    notes: "Rusko — latin seed (cyrilice)"
+
+  # ── Severská Evropa ───────────────────────────────────
+  - gl: se
+    hl: sv
+    enabled: false
+    notes: "Švédsko"
+
+  - gl: no
+    hl: "no"
+    enabled: false
+    notes: "Norsko"
+
+  - gl: dk
+    hl: da
+    enabled: false
+    notes: "Dánsko"
+
+  - gl: fi
+    hl: fi
+    enabled: false
+    notes: "Finsko"
+
+  - gl: nl
+    hl: nl
+    enabled: false
+    notes: "Holandsko"
+
+  # ── Ostatní evropské trhy ─────────────────────────────
+  - gl: gr
+    hl: el
+    enabled: false
+    notes: "Řecko — latin seed (řecká abeceda)"
+
+  - gl: tr
+    hl: tr
+    enabled: false
+    notes: "Turecko"
+
+  # ── Asijsko-pacifické trhy ────────────────────────────
+  - gl: jp
+    hl: ja
+    enabled: false
+    notes: "Japonsko — latin seed (kanji/kana)"
+
+  - gl: kr
+    hl: ko
+    enabled: false
+    notes: "Korea — latin seed (hangul)"
+
+  - gl: in
+    hl: en
+    enabled: false
+    notes: "Indie anglicky"
+
+  - gl: sg
+    hl: en
+    enabled: false
+    notes: "Singapur"
+
+  - gl: id
+    hl: id
+    enabled: false
+    notes: "Indonésie"
+
+  - gl: vn
+    hl: vi
+    enabled: false
+    notes: "Vietnam"
+
+  # ── Střední východ / Afrika ───────────────────────────
+  - gl: il
+    hl: iw
+    enabled: false
+    notes: "Izrael — latin seed (hebrejština)"
+
+  - gl: sa
+    hl: ar
+    enabled: false
+    notes: "Saúdská Arábie — latin seed (arabština)"
+
+  - gl: ae
+    hl: ar
+    enabled: false
+    notes: "SAE — latin seed (arabština)"
+
+  - gl: za
+    hl: en
+    enabled: false
+    notes: "Jihoafrická republika"
