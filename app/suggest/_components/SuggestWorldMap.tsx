@@ -257,9 +257,8 @@ function Tooltip({
     >
       <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
         <span>{flagEmoji(gl)}</span>
-        <span className="truncate">{countryName(gl)}</span>
+        <span className="truncate">{countryName(gl)} ({gl.toLowerCase()})</span>
       </div>
-      <div className="mt-0.5 text-[11px] text-zinc-400">GL: {gl.toUpperCase()}</div>
 
       {isFallback ? (
         <div className="mt-2 text-xs text-zinc-400 italic">Zatím bez crawler dat</div>
