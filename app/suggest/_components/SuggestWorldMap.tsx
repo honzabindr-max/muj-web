@@ -482,32 +482,31 @@ export function SuggestWorldMap({
       <style>{`
         @keyframes pulseCountry {
           0%, 100% {
-            stroke-opacity: .55;
-            filter: drop-shadow(0 0 2px rgba(22,163,74,.24));
+            stroke: rgba(22,163,74,0.35);
+            stroke-width: 0.8px;
+            filter: drop-shadow(0 0 1px rgba(22,163,74,0.1));
           }
           50% {
-            stroke-opacity: 1;
-            filter: drop-shadow(0 0 10px rgba(22,163,74,.85));
+            stroke: rgba(22,163,74,1);
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 8px rgba(22,163,74,0.8));
           }
         }
         .country { opacity: 1; }
         .country.running {
-          stroke: #16a34a !important;
-          stroke-width: 1.45px !important;
-          animation: pulseCountry 1.15s ease-in-out infinite;
-          filter: drop-shadow(0 0 4px rgba(22,163,74,.55));
+          animation: pulseCountry 1.3s ease-in-out infinite;
         }
         .country.done {
-          stroke: rgba(37,99,235,.48) !important;
-          stroke-width: .65px !important;
+          stroke: rgba(37,99,235,.5);
+          stroke-width: .7px;
         }
         .country.paused {
-          stroke: rgba(245,158,11,.85) !important;
-          stroke-width: 1.05px !important;
+          stroke: rgba(245,158,11,.9);
+          stroke-width: 1.1px;
         }
         .country.error {
-          stroke: rgba(220,38,38,.85) !important;
-          stroke-width: 1.15px !important;
+          stroke: rgba(220,38,38,.9);
+          stroke-width: 1.2px;
         }
       `}</style>
 
