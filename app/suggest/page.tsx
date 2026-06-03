@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useDashboardData } from "./_hooks/use-dashboard-data";
 import { SummaryBar } from "./_components/summary-bar";
 import { Toolbar } from "./_components/toolbar";
 import { MutationsTable } from "./_components/mutations-table";
+import { SuggestWorldMap } from "./_components/SuggestWorldMap";
 import type { FilterState } from "./_lib/types";
+import { flagEmoji } from "./_lib/utils";
 
 const DEFAULT_FILTER: FilterState = {
   search: "",
@@ -19,6 +21,12 @@ const DEFAULT_FILTER: FilterState = {
 export default function SuggestPage() {
   const { rows, summary, loadState } = useDashboardData();
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
+  const [selectedGl, setSelectedGl] = useState<string | null>(null);
+
+  const filteredByGl = useMemo(
+    () => (selectedGl ? rows.filter((r) => r.gl.toLowerCase() === selectedGl) : rows),
+    [rows, selectedGl],
+  );
 
   const activeLabel =
     summary.activeCount > 0 ? `${summary.activeCount} aktivní` : "Standby";
@@ -108,12 +116,36 @@ export default function SuggestPage() {
         {/* Summary */}
         <SummaryBar summary={summary} className="mt-5" />
 
+        {/* World map */}
+        <SuggestWorldMap
+          rows={rows}
+          selectedGl={selectedGl}
+          onSelectGl={setSelectedGl}
+          className="mt-3"
+        />
+
         {/* Toolbar */}
         <Toolbar filter={filter} onChange={setFilter} className="mt-3" />
 
+        {/* Active country filter chip */}
+        {selectedGl && (
+          <div className="mt-2 flex items-center gap-2 px-1">
+            <span className="rounded-full border border-zinc-200/80 bg-white/70 px-3 py-1 text-sm text-zinc-600 backdrop-blur-sm">
+              {flagEmoji(selectedGl)}{" "}
+              Filtrovaná země: <span className="font-semibold">{selectedGl.toUpperCase()}</span>
+            </span>
+            <button
+              onClick={() => setSelectedGl(null)}
+              className="rounded-full border border-zinc-200/80 bg-white/70 px-3 py-1 text-sm text-zinc-500 backdrop-blur-sm hover:bg-white hover:text-zinc-800"
+            >
+              · Zrušit
+            </button>
+          </div>
+        )}
+
         {/* Table */}
         <MutationsTable
-          rows={rows}
+          rows={filteredByGl}
           filter={filter}
           onFilterChange={setFilter}
           className="mt-3"
