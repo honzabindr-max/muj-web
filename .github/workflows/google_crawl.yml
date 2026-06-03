@@ -2,7 +2,7 @@ name: Google Crawl v2
 
 on:
   schedule:
-    - cron: '0 * * * *'   # každou celou hodinu
+    - cron: '17,47 * * * *'   # v :17 a :47 každé hodiny — mimo přetížený slot :00
   workflow_dispatch:
     inputs:
       dry_run:
