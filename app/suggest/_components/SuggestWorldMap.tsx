@@ -73,12 +73,15 @@ const NUMERIC_TO_ALPHA2: Record<number, string> = (() => {
 
 // ── Heatmap color scale ───────────────────────────────────────────
 const HEATMAP_COLORS = [
-  "#eef6ff", "#cfe2ff", "#93c5fd", "#60a5fa",
+  "#bfdbfe", "#93c5fd", "#60a5fa",
   "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af", "#172554", "#0b1f66",
 ];
 
 // Used for the legend bar in JSX (a subset for display)
-const LEGEND_COLORS = ["#eef6ff", "#93c5fd", "#3b82f6", "#1d4ed8", "#0b1f66"];
+const LEGEND_COLORS = ["#bfdbfe", "#93c5fd", "#3b82f6", "#1d4ed8", "#0b1f66"];
+
+// Minimum visible score for fallback countries (no real data)
+const FALLBACK_MIN_SCORE = 8;
 
 function getHeatmapColor(score: number): string {
   const t = Math.max(0, Math.min(1, (score - 1) / 99));
@@ -86,10 +89,10 @@ function getHeatmapColor(score: number): string {
 }
 
 function getHeatmapScore(value: number, maxValue: number): number {
-  if (!maxValue || maxValue <= 0) return 1;
+  if (!maxValue || maxValue <= 0) return FALLBACK_MIN_SCORE;
   const normalized = Math.max(0, Math.min(1, value / maxValue));
   const transformed = Math.pow(normalized, 0.42);
-  return Math.max(1, Math.min(100, Math.round(transformed * 99) + 1));
+  return Math.max(FALLBACK_MIN_SCORE, Math.min(100, Math.round(transformed * 99) + 1));
 }
 
 // ── Stable fallback values for countries without data ─────────────
@@ -377,7 +380,7 @@ export function SuggestWorldMap({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
         const rd = renderMap.get(numId);
-        if (!rd) return "#e2e8f0"; // unmapped country
+        if (!rd) return "#bfdbfe"; // unmapped country — stejná barva jako minimum škály
         return getHeatmapColor(rd.score);
       })
       .attr("stroke", (d) => {
