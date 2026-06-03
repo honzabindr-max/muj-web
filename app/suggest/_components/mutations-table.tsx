@@ -3,7 +3,7 @@
 import { useRef, useState, useMemo, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MutationRow } from "./mutation-row";
-import { flagEmoji } from "../_lib/utils";
+import { flagEmoji, countryName } from "../_lib/utils";
 import {
   heartbeatColor,
   isHeartbeatAlive,
@@ -187,7 +187,7 @@ export function MutationsTable({
       items.push({
         kind: "group",
         gl,
-        label: `${flagEmoji(gl)} ${gl.toUpperCase()}`,
+        label: `${flagEmoji(gl)} ${countryName(gl)} (${gl.toLowerCase()})`,
         count: glRows.length,
         phraseCount,
       });

@@ -7,6 +7,7 @@ import {
   flagEmoji,
   formatNumber,
   formatRelativeTime,
+  countryName,
 } from "../_lib/utils";
 import { heartbeatColor } from "../_lib/types";
 import type { DashboardRow } from "../_lib/types";
@@ -80,7 +81,10 @@ export function MutationRow({
         />
 
         {/* Flag + name */}
-        <span className="flex w-[88px] shrink-0 items-center gap-1 sm:w-[108px]">
+        <span
+          className="flex w-[88px] shrink-0 items-center gap-1 sm:w-[108px]"
+          title={row.source === "google" ? `${countryName(row.gl)} (${row.gl.toLowerCase()})` : undefined}
+        >
           {row.source === "google" ? (
             <>
               <span className="text-base leading-none">{flagEmoji(row.gl)}</span>

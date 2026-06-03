@@ -5,7 +5,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import type { DashboardRow } from "../_lib/types";
 import { isHeartbeatAlive } from "../_lib/types";
-import { flagEmoji, formatNumber } from "../_lib/utils";
+import { flagEmoji, formatNumber, countryName } from "../_lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────
 export type SuggestWorldMapProps = {
@@ -122,34 +122,6 @@ const STATUS_STROKE: Record<CountryStatus, { color: string; width: number }> = {
   error:   { color: "rgba(220,38,38,.85)", width: 1.15 },
   idle:    { color: "rgba(255,255,255,.55)", width: 0.35 },
 };
-
-// ── Country names ─────────────────────────────────────────────────
-const COUNTRY_NAMES: Record<string, string> = {
-  cz: "Česká republika", sk: "Slovensko", de: "Německo", at: "Rakousko",
-  pl: "Polsko", hu: "Maďarsko", us: "Spojené státy", gb: "Velká Británie",
-  uk: "Velká Británie", fr: "Francie", es: "Španělsko", it: "Itálie",
-  ru: "Rusko", cn: "Čína", jp: "Japonsko", br: "Brazílie", au: "Austrálie",
-  ca: "Kanada", in: "Indie", mx: "Mexiko", kr: "Jižní Korea", tr: "Turecko",
-  sa: "Saúdská Arábie", nl: "Nizozemsko", ch: "Švýcarsko", se: "Švédsko",
-  no: "Norsko", dk: "Dánsko", fi: "Finsko", be: "Belgie", pt: "Portugalsko",
-  ro: "Rumunsko", ua: "Ukrajina", bg: "Bulharsko", hr: "Chorvatsko",
-  rs: "Srbsko", si: "Slovinsko", gr: "Řecko", lt: "Litva", lv: "Lotyšsko",
-  ee: "Estonsko", ie: "Irsko", nz: "Nový Zéland", za: "Jižní Afrika",
-  ar: "Argentina", cl: "Chile", co: "Kolumbie", pe: "Peru", ve: "Venezuela",
-  eg: "Egypt", ng: "Nigérie", ke: "Keňa", ma: "Maroko", gh: "Ghana",
-  id: "Indonésie", my: "Malajsie", ph: "Filipíny", sg: "Singapur",
-  th: "Thajsko", vn: "Vietnam", bd: "Bangladéš", pk: "Pákistán",
-  ae: "Spoj. arab. emiráty", il: "Izrael", iq: "Irák", ir: "Írán",
-  kz: "Kazachstán", uz: "Uzbekistán", az: "Ázerbájdžán", ge: "Gruzie",
-  by: "Bělorusko", md: "Moldavsko", mk: "Severní Makedonie", ba: "Bosna a Hercegovina",
-  al: "Albánie", me: "Černá Hora", xk: "Kosovo", cy: "Kypr", mt: "Malta",
-  is: "Island", lu: "Lucembursko", li: "Liechtenstein", mc: "Monako",
-  sm: "San Marino", ad: "Andorra",
-};
-
-function countryName(gl: string): string {
-  return COUNTRY_NAMES[gl.toLowerCase()] ?? gl.toUpperCase();
-}
 
 const STATUS_LABELS: Record<CountryStatus, string> = {
   running: "Aktivní", done: "Hotovo", paused: "Pauza",
