@@ -306,9 +306,9 @@ export function SuggestWorldMap({
   // Total mapped countries = unique numeric IDs we support
   const totalMappedCountries = renderMap.size;
 
-  // Load world-atlas
+  // Load world-atlas from CDN (local file is gitignored and not deployed)
   useEffect(() => {
-    fetch("/countries-110m.json")
+    fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
       .then((r) => r.json())
       .then((data) => { setWorldData(data); setMapLoaded(true); })
       .catch(() => setMapError(true));
