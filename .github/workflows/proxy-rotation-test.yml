@@ -1,0 +1,28 @@
+name: Proxy Rotation Test
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test IP rotation
+        env:
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+        run: |
+          python3 - << 'PY'
+          import os, urllib.request
+          proxy = os.environ.get("PROXY_URL")
+          assert proxy, "PROXY_URL secret chybí"
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+          ips = []
+          for i in range(5):
+              try:
+                  ip = opener.open("https://api.ipify.org", timeout=15).read().decode()
+                  ips.append(ip)
+                  print(f"request {i+1}: {ip}")
+              except Exception as e:
+                  print(f"request {i+1}: CHYBA {e}")
+          uniq = len(set(ips))
+          print(f"=== UNIKATNICH IP: {uniq} z {len(ips)} ===")
+          print("VERDIKT: per-request rotace" if uniq >= 4 else ("VERDIKT: sticky/pomala rotace" if uniq <= 2 else "VERDIKT: castecna rotace"))
+          PY
