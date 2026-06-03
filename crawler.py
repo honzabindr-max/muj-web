@@ -35,6 +35,17 @@ except ImportError:
     def _notify_send(msg): print(f"  [notify] {msg}")
 
 # ─────────────────────────────────────────────────────────────
+# Proxy setup — jeden opener pro celý run (thread-safe pro čtení)
+# ─────────────────────────────────────────────────────────────
+_PROXY_URL = os.environ.get("PROXY_URL", "")
+if _PROXY_URL:
+    _GOOGLE_OPENER = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": _PROXY_URL, "https": _PROXY_URL})
+    )
+else:
+    _GOOGLE_OPENER = urllib.request.build_opener()
+
+# ─────────────────────────────────────────────────────────────
 # Konfigurace
 # ─────────────────────────────────────────────────────────────
 SUGGEST_URL              = "https://suggestqueries.google.com/complete/search"
@@ -362,7 +373,7 @@ class GoogleAPI:
                     },
                 )
                 s.last = time.time()
-                with urllib.request.urlopen(req, timeout=10) as r:
+                with _GOOGLE_OPENER.open(req, timeout=10) as r:
                     d = json.loads(r.read().decode())
                     s.reqs += 1
                     if s.delay > s.base_delay:
@@ -951,6 +962,12 @@ def main():
         markets = pending
 
     markets = markets[: args.batch_limit]
+
+    if _PROXY_URL:
+        proxy_host = _PROXY_URL.split("@")[-1] if "@" in _PROXY_URL else _PROXY_URL.split("//")[-1]
+        print(f"  🌐 proxy: ENABLED ({proxy_host})")
+    else:
+        print("  🌐 proxy: DIRECT")
 
     print(
         f"🔍 Google Suggest Crawler v2  |  dry_run={dry_run}  "

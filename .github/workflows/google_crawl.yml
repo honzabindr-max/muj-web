@@ -40,8 +40,9 @@ jobs:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       # Cron defaults vs. ruční dispatch inputs
+      PROXY_URL:               ${{ secrets.PROXY_URL }}
       EFFECTIVE_DRY_RUN:       ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
-      EFFECTIVE_MAX_PARALLEL:  ${{ github.event_name == 'schedule' && '3'     || inputs.max_parallel }}
+      EFFECTIVE_MAX_PARALLEL:  ${{ github.event_name == 'schedule' && '2'     || inputs.max_parallel }}
       EFFECTIVE_BATCH_LIMIT:   ${{ github.event_name == 'schedule' && '8'     || inputs.batch_limit }}
       EFFECTIVE_MAX_DEPTH:     ${{ github.event_name == 'schedule' && '1'     || inputs.max_depth }}
       EFFECTIVE_MARKET_FILTER: ${{ github.event_name == 'schedule' && ''      || inputs.market_filter }}
