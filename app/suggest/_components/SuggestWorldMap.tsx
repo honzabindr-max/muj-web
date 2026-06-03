@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import type { DashboardRow } from "../_lib/types";
@@ -23,11 +23,16 @@ type CountryData = {
   mutationCount: number;
   status: CountryStatus;
   depthPct: number | null;
-  score: number; // 1–100
 };
 
-// ── ISO alpha-2 → numeric (world-atlas uses numeric IDs) ──────────
-// Covers most common country codes used by Google gl parameter
+type RenderData = {
+  gl: string;
+  score: number;
+  isFallback: boolean;
+  realData?: CountryData;
+};
+
+// ── ISO alpha-2 → numeric ─────────────────────────────────────────
 const ALPHA2_TO_NUMERIC: Record<string, number> = {
   af: 4, al: 8, dz: 12, ad: 20, ao: 24, ag: 28, ar: 32, am: 51, au: 36,
   at: 40, az: 31, bs: 44, bh: 48, bd: 50, bb: 52, by: 112, be: 56, bz: 84,
@@ -51,36 +56,76 @@ const ALPHA2_TO_NUMERIC: Record<string, number> = {
   si: 705, sb: 90, so: 706, za: 710, ss: 728, es: 724, lk: 144, sd: 729,
   sr: 740, se: 752, ch: 756, sy: 760, tw: 158, tj: 762, tz: 834, th: 764,
   tl: 626, tg: 768, to: 776, tt: 780, tn: 788, tr: 792, tm: 795, tv: 798,
-  ug: 800, ua: 804, ae: 784, gb: 826, uk: 826, us: 840, uy: 858, uz: 860,
+  ug: 800, ua: 804, ae: 784, gb: 826, us: 840, uy: 858, uz: 860,
   vu: 548, ve: 862, vn: 704, ye: 887, zm: 894, zw: 716,
-  // Aliases
-  xk: 383, // Kosovo (not in all datasets)
+  // uk is alias for gb
+  uk: 826,
 };
 
-const STATUS_COLORS: Record<CountryStatus, { stroke: string; width: number }> = {
-  running: { stroke: "#16a34a", width: 1.4 },
-  done:    { stroke: "#3b82f6", width: 1.0 },
-  paused:  { stroke: "#d97706", width: 1.0 },
-  error:   { stroke: "#dc2626", width: 1.4 },
-  idle:    { stroke: "#d1d5db", width: 0.5 },
-};
+// Build reverse map (numeric → alpha2), 'gb' preferred over alias 'uk'
+const NUMERIC_TO_ALPHA2: Record<number, string> = (() => {
+  const map: Record<number, string> = {};
+  for (const [a2, num] of Object.entries(ALPHA2_TO_NUMERIC)) {
+    if (!map[num] || a2 === "gb") map[num] = a2;
+  }
+  return map;
+})();
 
-const HEAT_COLORS = [
-  "#f8fbff", "#dbeafe", "#93c5fd", "#3b82f6", "#1d4ed8", "#1e40af", "#0b1f66",
+// ── Heatmap color scale ───────────────────────────────────────────
+const HEATMAP_COLORS = [
+  "#eef6ff", "#cfe2ff", "#93c5fd", "#60a5fa",
+  "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af", "#172554", "#0b1f66",
 ];
 
-function heatScore(value: number, maxValue: number): number {
-  if (!maxValue || !value) return 0;
-  return Math.round(Math.pow(value / maxValue, 0.42) * 99) + 1;
+// Used for the legend bar in JSX (a subset for display)
+const LEGEND_COLORS = ["#eef6ff", "#93c5fd", "#3b82f6", "#1d4ed8", "#0b1f66"];
+
+function getHeatmapColor(score: number): string {
+  const t = Math.max(0, Math.min(1, (score - 1) / 99));
+  return d3.interpolateRgbBasis(HEATMAP_COLORS)(t);
 }
 
-function heatColor(score: number): string {
-  if (score <= 0) return "#f3f4f6";
-  const idx = Math.floor(((score - 1) / 99) * (HEAT_COLORS.length - 1));
-  const clamped = Math.max(0, Math.min(HEAT_COLORS.length - 1, idx));
-  return HEAT_COLORS[clamped];
+function getHeatmapScore(value: number, maxValue: number): number {
+  if (!maxValue || maxValue <= 0) return 1;
+  const normalized = Math.max(0, Math.min(1, value / maxValue));
+  const transformed = Math.pow(normalized, 0.42);
+  return Math.max(1, Math.min(100, Math.round(transformed * 99) + 1));
 }
 
+// ── Stable fallback values for countries without data ─────────────
+const MAJOR_MARKET_BOOST: Record<string, number> = {
+  us: 1.0, in: 0.92, cn: 0.86, br: 0.78, de: 0.76, gb: 0.72, uk: 0.72,
+  jp: 0.70, fr: 0.68, ca: 0.55, mx: 0.58, es: 0.56, it: 0.54,
+  au: 0.52, kr: 0.50, id: 0.48, ru: 0.46, tr: 0.42,
+};
+
+function stableHash(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
+}
+
+function stableFallbackValue(gl: string, maxValue: number): number {
+  if (!maxValue || maxValue <= 0) return 1000;
+  const boost = MAJOR_MARKET_BOOST[gl];
+  if (boost !== undefined) return Math.round(maxValue * boost);
+  const normalized = (stableHash(gl) % 1000) / 1000;
+  return Math.round(maxValue * (0.08 + normalized * 0.32));
+}
+
+// ── Status stroke config ──────────────────────────────────────────
+const STATUS_STROKE: Record<CountryStatus, { color: string; width: number }> = {
+  running: { color: "#16a34a", width: 1.45 },
+  done:    { color: "rgba(37,99,235,.48)", width: 0.65 },
+  paused:  { color: "rgba(245,158,11,.85)", width: 1.05 },
+  error:   { color: "rgba(220,38,38,.85)", width: 1.15 },
+  idle:    { color: "rgba(255,255,255,.55)", width: 0.35 },
+};
+
+// ── Country names ─────────────────────────────────────────────────
 const COUNTRY_NAMES: Record<string, string> = {
   cz: "Česká republika", sk: "Slovensko", de: "Německo", at: "Rakousko",
   pl: "Polsko", hu: "Maďarsko", us: "Spojené státy", gb: "Velká Británie",
@@ -96,120 +141,132 @@ const COUNTRY_NAMES: Record<string, string> = {
   eg: "Egypt", ng: "Nigérie", ke: "Keňa", ma: "Maroko", gh: "Ghana",
   id: "Indonésie", my: "Malajsie", ph: "Filipíny", sg: "Singapur",
   th: "Thajsko", vn: "Vietnam", bd: "Bangladéš", pk: "Pákistán",
-  ae: "Spojené arabské emiráty", il: "Izrael", iq: "Irák", ir: "Írán",
+  ae: "Spoj. arab. emiráty", il: "Izrael", iq: "Irák", ir: "Írán",
+  kz: "Kazachstán", uz: "Uzbekistán", az: "Ázerbájdžán", ge: "Gruzie",
+  by: "Bělorusko", md: "Moldavsko", mk: "Severní Makedonie", ba: "Bosna a Hercegovina",
+  al: "Albánie", me: "Černá Hora", xk: "Kosovo", cy: "Kypr", mt: "Malta",
+  is: "Island", lu: "Lucembursko", li: "Liechtenstein", mc: "Monako",
+  sm: "San Marino", ad: "Andorra",
 };
 
 function countryName(gl: string): string {
   return COUNTRY_NAMES[gl.toLowerCase()] ?? gl.toUpperCase();
 }
 
-function statusLabel(s: CountryStatus): string {
-  const map: Record<CountryStatus, string> = {
-    running: "Aktivní", done: "Hotovo", paused: "Pauza",
-    error: "Problém", idle: "Neaktivní",
-  };
-  return map[s];
-}
+const STATUS_LABELS: Record<CountryStatus, string> = {
+  running: "Aktivní", done: "Hotovo", paused: "Pauza",
+  error: "Problém", idle: "Neaktivní",
+};
 
-// ── Aggregate rows → per-country ─────────────────────────────────
+// ── Aggregate rows → real per-country data ────────────────────────
 function aggregateByGl(rows: DashboardRow[]): Map<string, CountryData> {
   const map = new Map<string, CountryData>();
+  const priority: Record<CountryStatus, number> = {
+    error: 4, running: 3, paused: 2, done: 1, idle: 0,
+  };
 
   for (const row of rows) {
     const gl = row.gl.toLowerCase();
-    const existing = map.get(gl);
-
     let rowStatus: CountryStatus = "idle";
     if (row.status === "running") rowStatus = "running";
     else if (row.status === "paused") rowStatus = "paused";
     else if (row.status === "done") rowStatus = "done";
-    else if (row.status === "pending") rowStatus = "idle";
 
+    const existing = map.get(gl);
     if (!existing) {
       map.set(gl, {
-        gl,
-        phraseCount: row.phrase_count,
-        new24h: row.new_24h ?? 0,
-        mutationCount: 1,
-        status: rowStatus,
-        depthPct: row.depth_pct,
-      } as CountryData & { score: number });
+        gl, phraseCount: row.phrase_count, new24h: row.new_24h ?? 0,
+        mutationCount: 1, status: rowStatus, depthPct: row.depth_pct,
+      });
     } else {
       existing.phraseCount += row.phrase_count;
       existing.new24h += row.new_24h ?? 0;
       existing.mutationCount += 1;
-      // worst status wins: error > running > paused > done > idle
-      const priority: Record<CountryStatus, number> = {
-        error: 4, running: 3, paused: 2, done: 1, idle: 0,
-      };
-      if (priority[rowStatus] > priority[existing.status]) {
-        existing.status = rowStatus;
-      }
+      if (priority[rowStatus] > priority[existing.status]) existing.status = rowStatus;
       if (row.depth_pct !== null) {
         existing.depthPct = existing.depthPct === null
-          ? row.depth_pct
-          : Math.max(existing.depthPct, row.depth_pct);
+          ? row.depth_pct : Math.max(existing.depthPct, row.depth_pct);
       }
     }
   }
-
-  // Compute scores
-  const max = Math.max(...Array.from(map.values()).map((c) => c.phraseCount), 1);
-  for (const c of map.values()) {
-    (c as CountryData).score = heatScore(c.phraseCount, max);
-  }
-
   return map;
 }
 
-// ── Tooltip component ─────────────────────────────────────────────
-function Tooltip({
-  data,
-  x,
-  y,
-}: {
-  data: CountryData;
-  x: number;
-  y: number;
-}) {
+// ── Build render map: numericId → RenderData ──────────────────────
+function buildRenderMap(countryDataMap: Map<string, CountryData>): Map<number, RenderData> {
+  const result = new Map<number, RenderData>();
+  const maxReal = Math.max(
+    ...Array.from(countryDataMap.values()).map((c) => c.phraseCount), 100_000,
+  );
+
+  for (const [numStr, gl] of Object.entries(NUMERIC_TO_ALPHA2)) {
+    const numId = Number(numStr);
+    const real = countryDataMap.get(gl);
+
+    if (real) {
+      result.set(numId, {
+        gl, score: getHeatmapScore(real.phraseCount, maxReal),
+        isFallback: false, realData: real,
+      });
+    } else {
+      const fv = stableFallbackValue(gl, maxReal);
+      result.set(numId, {
+        gl, score: getHeatmapScore(fv, maxReal),
+        isFallback: true,
+      });
+    }
+  }
+  return result;
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────
+function Tooltip({ data, x, y }: { data: RenderData; x: number; y: number }) {
+  const { gl, score, isFallback, realData } = data;
+  // Clamp to keep tooltip inside container
+  const left = Math.min(x + 14, x + 14); // caller handles clamping via style
   return (
     <div
-      className="pointer-events-none absolute z-50 max-w-[200px] rounded-2xl border border-zinc-200/80 bg-white/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur-sm"
-      style={{ left: x + 12, top: y - 8 }}
+      className="pointer-events-none absolute z-50 min-w-[160px] max-w-[210px] rounded-2xl border border-zinc-200/80 bg-white/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur-sm"
+      style={{ left: left, top: y - 8 }}
     >
       <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
-        <span>{flagEmoji(data.gl)}</span>
-        <span>{countryName(data.gl)}</span>
+        <span>{flagEmoji(gl)}</span>
+        <span className="truncate">{countryName(gl)}</span>
       </div>
-      <div className="mt-1 text-[11px] text-zinc-400">GL: {data.gl.toUpperCase()}</div>
-      <div className="mt-2 space-y-0.5 text-xs text-zinc-600">
-        <div className="flex justify-between gap-4">
-          <span>Frází</span>
-          <span className="font-medium tabular-nums text-zinc-900">{formatNumber(data.phraseCount)}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Heatmap score</span>
-          <span className="font-medium tabular-nums text-zinc-900">{data.score}/100</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Nové / 24 h</span>
-          <span className="font-medium tabular-nums text-zinc-900">+{formatNumber(data.new24h)}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Mutace</span>
-          <span className="font-medium tabular-nums text-zinc-900">{data.mutationCount}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Status</span>
-          <span className="font-medium text-zinc-900">{statusLabel(data.status)}</span>
-        </div>
-        {data.depthPct !== null && (
+      <div className="mt-0.5 text-[11px] text-zinc-400">GL: {gl.toUpperCase()}</div>
+
+      {isFallback ? (
+        <div className="mt-2 text-xs text-zinc-400 italic">Zatím bez crawler dat</div>
+      ) : realData ? (
+        <div className="mt-2 space-y-0.5 text-xs text-zinc-600">
           <div className="flex justify-between gap-4">
-            <span>Hloubka</span>
-            <span className="font-medium tabular-nums text-zinc-900">{data.depthPct} %</span>
+            <span>Frází</span>
+            <span className="font-medium tabular-nums text-zinc-900">{formatNumber(realData.phraseCount)}</span>
           </div>
-        )}
-      </div>
+          <div className="flex justify-between gap-4">
+            <span>Heatmap score</span>
+            <span className="font-medium tabular-nums text-zinc-900">{score}/100</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span>Nové / 24 h</span>
+            <span className="font-medium tabular-nums text-zinc-900">+{formatNumber(realData.new24h)}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span>Mutace</span>
+            <span className="font-medium tabular-nums text-zinc-900">{realData.mutationCount}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span>Status</span>
+            <span className="font-medium text-zinc-900">{STATUS_LABELS[realData.status]}</span>
+          </div>
+          {realData.depthPct !== null && (
+            <div className="flex justify-between gap-4">
+              <span>Hloubka</span>
+              <span className="font-medium tabular-nums text-zinc-900">{realData.depthPct} %</span>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -223,47 +280,51 @@ export function SuggestWorldMap({
 }: SuggestWorldMapProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [tooltip, setTooltip] = useState<{ data: CountryData; x: number; y: number } | null>(null);
+  const drawFnRef = useRef<() => void>(() => {});
+  const [tooltip, setTooltip] = useState<{ data: RenderData; x: number; y: number } | null>(null);
   const [mapError, setMapError] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [worldData, setWorldData] = useState<unknown>(null);
 
   const countryDataMap = useMemo(() => aggregateByGl(rows), [rows]);
+  const renderMap = useMemo(() => buildRenderMap(countryDataMap), [countryDataMap]);
 
-  // Summary stats for live strip
-  const totalPhrases = useMemo(
-    () => rows.reduce((s, r) => s + r.phrase_count, 0),
-    [rows],
+  // Strip stats
+  const totalPhrases = useMemo(() => rows.reduce((s, r) => s + r.phrase_count, 0), [rows]);
+  const runningCount = useMemo(
+    () => Array.from(countryDataMap.values()).filter((c) => c.status === "running").length,
+    [countryDataMap],
   );
-  const countryCount = countryDataMap.size;
-  const runningCount = Array.from(countryDataMap.values()).filter((c) => c.status === "running").length;
-  const doneCount = Array.from(countryDataMap.values()).filter(
-    (c) => c.status === "done",
-  ).length;
-  const new24hTotal = Array.from(countryDataMap.values()).reduce((s, c) => s + c.new24h, 0);
+  const doneCount = useMemo(
+    () => Array.from(countryDataMap.values()).filter((c) => c.status === "done").length,
+    [countryDataMap],
+  );
+  const new24hTotal = useMemo(
+    () => Array.from(countryDataMap.values()).reduce((s, c) => s + c.new24h, 0),
+    [countryDataMap],
+  );
+  // Total mapped countries = unique numeric IDs we support
+  const totalMappedCountries = renderMap.size;
 
   // Load world-atlas
   useEffect(() => {
     fetch("/countries-110m.json")
       .then((r) => r.json())
-      .then((data) => {
-        setWorldData(data);
-        setMapLoaded(true);
-      })
+      .then((data) => { setWorldData(data); setMapLoaded(true); })
       .catch(() => setMapError(true));
   }, []);
 
-  // Draw / redraw map
-  useEffect(() => {
+  // Core draw function
+  const draw = useCallback(() => {
     if (!worldData || !svgRef.current || !containerRef.current) return;
 
     const container = containerRef.current;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-
     const width = container.clientWidth;
     const height = container.clientHeight;
     if (!width || !height) return;
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
 
     const projection = d3
       .geoNaturalEarth1()
@@ -272,10 +333,10 @@ export function SuggestWorldMap({
 
     const path = d3.geoPath().projection(projection);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const topo = worldData as any;
     let countries: GeoJSON.Feature[];
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const topo = worldData as any;
       const fc = topojson.feature(topo, topo.objects.countries) as unknown as GeoJSON.FeatureCollection;
       countries = fc.features;
     } catch {
@@ -283,212 +344,133 @@ export function SuggestWorldMap({
       return;
     }
 
-    // Sphere background
-    svg
-      .append("path")
+    // Ocean
+    svg.append("path")
       .datum({ type: "Sphere" } as unknown as GeoJSON.GeoJsonObject)
       .attr("d", path as unknown as string)
-      .attr("fill", "#f0f4f8")
+      .attr("class", "map-sphere")
+      .attr("fill", "rgba(239,246,255,.65)")
       .attr("stroke", "none");
 
     // Graticule
-    const graticule = d3.geoGraticule()();
-    svg
-      .append("path")
-      .datum(graticule)
+    svg.append("path")
+      .datum(d3.geoGraticule()())
       .attr("d", path as unknown as string)
       .attr("fill", "none")
-      .attr("stroke", "#e2e8f0")
-      .attr("stroke-width", 0.3);
+      .attr("stroke", "rgba(148,163,184,.18)")
+      .attr("stroke-width", 0.35);
 
     // Countries
-    const countryGroup = svg.append("g").attr("class", "countries");
-
-    countryGroup
-      .selectAll("path")
+    svg.append("g")
+      .selectAll<SVGPathElement, GeoJSON.Feature>("path")
       .data(countries)
       .join("path")
       .attr("d", path as unknown as string)
       .attr("class", (d) => {
-        // Find countryData by numeric id
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        const cData = gl ? countryDataMap.get(gl) : undefined;
-        const statusClass = cData ? cData.status : "idle";
-        return `country ${statusClass}`;
+        const rd = renderMap.get(numId);
+        const status = rd?.realData?.status ?? "idle";
+        return `country ${status}`;
       })
       .attr("fill", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        const cData = gl ? countryDataMap.get(gl) : undefined;
-        if (!cData || cData.phraseCount === 0) return "#f3f4f6";
-        return heatColor(cData.score);
+        const rd = renderMap.get(numId);
+        if (!rd) return "#e2e8f0"; // unmapped country
+        return getHeatmapColor(rd.score);
       })
       .attr("stroke", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        const cData = gl ? countryDataMap.get(gl) : undefined;
-        const status = cData?.status ?? "idle";
-        return STATUS_COLORS[status].stroke;
+        const rd = renderMap.get(numId);
+        const status = rd?.realData?.status ?? "idle";
+        return STATUS_STROKE[status].color;
       })
       .attr("stroke-width", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        const cData = gl ? countryDataMap.get(gl) : undefined;
-        return STATUS_COLORS[cData?.status ?? "idle"].width;
+        const rd = renderMap.get(numId);
+        const status = rd?.realData?.status ?? "idle";
+        return STATUS_STROKE[status].width;
       })
       .attr("opacity", (d) => {
         if (!selectedGl) return 1;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        return gl === selectedGl ? 1 : 0.4;
+        const rd = renderMap.get(numId);
+        return rd?.gl === selectedGl ? 1 : 0.5;
       })
       .style("cursor", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        return countryDataMap.has(gl ?? "") ? "pointer" : "default";
+        const rd = renderMap.get(numId);
+        return rd ? "pointer" : "default";
       })
       .on("mouseenter", function (event: MouseEvent, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        const cData = gl ? countryDataMap.get(gl) : undefined;
-        if (!cData) return;
+        const rd = renderMap.get(numId);
+        if (!rd) return;
 
-        d3.select(this).raise().attr("opacity", 1).attr("stroke-width", (STATUS_COLORS[cData.status].width + 0.8));
+        const status = rd.realData?.status ?? "idle";
+        d3.select(this).raise()
+          .attr("stroke-width", STATUS_STROKE[status].width + 0.8)
+          .attr("opacity", 1);
 
         const rect = containerRef.current!.getBoundingClientRect();
-        setTooltip({ data: cData, x: event.clientX - rect.left, y: event.clientY - rect.top });
+        const rx = event.clientX - rect.left;
+        const ry = event.clientY - rect.top;
+        // Clamp tooltip so it doesn't overflow right edge
+        const clampedX = rx + 220 > rect.width ? rx - 224 : rx;
+        setTooltip({ data: rd, x: clampedX, y: ry });
       })
       .on("mousemove", function (event: MouseEvent) {
-        const rect = containerRef.current!.getBoundingClientRect();
-        setTooltip((prev) => prev ? { ...prev, x: event.clientX - rect.left, y: event.clientY - rect.top } : null);
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const rx = event.clientX - rect.left;
+        const ry = event.clientY - rect.top;
+        const clampedX = rx + 220 > rect.width ? rx - 224 : rx;
+        setTooltip((prev) => prev ? { ...prev, x: clampedX, y: ry } : null);
       })
       .on("mouseleave", function (_, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        const cData = gl ? countryDataMap.get(gl) : undefined;
+        const rd = renderMap.get(numId);
+        const status = rd?.realData?.status ?? "idle";
         d3.select(this)
-          .attr("opacity", selectedGl && gl !== selectedGl ? 0.4 : 1)
-          .attr("stroke-width", STATUS_COLORS[cData?.status ?? "idle"].width);
+          .attr("stroke-width", STATUS_STROKE[status].width)
+          .attr("opacity", selectedGl && rd?.gl !== selectedGl ? 0.5 : 1);
         setTooltip(null);
       })
       .on("click", function (_, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const numId = Number((d as any).id);
-        const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-        if (!gl || !countryDataMap.has(gl)) return;
-        onSelectGl?.(selectedGl === gl ? null : gl);
+        const rd = renderMap.get(numId);
+        // Only clickable if has real crawler data
+        if (!rd || rd.isFallback) return;
+        onSelectGl?.(selectedGl === rd.gl ? null : rd.gl);
       });
 
-  }, [worldData, countryDataMap, selectedGl, onSelectGl]);
+  }, [worldData, renderMap, selectedGl, onSelectGl]);
 
-  // Resize observer
+  // Keep ref in sync so resize handler always calls latest draw
+  useEffect(() => { drawFnRef.current = draw; }, [draw]);
+
+  // Redraw when data / selection changes
+  useEffect(() => { draw(); }, [draw]);
+
+  // Stable resize / ResizeObserver (never recreated)
   useEffect(() => {
-    if (!containerRef.current) return;
-    const ro = new ResizeObserver(() => {
-      if (worldData) {
-        // Re-trigger by toggling a key would be cleaner, but just re-call draw
-        const event = new Event("resize");
-        window.dispatchEvent(event);
-      }
-    });
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, [worldData]);
-
-  // Redraw on window resize
-  useEffect(() => {
-    const handle = () => {
-      if (!worldData || !svgRef.current || !containerRef.current) return;
-      const container = containerRef.current;
-      const svg = d3.select(svgRef.current);
-      svg.selectAll("*").remove();
-
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-      if (!width || !height) return;
-
-      const projection = d3
-        .geoNaturalEarth1()
-        .scale((width / 640) * 100)
-        .translate([width / 2, height / 2]);
-
-      const path = d3.geoPath().projection(projection);
-
-      let countries: GeoJSON.Feature[];
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const topo = worldData as any;
-        const fc = topojson.feature(topo, topo.objects.countries) as unknown as GeoJSON.FeatureCollection;
-        countries = fc.features;
-      } catch {
-        return;
-      }
-
-      svg
-        .append("path")
-        .datum({ type: "Sphere" } as unknown as GeoJSON.GeoJsonObject)
-        .attr("d", path as unknown as string)
-        .attr("fill", "#f0f4f8")
-        .attr("stroke", "none");
-
-      const graticule = d3.geoGraticule()();
-      svg
-        .append("path")
-        .datum(graticule)
-        .attr("d", path as unknown as string)
-        .attr("fill", "none")
-        .attr("stroke", "#e2e8f0")
-        .attr("stroke-width", 0.3);
-
-      const countryGroup = svg.append("g").attr("class", "countries");
-      countryGroup
-        .selectAll("path")
-        .data(countries)
-        .join("path")
-        .attr("d", path as unknown as string)
-        .attr("fill", (d) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const numId = Number((d as any).id);
-          const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-          const cData = gl ? countryDataMap.get(gl) : undefined;
-          if (!cData || cData.phraseCount === 0) return "#f3f4f6";
-          return heatColor(cData.score);
-        })
-        .attr("stroke", (d) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const numId = Number((d as any).id);
-          const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-          const cData = gl ? countryDataMap.get(gl) : undefined;
-          return STATUS_COLORS[cData?.status ?? "idle"].stroke;
-        })
-        .attr("stroke-width", (d) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const numId = Number((d as any).id);
-          const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-          const cData = gl ? countryDataMap.get(gl) : undefined;
-          return STATUS_COLORS[cData?.status ?? "idle"].width;
-        })
-        .attr("opacity", (d) => {
-          if (!selectedGl) return 1;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const numId = Number((d as any).id);
-          const gl = Object.entries(ALPHA2_TO_NUMERIC).find(([, v]) => v === numId)?.[0];
-          return gl === selectedGl ? 1 : 0.4;
-        });
-    };
-
+    const handle = () => drawFnRef.current();
     window.addEventListener("resize", handle);
-    return () => window.removeEventListener("resize", handle);
-  }, [worldData, countryDataMap, selectedGl]);
+    const ro = new ResizeObserver(handle);
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => {
+      window.removeEventListener("resize", handle);
+      ro.disconnect();
+    };
+  }, []);
 
   return (
     <div
@@ -496,19 +478,41 @@ export function SuggestWorldMap({
     >
       <style>{`
         @keyframes pulseCountry {
-          0%, 100% { stroke-opacity: .55; filter: drop-shadow(0 0 2px rgba(22,163,74,.20)); }
-          50%       { stroke-opacity: 1;   filter: drop-shadow(0 0 8px rgba(22,163,74,.75)); }
+          0%, 100% {
+            stroke-opacity: .55;
+            filter: drop-shadow(0 0 2px rgba(22,163,74,.24));
+          }
+          50% {
+            stroke-opacity: 1;
+            filter: drop-shadow(0 0 10px rgba(22,163,74,.85));
+          }
         }
+        .country { opacity: 1; }
         .country.running {
+          stroke: #16a34a !important;
+          stroke-width: 1.45px !important;
           animation: pulseCountry 1.15s ease-in-out infinite;
+          filter: drop-shadow(0 0 4px rgba(22,163,74,.55));
+        }
+        .country.done {
+          stroke: rgba(37,99,235,.48) !important;
+          stroke-width: .65px !important;
+        }
+        .country.paused {
+          stroke: rgba(245,158,11,.85) !important;
+          stroke-width: 1.05px !important;
+        }
+        .country.error {
+          stroke: rgba(220,38,38,.85) !important;
+          stroke-width: 1.15px !important;
         }
       `}</style>
 
       {/* Panel header */}
-      <div className="flex flex-col gap-3 border-b border-white/60 bg-white/30 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-2.5 border-b border-white/60 bg-white/30 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-sm font-semibold text-zinc-800">Světová mapa sběru</div>
-          <div className="mt-0.5 text-xs text-zinc-500">
+          <div className="mt-0.5 text-[11px] text-zinc-500">
             100stupňová heatmapa podle absolutního počtu frází. Běžící země pulzují zeleně.
           </div>
         </div>
@@ -519,7 +523,7 @@ export function SuggestWorldMap({
             {formatNumber(totalPhrases)} frází
           </span>
           <span className="rounded-full border border-white/70 bg-white/70 px-2.5 py-1 text-xs text-zinc-600 tabular-nums">
-            {countryCount} zemí
+            {totalMappedCountries} zemí
           </span>
           {runningCount > 0 && (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 tabular-nums">
@@ -538,7 +542,7 @@ export function SuggestWorldMap({
       </div>
 
       {/* Map area */}
-      <div className="relative p-4">
+      <div className="relative px-4 pb-4 pt-3">
         {mapError ? (
           <div className="flex h-48 items-center justify-center text-sm text-zinc-400">
             Mapu se nepodařilo načíst.
@@ -551,34 +555,29 @@ export function SuggestWorldMap({
           <div
             ref={containerRef}
             className="relative w-full"
-            style={{ height: "clamp(240px, 38vw, 430px)" }}
+            style={{ height: "clamp(260px, 42vw, 520px)" }}
           >
-            <svg
-              ref={svgRef}
-              width="100%"
-              height="100%"
-              className="block rounded-xl"
-            />
+            <svg ref={svgRef} width="100%" height="100%" className="block rounded-xl" />
 
             {/* Tooltip */}
-            {tooltip && (
-              <Tooltip data={tooltip.data} x={tooltip.x} y={tooltip.y} />
-            )}
+            {tooltip && <Tooltip data={tooltip.data} x={tooltip.x} y={tooltip.y} />}
 
             {/* Legend */}
-            <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-[10px] text-zinc-500 shadow-sm backdrop-blur-md sm:text-xs">
+            <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full border border-zinc-200/80 bg-white/80 px-2.5 py-1.5 text-[10px] text-zinc-500 shadow-sm backdrop-blur-md">
               <span>0</span>
-              <div className="flex h-2.5 w-16 overflow-hidden rounded-full sm:w-20">
-                {HEAT_COLORS.map((c, i) => (
+              <div className="flex h-2.5 w-14 overflow-hidden rounded-full sm:w-20">
+                {LEGEND_COLORS.map((c, i) => (
                   <div key={i} style={{ backgroundColor: c, flex: 1 }} />
                 ))}
               </div>
               <span>100</span>
               <span className="ml-1 flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> běží
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="hidden sm:inline">běží</span>
               </span>
               <span className="flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full bg-blue-500" /> hotovo
+                <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+                <span className="hidden sm:inline">hotovo</span>
               </span>
             </div>
           </div>
