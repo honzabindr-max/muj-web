@@ -9,7 +9,7 @@ on:
         description: "Plan only — žádný zápis do DB (true/false)"
         default: "true"
       max_parallel:
-        description: "Souběžné markety. Default pro cron=3."
+        description: "Souběžné markety. Default pro cron=1."
         default: "1"
       batch_limit:
         description: "Max marketů v jednom běhu. Default pro cron=8."
@@ -42,7 +42,7 @@ jobs:
       # Cron defaults vs. ruční dispatch inputs
       PROXY_URL:               ${{ secrets.PROXY_URL }}
       EFFECTIVE_DRY_RUN:       ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
-      EFFECTIVE_MAX_PARALLEL:  ${{ github.event_name == 'schedule' && '2'     || inputs.max_parallel }}
+      EFFECTIVE_MAX_PARALLEL:  ${{ github.event_name == 'schedule' && '1'     || inputs.max_parallel }}
       EFFECTIVE_BATCH_LIMIT:   ${{ github.event_name == 'schedule' && '8'     || inputs.batch_limit }}
       EFFECTIVE_MAX_DEPTH:     ${{ github.event_name == 'schedule' && '1'     || inputs.max_depth }}
       EFFECTIVE_MARKET_FILTER: ${{ github.event_name == 'schedule' && ''      || inputs.market_filter }}

@@ -59,7 +59,7 @@ Deno.serve(async (_req) => {
           ref: 'main',
           inputs: {
             dry_run: 'false',
-            max_parallel: '2',
+            max_parallel: '1',
             batch_limit: '8',
             max_depth: '1',
             market_filter: '',
