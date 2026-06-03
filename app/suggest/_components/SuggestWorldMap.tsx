@@ -475,39 +475,36 @@ export function SuggestWorldMap({
     };
   }, []);
 
+  // D3 timer: smooth sine-wave pulse on running countries (bypasses CSS specificity issues)
+  useEffect(() => {
+    if (!mapLoaded) return;
+    const PERIOD = 1300; // ms per cycle
+    const timer = d3.timer((elapsed) => {
+      if (!svgRef.current) return;
+      const t = (Math.sin((elapsed / PERIOD) * Math.PI * 2) + 1) / 2; // 0→1→0
+      const strokeAlpha = (0.3 + t * 0.7).toFixed(2);
+      const strokeWidth = (0.8 + t * 2.4).toFixed(2);
+      const glow = t * 9;
+      d3.select(svgRef.current)
+        .selectAll<SVGPathElement, unknown>(".country.running")
+        .attr("stroke", `rgba(22,163,74,${strokeAlpha})`)
+        .attr("stroke-width", strokeWidth)
+        .style("filter", glow > 0.3
+          ? `drop-shadow(0 0 ${glow.toFixed(1)}px rgba(22,163,74,${(t * 0.8).toFixed(2)}))`
+          : "none",
+        );
+    });
+    return () => timer.stop();
+  }, [mapLoaded]);
+
   return (
     <div
       className={`overflow-hidden rounded-[28px] border border-white/70 bg-white/45 shadow-[0_8px_24px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl ${className}`}
     >
       <style>{`
-        @keyframes pulseCountry {
-          0%, 100% {
-            stroke: rgba(22,163,74,0.35);
-            stroke-width: 0.8px;
-            filter: drop-shadow(0 0 1px rgba(22,163,74,0.1));
-          }
-          50% {
-            stroke: rgba(22,163,74,1);
-            stroke-width: 3px;
-            filter: drop-shadow(0 0 8px rgba(22,163,74,0.8));
-          }
-        }
-        .country { opacity: 1; }
-        .country.running {
-          animation: pulseCountry 1.3s ease-in-out infinite;
-        }
-        .country.done {
-          stroke: rgba(37,99,235,.5);
-          stroke-width: .7px;
-        }
-        .country.paused {
-          stroke: rgba(245,158,11,.9);
-          stroke-width: 1.1px;
-        }
-        .country.error {
-          stroke: rgba(220,38,38,.9);
-          stroke-width: 1.2px;
-        }
+        .country.done   { stroke: rgba(37,99,235,.5); stroke-width: .7px; }
+        .country.paused { stroke: rgba(245,158,11,.9); stroke-width: 1.1px; }
+        .country.error  { stroke: rgba(220,38,38,.9); stroke-width: 1.2px; }
       `}</style>
 
       {/* Panel header */}
