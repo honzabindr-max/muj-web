@@ -21,13 +21,18 @@ Resilience:
 from __future__ import annotations
 import argparse, concurrent.futures, hashlib, http.client, json, os, random, re, socket, ssl, sys, threading, time
 import urllib.request, urllib.parse, uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 
 try:
     import yaml
 except ImportError:
     print("✗ Chybí pyyaml — spusť: pip install pyyaml")
     sys.exit(1)
+
+try:
+    from notify import send as _notify_send
+except ImportError:
+    def _notify_send(msg): print(f"  [notify] {msg}")
 
 # ─────────────────────────────────────────────────────────────
 # Konfigurace
@@ -37,6 +42,7 @@ SUGGEST_LIMIT            = 10
 MAX_RETRIES              = 3      # Google API retry pokusy
 TABLE                    = "google_suggestions_v2"
 STATE_TABLE              = "google_crawler_state"
+CONTROL_TABLE            = "crawler_control"
 SAFE                     = '=&.,()!*:"'
 
 DB_MAX_RETRIES            = 6    # Max retry pokusů na jeden DB request
@@ -125,6 +131,7 @@ class DB:
             "Authorization": "Bearer " + key,
             "Content-Type": "application/json",
         }
+        s._control_cache = {"ts": 0.0, "data": None}
 
     def _req(s, m, p, d=None, eh=None):
         """Jeden HTTP request. Vrací:
@@ -236,12 +243,67 @@ class DB:
         except Exception:
             return 0
 
+    def get_control(s) -> dict | None:
+        """Načte crawler_control se 5s TTL cache (per-instance, thread-safe)."""
+        now = time.time()
+        if now - s._control_cache["ts"] < 5.0 and s._control_cache["data"] is not None:
+            return s._control_cache["data"]
+        rows = s._req("GET", CONTROL_TABLE + "?id=eq.1&select=*")
+        if rows and isinstance(rows, list):
+            s._control_cache = {"ts": now, "data": rows[0]}
+            return rows[0]
+        return None
+
+    def trip_killswitch(s, reason: str, gl: str, hl: str) -> bool:
+        """Nastaví stop_flag=True. Eskalující cooldown: 15 min → 1h → 6h."""
+        ctrl = s.get_control()
+        if ctrl and ctrl.get("stop_flag"):
+            return True  # idempotency guard
+
+        today = datetime.now(timezone.utc).date().isoformat()
+        n = 1
+        if ctrl and ctrl.get("block_count_date") == today:
+            n = (ctrl.get("block_count_today") or 0) + 1
+
+        minutes = {1: 15, 2: 60}.get(n, 360)
+        now_dt = datetime.now(timezone.utc)
+        cooldown_until = (now_dt + timedelta(minutes=minutes)).isoformat()
+
+        payload = {
+            "stop_flag":         True,
+            "stop_reason":       reason[:500],
+            "stopped_at":        now_dt.isoformat(),
+            "cooldown_until":    cooldown_until,
+            "block_count_today": n,
+            "block_count_date":  today,
+            "updated_at":        now_dt.isoformat(),
+        }
+        ok = s._req("PATCH", CONTROL_TABLE + "?id=eq.1", payload, {"Prefer": "return=minimal"})
+        s._control_cache["ts"] = 0.0  # invalidate
+
+        _notify_send(
+            f"🛑 Kill-switch aktivován\nMarket: {gl}/{hl}\n"
+            f"Důvod: {reason[:200]}\n"
+            f"Cooldown: {minutes} min (blok #{n} dnes)\n"
+            f"Obnovení: {cooldown_until}"
+        )
+        return ok is not None
+
+    def set_shared_delay(s, ms: int) -> None:
+        """Nastaví sdílený delay pro všechny thready (fire-and-forget)."""
+        s._req(
+            "PATCH", CONTROL_TABLE + "?id=eq.1",
+            {"shared_delay_ms": ms, "updated_at": datetime.now(timezone.utc).isoformat()},
+            {"Prefer": "return=minimal"},
+        )
+        s._control_cache["ts"] = 0.0
+
 
 # ─────────────────────────────────────────────────────────────
 # Google Suggest API — adaptivní delay + backoff
 # ─────────────────────────────────────────────────────────────
 class GoogleAPI:
-    def __init__(s, gl: str, hl: str, delay_ms: int = 500):
+    def __init__(s, gl: str, hl: str, delay_ms: int = 500, db=None):
         s.gl = gl
         s.hl = hl
         s.delay = delay_ms / 1000.0
@@ -249,12 +311,40 @@ class GoogleAPI:
         s.reqs = 0
         s.errs = 0
         s.last = 0.0
+        s.db = db
+        s._result_window: list[bool] = []
+        s._soft_block_strikes = 0
+
+    def _check_soft_block(s, last_prefix: str):
+        """Detekuje tichý soft-block: <15% non-empty v okně 30 fetchů, 3× za sebou."""
+        WINDOW, THRESHOLD, STRIKES = 30, 0.15, 3
+        if len(s._result_window) < WINDOW:
+            return
+        ratio = sum(s._result_window) / WINDOW
+        if ratio < THRESHOLD:
+            s._soft_block_strikes += 1
+            print(
+                f"  ⚠ Soft-block podezření: hit_ratio={ratio:.1%}, "
+                f"strike {s._soft_block_strikes}/{STRIKES} (prefix='{last_prefix}')"
+            )
+            if s._soft_block_strikes >= STRIKES and s.db is not None:
+                s.db.trip_killswitch(
+                    f"tichá degradace hit_ratio={ratio:.1%}", s.gl, s.hl
+                )
+        else:
+            s._soft_block_strikes = 0
 
     def fetch(s, phrase: str):
         """Vrací list frází, [] pro žádný výsledek, nebo None pro 403 BLOCKED."""
+        # Efektivní delay: max(lokální, sdílený z DB)
+        effective_delay = s.delay
+        if s.db is not None:
+            ctrl = s.db.get_control()
+            if ctrl:
+                effective_delay = max(s.delay, ctrl.get("shared_delay_ms", 300) / 1000.0)
         el = time.time() - s.last
-        if el < s.delay:
-            time.sleep(s.delay - el)
+        if el < effective_delay:
+            time.sleep(effective_delay - el)
         params = {"client": "firefox", "q": phrase, "hl": s.hl, "gl": s.gl}
         url = SUGGEST_URL + "?" + urllib.parse.urlencode(params)
         for attempt in range(MAX_RETRIES):
@@ -277,11 +367,19 @@ class GoogleAPI:
                     s.reqs += 1
                     if s.delay > s.base_delay:
                         s.delay = max(s.base_delay, s.delay * 0.95)
-                    return d[1] if isinstance(d, list) and len(d) >= 2 else []
+                    results = d[1] if isinstance(d, list) and len(d) >= 2 else []
+                    # Sliding window pro soft-block detekci
+                    s._result_window.append(bool(results))
+                    if len(s._result_window) > 30:
+                        s._result_window.pop(0)
+                    s._check_soft_block(phrase)
+                    return results
             except urllib.error.HTTPError as e:
                 s.errs += 1
                 if e.code in (429, 503):
                     s.delay = min(10.0, s.delay * 2)
+                    if s.db is not None:
+                        s.db.set_shared_delay(min(10_000, int(s.delay * 2 * 1000)))
                     wait = s.delay * (attempt + 1)
                     print(
                         f"  ⚠ Rate limit ({e.code}), delay={s.delay:.1f}s, "
@@ -496,7 +594,7 @@ def run_market(
     expand_chars = get_alphabet(hl)
     all_roots    = get_roots(hl)
     label        = f"{gl}/{hl}"
-    api          = GoogleAPI(gl, hl, delay_ms)
+    api          = GoogleAPI(gl, hl, delay_ms, db=db)
 
     # ── Načtení stavu ──
     state = None
@@ -636,6 +734,21 @@ def run_market(
 
     try:
         while queue:
+            # Kill-switch check (cached, ~5s TTL) — přeskočit v dry_run
+            if not dry_run:
+                ctrl = db.get_control()
+                if ctrl and ctrl.get("stop_flag"):
+                    print(f"  🛑 Kill-switch aktivní — ukončuji {label}")
+                    fr = flush_buffer()
+                    if fr == -999:
+                        _update_state_snapshot()
+                        state["status"] = "paused"
+                        raise RuntimeError("Kill-switch + circuit breaker tripped")
+                    _update_state_snapshot()
+                    state["status"] = "paused"
+                    save_state(db, gl, hl, state)
+                    return "paused"
+
             elapsed = time.time() - start
 
             # Safety margin před GH Actions timeoutem
@@ -657,11 +770,12 @@ def run_market(
             suggs = api.fetch(prefix)
             queries += 1
 
-            if suggs is None:  # 403 BLOCKED — jediný případ se status='error'
+            if suggs is None:  # 403 BLOCKED — uložit jako paused (resumovatelné po cooldownu)
                 flush_buffer()
                 _update_state_snapshot()
-                state["status"] = "error"
+                state["status"] = "paused"
                 save_state(db, gl, hl, state)
+                db.trip_killswitch(f"403 BLOCKED na prefixu '{prefix}'", gl, hl)
                 return "blocked"
 
             if suggs:

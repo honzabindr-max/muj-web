@@ -1,25 +1,30 @@
 name: Google Crawl v2
 
 on:
+  schedule:
+    - cron: '0 * * * *'   # každou celou hodinu
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Plan only — žádný zápis do DB (true/false)"
         default: "true"
       max_parallel:
-        description: "Souběžné markety. NEZVYŠOVAT na 2 bez ověření metrik (fáze 5)"
+        description: "Souběžné markety. Default pro cron=3."
         default: "1"
       batch_limit:
-        description: "Max marketů v jednom běhu"
+        description: "Max marketů v jednom běhu. Default pro cron=8."
         default: "5"
       max_depth:
-        description: "BFS hloubka (1 = validační fáze; depth 2 až po ověření)"
+        description: "BFS hloubka (1 = depth 0+1)"
         default: "1"
       market_filter:
         description: "Volitelný gl/hl filtr, např. cz/cs (prázdné = všechny enabled)"
         default: ""
+      reset_killswitch:
+        description: "Manuálně vynuluj stop_flag před spuštěním (true/false)"
+        default: "false"
 
-# Concurrency guard: zabrání překryvu dvou ručních dispatchů.
+# Concurrency guard: zabrání překryvu dvou dispatchů.
 # cancel-in-progress: false → běžící run doběhne, nový čeká ve frontě.
 concurrency:
   group: google-crawl-v2
@@ -28,12 +33,18 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 350   # pod GitHub limitem 360 min; crawler sám ukládá stav před limitem
+    timeout-minutes: 350
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Cron defaults vs. ruční dispatch inputs
+      EFFECTIVE_DRY_RUN:       ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+      EFFECTIVE_MAX_PARALLEL:  ${{ github.event_name == 'schedule' && '3'     || inputs.max_parallel }}
+      EFFECTIVE_BATCH_LIMIT:   ${{ github.event_name == 'schedule' && '8'     || inputs.batch_limit }}
+      EFFECTIVE_MAX_DEPTH:     ${{ github.event_name == 'schedule' && '1'     || inputs.max_depth }}
+      EFFECTIVE_MARKET_FILTER: ${{ github.event_name == 'schedule' && ''      || inputs.market_filter }}
 
     steps:
       - uses: actions/checkout@v4
@@ -45,19 +56,90 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml
 
+      - name: Reset kill-switch (manuální)
+        if: inputs.reset_killswitch == 'true'
+        continue-on-error: true
+        run: |
+          python - <<'PYEOF'
+          import os, urllib.request, json
+          url = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/crawler_control?id=eq.1"
+          key = os.environ["SUPABASE_KEY"]
+          payload = json.dumps({
+              "stop_flag": False, "stop_reason": None,
+              "stopped_at": None, "cooldown_until": None,
+              "updated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z"
+          }).encode()
+          req = urllib.request.Request(url, data=payload, method="PATCH")
+          req.add_header("apikey", key)
+          req.add_header("Authorization", "Bearer " + key)
+          req.add_header("Content-Type", "application/json")
+          req.add_header("Prefer", "return=minimal")
+          urllib.request.urlopen(req, timeout=10)
+          print("✓ Kill-switch resetován manuálně.")
+          PYEOF
+
+      - name: Check cooldown / reset expired kill-switch
+        id: cooldown_check
+        if: env.EFFECTIVE_DRY_RUN != 'true'
+        run: |
+          python - <<'PYEOF'
+          import os, sys, urllib.request, json
+          from datetime import datetime, timezone
+
+          url = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/crawler_control?id=eq.1&select=*"
+          key = os.environ["SUPABASE_KEY"]
+          req = urllib.request.Request(url)
+          req.add_header("apikey", key)
+          req.add_header("Authorization", "Bearer " + key)
+          rows = json.loads(urllib.request.urlopen(req, timeout=10).read())
+
+          if not rows or not rows[0].get("stop_flag"):
+              print("✓ Kill-switch neaktivní — pokračuji")
+              sys.exit(0)
+
+          ctrl = rows[0]
+          cooldown_str = ctrl.get("cooldown_until") or ""
+          now = datetime.now(timezone.utc)
+
+          if cooldown_str:
+              cu = datetime.fromisoformat(cooldown_str.replace("Z", "+00:00"))
+              if now < cu:
+                  remaining = int((cu - now).total_seconds() // 60)
+                  print(f"⏸ Kill-switch aktivní, cooldown zbývá {remaining} min — přeskakuji run")
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                      fh.write("skip=true\n")
+                  sys.exit(0)
+
+          # Cooldown vypršel — resetuj
+          patch_url = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/crawler_control?id=eq.1"
+          patch_payload = json.dumps({
+              "stop_flag": False, "stop_reason": None,
+              "stopped_at": None, "cooldown_until": None,
+              "updated_at": now.isoformat()
+          }).encode()
+          preq = urllib.request.Request(patch_url, data=patch_payload, method="PATCH")
+          preq.add_header("apikey", key)
+          preq.add_header("Authorization", "Bearer " + key)
+          preq.add_header("Content-Type", "application/json")
+          preq.add_header("Prefer", "return=minimal")
+          urllib.request.urlopen(preq, timeout=10)
+          print("✓ Cooldown vypršel — kill-switch resetován, pokračuji")
+          PYEOF
+
       - name: Notify start
-        if: ${{ inputs.dry_run == 'false' }}
-        run: python notify.py "🔍 Google Crawl v2 spuštěn (depth=${{ inputs.max_depth }}, markets=${{ inputs.batch_limit }}, filter=${{ inputs.market_filter }})"
+        if: steps.cooldown_check.outputs.skip != 'true' && env.EFFECTIVE_DRY_RUN == 'false'
+        run: python notify.py "🔍 Google Crawl v2 spuštěn (depth=${{ env.EFFECTIVE_MAX_DEPTH }}, markets=${{ env.EFFECTIVE_BATCH_LIMIT }}, parallel=${{ env.EFFECTIVE_MAX_PARALLEL }}, filter=${{ env.EFFECTIVE_MARKET_FILTER }})"
         continue-on-error: true
 
       - name: Run Google crawler
+        if: steps.cooldown_check.outputs.skip != 'true'
         run: |
           python crawler.py \
-            --dry-run "${{ inputs.dry_run }}" \
-            --max-parallel "${{ inputs.max_parallel }}" \
-            --batch-limit "${{ inputs.batch_limit }}" \
-            --max-depth "${{ inputs.max_depth }}" \
-            --market-filter "${{ inputs.market_filter }}"
+            --dry-run "${{ env.EFFECTIVE_DRY_RUN }}" \
+            --max-parallel "${{ env.EFFECTIVE_MAX_PARALLEL }}" \
+            --batch-limit "${{ env.EFFECTIVE_BATCH_LIMIT }}" \
+            --max-depth "${{ env.EFFECTIVE_MAX_DEPTH }}" \
+            --market-filter "${{ env.EFFECTIVE_MARKET_FILTER }}"
 
       - name: Upload emergency state artifact
         if: always()
@@ -68,6 +150,6 @@ jobs:
           if-no-files-found: ignore
 
       - name: Notify done
-        if: always() && ${{ inputs.dry_run == 'false' }}
-        run: python notify.py "✅ Google Crawl v2 dokončen (depth=${{ inputs.max_depth }}, filter=${{ inputs.market_filter }})"
+        if: always() && steps.cooldown_check.outputs.skip != 'true' && env.EFFECTIVE_DRY_RUN == 'false'
+        run: python notify.py "✅ Google Crawl v2 dokončen (depth=${{ env.EFFECTIVE_MAX_DEPTH }}, filter=${{ env.EFFECTIVE_MARKET_FILTER }})"
         continue-on-error: true

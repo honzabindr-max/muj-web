@@ -263,7 +263,7 @@ class TestEmergencySave(unittest.TestCase):
                 result = emergency_save(self._make_db(), "cz", "cs", state, "run001", "test")
                 self.assertTrue(result)
 
-                fname = "crawler_state_emergency_run001.json"
+                fname = "crawler_state_emergency_run001_cz_cs.json"
                 self.assertTrue(os.path.exists(fname))
 
                 with open(fname) as f:
@@ -292,7 +292,7 @@ class TestEmergencySave(unittest.TestCase):
                          "processed": 0, "queries_total": 0, "new_total": 0}
                 result = emergency_save(db, "cz", "cs", state, "run002")
                 self.assertTrue(result)
-                self.assertFalse(os.path.exists("crawler_state_emergency_run002.json"))
+                self.assertFalse(os.path.exists("crawler_state_emergency_run002_cz_cs.json"))
             finally:
                 os.chdir(orig)
 
@@ -450,6 +450,56 @@ class TestNormalize(unittest.TestCase):
 
     def test_empty_string(self):
         self.assertEqual(normalize(""), "")
+
+
+# ─────────────────────────────────────────────────────────────
+# E8 — kill-switch: stop_flag zastaví market; 403 tripne killswitch
+# ─────────────────────────────────────────────────────────────
+class TestKillSwitch(unittest.TestCase):
+
+    @patch("time.sleep")
+    def test_killswitch_stops_market(self, mock_sleep):
+        """stop_flag=True → run_market vrátí 'paused' bez volání fetch."""
+        db = DB("http://test", "key")
+        db.get_control  = lambda: {"stop_flag": True}
+        db.upsert_state = lambda gl, hl, d: True
+        db.upsert_batch = lambda rows: []
+        db.count_market = lambda gl, hl: 0
+        db.select       = lambda t, p: []
+        cfg = {
+            "max_depth": 1, "max_runtime_minutes": 25,
+            "batch_size": 50, "delay_between_requests_ms": 0,
+        }
+        with patch.object(crawler.GoogleAPI, "fetch", return_value=["test phrase"]):
+            result = run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "ks001")
+        self.assertEqual(result, "paused",
+                         "Kill-switch musí zastavit market a vrátit 'paused'")
+
+    @patch("time.sleep")
+    @patch("crawler._notify_send")
+    def test_403_trips_killswitch(self, mock_notify, mock_sleep):
+        """fetch()=None (403) → trip_killswitch volán, status='paused', return 'blocked'."""
+        db = DB("http://test", "key")
+        db.get_control     = lambda: {"stop_flag": False, "shared_delay_ms": 300}
+        db.upsert_state    = MagicMock(return_value=True)
+        db.upsert_batch    = lambda rows: []
+        db.count_market    = lambda gl, hl: 0
+        db.select          = lambda t, p: []
+        db.trip_killswitch = MagicMock(return_value=True)
+        cfg = {
+            "max_depth": 1, "max_runtime_minutes": 25,
+            "batch_size": 50, "delay_between_requests_ms": 0,
+        }
+        with patch.object(crawler.GoogleAPI, "fetch", return_value=None):
+            result = run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "ks002")
+        self.assertEqual(result, "blocked")
+        db.trip_killswitch.assert_called_once()
+        call_args = db.trip_killswitch.call_args[0]
+        self.assertIn("403", call_args[0])
+        self.assertEqual(call_args[1], "cz")
+        self.assertEqual(call_args[2], "cs")
+        # Stav uložen jako 'paused' (ne 'error')
+        self.assertEqual(db.upsert_state.call_args[0][2].get("status"), "paused")
 
 
 if __name__ == "__main__":
