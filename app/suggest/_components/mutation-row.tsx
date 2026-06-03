@@ -11,27 +11,28 @@ import {
 import { heartbeatColor } from "../_lib/types";
 import type { DashboardRow } from "../_lib/types";
 
-const STATUS_BADGE: Record<
-  string,
-  { label: string; classes: string }
-> = {
-  running: {
-    label: "Běží",
-    classes: "border-emerald-200/80 bg-emerald-50/80 text-emerald-700",
-  },
-  paused: {
-    label: "Pauza",
-    classes: "border-amber-200/80 bg-amber-50/80 text-amber-700",
-  },
-  done: {
-    label: "Hotovo",
-    classes: "border-blue-200/80 bg-blue-50/80 text-blue-700",
-  },
-  pending: {
-    label: "Čeká",
-    classes: "border-white/70 bg-white/55 text-zinc-500",
-  },
-};
+// paused + alive heartbeat = between batches = effectively running
+// paused + stale heartbeat = genuinely waiting
+function getStatusBadge(
+  status: DashboardRow["status"],
+  updatedAt: string | null,
+): { label: string; classes: string } | null {
+  const alive = heartbeatColor(updatedAt) !== "gray";
+  if (status === "running" || (status === "paused" && alive)) {
+    return { label: "Běží", classes: "border-emerald-200/80 bg-emerald-50/80 text-emerald-700" };
+  }
+  if (status === "paused") {
+    return { label: "Pauza", classes: "border-amber-200/80 bg-amber-50/80 text-amber-700" };
+  }
+  if (status === "done") {
+    return { label: "Hotovo", classes: "border-blue-200/80 bg-blue-50/80 text-blue-700" };
+  }
+  if (status === "pending") {
+    return { label: "Čeká", classes: "border-white/70 bg-white/55 text-zinc-500" };
+  }
+  return null;
+}
+
 
 const HB_DOT: Record<
   "green" | "amber" | "gray",
@@ -61,7 +62,7 @@ export function MutationRow({
 }) {
   const hb = heartbeatColor(row.updated_at);
   const { ring, dot } = HB_DOT[hb];
-  const badge = row.status ? (STATUS_BADGE[row.status] ?? null) : null;
+  const badge = getStatusBadge(row.status, row.updated_at);
   const newPositive = (row.new_total ?? 0) > 0;
 
   return (
