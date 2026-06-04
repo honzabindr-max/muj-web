@@ -12,6 +12,13 @@ on:
       skip_e:
         description: "Preskocit variantu E (bez proxy / runner IP)"
         default: "false"
+      sticky_proxy_cz:
+        description: |
+          [Diagnostika] Plny CZ sticky connection string z IPRoyal dashboardu.
+          Format: http://USER_country-cz_session-XXX_lifetime-10m:PASS@geo.iproyal.com:12321
+          Heslo bude maskovano v logu. DE/AD se odvodí substitucí country kódu.
+          Nechte prazdne pro auto-konstrukci z PROXY_URL (stavajici chovani).
+        default: ""
 
 jobs:
   benchmark:
@@ -19,11 +26,14 @@ jobs:
     timeout-minutes: 30
 
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-      PROXY_URL:    ${{ secrets.PROXY_URL }}
-      DRY_RUN:      ${{ inputs.dry_run }}
-      SKIP_E:       ${{ inputs.skip_e }}
+      SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY:              ${{ secrets.SUPABASE_KEY }}
+      PROXY_URL:                 ${{ secrets.PROXY_URL }}
+      DRY_RUN:                   ${{ inputs.dry_run }}
+      SKIP_E:                    ${{ inputs.skip_e }}
+      # Override: workflow input (prednost) nebo GitHub Secret STICKY_PROXY_CZ
+      STICKY_PROXY_CZ_OVERRIDE:  ${{ inputs.sticky_proxy_cz }}
+      STICKY_PROXY_CZ:           ${{ secrets.STICKY_PROXY_CZ }}
 
     steps:
       - uses: actions/checkout@v4

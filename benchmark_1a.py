@@ -12,7 +12,7 @@ Varianty:
 Spusteni: python benchmark_1a.py
 Env vars: SUPABASE_URL, SUPABASE_KEY, PROXY_URL, [DRY_RUN=false], [SKIP_E=false]
 """
-import hashlib, json, os, random, statistics, string, sys, time, urllib.parse, urllib.request
+import hashlib, json, os, random, re, statistics, string, sys, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
@@ -23,6 +23,15 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 PROXY_URL    = os.environ.get("PROXY_URL", "")
 DRY_RUN      = os.environ.get("DRY_RUN", "false").lower() in ("true", "1", "yes")
 SKIP_E       = os.environ.get("SKIP_E", "false").lower() in ("true", "1", "yes")
+
+# Diagnosticky override: plny connection string z IPRoyal dashboardu pro sticky CZ.
+# Priorita: workflow input (STICKY_PROXY_CZ_OVERRIDE) > GitHub Secret (STICKY_PROXY_CZ).
+# Pokud je nastaven, pouzije se misto automaticky konstruovaneho sticky URL.
+# DE a AD se odvodi substitucni country kodu v username.
+_STICKY_OVERRIDE = (
+    os.environ.get("STICKY_PROXY_CZ_OVERRIDE", "").strip()
+    or os.environ.get("STICKY_PROXY_CZ", "").strip()
+)
 
 SUGGEST_URL  = "https://suggestqueries.google.com/complete/search"
 IP_API_URL   = "http://ip-api.com/json/?fields=country,countryCode,query"
@@ -104,8 +113,27 @@ def db_insert(row):
 
 
 # ---------------------------------------------------------------------------
-# Proxy helpers
+# GHA maskovani + proxy helpers
 # ---------------------------------------------------------------------------
+def mask_gha(value):
+    """Zaregistruje hodnotu jako masked v GitHub Actions logu (print ::add-mask::)."""
+    if value and os.environ.get("GITHUB_ACTIONS"):
+        print(f"::add-mask::{value}", flush=True)
+
+
+def _safe_label(url):
+    """Z proxy URL vrati bezpecny label pro log: schema, host:port, prvni 4 chars username + ***, country."""
+    try:
+        p = urllib.parse.urlparse(url)
+        u = p.username or ""
+        country_m = re.search(r'_country-([a-z]{2})', u)
+        country_s = f"_country-{country_m.group(1)}" if country_m else ""
+        u_display = u[:4] + "***" + country_s
+        return f"{p.scheme}://{u_display}@{p.hostname}:{p.port}"
+    except Exception:
+        return "[parse error]"
+
+
 def parse_proxy(proxy_url):
     p = urllib.parse.urlparse(proxy_url)
     return p.scheme, p.username or "", p.password or "", p.hostname or "", p.port or 12321
@@ -127,23 +155,59 @@ def rotating_opener():
     )
 
 
+def _build_sticky_url(country, session_id, lifetime_min):
+    """
+    Sestavi sticky URL. Pokud je _STICKY_OVERRIDE nastaven, odvodc z nej
+    (substituci country kodu a session ID). Jinak konstruuje z PROXY_URL.
+    Vraci (url_string, source_label).
+    """
+    if _STICKY_OVERRIDE:
+        # Override: plny CZ connection string z IPRoyal dashboardu.
+        # Odvodc DE/AD nahrazenim country kodu v username.
+        p = urllib.parse.urlparse(_STICKY_OVERRIDE)
+        user = p.username or ""
+        pwd  = p.password or ""
+        host = p.hostname or ""
+        port = p.port or 12321
+        scheme = p.scheme
+        # Nahrad country kód (napr. cz -> de)
+        new_user = re.sub(r'(_country-)[a-z]{2}', rf'\g<1>{country}', user)
+        # Nahrad session ID pokud je pritomen, jinak pridej
+        if re.search(r'_session-', new_user):
+            new_user = re.sub(r'(_session-)[^_@:]+', rf'\g<1>{session_id}', new_user)
+        else:
+            # Vloz session pred _lifetime nebo na konec
+            if '_lifetime-' in new_user:
+                new_user = new_user.replace('_lifetime-', f'_session-{session_id}_lifetime-', 1)
+            else:
+                new_user += f'_session-{session_id}'
+        enc_user = urllib.parse.quote(new_user, safe="")
+        enc_pwd  = urllib.parse.quote(pwd, safe="")
+        url = f"{scheme}://{enc_user}:{enc_pwd}@{host}:{port}"
+        return url, "override"
+    elif PROXY_URL:
+        # Auto: konstruuj z base PROXY_URL
+        scheme, user, pwd, host, port = parse_proxy(PROXY_URL)
+        buser = base_username(user)
+        new_user = f"{buser}_country-{country}_session-{session_id}_lifetime-{lifetime_min}m"
+        enc_user = urllib.parse.quote(new_user, safe="")
+        enc_pwd  = urllib.parse.quote(pwd, safe="")
+        url = f"{scheme}://{enc_user}:{enc_pwd}@{host}:{port}"
+        return url, "auto"
+    else:
+        return None, "no-proxy"
+
+
 def sticky_opener(country, session_id, lifetime_min=10):
-    if not PROXY_URL:
+    url, src = _build_sticky_url(country, session_id, lifetime_min)
+    if url is None:
         return urllib.request.build_opener(), "direct"
-    scheme, user, pwd, host, port = parse_proxy(PROXY_URL)
-    buser = base_username(user)
-    new_user = f"{buser}_country-{country}_session-{session_id}_lifetime-{lifetime_min}m"
-    # urlparse dekoduje procent-encoding; pri rekonstrukci musime znovu zakodovat,
-    # jinak specialni znaky v hesle (napr. @, !, %) rozbijeji URL a proxy vraci 407.
-    enc_user = urllib.parse.quote(new_user, safe="")
-    enc_pwd  = urllib.parse.quote(pwd, safe="")
-    sticky_url = f"{scheme}://{enc_user}:{enc_pwd}@{host}:{port}"
     opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({"http": sticky_url, "https": sticky_url})
+        urllib.request.ProxyHandler({"http": url, "https": url})
     )
-    debug_label = f"{scheme}://{host}:{port} [{buser}_country-{country}_session-...]"
-    print(f"    [sticky] url struktura: {debug_label}")
-    return opener, debug_label
+    label = f"[{src}] {_safe_label(url)}"
+    print(f"    [sticky] {label}")
+    return opener, label
 
 
 def direct_opener():
@@ -664,13 +728,23 @@ def write_md(
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    # Nejdrive zaregistruj maskovane hodnoty v GHA -- musi byt pred jakymkoli logem.
+    if _STICKY_OVERRIDE:
+        try:
+            _, _, over_pwd, _, _ = parse_proxy(_STICKY_OVERRIDE)
+            mask_gha(over_pwd)
+            mask_gha(_STICKY_OVERRIDE)
+        except Exception:
+            pass
+
     run_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    override_status = "SET (override aktivni)" if _STICKY_OVERRIDE else "ne"
     print(f"\n{'='*60}")
     print(f"  BENCHMARK 1A  |  run_id={run_id}  |  {now_iso[:19]}Z")
     print(f"  dry_run={DRY_RUN}  |  proxy={'SET' if PROXY_URL else 'NOT SET'}")
-    print(f"  skip_e={SKIP_E}")
+    print(f"  skip_e={SKIP_E}  |  sticky_override={override_status}")
     print(f"{'='*60}")
 
     original_ctrl = None
