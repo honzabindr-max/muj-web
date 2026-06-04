@@ -27,8 +27,8 @@ type CountryData = {
 
 type RenderData = {
   gl: string;
-  score: number;
-  isFallback: boolean;
+  hasCrawlerData: boolean;
+  score: number | null;
   realData?: CountryData;
 };
 
@@ -76,7 +76,7 @@ const HEATMAP_COLORS = [
   "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af", "#172554", "#0b1f66",
 ];
 const LEGEND_COLORS = ["#bfdbfe", "#93c5fd", "#3b82f6", "#1d4ed8", "#0b1f66"];
-const FALLBACK_MIN_SCORE = 8;
+const NO_DATA_COLOR = "#e5e7eb";
 
 function getHeatmapColor(score: number): string {
   const t = Math.max(0, Math.min(1, (score - 1) / 99));
@@ -84,34 +84,10 @@ function getHeatmapColor(score: number): string {
 }
 
 function getHeatmapScore(value: number, maxValue: number): number {
-  if (!maxValue || maxValue <= 0) return FALLBACK_MIN_SCORE;
+  if (!maxValue || maxValue <= 0) return 1;
   const normalized = Math.max(0, Math.min(1, value / maxValue));
   const transformed = Math.pow(normalized, 0.42);
-  return Math.max(FALLBACK_MIN_SCORE, Math.min(100, Math.round(transformed * 99) + 1));
-}
-
-// ── Stable fallback values ────────────────────────────────────────
-const MAJOR_MARKET_BOOST: Record<string, number> = {
-  us: 1.0, in: 0.92, cn: 0.86, br: 0.78, de: 0.76, gb: 0.72, uk: 0.72,
-  jp: 0.70, fr: 0.68, ca: 0.55, mx: 0.58, es: 0.56, it: 0.54,
-  au: 0.52, kr: 0.50, id: 0.48, ru: 0.46, tr: 0.42,
-};
-
-function stableHash(input: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash >>> 0);
-}
-
-function stableFallbackValue(gl: string, maxValue: number): number {
-  if (!maxValue || maxValue <= 0) return 1000;
-  const boost = MAJOR_MARKET_BOOST[gl];
-  if (boost !== undefined) return Math.round(maxValue * boost);
-  const normalized = (stableHash(gl) % 1000) / 1000;
-  return Math.round(maxValue * (0.08 + normalized * 0.32));
+  return Math.max(1, Math.min(100, Math.round(transformed * 99) + 1));
 }
 
 // ── Status stroke config ──────────────────────────────────────────
@@ -129,8 +105,6 @@ const STATUS_LABELS: Record<CountryStatus, string> = {
 };
 
 // ── Aggregate rows → per-country fill data (phrase counts only) ───
-// NOTE: status is intentionally NOT included here — it's tracked
-// separately in glStatusMap so fill renders stay stable between polls.
 function aggregateFills(rows: DashboardRow[]): Map<string, CountryData> {
   const map = new Map<string, CountryData>();
   for (const row of rows) {
@@ -157,11 +131,7 @@ function aggregateFills(rows: DashboardRow[]): Map<string, CountryData> {
   return map;
 }
 
-// ── Per-country status map (heartbeat-based, updates every poll) ───
-// Uses isHeartbeatAlive which checks updated_at < WARN_THRESHOLD_S (180s).
-// This covers both green (<60s) and amber (60–180s) heartbeat states,
-// so any live crawler causes the country to blink — consistent with the
-// table's three-state dot system where both green and amber mean "alive".
+// ── Per-country status map ─────────────────────────────────────────
 function buildStatusMap(rows: DashboardRow[]): Map<string, CountryStatus> {
   const priority: Record<CountryStatus, number> = {
     error: 4, running: 3, paused: 2, done: 1, idle: 0,
@@ -169,8 +139,6 @@ function buildStatusMap(rows: DashboardRow[]): Map<string, CountryStatus> {
   const map = new Map<string, CountryStatus>();
   for (const row of rows) {
     const gl = row.gl.toLowerCase();
-    // Heartbeat wins over status field — avoids crash remnants
-    // (status="running" but updated_at stale) and mismatches
     const rowStatus: CountryStatus = isHeartbeatAlive(row.updated_at)
       ? "running"
       : row.status === "paused" ? "paused"
@@ -184,7 +152,8 @@ function buildStatusMap(rows: DashboardRow[]): Map<string, CountryStatus> {
   return map;
 }
 
-// ── Build render map: numericId → RenderData (fills only) ─────────
+// ── Build render map: numericId → RenderData ──────────────────────
+// Countries without crawler data get isFallback: true and score: 0
 function buildRenderMap(fillMap: Map<string, CountryData>): Map<number, RenderData> {
   const result = new Map<number, RenderData>();
   const maxReal = Math.max(
@@ -195,15 +164,11 @@ function buildRenderMap(fillMap: Map<string, CountryData>): Map<number, RenderDa
     const real = fillMap.get(gl);
     if (real && real.phraseCount > 0) {
       result.set(numId, {
-        gl, score: getHeatmapScore(real.phraseCount, maxReal),
-        isFallback: false, realData: real,
+        gl, hasCrawlerData: true, score: getHeatmapScore(real.phraseCount, maxReal),
+        realData: real,
       });
     } else {
-      const fv = stableFallbackValue(gl, maxReal);
-      result.set(numId, {
-        gl, score: getHeatmapScore(fv, maxReal),
-        isFallback: true,
-      });
+      result.set(numId, { gl, hasCrawlerData: false, score: null });
     }
   }
   return result;
@@ -221,7 +186,7 @@ function Tooltip({
   x: number;
   y: number;
 }) {
-  const { gl, score, isFallback, realData } = data;
+  const { gl, score, hasCrawlerData, realData } = data;
   return (
     <div
       className="pointer-events-none absolute z-50 min-w-[160px] max-w-[210px] rounded-2xl border border-zinc-200/80 bg-white/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur-sm"
@@ -232,7 +197,7 @@ function Tooltip({
         <span className="truncate">{countryName(gl)} ({gl.toLowerCase()})</span>
       </div>
 
-      {isFallback ? (
+      {!hasCrawlerData ? (
         <div className="mt-2 text-xs text-zinc-400 italic">Zatím bez crawler dat</div>
       ) : realData ? (
         <div className="mt-2 space-y-0.5 text-xs text-zinc-600">
@@ -242,7 +207,7 @@ function Tooltip({
           </div>
           <div className="flex justify-between gap-4">
             <span>Heatmap score</span>
-            <span className="font-medium tabular-nums text-zinc-900">{score}/100</span>
+            <span className="font-medium tabular-nums text-zinc-900">{score ?? 0}/100</span>
           </div>
           <div className="flex justify-between gap-4">
             <span>Nové / 24 h</span>
@@ -288,18 +253,10 @@ export function SuggestWorldMap({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [worldData, setWorldData] = useState<unknown>(null);
 
-  // ── Status map (per-poll, heartbeat-based) ──────────────────────
-  // Changes every 3s; used for class updates and strip stats.
   const glStatusMap = useMemo(() => buildStatusMap(rows), [rows]);
-
-  // Keep a ref to glStatusMap so draw() can read current status
-  // without including it as a dependency (which would cause full redraws).
   const glStatusMapRef = useRef<Map<string, CountryStatus>>(new Map());
   useEffect(() => { glStatusMapRef.current = glStatusMap; }, [glStatusMap]);
 
-  // ── Fill data (stable between polls) ───────────────────────────
-  // phraseFingerprint changes only when phrase_count values actually change.
-  // This makes renderMap (and draw) stable between 3s status-only polls.
   const phraseFingerprint = useMemo(
     () => rows.map((r) => `${r.gl}:${r.phrase_count}`).sort().join(","),
     [rows],
@@ -308,7 +265,6 @@ export function SuggestWorldMap({
   const stableFillMap = useMemo(() => aggregateFills(rows), [phraseFingerprint]);
   const renderMap = useMemo(() => buildRenderMap(stableFillMap), [stableFillMap]);
 
-  // ── Strip stats (from live rows / glStatusMap) ──────────────────
   const totalPhrases = useMemo(
     () => rows.reduce((s, r) => s + r.phrase_count, 0), [rows],
   );
@@ -325,7 +281,6 @@ export function SuggestWorldMap({
   );
   const totalMappedCountries = renderMap.size;
 
-  // ── Load world-atlas ────────────────────────────────────────────
   useEffect(() => {
     fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
       .then((r) => r.json())
@@ -333,9 +288,6 @@ export function SuggestWorldMap({
       .catch(() => setMapError(true));
   }, []);
 
-  // ── Core draw (full SVG rebuild) ────────────────────────────────
-  // Runs only when: world data loads, phrase counts change, or selectedGl changes.
-  // Does NOT run on every 3s status poll (glStatusMap excluded from deps).
   const draw = useCallback(() => {
     if (!worldData || !svgRef.current || !containerRef.current) return;
 
@@ -364,14 +316,12 @@ export function SuggestWorldMap({
       return;
     }
 
-    // Ocean sphere
     svg.append("path")
       .datum({ type: "Sphere" } as unknown as GeoJSON.GeoJsonObject)
       .attr("d", path as unknown as string)
       .attr("fill", "rgba(239,246,255,.65)")
       .attr("stroke", "none");
 
-    // Graticule
     svg.append("path")
       .datum(d3.geoGraticule()())
       .attr("d", path as unknown as string)
@@ -379,7 +329,6 @@ export function SuggestWorldMap({
       .attr("stroke", "rgba(148,163,184,.18)")
       .attr("stroke-width", 0.35);
 
-    // Countries — fill from renderMap, class/stroke from glStatusMapRef
     svg.append("g")
       .selectAll<SVGPathElement, GeoJSON.Feature>("path")
       .data(countries)
@@ -388,12 +337,13 @@ export function SuggestWorldMap({
       .attr("fill", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        return rd ? getHeatmapColor(rd.score) : "#bfdbfe";
+        if (!rd || !rd.hasCrawlerData || rd.score == null) return NO_DATA_COLOR;
+        return getHeatmapColor(rd.score);
       })
       .attr("class", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status = rd && !rd.isFallback
+        const status = rd?.hasCrawlerData
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         return `country ${status}`;
@@ -401,7 +351,7 @@ export function SuggestWorldMap({
       .attr("stroke", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd && !rd.isFallback
+        const status: CountryStatus = rd?.hasCrawlerData
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].color;
@@ -409,7 +359,7 @@ export function SuggestWorldMap({
       .attr("stroke-width", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd && !rd.isFallback
+        const status: CountryStatus = rd?.hasCrawlerData
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].width;
@@ -423,16 +373,16 @@ export function SuggestWorldMap({
       .style("cursor", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        return rd && !rd.isFallback ? "pointer" : "default";
+        return rd?.hasCrawlerData ? "pointer" : "default";
       })
       .on("mouseenter", function (event: MouseEvent, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
         if (!rd) return;
 
-        const status: CountryStatus = rd.isFallback
-          ? "idle"
-          : (glStatusMapRef.current.get(rd.gl) ?? "idle");
+        const status: CountryStatus = rd.hasCrawlerData
+          ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
+          : "idle";
 
         d3.select(this).raise()
           .attr("stroke-width", STATUS_STROKE[status].width + 0.8)
@@ -455,7 +405,7 @@ export function SuggestWorldMap({
       .on("mouseleave", function (_, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd && !rd.isFallback
+        const status: CountryStatus = rd?.hasCrawlerData
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         d3.select(this)
@@ -466,14 +416,12 @@ export function SuggestWorldMap({
       .on("click", function (_, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        if (!rd || rd.isFallback) return;
+        if (!rd || !rd.hasCrawlerData) return;
         onSelectGl?.(selectedGl === rd.gl ? null : rd.gl);
       });
 
   }, [worldData, renderMap, selectedGl, onSelectGl]);
 
-  // ── Lightweight status update (every 3s poll) ───────────────────
-  // Only updates class + stroke attributes on existing paths — no SVG rebuild.
   const updateClasses = useCallback(() => {
     if (!svgRef.current) return;
     d3.select(svgRef.current)
@@ -481,7 +429,7 @@ export function SuggestWorldMap({
       .attr("class", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status = rd && !rd.isFallback
+        const status = rd?.hasCrawlerData
           ? (glStatusMap.get(rd.gl) ?? "idle")
           : "idle";
         return `country ${status}`;
@@ -489,7 +437,7 @@ export function SuggestWorldMap({
       .attr("stroke", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd && !rd.isFallback
+        const status: CountryStatus = rd?.hasCrawlerData
           ? (glStatusMap.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].color;
@@ -497,23 +445,17 @@ export function SuggestWorldMap({
       .attr("stroke-width", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd && !rd.isFallback
+        const status: CountryStatus = rd?.hasCrawlerData
           ? (glStatusMap.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].width;
       });
   }, [glStatusMap, renderMap]);
 
-  // Keep drawFnRef in sync for resize handler
   useEffect(() => { drawFnRef.current = draw; }, [draw]);
-
-  // Full redraw when fill data or selection changes (NOT on every poll)
   useEffect(() => { draw(); }, [draw]);
-
-  // Lightweight class/stroke update on every status poll
   useEffect(() => { updateClasses(); }, [updateClasses]);
 
-  // Stable resize / ResizeObserver
   useEffect(() => {
     const handle = () => drawFnRef.current();
     window.addEventListener("resize", handle);
@@ -525,7 +467,6 @@ export function SuggestWorldMap({
     };
   }, []);
 
-  // D3 timer: smooth sine-wave pulse on .country.running elements
   useEffect(() => {
     if (!mapLoaded) return;
     const PERIOD = 1300;
@@ -556,12 +497,11 @@ export function SuggestWorldMap({
         .country.error  { stroke: rgba(220,38,38,.9);  stroke-width: 1.2px; }
       `}</style>
 
-      {/* Panel header */}
       <div className="flex flex-col gap-2.5 border-b border-white/60 bg-white/30 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-sm font-semibold text-zinc-800">Světová mapa sběru</div>
           <div className="mt-0.5 text-[11px] text-zinc-500">
-            100stupňová heatmapa podle absolutního počtu frází. Běžící země pulzují zeleně.
+            Heatmapa podle počtu frází. Šedé země nemají crawler data. Běžící země pulzují zeleně.
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -587,7 +527,6 @@ export function SuggestWorldMap({
         </div>
       </div>
 
-      {/* Map area */}
       <div className="relative px-4 pb-4 pt-3">
         {mapError ? (
           <div className="flex h-48 items-center justify-center text-sm text-zinc-400">
