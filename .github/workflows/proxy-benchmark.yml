@@ -1,0 +1,46 @@
+name: Benchmark 1A -- Proxy Integrity Test
+
+# Manualni spusteni. Samotne spusteni workflowu = explicitni potvrzeni benchmarku.
+# KROK A (stop_flag) a KROK Z (obnova) jsou soucast benchmark_1a.py (finally blok).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run -- jen proxy test, zadne Google requesty, zadny zapis do DB"
+        default: "false"
+      skip_e:
+        description: "Preskocit variantu E (bez proxy / runner IP)"
+        default: "false"
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      PROXY_URL:    ${{ secrets.PROXY_URL }}
+      DRY_RUN:      ${{ inputs.dry_run }}
+      SKIP_E:       ${{ inputs.skip_e }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Benchmark 1A
+        run: python benchmark_1a.py
+
+      - name: Upload vysledky
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-1a-${{ github.run_id }}
+          path: |
+            benchmark_results.md
+            benchmark_results.csv
+          if-no-files-found: warn
