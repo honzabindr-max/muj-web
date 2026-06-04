@@ -12,6 +12,7 @@ import { isHeartbeatAlive } from "../_lib/types";
 
 const FAST_POLL_MS = 3_000;
 const SLOW_POLL_MS = 60_000;
+const PHRASE_COUNT_POLL_MS = 300_000;
 
 function computeSummary(rows: DashboardRow[]): DashboardSummary {
   return {
@@ -43,6 +44,14 @@ function mergeState(prev: DashboardRow[], stateRows: StateRow[]): DashboardRow[]
       updated_at: s.updated_at,
     };
   });
+}
+
+function mergePhraseCount(prev: DashboardRow[], fresh: DashboardRow[]): DashboardRow[] {
+  const map = new Map(fresh.map((r) => [`${r.gl}-${r.hl}`, Number(r.phrase_count)]));
+  return prev.map((row) => ({
+    ...row,
+    phrase_count: map.get(`${row.gl}-${row.hl}`) ?? row.phrase_count,
+  }));
 }
 
 function merge24h(prev: DashboardRow[], new24hRows: New24hRow[]): DashboardRow[] {
@@ -125,18 +134,49 @@ export function useDashboardData() {
     };
   }, []);
 
-  // Fast poll: state only (3s)
   const loadStateRef = useRef(loadState);
   loadStateRef.current = loadState;
 
+  // Shared state fetch — called by Realtime handler and fast poll fallback
+  const fetchAndMergeState = useCallback(async () => {
+    if (loadStateRef.current !== "ready") return;
+    const { data, error } = await supabase.rpc("get_dashboard_state");
+    if (!error && data) {
+      updateRows((prev) => mergeState(prev, data as StateRow[]));
+    }
+  }, [updateRows]);
+
+  // Realtime: push-based updates when google_crawler_state changes
+  useEffect(() => {
+    const debounceRef = { timer: null as ReturnType<typeof setTimeout> | null };
+    const channel = supabase
+      .channel("crawler-state")
+      .on("postgres_changes", { event: "*", schema: "public", table: "google_crawler_state" }, () => {
+        if (debounceRef.timer) clearTimeout(debounceRef.timer);
+        debounceRef.timer = setTimeout(fetchAndMergeState, 200);
+      })
+      .subscribe();
+    return () => {
+      if (debounceRef.timer) clearTimeout(debounceRef.timer);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAndMergeState]);
+
+  // Fast poll fallback: catches Realtime gaps (3s)
+  useEffect(() => {
+    const id = setInterval(fetchAndMergeState, FAST_POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchAndMergeState]);
+
+  // Phrase_count refresh: syncs map heatmap with MV refresh cycle (5 min)
   useEffect(() => {
     const id = setInterval(async () => {
       if (loadStateRef.current !== "ready") return;
-      const { data, error } = await supabase.rpc("get_dashboard_state");
+      const { data, error } = await supabase.rpc("get_dashboard_rows");
       if (!error && data) {
-        updateRows((prev) => mergeState(prev, data as StateRow[]));
+        updateRows((prev) => mergePhraseCount(prev, data as DashboardRow[]));
       }
-    }, FAST_POLL_MS);
+    }, PHRASE_COUNT_POLL_MS);
     return () => clearInterval(id);
   }, [updateRows]);
 
