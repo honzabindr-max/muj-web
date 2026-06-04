@@ -14,8 +14,8 @@ const DEFAULT_FILTER: FilterState = {
   search: "",
   onlyProblematic: false,
   groupByGl: false,
-  sortKey: "heartbeat",
-  sortDir: "asc",
+  sortKey: "updated_at",
+  sortDir: "desc",
 };
 
 export default function SuggestPage() {
