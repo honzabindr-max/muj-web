@@ -122,14 +122,20 @@ def mask_gha(value):
 
 
 def _safe_label(url):
-    """Z proxy URL vrati bezpecny label pro log: schema, host:port, prvni 4 chars username + ***, country."""
+    """
+    Bezpecny log label. IPRoyal format: USERNAME:BASE_PASS_country-XX_session-ID_lifetime-10m
+    Ukazuje: http://USERNAME:****_country-XX_session-***_lifetime-10m@host:port
+    """
     try:
         p = urllib.parse.urlparse(url)
-        u = p.username or ""
-        country_m = re.search(r'_country-([a-z]{2})', u)
-        country_s = f"_country-{country_m.group(1)}" if country_m else ""
-        u_display = u[:4] + "***" + country_s
-        return f"{p.scheme}://{u_display}@{p.hostname}:{p.port}"
+        user = p.username or ""
+        pwd  = p.password or ""
+        country_m  = re.search(r'_country-([a-z]{2,3})', pwd)
+        lifetime_m = re.search(r'(_lifetime-\w+)', pwd)
+        country_s  = f"_country-{country_m.group(1)}" if country_m else "_country-?"
+        lifetime_s = lifetime_m.group(1) if lifetime_m else "_lifetime-?"
+        pwd_display = f"****{country_s}_session-***{lifetime_s}"
+        return f"{p.scheme}://{user}:{pwd_display}@{p.hostname}:{p.port}"
     except Exception:
         return "[parse error]"
 
@@ -157,45 +163,48 @@ def rotating_opener():
 
 def _build_sticky_url(country, session_id, lifetime_min):
     """
-    Sestavi sticky URL. Pokud je _STICKY_OVERRIDE nastaven, odvodc z nej
-    (substituci country kodu a session ID). Jinak konstruuje z PROXY_URL.
-    Vraci (url_string, source_label).
+    Sestavi IPRoyal sticky URL. Spravny format:
+      http://USERNAME:BASE_PASSWORD_country-XX_session-ID_lifetime-10m@host:port
+
+    Sticky/country parametry jsou pripojene k PASSWORD, username zustava ciste.
+
+    Override (STICKY_PROXY_CZ_OVERRIDE / secret STICKY_PROXY_CZ):
+      - Pouzije se plny CZ connection string z dashboardu.
+      - Extrahuje base password (cast pred '_country-'), substituuje country + session.
+
+    Auto (z PROXY_URL):
+      - Username a base password z PROXY_URL (bez country params).
+      - Pripoji country/session/lifetime k password.
     """
     if _STICKY_OVERRIDE:
-        # Override: plny CZ connection string z IPRoyal dashboardu.
-        # Odvodc DE/AD nahrazenim country kodu v username.
-        p = urllib.parse.urlparse(_STICKY_OVERRIDE)
-        user = p.username or ""
-        pwd  = p.password or ""
-        host = p.hostname or ""
-        port = p.port or 12321
+        p      = urllib.parse.urlparse(_STICKY_OVERRIDE)
+        user   = p.username or ""
+        full_pwd = p.password or ""
+        host   = p.hostname or ""
+        port   = p.port or 12321
         scheme = p.scheme
-        # Nahrad country kód (napr. cz -> de)
-        new_user = re.sub(r'(_country-)[a-z]{2}', rf'\g<1>{country}', user)
-        # Nahrad session ID pokud je pritomen, jinak pridej
-        if re.search(r'_session-', new_user):
-            new_user = re.sub(r'(_session-)[^_@:]+', rf'\g<1>{session_id}', new_user)
-        else:
-            # Vloz session pred _lifetime nebo na konec
-            if '_lifetime-' in new_user:
-                new_user = new_user.replace('_lifetime-', f'_session-{session_id}_lifetime-', 1)
-            else:
-                new_user += f'_session-{session_id}'
-        enc_user = urllib.parse.quote(new_user, safe="")
-        enc_pwd  = urllib.parse.quote(pwd, safe="")
-        url = f"{scheme}://{enc_user}:{enc_pwd}@{host}:{port}"
-        return url, "override"
+        # Extrahuj base password: vse pred '_country-' (dashboard mohl pridat CZ params)
+        base_pwd = re.split(r'_country-', full_pwd)[0]
+        src = "override"
     elif PROXY_URL:
-        # Auto: konstruuj z base PROXY_URL
-        scheme, user, pwd, host, port = parse_proxy(PROXY_URL)
-        buser = base_username(user)
-        new_user = f"{buser}_country-{country}_session-{session_id}_lifetime-{lifetime_min}m"
-        enc_user = urllib.parse.quote(new_user, safe="")
-        enc_pwd  = urllib.parse.quote(pwd, safe="")
-        url = f"{scheme}://{enc_user}:{enc_pwd}@{host}:{port}"
-        return url, "auto"
+        scheme, user, base_pwd, host, port = parse_proxy(PROXY_URL)
+        # PROXY_URL pouziva ciste heslo bez country params (jen rotating)
+        src = "auto"
     else:
         return None, "no-proxy"
+
+    # Sestav novy password s country/session/lifetime.
+    # urlparse.p.password muze vracet bud uz zakodovany retezec (napr. "p%40ss")
+    # nebo dekodovany (napr. "p@ss") -- zavisi na Python verzi.
+    # safe="%" zachova existujici %XX sekvence a zaroven zakoduje literalni
+    # specialni znaky => zadne double-encoding bez ohledu na Python verzi.
+    safe_base = urllib.parse.quote(base_pwd, safe="%")
+    # Country/session/lifetime jsou cisty ASCII -- zadne kodovani potreba.
+    new_pwd   = f"{safe_base}_country-{country}_session-{session_id}_lifetime-{lifetime_min}m"
+    enc_user  = urllib.parse.quote(user, safe="%")
+    # new_pwd uz je URL-safe retezec -- vlozime primo do URL bez dalsiho kodovani.
+    url = f"{scheme}://{enc_user}:{new_pwd}@{host}:{port}"
+    return url, src
 
 
 def sticky_opener(country, session_id, lifetime_min=10):
@@ -729,11 +738,15 @@ def write_md(
 # ---------------------------------------------------------------------------
 def main():
     # Nejdrive zaregistruj maskovane hodnoty v GHA -- musi byt pred jakymkoli logem.
+    # GHA automaticky maskuje secrets.*; workflow input STICKY_PROXY_CZ_OVERRIDE neni secret,
+    # takze ho musime maskovat explicitne pres ::add-mask::.
     if _STICKY_OVERRIDE:
         try:
-            _, _, over_pwd, _, _ = parse_proxy(_STICKY_OVERRIDE)
-            mask_gha(over_pwd)
-            mask_gha(_STICKY_OVERRIDE)
+            _, _, over_full_pwd, _, _ = parse_proxy(_STICKY_OVERRIDE)
+            base_pwd_from_override = re.split(r'_country-', over_full_pwd)[0]
+            mask_gha(base_pwd_from_override)   # base heslo
+            mask_gha(over_full_pwd)            # heslo s params (pokud uz obsahuje)
+            mask_gha(_STICKY_OVERRIDE)         # cely string
         except Exception:
             pass
 
