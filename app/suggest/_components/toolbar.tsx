@@ -1,6 +1,7 @@
 "use client";
 
 import type { FilterState, SortKey } from "../_lib/types";
+import { resumeAudio, playNewMarket, playStarted, playDone } from "../_lib/sounds";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "heartbeat", label: "Stav (výchozí)" },
@@ -81,7 +82,7 @@ export function Toolbar({
         🌍 Seskupit dle GL
       </button>
 
-      {/* Sound toggle */}
+      {/* Sound toggle + test buttons */}
       <button
         onClick={onSoundToggle}
         className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm transition ${
@@ -92,6 +93,21 @@ export function Toolbar({
       >
         {soundEnabled ? "🔊" : "🔇"} Zvuky
       </button>
+      <button
+        onClick={() => { resumeAudio(); playNewMarket(); }}
+        title="Test: nová mutace"
+        className="rounded-xl border border-white/70 bg-white/70 px-2.5 py-2 text-sm text-zinc-500 backdrop-blur-md hover:bg-white/90"
+      >🆕</button>
+      <button
+        onClick={() => { resumeAudio(); playStarted(); }}
+        title="Test: spuštění marketu"
+        className="rounded-xl border border-white/70 bg-white/70 px-2.5 py-2 text-sm text-zinc-500 backdrop-blur-md hover:bg-white/90"
+      >▶️</button>
+      <button
+        onClick={() => { resumeAudio(); playDone(); }}
+        title="Test: dokončení marketu"
+        className="rounded-xl border border-white/70 bg-white/70 px-2.5 py-2 text-sm text-zinc-500 backdrop-blur-md hover:bg-white/90"
+      >✅</button>
 
       {/* Sort */}
       <div className="relative">
