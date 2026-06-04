@@ -130,6 +130,18 @@ def check_ip_with_retry(opener, gl, req_num):
 # ---------------------------------------------------------------------------
 # Nacti markety
 # ---------------------------------------------------------------------------
+def _yaml_str(value):
+    """
+    PyYAML SafeLoader parsuje 'no'/'yes' jako bool (False/True).
+    Konvertuje zpatky na string (napr. gl: no -> Norway -> "no").
+    """
+    if value is False:
+        return "no"
+    if value is True:
+        return "yes"
+    return str(value)
+
+
 def load_markets():
     """
     Vraci:
@@ -140,9 +152,9 @@ def load_markets():
     enabled = [m for m in raw.get("markets", []) if m.get("enabled", False)]
     unique = {}
     for m in enabled:
-        gl = m["gl"]
-        hl = m["hl"]
-        # Jmeno zeme z notes (napr. "Czech Republic")
+        gl = _yaml_str(m["gl"])
+        hl = _yaml_str(m["hl"])
+        # Jmeno zeme z notes (napr. "Norway")
         name = m.get("notes", gl)
         if gl not in unique:
             unique[gl] = {"country_name": name, "markets": [], "count": 0}
