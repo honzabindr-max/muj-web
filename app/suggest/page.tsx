@@ -8,14 +8,14 @@ import { Toolbar } from "./_components/toolbar";
 import { MutationsTable } from "./_components/mutations-table";
 import { SuggestWorldMap } from "./_components/SuggestWorldMap";
 import type { FilterState } from "./_lib/types";
-import { flagEmoji } from "./_lib/utils";
+import { flagEmoji, countryName } from "./_lib/utils";
 
 const DEFAULT_FILTER: FilterState = {
   search: "",
   onlyProblematic: false,
   groupByGl: false,
   sortKey: "heartbeat",
-  sortDir: "desc",
+  sortDir: "asc",
 };
 
 export default function SuggestPage() {
@@ -132,7 +132,7 @@ export default function SuggestPage() {
           <div className="mt-2 flex items-center gap-2 px-1">
             <span className="rounded-full border border-zinc-200/80 bg-white/70 px-3 py-1 text-sm text-zinc-600 backdrop-blur-sm">
               {flagEmoji(selectedGl)}{" "}
-              Filtrovaná země: <span className="font-semibold">{selectedGl.toUpperCase()}</span>
+              Filtrovaná země: <span className="font-semibold">{countryName(selectedGl)}</span>
             </span>
             <button
               onClick={() => setSelectedGl(null)}

@@ -118,7 +118,7 @@ function stableFallbackValue(gl: string, maxValue: number): number {
 const STATUS_STROKE: Record<CountryStatus, { color: string; width: number }> = {
   running: { color: "#16a34a", width: 1.45 },
   done:    { color: "rgba(37,99,235,.48)", width: 0.65 },
-  paused:  { color: "rgba(245,158,11,.85)", width: 1.05 },
+  paused:  { color: "rgba(255,255,255,.55)", width: 0.35 },
   error:   { color: "rgba(220,38,38,.85)", width: 1.15 },
   idle:    { color: "rgba(255,255,255,.55)", width: 0.35 },
 };
@@ -553,7 +553,6 @@ export function SuggestWorldMap({
     >
       <style>{`
         .country.done   { stroke: rgba(37,99,235,.5);  stroke-width: .7px; }
-        .country.paused { stroke: rgba(245,158,11,.9); stroke-width: 1.1px; }
         .country.error  { stroke: rgba(220,38,38,.9);  stroke-width: 1.2px; }
       `}</style>
 

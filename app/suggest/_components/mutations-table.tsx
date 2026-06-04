@@ -105,7 +105,7 @@ function TableHeader({
       <Th
         label="Hloubka"
         sortKey="depth_pct"
-        className="hidden w-[64px] md:inline-block"
+        className="w-[64px]"
       />
       <Th
         label="Nové"

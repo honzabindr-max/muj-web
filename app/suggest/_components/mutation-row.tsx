@@ -88,8 +88,8 @@ export function MutationRow({
           {row.source === "google" ? (
             <>
               <span className="text-base leading-none">{flagEmoji(row.gl)}</span>
-              <span className="font-mono text-xs font-medium text-zinc-700">
-                {row.gl}-{row.hl}
+              <span className="truncate text-xs font-medium text-zinc-700">
+                {countryName(row.gl)}
               </span>
             </>
           ) : (
@@ -128,8 +128,8 @@ export function MutationRow({
           )}
         </span>
 
-        {/* Depth donut — md+ */}
-        <span className="hidden w-[64px] shrink-0 items-center gap-1 md:inline-flex">
+        {/* Depth donut */}
+        <span className="flex w-[64px] shrink-0 items-center gap-1">
           <MiniDonut
             pct={row.depth_pct}
             size={22}
