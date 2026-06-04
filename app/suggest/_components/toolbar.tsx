@@ -14,10 +14,14 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 export function Toolbar({
   filter,
   onChange,
+  soundEnabled,
+  onSoundToggle,
   className = "",
 }: {
   filter: FilterState;
   onChange: (next: FilterState) => void;
+  soundEnabled: boolean;
+  onSoundToggle: () => void;
   className?: string;
 }) {
   function set(patch: Partial<FilterState>) {
@@ -75,6 +79,18 @@ export function Toolbar({
         } backdrop-blur-md`}
       >
         🌍 Seskupit dle GL
+      </button>
+
+      {/* Sound toggle */}
+      <button
+        onClick={onSoundToggle}
+        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm transition ${
+          soundEnabled
+            ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-700"
+            : "border-white/70 bg-white/70 text-zinc-600 hover:bg-white/90"
+        } backdrop-blur-md`}
+      >
+        {soundEnabled ? "🔊" : "🔇"} Zvuky
       </button>
 
       {/* Sort */}

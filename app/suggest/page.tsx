@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useDashboardData } from "./_hooks/use-dashboard-data";
+import { useSoundEvents } from "./_hooks/use-sound-events";
+import { resumeAudio } from "./_lib/sounds";
 import { SummaryBar } from "./_components/summary-bar";
 import { Toolbar } from "./_components/toolbar";
 import { MutationsTable } from "./_components/mutations-table";
@@ -22,6 +24,14 @@ export default function SuggestPage() {
   const { rows, summary, loadState } = useDashboardData();
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
   const [selectedGl, setSelectedGl] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+
+  const handleSoundToggle = useCallback(() => {
+    resumeAudio();
+    setSoundEnabled((prev) => !prev);
+  }, []);
+
+  useSoundEvents(rows, soundEnabled);
 
   const filteredByGl = useMemo(
     () => (selectedGl ? rows.filter((r) => r.gl.toLowerCase() === selectedGl) : rows),
@@ -125,7 +135,13 @@ export default function SuggestPage() {
         />
 
         {/* Toolbar */}
-        <Toolbar filter={filter} onChange={setFilter} className="mt-3" />
+        <Toolbar
+          filter={filter}
+          onChange={setFilter}
+          soundEnabled={soundEnabled}
+          onSoundToggle={handleSoundToggle}
+          className="mt-3"
+        />
 
         {/* Active country filter chip */}
         {selectedGl && (
