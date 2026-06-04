@@ -193,7 +193,7 @@ function buildRenderMap(fillMap: Map<string, CountryData>): Map<number, RenderDa
   for (const [numStr, gl] of Object.entries(NUMERIC_TO_ALPHA2)) {
     const numId = Number(numStr);
     const real = fillMap.get(gl);
-    if (real) {
+    if (real && real.phraseCount > 0) {
       result.set(numId, {
         gl, score: getHeatmapScore(real.phraseCount, maxReal),
         isFallback: false, realData: real,
