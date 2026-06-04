@@ -1,0 +1,38 @@
+name: Proxy Coverage Audit -- IPRoyal per-gl
+
+# Testuje kazdy unikatni gl z google_markets.yml: zvladne IPRoyal vratit
+# sticky residential IP ve stejne zemi?
+# ZADNE Google suggest requesty. Jen IP exit check pres ip-api.com.
+# Vystup: proxy_country_coverage.csv jako artifact.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+
+    env:
+      PROXY_URL: ${{ secrets.PROXY_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run Coverage Audit
+        run: python proxy_coverage_audit.py
+
+      - name: Upload CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-coverage-audit-${{ github.run_id }}
+          path: proxy_country_coverage.csv
+          if-no-files-found: warn
