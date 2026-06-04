@@ -133,15 +133,37 @@ def sticky_opener(country, session_id, lifetime_min=10):
     scheme, user, pwd, host, port = parse_proxy(PROXY_URL)
     buser = base_username(user)
     new_user = f"{buser}_country-{country}_session-{session_id}_lifetime-{lifetime_min}m"
-    sticky_url = f"{scheme}://{new_user}:{pwd}@{host}:{port}"
+    # urlparse dekoduje procent-encoding; pri rekonstrukci musime znovu zakodovat,
+    # jinak specialni znaky v hesle (napr. @, !, %) rozbijeji URL a proxy vraci 407.
+    enc_user = urllib.parse.quote(new_user, safe="")
+    enc_pwd  = urllib.parse.quote(pwd, safe="")
+    sticky_url = f"{scheme}://{enc_user}:{enc_pwd}@{host}:{port}"
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({"http": sticky_url, "https": sticky_url})
     )
-    return opener, sticky_url
+    debug_label = f"{scheme}://{host}:{port} [{buser}_country-{country}_session-...]"
+    print(f"    [sticky] url struktura: {debug_label}")
+    return opener, debug_label
 
 
 def direct_opener():
     return urllib.request.build_opener()
+
+
+def test_base_proxy():
+    """Overi ze PROXY_URL (rotating, bez country targeting) vubec funguje."""
+    if not PROXY_URL:
+        return False
+    _, _, _, host, port = parse_proxy(PROXY_URL)
+    print(f"    [base] proxy host: {host}:{port}")
+    op = rotating_opener()
+    ip, cc = check_ip(op, "base-rotating")
+    ok = cc not in ("error", "?")
+    if ok:
+        print(f"  OK base proxy: {ip} ({cc})")
+    else:
+        print("  FAIL base proxy: auth nebo spojeni nefunguje")
+    return ok
 
 
 def rand_session(prefix="bm"):
@@ -279,13 +301,22 @@ def krok0_proxy_test():
     print("\n=== KROK 0: Proxy country targeting ===")
     resolved = []
 
-    print("\n  Testuji CZ sticky (3 requesty na ip-api.com)...")
+    # Nejdrive over ze zakladni proxy (rotating, bez country) vubec funguje.
+    # Pokud selze, problem je v auth nebo spojeni, ne v country targeting.
+    print("\n  1. Testuji zakladni proxy (rotating, bez country)...")
+    if not test_base_proxy():
+        print("  STOP: Zakladni proxy auth/spojeni nefunguje.")
+        print("  Zkontroluj PROXY_URL format a platnost credentials.")
+        return None
+    print()
+
+    print("  2. Testuji CZ sticky (3 requesty na ip-api.com)...")
     ok_cz, _, _ = test_country("cz", "CZ")
     if not ok_cz:
         print("  STOP: CZ targeting nefunguje -- benchmark nelze provest.")
         return None
 
-    print("\n  Testuji DE sticky (3 requesty na ip-api.com)...")
+    print("\n  3. Testuji DE sticky (3 requesty na ip-api.com)...")
     ok_de, _, _ = test_country("de", "DE")
     if not ok_de:
         print("  STOP: DE targeting nefunguje -- benchmark nelze provest.")
@@ -295,6 +326,7 @@ def krok0_proxy_test():
     resolved.append({"gl": "de", "hl": "de", "country_code": "de", "fallback": False})
 
     # AD + fallbacky v poradi
+    print("\n  4. Testuji AD/ca + fallbacky...")
     ad_candidates = [
         {"gl": "ad", "hl": "ca", "country_code": "ad"},
         {"gl": "es", "hl": "ca", "country_code": "es"},
