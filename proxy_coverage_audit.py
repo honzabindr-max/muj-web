@@ -296,6 +296,7 @@ def run_audit(unique_gl):
             "notes":                 notes,
         }
         results.append(row)
+        write_csv(results)  # inkrementalni flush -- CSV je aktualni i pri odestreni jobu
 
         # Sleduj po sobe jdouci auth faility
         if test_status == "proxy_auth_failed":

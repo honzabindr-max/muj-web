@@ -11,7 +11,7 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 28
+    timeout-minutes: 60
 
     env:
       PROXY_URL: ${{ secrets.PROXY_URL }}
