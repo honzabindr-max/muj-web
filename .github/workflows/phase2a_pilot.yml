@@ -1,0 +1,56 @@
+name: Phase 2A Depth-1 Pilot
+
+# Vylucne manualni spusteni (workflow_dispatch).
+# Zadny schedule, zadny pg_cron trigger, zadne automaticke probuzeni.
+#
+# Skript se NEDOTYKA: crawler_control, google_crawler_state,
+#   google_suggestions_v2, google_suggestions_v3.
+# Zapisuje POUZE do: suggest_depth_pilot_runs,
+#   suggest_depth_pilot_suggestions, suggest_depth_pilot_parent_queries.
+#
+# dry_run=true (default): jen 7 sticky IP checks, zadny Google req, zadny DB.
+# dry_run=false: ostry beh -- depth 0 + depth 1, DB writes, artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = jen IP checks (7 markets), zadny Google req, zadny DB"
+        required: false
+        default: "true"
+      abort:
+        description: "true = okamzity exit bez crawlu"
+        required: false
+        default: "false"
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      PROXY_URL:    ${{ secrets.PROXY_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      DRY_RUN:      ${{ inputs.dry_run }}
+      PHASE2A_ABORT: ${{ inputs.abort }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Phase 2A Depth-1 Pilot
+        run: python scripts/phase2a_pilot_crawl.py
+
+      # Artifact neobsahuje credentials ani exit IPs.
+      # JSON summary -- pouze metriky a pocty frazi.
+      - name: Upload summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-2a-pilot-${{ github.run_id }}
+          path: phase-2a-pilot-summary.json
+          if-no-files-found: warn
