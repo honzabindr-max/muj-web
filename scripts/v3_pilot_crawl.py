@@ -221,13 +221,13 @@ def _db_req(method, path, data=None, extra_headers=None):
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             text = r.read().decode()
-            return json.loads(text) if text.strip() else None
+            return json.loads(text) if text.strip() else True
     except urllib.error.HTTPError as e:
         print(f"  WARNING DB HTTP {e.code}: {e.read().decode()[:200]}")
-        return None
+        return False
     except Exception as e:
         print(f"  WARNING DB error: {e}")
-        return None
+        return False
 
 
 def db_insert_run(row):
@@ -243,14 +243,15 @@ def db_insert_suggestions(rows):
     """
     Batch insert s ON CONFLICT DO NOTHING pres PostgREST resolution=ignore-duplicates.
     Deduplikuje na UNIQUE(source, gl, hl, phrase_norm).
+    on_conflict musi byt URL query param (ne HTTP header) -- PostgREST requirement.
+    Vraci True pri uspechu, False pri DB chybe.
     """
-    _db_req(
-        "POST", SUGGESTIONS_TABLE, rows,
-        {
-            "Prefer": "return=minimal,resolution=ignore-duplicates",
-            "on_conflict": "source,gl,hl,phrase_norm",
-        },
+    path = f"{SUGGESTIONS_TABLE}?on_conflict=source,gl,hl,phrase_norm"
+    result = _db_req(
+        "POST", path, rows,
+        {"Prefer": "return=minimal,resolution=ignore-duplicates"},
     )
+    return result is not False
 
 
 # ---------------------------------------------------------------------------
@@ -330,22 +331,40 @@ def crawl_market(market, run_id, session_id, opener, exit_ip, exit_cc):
 
         time.sleep(random.uniform(*PAUSE_BETWEEN_SEEDS))
 
-    inserted = len(all_suggestions)
+    err_seeds = [s for s in SEED_PREFIXES
+                 if seed_results.get(s, {}).get("status_code") != 200]
+    if err_seeds:
+        print(f"  WARNING: {len(err_seeds)} seedu melo ERR: {err_seeds}")
+
+    db_ok = True
     if all_suggestions:
-        db_insert_suggestions(all_suggestions)
+        db_ok = db_insert_suggestions(all_suggestions)
+        if not db_ok:
+            print(f"  WARNING: DB insert selhal pro {gl}/{hl} -- market bude oznacen failed")
     else:
         print(f"  WARNING: zadne suggestions pro {gl}/{hl}")
+        db_ok = False
+
+    final_status = "completed" if db_ok else "failed"
+    notes_parts  = []
+    if err_seeds:
+        notes_parts.append(f"err_seeds={err_seeds}")
+    if not db_ok:
+        notes_parts.append("db_insert_failed")
 
     db_update_run(run_id, {
-        "status":        "completed",
+        "status":        final_status,
         "finished_at":   datetime.now(timezone.utc).isoformat(),
         "request_count": req_count,
+        **({"notes": "; ".join(notes_parts)} if notes_parts else {}),
     })
 
     return {
-        "status":       "completed",
+        "status":       final_status,
+        "db_ok":        db_ok,
         "requests":     req_count,
-        "inserted":     inserted,
+        "inserted":     len(all_suggestions) if db_ok else 0,
+        "err_seeds":    err_seeds,
         "seed_results": seed_results,
     }
 
@@ -488,14 +507,18 @@ def write_report(market_results, compare_results, pilot_id, started_at):
         "",
         "## Sber per market",
         "",
-        "| Market | Status | exit_cc | Requesty | Suggestions (pred dedup) |",
-        "|--------|--------|---------|----------|--------------------------|",
+        "| Market | Status | DB | exit_cc | Requesty | Suggestions (ulozeno) | ERR seeds |",
+        "|--------|--------|----|---------|-----------|-----------------------|-----------|",
     ]
 
     for m in market_results:
+        db_status = "OK" if m.get("db_ok", True) else "FAIL"
+        err_s     = m.get("err_seeds", [])
+        err_label = ", ".join(err_s) if err_s else "—"
         lines.append(
-            f"| {m['gl']}/{m['hl']} | {m.get('status','?')} | {m.get('exit_cc','?')} "
-            f"| {m.get('requests',0)} | {m.get('inserted',0)} |"
+            f"| {m['gl']}/{m['hl']} | {m.get('status','?')} | {db_status} "
+            f"| {m.get('exit_cc','?')} | {m.get('requests',0)} "
+            f"| {m.get('inserted',0)} | {err_label} |"
         )
 
     lines += [
@@ -639,9 +662,13 @@ def main():
         if DRY_RUN:
             print(f"  {m['gl']}/{m['hl']}: {m['status']} (exit_cc={m['exit_cc']})")
         else:
+            db_ok_s   = "DB:OK" if m.get("db_ok", True) else "DB:FAIL"
+            err_s     = m.get("err_seeds", [])
+            err_label = f", ERR_seeds={err_s}" if err_s else ""
             print(
                 f"  {m['gl']}/{m['hl']}: {m.get('status','?')}, "
-                f"{m.get('requests',0)} req, {m.get('inserted',0)} suggestions"
+                f"{db_ok_s}, {m.get('requests',0)} req, "
+                f"{m.get('inserted',0)} suggestions{err_label}"
             )
     print(f"{'='*60}")
 
