@@ -57,6 +57,10 @@ UA = (
 LIFETIME_MIN          = 10
 PAUSE_BETWEEN_SEEDS   = (0.8, 1.5)
 PAUSE_BETWEEN_MARKETS = (2.0, 4.0)
+# V dry_run rezimu delsi pauza mezi trhy -- ip-api.com ma rate limit ~45 req/min
+PAUSE_DRY_RUN_MARKETS = (3.0, 5.0)
+IP_CHECK_RETRIES      = 3
+IP_CHECK_RETRY_PAUSE  = 4.0
 V2_COMPARE_LIMIT      = 5000
 
 
@@ -132,18 +136,28 @@ def rand_session(prefix="v3p"):
 # IP check
 # ---------------------------------------------------------------------------
 def check_ip(opener, label=""):
-    try:
-        req = urllib.request.Request(IP_API_URL, headers={"User-Agent": UA})
-        with opener.open(req, timeout=10) as r:
-            d   = json.loads(r.read().decode())
-            ip  = d.get("query", "?")
-            cc  = d.get("countryCode", "?")
-            # Exit IP nikdy nevypisujeme v plaintextu -- jen countryCode
-            print(f"  [ip-check/{label}] exit_cc={cc}")
-            return ip, cc
-    except Exception as e:
-        print(f"  [ip-check/{label}] error: {e}")
-        return "error", "error"
+    """
+    IP check pres ip-api.com s retry logikou.
+    ip-api.com ma rate limit ~45 req/min -- pri prazdne odpovedi zkousime znovu.
+    """
+    for attempt in range(1, IP_CHECK_RETRIES + 1):
+        try:
+            req = urllib.request.Request(IP_API_URL, headers={"User-Agent": UA})
+            with opener.open(req, timeout=15) as r:
+                raw = r.read().decode().strip()
+                if not raw:
+                    raise ValueError("prazdna odpoved ip-api.com")
+                d   = json.loads(raw)
+                ip  = d.get("query", "?")
+                cc  = d.get("countryCode", "?")
+                # Exit IP nikdy nevypisujeme v plaintextu -- jen countryCode
+                print(f"  [ip-check/{label}] exit_cc={cc} (attempt {attempt})")
+                return ip, cc
+        except Exception as e:
+            print(f"  [ip-check/{label}] attempt {attempt}/{IP_CHECK_RETRIES} error: {e}")
+            if attempt < IP_CHECK_RETRIES:
+                time.sleep(IP_CHECK_RETRY_PAUSE)
+    return "error", "error"
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +618,8 @@ def main():
                 "requests": 0,
                 "inserted": 0,
             })
-            time.sleep(random.uniform(0.5, 1.0))
+            # Delsi pauza v dry_run rezimu -- ip-api.com rate limit ochrana
+            time.sleep(random.uniform(*PAUSE_DRY_RUN_MARKETS))
             continue
 
         result = crawl_market(market, run_id, session_id, opener, exit_ip, exit_cc)
