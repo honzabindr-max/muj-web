@@ -1,0 +1,56 @@
+name: Phase 1.6 Geo A/B Test
+
+# Vylucne manualni spusteni (workflow_dispatch).
+# Zadny schedule, zadny pg_cron trigger, zadne automaticke probuzeni.
+# Prvni spusteni: dry_run=true (default). Ostry beh az po overeni dry runu.
+#
+# Skript se NEDOTYKA: crawler_control, google_crawler_state,
+#   google_suggestions_v2, google_suggestions_v3.
+# Zadne DB operace. Vystup: pouze GitHub Actions artifacts.
+#
+# SUPABASE_* env vars zamerně vynechány -- skript DB nepouziva.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = jen IP checks pro CLEAN a CONTROL leg, zadne Google requesty, zadne artifakty"
+        required: false
+        default: "true"
+      abort:
+        description: "true = okamzity exit bez crawlu"
+        required: false
+        default: "false"
+
+jobs:
+  ab-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35   # 196 Google req + 14 IP checks; JP latency ~7s/seed
+
+    env:
+      PROXY_URL:   ${{ secrets.PROXY_URL }}
+      DRY_RUN:     ${{ inputs.dry_run }}
+      V3_AB_ABORT: ${{ inputs.abort }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Phase 1.6 Geo A/B Test
+        run: python scripts/phase16_ab_crawl.py
+
+      # Artifakty neobsahuji zadne credentials ani exit IPs.
+      # CSV + MD + JSON -- pouze fraze a metriky.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-1-6-ab-${{ github.run_id }}
+          path: |
+            phase-1-6-geo-ab-results.md
+            phase-1-6-geo-ab-results.csv
+            phase-1-6-geo-ab-summary.json
+          if-no-files-found: warn
