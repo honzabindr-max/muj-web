@@ -96,7 +96,7 @@ def _safe_label(url):
         country_s  = f"_country-{country_m.group(1)}" if country_m else ""
         lifetime_s = lifetime_m.group(1) if lifetime_m else ""
         suffix     = f"{country_s}_session-***{lifetime_s}" if country_s else "[global-rotating]"
-        return f"{p.scheme}://{p.username}:****{suffix}@{p.hostname}:{p.port}"
+        return f"{p.scheme}://****:****{suffix}@{p.hostname}:{p.port}"
     except Exception:
         return "[proxy label parse error]"
 
@@ -639,10 +639,12 @@ def main():
         print("STOP: PROXY_URL neni nastaven.")
         sys.exit(1)
 
-    # Maskuj base heslo proxy v GHA
+    # Maskuj proxy credentials v GHA (username + base heslo + cely PROXY_URL)
     try:
-        _, _, base_pwd, _, _ = _parse_proxy(PROXY_URL)
+        _, user, base_pwd, _, _ = _parse_proxy(PROXY_URL)
         base_clean = re.split(r'_country-', base_pwd)[0]
+        mask_gha(PROXY_URL)
+        mask_gha(user)
         mask_gha(base_clean)
     except Exception:
         pass
