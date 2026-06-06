@@ -19,6 +19,9 @@ Env vars:
   DRY_RUN        -- 'true' = jen IP checks, zadny Google req, zadny DB zapis
   PHASE2B_ABORT  -- 'true' = okamzity exit
   PHASE2B_BATCH  -- '1' nebo '2' (default '1')
+
+  PHASE2B_MARKETS    -- custom subset, napr. 'es/es,it/it' (prazdne = pouzij batch)
+  PHASE2B_PILOT_ID   -- existujici pilot_id pro doplneni dat (prazdne = vygeneruj novy)
 """
 import json, os, random, re, string, sys, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
@@ -32,6 +35,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 DRY_RUN      = os.environ.get("DRY_RUN",       "false").lower() in ("true", "1", "yes")
 ABORT        = os.environ.get("PHASE2B_ABORT",  "false").lower() in ("true", "1", "yes")
 BATCH        = os.environ.get("PHASE2B_BATCH",  "1").strip()
+PHASE2B_MARKETS  = os.environ.get("PHASE2B_MARKETS",  "").strip()
+PHASE2B_PILOT_ID = os.environ.get("PHASE2B_PILOT_ID", "").strip()
 
 SUGGEST_URL = "https://suggestqueries.google.com/complete/search"
 UA = (
@@ -94,6 +99,13 @@ MARKETS = {
         {"gl": "gb", "hl": "en", "requested_country": "GB"},
         {"gl": "ca", "hl": "en", "requested_country": "CA"},
     ],
+}
+
+# Flat lookup "gl/hl" → market dict -- pro custom subset parsing
+_ALL_MARKETS = {
+    f"{m['gl']}/{m['hl']}": m
+    for batch_list in MARKETS.values()
+    for m in batch_list
 }
 
 # ---------------------------------------------------------------------------
@@ -338,6 +350,24 @@ def update_run_row(run_id, updates):
         print(f"  WARNING: update_run_row failed pro run_id={run_id}")
 
 
+def check_market_already_done(pilot_id, gl, hl):
+    """
+    Read-only SELECT: vraci list existujicich run rows pro (pilot_id, gl, hl).
+    Pouziva se pouze kdyz je PHASE2B_PILOT_ID nastaven, aby zabranilo
+    tichemu re-runu uz hotoveho trhu pod stejnym pilot_id.
+    """
+    path = (
+        f"{TABLE_RUNS}"
+        f"?pilot_id=eq.{urllib.parse.quote(pilot_id)}"
+        f"&gl=eq.{gl}&hl=eq.{hl}"
+        f"&select=run_id,status"
+    )
+    result = supabase_request("GET", path)
+    if isinstance(result, list):
+        return result
+    return []
+
+
 def db_upsert_suggestions(rows):
     """ON CONFLICT (pilot_id,source,gl,hl,phrase_norm) → ignore. URL query param."""
     if not rows:
@@ -488,18 +518,49 @@ def main():
         print("PHASE2B_ABORT=true -- okamzity exit.")
         sys.exit(0)
 
-    batch_markets = MARKETS.get(BATCH)
-    if not batch_markets:
-        print(f"STOP: nezname PHASE2B_BATCH='{BATCH}'. Povolene hodnoty: 1, 2.")
-        sys.exit(1)
+    # -----------------------------------------------------------------------
+    # Market resolution: custom subset OR batch
+    # -----------------------------------------------------------------------
+    if PHASE2B_MARKETS:
+        batch_markets = []
+        for token in PHASE2B_MARKETS.split(","):
+            key = token.strip()
+            if not key:
+                continue
+            m = _ALL_MARKETS.get(key)
+            if m is None:
+                known = ", ".join(sorted(_ALL_MARKETS))
+                print(f"STOP: nezname market '{key}'. Povolene: {known}")
+                sys.exit(1)
+            batch_markets.append(m)
+        if not batch_markets:
+            print("STOP: PHASE2B_MARKETS je prazdny nebo neplatny.")
+            sys.exit(1)
+        batch_label = PHASE2B_MARKETS
+    else:
+        batch_markets = MARKETS.get(BATCH)
+        if not batch_markets:
+            print(f"STOP: nezname PHASE2B_BATCH='{BATCH}'. Povolene hodnoty: 1, 2.")
+            sys.exit(1)
+        batch_label = BATCH
 
+    # -----------------------------------------------------------------------
+    # pilot_id resolution: override OR generate
+    # -----------------------------------------------------------------------
     started_at = utcnow()
     run_start  = time.monotonic()
-    pilot_id   = "2b_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+    if PHASE2B_PILOT_ID:
+        pilot_id = PHASE2B_PILOT_ID
+    else:
+        pilot_id = "2b_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
 
     print(f"\n{'='*65}")
     print(f"  PHASE 2B DEPTH-1 PILOT  |  pilot_id={pilot_id}")
-    print(f"  {started_at[:19]}Z  |  dry_run={DRY_RUN}  batch={BATCH}")
+    if PHASE2B_PILOT_ID:
+        print(f"  pilot_id_override=True  (doplneni existujiciho pilot_id)")
+    if PHASE2B_MARKETS:
+        print(f"  custom_markets={PHASE2B_MARKETS}")
+    print(f"  {started_at[:19]}Z  |  dry_run={DRY_RUN}  batch={batch_label}")
     print(f"  markets={len(batch_markets)}  seed_pool={SEED_POOL_VERSION}")
     print(f"  max_d1_parents/market={MAX_DEPTH1_PARENT_QUERIES_PER_MARKET}")
     print(f"  max_children/parent={MAX_DEPTH1_CHILDREN_PER_PARENT}")
@@ -529,7 +590,8 @@ def main():
     # -----------------------------------------------------------------------
     if DRY_RUN:
         n = len(batch_markets)
-        print(f"=== DRY RUN: pouze sticky IP checks ({n} markets, batch={BATCH}) ===\n")
+        mode = f"custom:{PHASE2B_MARKETS}" if PHASE2B_MARKETS else f"batch={batch_label}"
+        print(f"=== DRY RUN: pouze sticky IP checks ({n} markets, {mode}) ===\n")
         failed  = 0
         results = []
         for market in batch_markets:
@@ -606,6 +668,17 @@ def main():
         print(f"  elapsed={elapsed / 60:.1f} min / {SOFT_TIMEOUT_SECONDS // 60} min soft limit")
         print(f"{'='*65}")
 
+        # Existence check -- pouze kdyz je pilot_id_override
+        # Read-only SELECT; zabrani tichemu re-runu hotoveho trhu pod stejnym pilot_id.
+        if PHASE2B_PILOT_ID:
+            existing = check_market_already_done(pilot_id, gl, hl)
+            if existing:
+                run_ids  = [r.get("run_id") for r in existing]
+                statuses = [r.get("status") for r in existing]
+                print(f"  SKIP {gl}/{hl}: uz existuje v pilot_id={pilot_id}"
+                      f" (run_id={run_ids}, status={statuses}). Preskakuji.")
+                continue
+
         # IP check
         session_id        = rand_session("2bprd")
         opener            = sticky_opener(market, session_id)
@@ -618,7 +691,7 @@ def main():
         if not country_match:
             final_status = "ip_check_error" if exit_cc == "error" else "country_mismatch"
             print(f"  IP CHECK: exit={exit_cc} expected={req_cc} final_status={final_status}. Skip.")
-            run_id = create_run_row(pilot_id, BATCH, market, len(seed_pool), exit_cc, False)
+            run_id = create_run_row(pilot_id, batch_label, market, len(seed_pool), exit_cc, False)
             if run_id:
                 update_run_row(run_id, {
                     "status": "ip_mismatch", "finished_at": utcnow(),
@@ -639,7 +712,7 @@ def main():
         print(f"  IP CHECK: exit_cc={exit_cc} final_status=exact_match")
 
         # Vytvor run row -- ziska run_id
-        run_id = create_run_row(pilot_id, BATCH, market, len(seed_pool), exit_cc, True)
+        run_id = create_run_row(pilot_id, batch_label, market, len(seed_pool), exit_cc, True)
         if run_id is None:
             print(f"  DB ERROR: nelze vytvorit run row. Skip.")
             failed_markets += 1
@@ -906,7 +979,7 @@ def main():
     # Souhrn
     # -----------------------------------------------------------------------
     print(f"\n{'='*65}")
-    print(f"  SOUHRN PHASE 2B PILOT  |  pilot_id={pilot_id}  batch={BATCH}")
+    print(f"  SOUHRN PHASE 2B PILOT  |  pilot_id={pilot_id}  batch={batch_label}")
     print(f"  soft_timeout_hit={soft_timeout_hit}")
     print(f"{'='*65}")
     for s in market_summaries:
@@ -922,7 +995,7 @@ def main():
     print(f"{'='*65}")
 
     write_summary(
-        pilot_id, BATCH, started_at, market_summaries,
+        pilot_id, batch_label, started_at, market_summaries,
         global_requests, soft_timeout_hit,
         "phase-2b-pilot-summary.json",
     )

@@ -15,6 +15,14 @@ on:
         description: "1 = cz/sk/de/fr/es/it | 2 = pl/nl/br/us/gb/ca"
         required: false
         default: "1"
+      markets:
+        description: "Custom market subset, napr. es/es,it/it (prazdne = pouzij batch)"
+        required: false
+        default: ""
+      pilot_id_override:
+        description: "Existujici pilot_id pro doplneni dat (prazdne = vygeneruj novy)"
+        required: false
+        default: ""
 
 jobs:
   pilot:
@@ -22,12 +30,14 @@ jobs:
     timeout-minutes: 45
 
     env:
-      PROXY_URL:     ${{ secrets.PROXY_URL }}
-      SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
-      SUPABASE_KEY:  ${{ secrets.SUPABASE_KEY }}
-      DRY_RUN:       ${{ inputs.dry_run }}
-      PHASE2B_ABORT: ${{ inputs.abort }}
-      PHASE2B_BATCH: ${{ inputs.batch }}
+      PROXY_URL:          ${{ secrets.PROXY_URL }}
+      SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
+      DRY_RUN:            ${{ inputs.dry_run }}
+      PHASE2B_ABORT:      ${{ inputs.abort }}
+      PHASE2B_BATCH:      ${{ inputs.batch }}
+      PHASE2B_MARKETS:    ${{ inputs.markets }}
+      PHASE2B_PILOT_ID:   ${{ inputs.pilot_id_override }}
 
     steps:
       - uses: actions/checkout@v4
