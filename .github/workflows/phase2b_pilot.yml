@@ -1,0 +1,45 @@
+name: Phase 2B Depth-1 Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = jen IP checks, zadny Google req, zadny DB zapis"
+        required: false
+        default: "true"
+      abort:
+        description: "true = okamzity exit"
+        required: false
+        default: "false"
+      batch:
+        description: "1 = cz/sk/de/fr/es/it | 2 = pl/nl/br/us/gb/ca"
+        required: false
+        default: "1"
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      PROXY_URL:     ${{ secrets.PROXY_URL }}
+      SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY:  ${{ secrets.SUPABASE_KEY }}
+      DRY_RUN:       ${{ inputs.dry_run }}
+      PHASE2B_ABORT: ${{ inputs.abort }}
+      PHASE2B_BATCH: ${{ inputs.batch }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run Phase 2B Depth-1 Pilot
+        run: python scripts/phase2b_pilot_crawl.py
+      - name: Upload summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-2b-pilot-${{ inputs.batch }}-${{ github.run_id }}
+          path: phase-2b-pilot-summary.json
+          if-no-files-found: warn
