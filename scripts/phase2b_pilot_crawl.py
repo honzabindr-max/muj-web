@@ -62,8 +62,8 @@ LIFETIME_MIN          = 10
 PAUSE_BETWEEN_SEEDS   = (1.5, 3.0)
 PAUSE_BETWEEN_MARKETS = (8.0, 12.0)
 PAUSE_DRY_RUN         = (3.0, 5.0)
-IP_CHECK_RETRIES      = 3
-IP_CHECK_RETRY_PAUSE  = 4.0
+IP_CHECK_RETRIES      = 5
+IP_CHECK_RETRY_PAUSE  = 6.0
 
 # ---------------------------------------------------------------------------
 # Trhy per batch
