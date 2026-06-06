@@ -34,11 +34,20 @@ ABORT        = os.environ.get("PHASE2B_ABORT",  "false").lower() in ("true", "1"
 BATCH        = os.environ.get("PHASE2B_BATCH",  "1").strip()
 
 SUGGEST_URL = "https://suggestqueries.google.com/complete/search"
-IP_API_URL  = "http://ip-api.com/json/?fields=country,countryCode,query"
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Endpointy pro IP geolokaci -- zkouseny sekvenčně
+IP_CHECK_ENDPOINTS = [
+    {"label": "ip-api",    "url": "http://ip-api.com/json/?fields=country,countryCode,query",
+     "cc_key": "countryCode", "ip_key": "query"},
+    {"label": "ipwho",     "url": "http://ipwho.is/",
+     "cc_key": "country_code",  "ip_key": "ip"},
+    {"label": "freeipapi", "url": "https://freeipapi.com/api/json",
+     "cc_key": "countryCode",  "ip_key": "ipAddress"},
+]
 
 TABLE_RUNS = "suggest_pilot_2b_runs"
 TABLE_SUGG = "suggest_pilot_2b_suggestions"
@@ -62,7 +71,7 @@ LIFETIME_MIN          = 10
 PAUSE_BETWEEN_SEEDS   = (1.5, 3.0)
 PAUSE_BETWEEN_MARKETS = (8.0, 12.0)
 PAUSE_DRY_RUN         = (3.0, 5.0)
-IP_CHECK_RETRIES      = 5
+IP_CHECK_RETRIES      = 2    # pokusy PER endpoint; 3 endpointy × 2 = 6 max celkem
 IP_CHECK_RETRY_PAUSE  = 6.0
 
 # ---------------------------------------------------------------------------
@@ -195,23 +204,35 @@ def normalize(phrase):
 # IP check
 # ---------------------------------------------------------------------------
 def check_ip(opener, label=""):
-    """Vraci (exit_ip, exit_cc). exit_ip se NIKDY neloguje ani neuklada."""
-    for attempt in range(1, IP_CHECK_RETRIES + 1):
-        try:
-            req = urllib.request.Request(IP_API_URL, headers={"User-Agent": UA})
-            with opener.open(req, timeout=15) as r:
-                raw = r.read().decode().strip()
-                if not raw:
-                    raise ValueError("prazdna odpoved ip-api.com")
-                d  = json.loads(raw)
-                ip = d.get("query", "?")
-                cc = d.get("countryCode", "?")
-                print(f"  [ip-check/{label}] exit_cc={cc} (attempt {attempt})")
-                return ip, cc
-        except Exception as e:
-            print(f"  [ip-check/{label}] attempt {attempt}/{IP_CHECK_RETRIES} error: {e}")
-            if attempt < IP_CHECK_RETRIES:
-                time.sleep(IP_CHECK_RETRY_PAUSE)
+    """
+    Vraci (exit_ip, exit_cc). exit_ip se NIKDY neloguje ani neuklada.
+    Zkouší IP_CHECK_ENDPOINTS sekvenčně; každý endpoint dostane IP_CHECK_RETRIES pokusů.
+    Pokud všechny endpointy selžou, vrací ("error", "error").
+    """
+    for ep in IP_CHECK_ENDPOINTS:
+        ep_lbl = ep["label"]
+        for attempt in range(1, IP_CHECK_RETRIES + 1):
+            try:
+                req = urllib.request.Request(ep["url"], headers={"User-Agent": UA})
+                with opener.open(req, timeout=15) as r:
+                    raw = r.read().decode().strip()
+                    if not raw:
+                        raise ValueError("prazdna odpoved")
+                    d  = json.loads(raw)
+                    ip = d.get(ep["ip_key"], "?")
+                    cc = d.get(ep["cc_key"], "?")
+                    if not cc or cc == "?":
+                        raise ValueError(f"chybi cc pole '{ep['cc_key']}'")
+                    print(f"  [ip-check/{label}] endpoint={ep_lbl} exit_cc={cc} (attempt {attempt})")
+                    return ip, cc
+            except Exception as e:
+                err_type = type(e).__name__
+                print(f"  [ip-check/{label}] endpoint={ep_lbl} attempt {attempt}/{IP_CHECK_RETRIES}"
+                      f" error: {err_type}: {e}")
+                if attempt < IP_CHECK_RETRIES:
+                    time.sleep(IP_CHECK_RETRY_PAUSE)
+        print(f"  [ip-check/{label}] endpoint={ep_lbl} vycerpan, zkousim dalsi...")
+    print(f"  [ip-check/{label}] final_status=ip_check_error (vsechny endpointy selhaly)")
     return "error", "error"
 
 
@@ -518,22 +539,28 @@ def main():
             opener            = sticky_opener(market, session_id)
             _exit_ip, exit_cc = check_ip(opener, f"{gl}/{hl}")
             match = exit_cc.upper() == req_cc.upper() and exit_cc not in ("error", "?")
-            print(f"  exit_cc={exit_cc} [{'OK' if match else 'MISMATCH'}]")
+            if exit_cc == "error":
+                final_status = "ip_check_error"
+            elif match:
+                final_status = "exact_match"
+            else:
+                final_status = "country_mismatch"
+            print(f"  exit_cc={exit_cc} [{final_status}]")
             results.append({
                 "gl": gl, "hl": hl,
                 "req_cc": req_cc, "exit_cc": exit_cc, "match": match,
+                "final_status": final_status,
             })
             if not match:
                 failed += 1
             time.sleep(random.uniform(*PAUSE_DRY_RUN))
 
-        print(f"\n{'='*52}")
-        print(f"  {'Market':<10} {'Exit CC':>8} {'Expected':>10} {'Match?':>8}")
-        print(f"  {'-'*42}")
+        print(f"\n{'='*62}")
+        print(f"  {'Market':<10} {'Exit CC':>8} {'Expected':>10} {'Final Status':>16}")
+        print(f"  {'-'*52}")
         for r in results:
-            s = "OK" if r["match"] else "MISMATCH"
-            print(f"  {r['gl']}/{r['hl']:<6} {r['exit_cc']:>8} {r['req_cc']:>10} {s:>8}")
-        print(f"{'='*52}")
+            print(f"  {r['gl']}/{r['hl']:<6} {r['exit_cc']:>8} {r['req_cc']:>10} {r['final_status']:>16}")
+        print(f"{'='*62}")
 
         if failed:
             print(f"\nEXIT 1: {failed} IP mismatch(y). Oprav proxy konfiguraci.")
@@ -589,7 +616,8 @@ def main():
         )
 
         if not country_match:
-            print(f"  IP MISMATCH: exit={exit_cc} expected={req_cc}. Skip.")
+            final_status = "ip_check_error" if exit_cc == "error" else "country_mismatch"
+            print(f"  IP CHECK: exit={exit_cc} expected={req_cc} final_status={final_status}. Skip.")
             run_id = create_run_row(pilot_id, BATCH, market, len(seed_pool), exit_cc, False)
             if run_id:
                 update_run_row(run_id, {
@@ -608,7 +636,7 @@ def main():
             })
             continue
 
-        print(f"  IP OK: exit_cc={exit_cc}")
+        print(f"  IP CHECK: exit_cc={exit_cc} final_status=exact_match")
 
         # Vytvor run row -- ziska run_id
         run_id = create_run_row(pilot_id, BATCH, market, len(seed_pool), exit_cc, True)
