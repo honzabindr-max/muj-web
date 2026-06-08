@@ -396,46 +396,86 @@ def db_insert_parent_queries(rows):
 
 
 # ---------------------------------------------------------------------------
-# Depth-1 parent selection -- s skip pravidlem
+# Depth-1 parent selection -- stratifikovany vyber podle seed_category
 # ---------------------------------------------------------------------------
+
+# Capy per kategorie; soucet = MAX_DEPTH1_PARENT_QUERIES_PER_MARKET
+STRATIFIED_CAPS = {
+    "intent": 50,
+    "alpha":  60,
+    "digit":  15,
+    "brand":  15,
+}
+# Poradi redistribuce nevyuziteho budgetu
+REDISTRIBUTION_ORDER = ["intent", "alpha", "brand", "digit"]
+
+
 def select_depth1_parents(d0_rows, max_count):
     """
     Vraci (parents_list, skipped_seed_parents_count).
 
+    Stratifikovany vyber: intent=50, alpha=60, digit=15, brand=15.
+    Nevyuzity budget se prerozdeli v poradi: intent → alpha → brand → digit.
+
     Skip pravidlo: pokud parent_phrase_norm == normalize(origin_seed),
     parent se preskoci -- dotaz by vracel 100 % duplicit.
 
-    parent_position = poradí v ramci origin_seed (ne v celém marketu).
+    parent_position = poradí v ramci origin_seed.
     """
-    seen                  = set()
-    parents               = []
-    seed_position_counter = {}
-    skipped               = 0
+    seen       = set()
+    candidates = {cat: [] for cat in STRATIFIED_CAPS}
+    seed_pos   = {}   # position counter per origin_seed
+    skipped    = 0
 
     for row in d0_rows:
-        pn         = row["phrase_norm"]
-        seed       = row["seed_prefix"]
-        seed_norm  = normalize(seed)
+        pn   = row["phrase_norm"]
+        seed = row["seed_prefix"]
+        cat  = row["seed_category"]
 
-        # Skip pravidlo
-        if pn == seed_norm:
+        if pn == normalize(seed):
             skipped += 1
             continue
 
-        if pn not in seen:
+        if pn not in seen and cat in candidates:
             seen.add(pn)
-            pos = seed_position_counter.get(seed, 0)
-            seed_position_counter[seed] = pos + 1
-            parents.append({
+            pos = seed_pos.get(seed, 0)
+            seed_pos[seed] = pos + 1
+            candidates[cat].append({
                 "parent_phrase_raw":          row["phrase_raw"],
                 "parent_phrase_norm":         pn,
                 "origin_seed":                seed,
-                "origin_seed_category":       row["seed_category"],
+                "origin_seed_category":       cat,
                 "parent_depth0_raw_position": row["raw_position"],
                 "parent_position":            pos,
             })
-        if len(parents) >= max_count:
+
+    # Inicializuj alokace: min(cap, dostupno per kategorie)
+    alloc = {cat: min(STRATIFIED_CAPS[cat], len(candidates[cat]))
+             for cat in STRATIFIED_CAPS}
+    total_available = sum(len(v) for v in candidates.values())
+    target          = min(max_count, total_available)
+    surplus         = target - sum(alloc.values())
+
+    # Prerozdel surplus v priority poradi
+    for cat in REDISTRIBUTION_ORDER:
+        if surplus <= 0:
             break
+        extra = min(surplus, len(candidates[cat]) - alloc[cat])
+        if extra > 0:
+            alloc[cat] += extra
+            surplus    -= extra
+
+    # Log per-category breakdown
+    parts = "  ".join(
+        f"{cat}={alloc[cat]}/{len(candidates[cat])}"
+        for cat in REDISTRIBUTION_ORDER
+    )
+    print(f"  parents stratified: {parts}  total={sum(alloc.values())}  skipped_seeds={skipped}")
+
+    # Sestav vysledny list v deterministickem poradi kategorii
+    parents = []
+    for cat in REDISTRIBUTION_ORDER:
+        parents.extend(candidates[cat][: alloc[cat]])
 
     return parents, skipped
 
@@ -562,7 +602,9 @@ def main():
         print(f"  custom_markets={PHASE2B_MARKETS}")
     print(f"  {started_at[:19]}Z  |  dry_run={DRY_RUN}  batch={batch_label}")
     print(f"  markets={len(batch_markets)}  seed_pool={SEED_POOL_VERSION}")
-    print(f"  max_d1_parents/market={MAX_DEPTH1_PARENT_QUERIES_PER_MARKET}")
+    print(f"  max_d1_parents/market={MAX_DEPTH1_PARENT_QUERIES_PER_MARKET}"
+          f" (intent={STRATIFIED_CAPS['intent']} alpha={STRATIFIED_CAPS['alpha']}"
+          f" digit={STRATIFIED_CAPS['digit']} brand={STRATIFIED_CAPS['brand']})")
     print(f"  max_children/parent={MAX_DEPTH1_CHILDREN_PER_PARENT}")
     print(f"  max_reqs/market={MAX_REQUESTS_PER_MARKET}  global_cap={GLOBAL_CAP_REQUESTS}")
     print(f"  soft_timeout={SOFT_TIMEOUT_SECONDS // 60} min  error_rate_stop={ERROR_RATE_STOP:.0%} (min {ERROR_RATE_MIN_REQUESTS} req)")
@@ -797,9 +839,6 @@ def main():
         # Cap podle REALNEHO d0_unique_count pro tento market
         max_parents              = min(d0_unique_count, MAX_DEPTH1_PARENT_QUERIES_PER_MARKET)
         parents, skipped_parents = select_depth1_parents(d0_rows, max_parents)
-        print(f"  parents selected: {len(parents)}"
-              f" (cap=min({d0_unique_count},{MAX_DEPTH1_PARENT_QUERIES_PER_MARKET})={max_parents})"
-              f", skipped_seed_parents={skipped_parents}")
 
         # -------------------------------------------------------------------
         # DEPTH 1
