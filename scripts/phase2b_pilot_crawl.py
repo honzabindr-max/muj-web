@@ -401,29 +401,46 @@ def db_insert_parent_queries(rows):
 
 # Capy per kategorie; soucet = MAX_DEPTH1_PARENT_QUERIES_PER_MARKET
 STRATIFIED_CAPS = {
-    "intent": 50,
-    "alpha":  60,
+    "intent": 70,
+    "alpha":  45,
     "digit":  15,
-    "brand":  15,
+    "brand":  10,
 }
 # Poradi redistribuce nevyuziteho budgetu
 REDISTRIBUTION_ORDER = ["intent", "alpha", "brand", "digit"]
+
+# Digit: preskoc parenty, ktere jsou holym cislem/rokem/zakonem (zadny text)
+DIGIT_PURE_NUMBER_RE = re.compile(r'^[0-9./ ]+$')
+
+# Brand: tokeny signalizujici komercni/hodnotici kontext -- tito parenti maji prioritu
+BRAND_COMMERCIAL_TOKENS = frozenset({
+    "cena", "akcie", "aktie", "prix", "prezzo", "precio",
+    "recenze", "recensioni", "review", "avis", "test",
+    "koupit", "kaufen", "acheter", "comprar",
+    "model", "pro", "max", "ultra", "plus",
+})
 
 
 def select_depth1_parents(d0_rows, max_count):
     """
     Vraci (parents_list, skipped_seed_parents_count).
 
-    Stratifikovany vyber: intent=50, alpha=60, digit=15, brand=15.
+    Stratifikovany vyber: intent=70, alpha=45, digit=15, brand=10.
     Nevyuzity budget se prerozdeli v poradi: intent → alpha → brand → digit.
 
-    Skip pravidlo: pokud parent_phrase_norm == normalize(origin_seed),
-    parent se preskoci -- dotaz by vracel 100 % duplicit.
+    Skip pravidla (aplikovana pred stratifikaci):
+    - pokud parent_phrase_norm == normalize(origin_seed): preskoc (100 % duplicit)
+    - digit: preskoc holé cislo/rok/zakon odpovidajici DIGIT_PURE_NUMBER_RE
+    - brand: prioritizuj parenty s komercinim kvalifikatorem (BRAND_COMMERCIAL_TOKENS);
+      ostatni brand parenty zarazuj az za prioritni (ale nevyhazuj je)
 
-    parent_position = poradí v ramci origin_seed.
+    parent_position = poradi v ramci origin_seed.
     """
     seen       = set()
     candidates = {cat: [] for cat in STRATIFIED_CAPS}
+    # brand se deli na prioritni (komercni token) a ostatni
+    brand_priority = []
+    brand_fallback = []
     seed_pos   = {}   # position counter per origin_seed
     skipped    = 0
 
@@ -436,18 +453,33 @@ def select_depth1_parents(d0_rows, max_count):
             skipped += 1
             continue
 
+        # Digit filtr: preskoc holé cislo/rok/zakon
+        if cat == "digit" and DIGIT_PURE_NUMBER_RE.match(pn):
+            continue
+
         if pn not in seen and cat in candidates:
             seen.add(pn)
             pos = seed_pos.get(seed, 0)
             seed_pos[seed] = pos + 1
-            candidates[cat].append({
+            entry = {
                 "parent_phrase_raw":          row["phrase_raw"],
                 "parent_phrase_norm":         pn,
                 "origin_seed":                seed,
                 "origin_seed_category":       cat,
                 "parent_depth0_raw_position": row["raw_position"],
                 "parent_position":            pos,
-            })
+            }
+            if cat == "brand":
+                tokens = set(pn.split())
+                if tokens & BRAND_COMMERCIAL_TOKENS:
+                    brand_priority.append(entry)
+                else:
+                    brand_fallback.append(entry)
+            else:
+                candidates[cat].append(entry)
+
+    # Sloz brand kandidaty: prioritni napred, pak fallback
+    candidates["brand"] = brand_priority + brand_fallback
 
     # Inicializuj alokace: min(cap, dostupno per kategorie)
     alloc = {cat: min(STRATIFIED_CAPS[cat], len(candidates[cat]))
