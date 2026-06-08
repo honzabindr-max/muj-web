@@ -1,8 +1,11 @@
 name: Google Crawl v2
 
 on:
-  schedule:
-    - cron: '17,47 * * * *'   # v :17 a :47 každé hodiny — mimo přetížený slot :00
+  # Vypnuto 2026-06-08 — produkční v2 crawler zastaven
+  # (noisy mixed-geo data + opakované 403). pg_cron jobid=2 také deaktivován.
+  # Vzkříšení: odkomentovat + cron.alter_job(2, active:=true).
+  # schedule:
+  #   - cron: '17,47 * * * *'   # v :17 a :47 každé hodiny — mimo přetížený slot :00
   workflow_dispatch:
     inputs:
       dry_run:
