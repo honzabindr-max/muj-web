@@ -195,6 +195,11 @@ _INTENT_SEEDS = {
         "best restaurants in ",
         "alternative to ",
         "compare ",
+        "best app for ",
+        "best software for ",
+        "best credit cards for ",
+        "best internet provider for ",
+        "best home internet for ",
     ],
 }
 
@@ -202,12 +207,7 @@ _INTENT_SEEDS = {
 _INTENT_SEEDS_EXPERIMENTAL = {
     "en": [
         "best ",
-        "best app for ",
-        "best software for ",
-        "best credit cards for ",
         "best broadband for ",
-        "best internet provider for ",
-        "best home internet for ",
         "best fiber internet for ",
     ],
     "pt": ["melhor "],
