@@ -23,6 +23,22 @@ on:
         description: "Existujici pilot_id pro doplneni dat (prazdne = vygeneruj novy)"
         required: false
         default: ""
+      depth0_only:
+        description: "1 = jen depth-0, zadny depth-1 (1b mini-crawl validace seedu)"
+        required: false
+        default: "0"
+      no_db:
+        description: "1 = zadny DB zapis, jen artifact (nutne pro 1b)"
+        required: false
+        default: "0"
+      include_experimental_seeds:
+        description: "1 = pridat kos B (best/melhor); povoleno jen kdyz depth0_only=1 a no_db=1"
+        required: false
+        default: "0"
+      artifact_dir:
+        description: "Adresar pro depth-0 artifacty (default artifacts/phase2b)"
+        required: false
+        default: "artifacts/phase2b"
 
 jobs:
   pilot:
@@ -38,6 +54,10 @@ jobs:
       PHASE2B_BATCH:      ${{ inputs.batch }}
       PHASE2B_MARKETS:    ${{ inputs.markets }}
       PHASE2B_PILOT_ID:   ${{ inputs.pilot_id_override }}
+      PHASE2B_DEPTH0_ONLY:               ${{ inputs.depth0_only }}
+      PHASE2B_NO_DB:                     ${{ inputs.no_db }}
+      PHASE2B_INCLUDE_EXPERIMENTAL_SEEDS: ${{ inputs.include_experimental_seeds }}
+      PHASE2B_ARTIFACT_DIR:              ${{ inputs.artifact_dir }}
 
     steps:
       - uses: actions/checkout@v4
@@ -52,4 +72,11 @@ jobs:
         with:
           name: phase-2b-pilot-${{ inputs.batch }}-${{ github.run_id }}
           path: phase-2b-pilot-summary.json
+          if-no-files-found: warn
+      - name: Upload depth-0 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-2b-depth0-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ inputs.artifact_dir }}/
           if-no-files-found: warn
