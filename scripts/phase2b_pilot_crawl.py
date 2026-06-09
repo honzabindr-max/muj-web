@@ -206,6 +206,9 @@ _INTENT_SEEDS_EXPERIMENTAL = {
         "best software for ",
         "best credit cards for ",
         "best broadband for ",
+        "best internet provider for ",
+        "best home internet for ",
+        "best fiber internet for ",
     ],
     "pt": ["melhor "],
 }
