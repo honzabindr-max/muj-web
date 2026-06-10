@@ -215,11 +215,21 @@ _INTENT_SEEDS_EXPERIMENTAL = {
 
 _ALPHA_SEEDS = [chr(c) for c in range(ord("a"), ord("z") + 1)]
 _DIGIT_SEEDS = [str(d) for d in range(10)]
-_BRAND_SEEDS = ["youtube", "amazon", "apple"]
+_BRAND_SEEDS = {
+    # Vlastni jmena znacek per jazyk — zadna genericka slova.
+    "en": ["amazon", "apple", "youtube", "netflix", "spotify", "paypal", "ebay", "walmart", "microsoft", "samsung"],
+    "pl": ["allegro", "amazon", "netflix", "spotify", "paypal", "youtube", "apple", "microsoft", "samsung", "revolut"],
+    "nl": ["bol.com", "amazon", "netflix", "spotify", "paypal", "youtube", "apple", "microsoft", "samsung", "revolut"],
+    "pt": ["mercado livre", "shopee", "amazon", "netflix", "spotify", "paypal", "youtube", "apple", "samsung", "revolut"],
+}
 
 
 def build_seed_pool(hl):
-    """Vraci list [{seed_prefix, seed_category}] pro dany jazyk."""
+    """Vraci list [{seed_prefix, seed_category}] pro dany jazyk.
+
+    Pozn.: d0 mix (pocet seedu per kategorie) NENI garantovany — produkcni
+    mix urcuji d1 parent capy v STRATIFIED_CAPS, ne velikost tohoto poolu.
+    """
     pool = []
     for s in _INTENT_SEEDS.get(hl, []):
         pool.append({"seed_prefix": s, "seed_category": "intent"})
@@ -227,7 +237,7 @@ def build_seed_pool(hl):
         pool.append({"seed_prefix": s, "seed_category": "alpha"})
     for s in _DIGIT_SEEDS:
         pool.append({"seed_prefix": s, "seed_category": "digit"})
-    for s in _BRAND_SEEDS:
+    for s in _BRAND_SEEDS.get(hl, _BRAND_SEEDS["en"]):
         pool.append({"seed_prefix": s, "seed_category": "brand"})
     return pool
 
@@ -572,7 +582,7 @@ def select_depth1_parents(d0_rows, max_count):
     """
     Vraci (parents_list, skipped_seed_parents_count).
 
-    Stratifikovany vyber: intent=70, alpha=45, digit=15, brand=10.
+    Stratifikovany vyber: intent=110, alpha=45, digit=15, brand=10.
     Zadne prelevano -- cap je tvrdou hranici per kategorie.
 
     Skip pravidla (aplikovana pred stratifikaci):
