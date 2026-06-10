@@ -90,7 +90,7 @@ SEED_POOL_VERSION = "v1"
 
 # Limity
 MAX_DEPTH = 1
-MAX_DEPTH1_PARENT_QUERIES_PER_MARKET = 140
+MAX_DEPTH1_PARENT_QUERIES_PER_MARKET = 180
 MAX_DEPTH1_CHILDREN_PER_PARENT = 10
 MAX_REQUESTS_PER_MARKET = 230
 ERROR_RATE_STOP = 0.15
@@ -530,7 +530,7 @@ def db_insert_parent_queries(rows):
 
 # Capy per kategorie; soucet = MAX_DEPTH1_PARENT_QUERIES_PER_MARKET
 STRATIFIED_CAPS = {
-    "intent": 70,
+    "intent": 110,
     "alpha": 45,
     "digit": 15,
     "brand": 10,
