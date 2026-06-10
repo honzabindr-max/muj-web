@@ -9,6 +9,7 @@ import { SummaryBar } from "./_components/summary-bar";
 import { Toolbar } from "./_components/toolbar";
 import { MutationsTable } from "./_components/mutations-table";
 import { SuggestWorldMap } from "./_components/SuggestWorldMap";
+import { SeznamCrawlStatus } from "./_components/seznam-crawl-status";
 import type { FilterState } from "./_lib/types";
 import { flagEmoji, countryName } from "./_lib/utils";
 
@@ -125,6 +126,9 @@ export default function SuggestPage() {
 
         {/* Summary */}
         <SummaryBar summary={summary} className="mt-5" />
+
+        {/* Seznam live status */}
+        <SeznamCrawlStatus className="mt-3" />
 
         {/* World map */}
         <SuggestWorldMap
