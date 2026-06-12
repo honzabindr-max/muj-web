@@ -1,0 +1,4001 @@
+type,token_or_ngram,frequency,phrase_count,as_head_count,as_modifier_count
+token,křížovka,709,709,2,707
+token,význam,520,520,24,496
+token,praha,334,333,9,325
+token,nghĩa,309,309,0,309
+token,počasí,264,264,30,234
+token,zš,261,261,246,15
+token,čr,260,260,30,230
+token,recept,259,259,2,257
+token,anglicky,253,253,1,252
+token,brno,240,240,7,233
+token,plzeň,232,232,13,219
+token,s.r.o,226,226,0,226
+token,mapa,181,181,5,176
+token,recenze,177,177,3,174
+token,gì,166,165,0,166
+token,nad,163,163,2,161
+token,text,158,158,2,156
+token,přihlášení,154,154,15,139
+token,sro,154,154,10,144
+token,účinky,149,149,14,135
+token,české,148,148,12,136
+token,zkratka,146,146,35,111
+token,online,144,144,15,129
+token,cena,144,144,8,136
+token,film,139,139,5,134
+token,děti,135,135,3,132
+token,là,130,128,0,130
+token,těhotenství,129,129,36,93
+token,in,127,127,42,85
+token,filmy,125,125,1,124
+token,budějovice,121,121,4,117
+token,překlad,114,114,4,110
+token,slova,113,113,45,68
+token,účet,111,111,91,20
+token,pořady,107,107,1,106
+token,synonymum,105,105,3,102
+token,česká,104,104,42,62
+token,čísla,102,102,11,91
+token,psč,102,102,45,57
+token,ostrava,101,101,2,99
+token,mudr,100,100,51,49
+token,sb,99,99,71,28
+token,program,96,96,17,79
+token,škola,94,94,17,77
+token,akordy,93,93,2,91
+token,práce,91,91,3,88
+token,liga,89,89,11,78
+token,pod,88,88,2,86
+token,meaning,88,88,30,58
+token,počet,86,86,1,85
+token,kalkulačka,86,86,9,77
+token,kniha,86,86,3,83
+token,čd,85,85,71,14
+token,jičín,85,85,12,73
+token,fotky,84,84,2,82
+token,příznaky,84,84,4,80
+token,nový,83,83,17,66
+token,restaurace,82,82,5,77
+token,mš,81,81,57,24
+token,vs,80,80,24,56
+token,škoda,78,78,37,41
+token,akce,77,77,1,76
+token,číslo,77,77,17,60
+token,mě,76,75,21,54
+token,ženy,75,69,20,50
+token,sa,75,74,5,70
+token,pdf,75,75,5,70
+token,jan,74,74,50,24
+token,týden,74,74,63,11
+token,ad,74,74,64,10
+token,šaty,72,72,12,60
+token,čaj,72,72,12,60
+token,olomouc,71,71,2,69
+token,martin,71,71,51,20
+token,ac,71,71,59,12
+token,prostějov,70,70,4,66
+token,vyznam,69,69,1,68
+token,sport,68,68,18,50
+token,jiří,68,68,52,16
+token,prodej,68,68,3,65
+token,barada,67,67,4,63
+token,místa,65,65,0,65
+token,živě,65,65,20,45
+token,přerov,65,65,5,60
+token,čt,64,64,54,10
+token,šumperk,64,64,7,57
+token,slevový,64,64,14,50
+token,značka,64,64,34,30
+token,áž,63,16,12,12
+token,věk,63,63,12,51
+token,most,63,63,6,57
+token,město,62,62,4,58
+token,kalendář,62,62,12,50
+token,kč,62,61,58,3
+token,bratislava,60,60,3,57
+token,pes,60,60,3,57
+token,dnes,60,60,3,57
+token,omáčka,60,60,4,56
+token,tv,59,59,30,29
+token,andělská,59,59,59,0
+token,pojištění,59,59,7,52
+token,rozměry,59,59,42,17
+token,pronunciation,59,59,28,31
+token,žilina,59,59,10,49
+token,česky,59,59,4,55
+token,čas,58,58,11,47
+token,doo,58,58,3,55
+token,hokej,57,57,3,54
+token,de,57,56,9,48
+token,cvičení,56,56,18,38
+token,obyvatel,56,56,1,55
+token,dům,56,56,15,41
+token,pojišťovna,56,56,17,39
+token,ičo,56,56,19,37
+token,země,56,56,6,50
+token,dveře,55,55,14,41
+token,košice,55,55,1,54
+token,ag,55,55,46,9
+token,petr,55,55,43,12
+token,av,54,54,12,42
+token,auto,53,53,4,49
+token,pardubice,53,53,0,53
+token,cz,53,53,2,51
+token,kočky,53,53,1,52
+token,hradec,53,53,0,53
+token,třída,52,52,22,30
+token,eur,51,51,9,42
+token,čz,50,50,50,0
+token,lázně,50,50,14,36
+token,dvůr,50,50,15,35
+token,cm,50,50,0,50
+token,psa,49,49,0,49
+token,divadlo,49,49,0,49
+token,ab,49,49,44,5
+token,úřad,48,48,18,30
+token,menu,48,48,0,48
+token,maglumat,48,48,0,48
+token,český,48,48,13,35
+token,zákon,48,48,17,31
+token,volná,47,47,0,47
+token,kladno,47,47,6,41
+token,kontakt,47,47,0,47
+token,třebíč,47,47,7,40
+token,english,47,47,3,44
+token,zlín,47,47,4,43
+token,tomáš,46,46,36,10
+token,předvolba,46,46,46,0
+token,ah,46,46,42,4
+token,aktuálně,45,45,26,19
+token,herci,45,45,0,45
+token,brýle,45,45,15,30
+token,dřevo,45,45,3,42
+token,výsledky,45,45,17,28
+token,fasonlar,45,45,2,43
+token,obecný,44,44,0,44
+token,znamení,44,44,2,42
+token,test,44,44,5,39
+token,členové,44,44,21,23
+token,měna,44,44,5,39
+token,salát,44,44,0,44
+token,řada,44,44,39,5
+token,polévka,43,43,0,43
+token,výpočet,43,43,17,26
+token,google,43,43,20,23
+token,a.s,43,43,0,43
+token,vyšetření,43,43,0,43
+token,pavel,43,43,29,14
+token,léčba,43,43,3,40
+token,druh,42,42,1,41
+token,havířov,42,42,14,28
+token,uk,42,42,1,41
+token,řád,42,42,9,33
+token,jízdní,42,42,17,25
+token,žárovka,42,42,38,4
+token,oddělení,42,42,7,35
+token,wordwall,41,41,32,9
+token,třinec,41,41,11,30
+token,už,41,40,27,13
+token,jana,41,41,29,12
+token,aa,41,39,31,9
+token,den,40,40,5,35
+token,pěstování,40,40,6,34
+token,deník,40,40,3,37
+token,řidičák,40,40,38,2
+token,olej,40,40,2,38
+token,list,40,40,0,40
+token,logo,40,40,6,34
+token,vysočina,40,40,9,31
+token,kraj,40,40,1,39
+token,bůh,39,39,19,20
+token,tabulka,39,39,4,35
+token,slovní,39,39,2,37
+token,zámek,39,39,6,33
+token,pracovní,39,39,7,32
+token,očkování,39,39,16,23
+token,hradiště,39,39,1,38
+token,bazar,39,39,1,38
+token,čeština,39,39,15,24
+token,kod,39,39,0,39
+token,zákona,39,39,18,21
+token,život,38,38,14,24
+token,oblečení,38,38,8,30
+token,dph,38,38,18,20
+token,mi,38,38,5,33
+token,příbram,38,38,3,35
+token,kroměříž,38,38,2,36
+token,chinese,38,38,1,37
+token,dm,38,38,24,14
+token,webkamera,38,38,7,31
+token,maribor,38,38,0,38
+token,liberec,37,37,0,37
+token,tě,37,35,8,27
+token,mlýn,37,37,3,34
+token,daně,37,37,2,35
+token,svět,37,37,8,29
+token,brod,37,37,0,37
+token,benešov,37,37,0,37
+token,ďábel,36,36,29,7
+token,kontakty,36,36,0,36
+token,kočka,36,36,8,28
+token,samsung,36,36,31,5
+token,králové,36,36,0,36
+token,vyškov,36,36,2,34
+token,plus,35,35,6,29
+token,dětí,35,35,0,35
+token,david,35,35,27,8
+token,servis,35,35,9,26
+token,šampon,35,35,9,26
+token,herec,35,35,0,35
+token,recepty,35,35,1,34
+token,syndrom,35,35,2,33
+token,tři,35,35,18,17
+token,zagreb,35,35,0,35
+token,svátek,35,35,1,34
+token,česko,34,34,7,27
+token,vzor,34,34,4,30
+token,hrad,34,34,3,31
+token,jméno,34,34,4,30
+token,kůň,34,34,10,24
+token,maso,34,34,0,34
+token,doba,34,34,1,33
+token,pošta,33,33,14,19
+token,kód,33,33,5,28
+token,čez,33,33,13,20
+token,děčín,33,33,7,26
+token,kancelář,33,33,0,33
+token,nitra,33,33,1,32
+token,krém,33,33,0,33
+token,tábor,33,33,3,30
+token,pád,33,33,26,7
+token,zastarale,33,33,0,33
+token,leták,33,33,0,33
+token,ski,33,33,3,30
+token,is,33,33,14,19
+token,vody,32,32,0,32
+token,obec,32,32,11,21
+token,centrum,32,32,8,24
+token,můj,32,32,20,12
+token,zboží,32,32,7,25
+token,pravopis,32,32,3,29
+token,měsíc,32,32,13,19
+token,vlasy,32,32,0,32
+token,ondřej,32,32,29,3
+token,studijní,32,32,0,32
+token,ně,31,31,16,15
+token,ačr,31,31,17,14
+token,klub,31,31,14,17
+token,slovo,31,31,10,21
+token,koně,31,31,3,28
+token,oční,31,31,15,16
+token,advokátní,31,31,3,28
+token,mělník,31,31,3,28
+token,ljubljana,31,31,2,29
+token,základní,31,31,29,2
+token,michal,31,31,23,8
+token,hora,31,31,4,27
+token,procvičování,30,30,17,13
+token,noty,30,30,1,29
+token,zdarma,30,30,0,30
+token,rozměr,30,30,25,5
+token,jaroslav,30,30,23,7
+token,dálniční,30,30,11,19
+token,letiště,30,30,4,26
+token,miminko,30,30,2,28
+token,hlavní,30,30,7,23
+token,černý,30,30,12,18
+token,koláč,30,30,3,27
+token,mně,30,30,13,17
+token,jindřichův,30,30,4,26
+token,průkaz,30,30,3,27
+token,palců,30,30,27,3
+token,s.r.o.,30,30,0,30
+token,příjmů,30,30,0,30
+token,ae,30,30,19,11
+token,la,29,24,8,20
+token,světa,29,29,1,28
+token,milan,29,29,16,13
+token,hráči,29,29,0,29
+token,kolín,29,28,7,22
+token,vidět,29,29,5,24
+token,já,29,29,2,27
+token,stůl,29,29,11,18
+token,fotbal,29,29,1,28
+token,října,29,29,27,2
+token,jsem,29,28,7,22
+token,en,29,29,20,9
+token,ti,29,29,1,28
+token,zařízení,29,29,8,21
+token,vánoční,29,29,12,17
+token,přání,29,29,10,19
+token,vozidla,29,27,0,29
+token,auta,29,29,1,28
+token,voda,29,29,0,29
+token,of,29,27,3,26
+token,nože,29,29,11,18
+token,labem,29,29,0,29
+token,žen,29,29,24,5
+token,řeka,29,29,11,18
+token,litoměřice,29,29,3,26
+token,có,29,29,20,9
+token,af,29,29,14,15
+token,května,29,29,25,4
+token,sázavou,28,28,0,28
+token,před,28,28,0,28
+token,meziříčí,28,28,0,28
+token,red,28,28,6,22
+token,live,28,28,9,19
+token,vysavač,28,28,2,26
+token,nové,28,28,3,25
+token,velké,28,28,7,21
+token,iž,28,28,28,0
+token,písek,28,28,1,27
+token,bmw,28,28,28,0
+token,náměstí,28,28,4,24
+token,lyrics,28,28,6,22
+token,zuzana,28,28,23,5
+token,žnl,28,28,28,0
+token,sk,28,28,9,19
+token,autoškola,28,28,5,23
+token,černá,28,28,8,20
+token,mp3,28,28,0,28
+token,rožnov,28,28,8,20
+token,oš,28,28,28,0
+token,fest,27,27,1,26
+token,pomazánka,27,27,0,27
+token,rok,27,27,4,23
+token,facebook,27,27,4,23
+token,seznam,27,27,5,22
+token,youtube,27,27,11,16
+token,guláš,27,27,5,22
+token,vodu,27,27,0,27
+token,podle,27,27,0,27
+token,kůže,27,27,11,16
+token,mýto,27,27,7,20
+token,nemoc,27,27,9,18
+token,dopravní,27,25,1,26
+token,zkušenosti,27,27,3,24
+token,opava,27,27,0,27
+token,čsfd,26,26,20,6
+token,koncerty,26,26,1,25
+token,čvut,26,26,14,12
+token,mapy,26,26,4,22
+token,sen,26,22,2,24
+token,dítě,26,26,9,17
+token,známka,26,26,0,26
+token,vše,26,26,2,24
+token,slovensko,26,26,1,25
+token,czk,26,26,1,25
+token,řeznictví,26,26,18,8
+token,pčr,26,26,13,13
+token,lyžování,26,26,7,19
+token,kuchyně,26,26,3,23
+token,jihlava,26,26,0,26
+token,výška,26,26,6,20
+token,marek,26,26,20,6
+token,ročník,26,26,4,22
+token,republika,25,25,0,25
+token,ať,25,25,20,5
+token,břeclav,25,25,7,18
+token,latinsky,25,25,0,25
+token,bistro,25,25,6,19
+token,střední,25,25,3,22
+token,kraje,25,25,0,25
+token,člověk,25,25,6,19
+token,dort,25,25,0,25
+token,skloňování,25,25,2,23
+token,kino,25,25,3,22
+token,lípa,25,25,4,21
+token,židle,25,25,11,14
+token,zču,25,25,11,14
+token,masem,25,25,0,25
+token,vrácení,25,25,7,18
+token,let,25,25,11,14
+token,společnost,25,25,3,22
+token,oc,25,25,24,1
+token,šperky,25,25,8,17
+token,slovensky,25,25,0,25
+token,říše,25,25,13,12
+token,urnik,25,25,0,25
+token,zdeněk,25,25,15,10
+token,iphone,25,25,20,5
+token,žena,25,25,12,13
+token,knižně,25,25,0,25
+token,značenje,25,25,1,24
+token,jaký,25,25,19,6
+token,beograd,25,24,0,25
+token,chata,25,25,7,18
+token,čem,25,25,24,1
+token,prešov,25,25,1,24
+token,sr,25,25,0,25
+token,czech,25,25,10,15
+token,řízení,25,25,6,19
+token,čsob,24,24,14,10
+token,pravidla,24,24,8,16
+token,překladač,24,24,13,11
+token,áÿ,24,10,0,24
+token,až,24,23,12,12
+token,park,24,24,6,18
+token,knihy,24,24,3,21
+token,csfd,24,24,0,24
+token,hzs,24,24,5,19
+token,nůž,24,24,5,19
+token,žloutenka,24,24,21,3
+token,uherské,24,24,2,22
+token,noc,24,24,3,21
+token,trnava,24,24,0,24
+token,nežádoucí,24,24,3,21
+token,o2,24,24,0,24
+token,portál,24,24,3,21
+token,zeď,24,24,10,14
+token,roman,24,24,19,5
+token,dveří,24,24,0,24
+token,ču,24,21,9,12
+token,radeček,23,22,21,1
+token,čínský,23,23,16,7
+token,bílý,23,23,10,13
+token,ač,23,23,23,0
+token,barva,23,23,0,23
+token,fakulta,23,23,0,23
+token,tu,23,23,6,17
+token,řády,23,23,1,22
+token,škodlivost,23,23,17,6
+token,zvíře,23,23,11,12
+token,poděbrady,23,23,8,15
+token,červený,23,23,6,17
+token,řecké,23,23,11,12
+token,jakub,23,23,18,5
+token,knihovna,23,23,2,21
+token,řezy,23,23,6,17
+token,policie,23,23,2,21
+token,proti,23,23,1,22
+token,taxi,23,23,4,19
+token,pre,23,23,4,19
+token,adam,23,23,17,6
+token,vivo,23,23,23,0
+token,hodonín,23,23,0,23
+token,trenčín,23,23,0,23
+token,manželka,23,23,0,23
+token,či,23,22,14,8
+token,petra,23,23,11,12
+token,we,23,23,12,11
+token,st9,23,23,0,23
+token,věž,22,22,6,16
+token,čárka,22,22,8,14
+token,horoskop,22,22,0,22
+token,moře,22,22,2,20
+token,formulář,22,22,4,18
+token,obchody,22,22,0,22
+token,dětské,22,22,15,7
+token,válka,22,22,5,17
+token,hry,22,22,2,20
+token,bunda,22,22,0,22
+token,velký,22,22,6,16
+token,polička,22,22,2,20
+token,banka,22,22,2,20
+token,říčany,22,22,4,18
+token,krizovka,22,22,0,22
+token,řsd,22,22,18,4
+token,sůl,22,22,13,9
+token,zábřeh,22,22,4,18
+token,síť,22,22,18,4
+token,štěně,22,22,7,15
+token,karel,22,22,11,11
+token,pizza,22,22,8,14
+token,příběh,22,22,4,18
+token,cup,22,22,2,20
+token,koření,22,22,3,19
+token,vě,22,22,6,16
+token,domažlice,22,22,2,20
+token,chomutov,22,22,0,22
+token,služba,22,22,1,21
+token,kateřina,22,22,19,3
+token,bar,22,22,3,19
+token,hořovice,22,22,11,11
+token,split,22,22,6,16
+token,myčka,22,22,14,8
+token,số,22,21,0,22
+token,měsíční,22,22,22,0
+token,fotbalová,22,22,0,22
+token,jazyk,21,21,1,20
+token,kurz,21,21,7,14
+token,čzu,21,21,13,8
+token,archiv,21,21,8,13
+token,boty,21,21,0,21
+token,aš,21,21,11,10
+token,obsazení,21,21,6,15
+token,no,21,21,2,19
+token,povlečení,21,21,3,18
+token,pivovar,21,21,2,19
+token,stříbro,21,21,6,15
+token,něco,21,16,11,5
+token,nn,21,21,20,1
+token,školení,21,21,3,18
+token,troubě,21,21,1,20
+token,kým,21,21,21,0
+token,žije,21,21,6,15
+token,ponožky,21,21,1,20
+token,školy,21,21,0,21
+token,ty,21,20,8,12
+token,čeho,21,21,18,3
+token,roční,21,21,14,7
+token,frýdek,21,21,7,14
+token,litomyšl,21,21,1,20
+token,přiznání,21,21,5,16
+token,josef,21,21,18,3
+token,čaje,21,21,10,11
+token,masa,21,21,0,21
+token,holešov,21,21,4,17
+token,března,21,21,21,0
+token,čnb,20,20,13,7
+token,octavia,20,20,5,15
+token,dieta,20,20,10,10
+token,žďár,20,20,7,13
+token,postavy,20,20,0,20
+token,eshop,20,20,0,20
+token,akci,20,20,0,20
+token,písničky,20,20,3,17
+token,vlajka,20,20,3,17
+token,upol,20,20,1,19
+token,photos,20,20,1,19
+token,kalhoty,20,20,0,20
+token,růže,20,20,12,8
+token,kčs,20,20,19,1
+token,bezpečnost,20,20,0,20
+token,ňu,20,14,11,3
+token,chleba,20,20,0,20
+token,code,20,20,5,15
+token,papír,20,20,1,19
+token,výpis,20,20,13,7
+token,martina,20,20,14,6
+token,brambory,20,20,0,20
+token,žatec,20,20,7,13
+token,letov,20,20,20,0
+token,celje,20,20,0,20
+token,příspěvek,20,20,5,15
+token,lidl,20,20,1,19
+token,vinařství,20,20,6,14
+token,druhy,20,20,14,6
+token,příbalový,20,20,0,20
+token,syn,20,20,0,20
+token,peter,20,20,17,3
+token,filip,20,20,15,5
+token,ký,20,20,16,4
+token,nařízení,20,20,11,9
+token,čls,20,20,10,10
+token,noční,20,20,11,9
+token,ivan,20,20,14,6
+token,slaný,20,20,2,18
+token,sada,20,20,11,9
+token,daních,20,20,0,20
+token,nahlížení,19,19,10,9
+token,rejstřík,19,19,8,11
+token,news,19,19,1,18
+token,zkouška,19,19,3,16
+token,čssz,19,19,15,4
+token,as,19,18,4,14
+token,lucie,19,19,13,6
+token,mladá,19,19,0,19
+token,františek,19,19,12,7
+token,new,19,19,4,15
+token,jsou,19,19,4,15
+token,může,19,19,10,9
+token,klinika,19,19,1,18
+token,čistič,19,19,8,11
+token,hc,19,19,19,0
+token,ikea,19,19,3,16
+token,pelhřimov,19,19,2,17
+token,nejlepší,19,19,12,7
+token,vlasů,19,19,0,19
+token,něrgešová,19,19,11,8
+token,plech,19,19,0,19
+token,dotace,19,19,3,16
+token,herečka,19,19,1,18
+token,nova,19,19,4,15
+token,ověření,19,19,12,7
+token,stažení,19,19,1,18
+token,reality,19,19,1,18
+token,špagety,19,19,11,8
+token,řepy,19,19,0,19
+token,domácí,19,19,1,18
+token,vysoké,19,19,3,16
+token,vilnius,19,19,3,16
+token,zbraně,19,19,9,10
+token,telefon,19,19,2,17
+token,mzdy,19,19,3,16
+token,zúčtování,19,19,7,12
+token,účtu,19,19,8,11
+token,bude,19,19,7,12
+token,občanský,19,19,10,9
+token,stupňů,19,19,17,2
+token,sarajevo,19,19,2,17
+token,služby,19,19,4,15
+token,lý,19,19,13,6
+token,pě,19,19,7,12
+token,nářadí,19,19,9,10
+token,jižní,19,19,12,7
+token,jep,19,19,0,19
+token,koček,19,19,2,17
+token,trutnov,19,19,1,18
+token,mesto,19,19,4,15
+token,šedá,19,19,5,14
+token,uršula,19,19,10,9
+token,čedok,18,18,14,4
+token,obecná,18,18,1,17
+token,ťuk,18,11,10,1
+token,původ,18,18,7,11
+token,skupina,18,18,3,15
+token,dny,18,18,11,7
+token,manžel,18,18,0,18
+token,valašské,18,18,1,17
+token,vypínač,18,18,12,6
+token,fk,18,18,14,4
+token,max,18,18,0,18
+token,logopedie,18,18,14,4
+token,měření,18,18,8,10
+token,sž,18,18,14,4
+token,kaše,18,18,1,17
+token,kýla,18,18,10,8
+token,slovník,18,18,0,18
+token,víš,18,17,9,9
+token,rozbor,18,18,0,18
+token,nýřany,18,18,11,7
+token,péče,18,18,9,9
+token,kolo,18,18,4,14
+token,šd,18,18,17,1
+token,narozeninám,18,18,4,14
+token,časopis,18,18,4,14
+token,třebová,18,18,0,18
+token,ýsa,18,18,18,0
+token,video,18,18,2,16
+token,žádost,18,18,13,5
+token,díly,18,18,1,17
+token,pivo,18,18,0,18
+token,natječaji,18,18,0,18
+token,hodin,18,18,4,14
+token,sirup,18,18,1,17
+token,složení,18,18,1,17
+token,farma,18,18,5,13
+token,srdce,18,18,0,18
+token,nabíječka,18,18,9,9
+token,ir,18,18,5,13
+token,lišta,18,18,7,11
+token,osvč,18,18,3,15
+token,ceník,18,18,6,12
+token,ovladač,18,18,13,5
+token,bystřice,18,18,5,13
+token,que,18,18,16,2
+token,vedlejší,18,18,3,15
+token,prci,18,9,9,0
+token,řádu,18,18,0,18
+token,června,18,18,18,0
+token,dámské,17,17,2,15
+token,čb,17,17,12,5
+token,sparta,17,17,0,17
+token,audi,17,17,15,2
+token,prahy,17,17,0,17
+token,slunce,17,17,0,17
+token,cestovní,17,17,2,15
+token,stavební,17,17,1,16
+token,hlášení,17,17,3,14
+token,daň,17,17,8,9
+token,klíč,17,17,4,13
+token,domov,17,17,3,14
+token,cukroví,17,17,0,17
+token,účetnictví,17,17,4,13
+token,metráž,17,17,0,17
+token,dolarů,17,17,15,2
+token,kadeřnictví,17,17,7,10
+token,náš,17,17,4,13
+token,těsta,17,17,0,17
+token,důchod,17,17,2,15
+token,ťzp,17,17,13,4
+token,uherský,17,17,4,13
+token,skříň,17,17,3,14
+token,úštěk,17,17,17,0
+token,stroj,17,17,0,17
+token,těsto,17,17,3,14
+token,čisté,17,17,0,17
+token,telefonní,17,17,5,12
+token,zůna,17,17,16,1
+token,zánět,17,17,14,3
+token,lékařská,17,17,12,5
+token,můstek,17,17,8,9
+token,bor,17,17,2,15
+token,cesta,17,17,1,16
+token,nábytek,17,17,4,13
+token,ne,17,15,5,10
+token,čsú,17,17,16,1
+token,ča,17,10,10,0
+token,slepice,17,17,0,17
+token,křížovce,17,17,0,17
+token,odst,17,17,16,1
+token,činnosti,17,17,3,14
+token,občanského,17,17,11,6
+token,věty,17,15,9,6
+token,o5,16,15,0,16
+token,angličtina,16,16,6,10
+token,teplice,16,16,0,16
+token,řidič,16,16,8,8
+token,čt1,16,16,0,16
+token,okna,16,16,0,16
+token,karlovy,16,16,1,15
+token,vary,16,16,0,16
+token,mzda,16,16,0,16
+token,příklady,16,16,0,16
+token,potřeby,16,16,0,16
+token,měsíce,16,16,4,12
+token,řez,16,16,6,10
+token,eu,16,16,4,12
+token,led,16,16,7,9
+token,dřeva,16,16,1,15
+token,som,16,16,0,16
+token,jž,16,16,16,0
+token,tišnov,16,16,6,10
+token,net,16,16,1,15
+token,hovězí,16,16,10,6
+token,dič,16,16,9,7
+token,you,16,16,6,10
+token,lukáš,16,16,11,5
+token,věznice,16,16,10,6
+token,rád,16,15,2,14
+token,mše,16,16,8,8
+token,půjčovna,16,16,9,7
+token,polštář,16,16,0,16
+token,miroslav,16,16,13,3
+token,kapela,16,16,2,14
+token,údolí,16,16,10,6
+token,šárka,16,16,12,4
+token,snář,16,16,15,1
+token,box,16,16,2,14
+token,vůně,16,16,11,5
+token,voš,16,16,8,8
+token,diář,16,16,11,5
+token,0š,16,16,0,16
+token,anděl,16,16,8,8
+token,použití,16,16,1,15
+token,jsi,16,15,4,12
+token,ii,16,16,4,12
+token,ložiska,16,16,2,14
+token,škála,16,16,6,10
+token,lenka,16,16,12,4
+token,boží,16,16,6,10
+token,lásky,16,16,1,15
+token,počasie,16,16,4,12
+token,víno,16,16,2,14
+token,muže,16,16,0,16
+token,hotel,16,16,3,13
+token,vš,16,16,13,3
+token,hlavy,16,16,0,16
+token,místek,16,16,0,16
+token,šume,16,16,0,16
+token,cheb,16,16,3,13
+token,dani,16,16,7,9
+token,klatovy,16,16,0,16
+token,tyč,16,15,4,11
+token,jídelníček,16,16,8,8
+token,plot,16,16,1,15
+token,beroun,16,16,1,15
+token,veřejné,16,16,9,7
+token,malý,16,16,10,6
+token,ředitel,16,16,7,9
+token,vůz,16,16,11,5
+token,žáček,16,16,12,4
+token,šk,16,16,15,1
+token,žalec,16,16,5,11
+token,bao,16,16,7,9
+token,izbový,16,16,16,0
+token,července,16,16,16,0
+token,café,15,15,3,12
+token,tm,15,15,6,9
+token,běžky,15,15,5,10
+token,pás,15,15,0,15
+token,březen,15,15,8,7
+token,babiš,15,15,8,7
+token,uši,15,15,11,4
+token,spz,15,15,4,11
+token,kámen,15,15,3,12
+token,výměna,15,15,11,4
+token,déčko,15,15,14,1
+token,déšť,15,15,10,5
+token,ma,15,15,8,7
+token,netflix,15,15,2,13
+token,ďáblice,15,15,1,14
+token,song,15,15,0,15
+token,říjen,15,15,13,2
+token,mezi,15,15,1,14
+token,vlaků,15,15,0,15
+token,kabel,15,15,0,15
+token,hž,15,15,15,0
+token,ič,15,15,15,0
+token,dačice,15,15,6,9
+token,křeslo,15,15,4,11
+token,air,15,15,1,14
+token,kuře,15,15,4,11
+token,jaroměř,15,15,1,14
+token,kost,15,15,0,15
+token,le,15,15,3,12
+token,krumlov,15,15,4,11
+token,očr,15,15,14,1
+token,učebnice,15,15,11,4
+token,so,15,15,2,13
+token,nářečně,15,15,0,15
+token,ulice,15,15,3,12
+token,červená,15,15,2,13
+token,hay,15,15,4,11
+token,řp,15,15,15,0
+token,sš,15,15,14,1
+token,řazení,15,15,15,0
+token,sfžp,15,15,13,2
+token,sound,15,15,12,3
+token,řež,15,15,5,10
+token,vězení,15,15,2,13
+token,mobil,15,15,3,12
+token,čl,15,15,14,1
+token,tabák,15,15,2,13
+token,zuš,15,15,12,3
+token,veronika,15,15,13,2
+token,lokomotiva,15,15,12,3
+token,að,15,15,0,15
+token,em,15,15,13,2
+token,ivančice,15,15,1,14
+token,zoo,15,15,3,12
+token,novi,15,15,3,12
+token,hrubého,15,15,14,1
+token,otevírací,15,15,0,15
+token,znacenje,15,15,0,15
+token,fačr,15,15,10,5
+token,soš,15,15,11,4
+token,řetízek,15,15,13,2
+token,skola,15,15,0,15
+token,čištění,15,15,12,3
+token,světě,15,15,0,15
+token,náušnice,15,15,9,6
+token,třeboň,15,15,3,12
+token,sáčky,15,15,9,6
+token,čo,15,15,13,2
+token,znak,15,15,2,13
+token,boleslav,15,14,0,15
+token,bě,15,15,10,5
+token,bakaláři,15,15,4,11
+token,havlíčkův,15,15,1,14
+token,dnů,15,15,11,4
+token,výstavy,15,15,2,13
+token,čsn,15,15,13,2
+token,stavby,15,15,1,14
+token,č.,15,15,0,15
+token,ústí,15,15,0,15
+token,dějiny,15,14,5,10
+token,píseň,15,15,0,15
+token,vyúčtování,15,15,12,3
+token,autobus,15,15,9,6
+token,rs,15,15,9,6
+token,měď,15,15,13,2
+token,písmeno,15,15,9,6
+token,hodiny,15,15,1,14
+token,trestního,15,15,9,6
+token,osř,15,15,15,0
+token,ňom,15,15,10,5
+token,zd,15,15,13,2
+token,szš,15,15,14,1
+token,sh,15,15,14,1
+token,nhiêu,15,15,0,15
+token,óčko,14,14,14,0
+token,řím,14,14,4,10
+token,zprávy,14,14,5,9
+token,obory,14,14,0,14
+token,pádů,14,14,12,2
+token,muž,14,14,7,7
+token,čáslav,14,14,2,12
+token,část,14,14,5,9
+token,soutěže,14,14,0,14
+token,čhmú,14,14,13,1
+token,předpověď,14,14,6,8
+token,beton,14,14,1,13
+token,baba,14,14,0,14
+token,kuchařka,14,14,1,13
+token,muni,14,14,0,14
+token,jména,14,14,2,12
+token,choroba,14,14,0,14
+token,dřevostavby,14,14,5,9
+token,york,14,14,0,14
+token,hana,14,14,13,1
+token,věra,14,14,11,3
+token,fžp,14,14,14,0
+token,řešení,14,14,10,4
+token,arena,14,14,4,10
+token,ěr,14,14,13,1
+token,smrt,14,14,2,12
+token,lčr,14,14,13,1
+token,kuřecím,14,14,0,14
+token,gř,14,14,14,0
+token,gš,14,14,12,2
+token,hů,14,10,8,2
+token,lyže,14,14,1,13
+token,näme,14,14,0,14
+token,teď,14,14,9,5
+token,usd,14,14,3,11
+token,lůžkoviny,14,14,4,10
+token,testy,14,14,1,13
+token,sušice,14,14,2,12
+token,očima,14,14,2,12
+token,nůžky,14,14,8,6
+token,ošatka,14,14,14,0
+token,není,14,14,7,7
+token,uý,14,14,14,0
+token,elektro,14,14,1,13
+token,šrouby,14,14,9,5
+token,seriál,14,14,1,13
+token,šroub,14,14,13,1
+token,dolní,14,14,2,12
+token,moči,14,14,2,12
+token,group,14,14,0,14
+token,nemocnice,14,14,2,12
+token,václav,14,14,8,6
+token,čepice,14,14,7,7
+token,nic,14,14,0,14
+token,všb,14,14,13,1
+token,postel,14,14,1,13
+token,týdenní,14,14,11,3
+token,těstoviny,14,14,4,10
+token,kočárek,14,14,2,12
+token,của,14,14,0,14
+token,zřs,14,14,13,1
+token,času,14,14,1,13
+token,sokolov,14,14,1,13
+token,karlovac,14,14,0,14
+token,jirkov,14,14,3,11
+token,žsr,14,14,11,3
+token,župan,14,14,10,4
+token,žamberk,14,14,4,10
+token,liška,14,14,8,6
+token,období,14,14,4,10
+token,radio,14,14,9,5
+token,života,14,14,1,13
+token,fahrenheita,14,14,0,14
+token,půst,14,14,10,4
+token,prapor,14,14,1,13
+token,státní,14,14,3,11
+token,bystrica,14,14,0,14
+token,naďa,14,14,13,1
+token,aeg,14,14,13,1
+token,nová,14,14,1,13
+token,saša,14,14,14,0
+token,taťána,14,14,13,1
+token,zo,14,14,5,9
+token,spol.,14,14,0,14
+token,mm,14,14,6,8
+token,nádraží,14,14,2,12
+token,tereza,14,14,12,2
+token,osob,14,14,0,14
+token,kvůli,14,14,10,4
+token,nymburk,14,14,2,12
+token,bb,14,14,3,11
+token,studio,14,14,1,13
+token,games,14,14,2,12
+token,výroba,14,14,6,8
+token,římsky,14,14,14,0
+token,telč,14,14,8,6
+token,autoservis,14,14,10,4
+token,dpč,14,14,11,3
+token,fitness,14,14,6,8
+token,ovoce,14,14,1,13
+token,ján,14,14,8,6
+token,loď,14,14,9,5
+token,člen,14,14,5,9
+token,kiến,14,14,0,14
+token,zvuk,14,14,1,13
+token,vú,14,14,14,0
+token,životů,14,14,13,1
+token,tů,14,8,7,1
+token,spořitelna,13,13,3,10
+token,čtk,13,13,12,1
+token,životopis,13,13,5,8
+token,ččk,13,13,11,2
+token,buď,13,13,11,2
+token,roláda,13,13,0,13
+token,aý,13,13,11,2
+token,ažd,13,13,12,1
+token,čpzp,13,13,13,0
+token,strakonice,13,13,0,13
+token,čkyně,13,13,10,3
+token,čov,13,13,11,2
+token,palác,13,13,0,13
+token,harry,13,13,2,11
+token,fond,13,13,4,9
+token,kariera,13,13,1,12
+token,klavesnici,13,13,8,5
+token,harmonogram,13,13,0,13
+token,oě,13,13,12,1
+token,bohyně,13,13,0,13
+token,mudr.,13,13,0,13
+token,košile,13,13,2,11
+token,pračka,13,13,1,12
+token,láska,13,13,3,10
+token,chat,13,13,11,2
+token,hra,13,13,1,12
+token,helena,13,13,7,6
+token,ťing,13,13,12,1
+token,ivysílání,13,13,10,3
+token,chléb,13,13,0,13
+token,doprava,13,13,0,13
+token,kšiltovka,13,13,11,2
+token,kopřivnice,13,13,1,12
+token,domů,13,13,9,4
+token,rc,13,13,11,2
+token,jozef,13,13,10,3
+token,nabídka,13,13,0,13
+token,mk,13,13,12,1
+token,mdž,13,13,12,1
+token,německo,13,13,2,11
+token,životní,13,13,3,10
+token,mčr,13,13,13,0
+token,mlýnek,13,13,9,4
+token,mšmt,13,13,10,3
+token,celá,13,13,1,12
+token,kabát,13,13,3,10
+token,ořechy,13,13,2,11
+token,chřipka,13,13,9,4
+token,půjčka,13,13,5,8
+token,plyšák,13,13,1,12
+token,da,13,12,4,9
+token,quý,13,13,10,3
+token,všcht,13,13,11,2
+token,řbitov,13,13,13,0
+token,pila,13,13,0,13
+token,sčvk,13,13,13,0
+token,ples,13,13,2,11
+token,šfrb,13,13,13,0
+token,šj,13,13,13,0
+token,šc,13,13,13,0
+token,chotěboř,13,13,1,12
+token,šťastný,13,13,9,4
+token,domu,13,12,0,13
+token,rychlost,13,13,1,12
+token,lesy,13,13,2,11
+token,šlágr,13,13,8,5
+token,hračky,13,13,1,12
+token,účastníci,13,13,7,6
+token,štefan,13,13,10,3
+token,banja,13,13,1,12
+token,tš,13,13,13,0
+token,žaluzie,13,13,7,6
+token,ťiang,13,13,5,8
+token,plán,13,13,3,10
+token,čárkou,13,13,9,4
+token,žebříček,13,13,2,11
+token,zpoždění,13,13,10,3
+token,žehlička,13,13,11,2
+token,les,13,13,1,12
+token,zelená,13,13,0,13
+token,žz,13,13,11,2
+token,festival,13,13,2,11
+token,zákoník,13,13,1,12
+token,matěj,13,13,12,1
+token,deň,13,13,8,5
+token,daňové,13,13,8,5
+token,ohař,13,13,8,5
+token,lanškroun,13,13,1,12
+token,čtyři,13,13,6,7
+token,tužka,13,13,9,4
+token,toý,13,13,11,2
+token,zdraví,13,13,0,13
+token,jmeno,13,13,3,10
+token,r.o,13,13,0,13
+token,dcera,13,13,2,11
+token,okres,13,13,0,13
+token,čechy,13,13,4,9
+token,things,13,13,0,13
+token,gymnázium,13,13,1,12
+token,špz,13,13,10,3
+token,michaela,13,13,12,1
+token,převodovka,13,13,3,10
+token,jmen,13,13,0,13
+token,čidlo,13,13,11,2
+token,otevřených,13,13,0,13
+token,dom,13,13,3,10
+token,přehled,13,13,5,8
+token,zákoníku,13,13,0,13
+token,českého,13,13,0,13
+token,soňa,13,13,11,2
+token,dž,13,10,10,0
+token,špaček,13,13,12,1
+token,žirafa,13,13,7,6
+token,přehrada,13,13,2,11
+token,naše,13,13,10,3
+token,3d,13,13,0,13
+token,užívání,13,13,9,4
+token,burger,13,13,5,8
+token,mz,13,13,9,4
+token,jeď,13,13,8,5
+token,krůtí,13,13,12,1
+token,kž,13,13,10,3
+token,řetěz,13,13,7,6
+token,mým,13,13,10,3
+token,ok,13,13,11,2
+token,mozku,13,13,0,13
+token,suýt,13,13,9,4
+token,španělská,13,13,13,0
+token,žnk,13,12,12,0
+token,hokejová,13,13,0,13
+token,televize,12,11,3,9
+token,olympijských,12,12,0,12
+token,jiřina,12,12,10,2
+token,klávesnici,12,12,2,10
+token,cžv,12,12,12,0
+token,leoš,12,12,11,1
+token,celer,12,12,0,12
+token,tai,12,12,0,12
+token,šš,12,12,12,0
+token,písnička,12,12,1,11
+token,zuby,12,12,1,11
+token,usa,12,12,1,11
+token,německy,12,12,2,10
+token,aňa,12,12,12,0
+token,vzduchu,12,12,0,12
+token,činky,12,12,11,1
+token,čj,12,12,11,1
+token,ck,12,12,11,1
+token,črs,12,12,10,2
+token,článek,12,12,10,2
+token,dřevěné,12,12,6,6
+token,ff,12,12,1,11
+token,d1,12,12,0,12
+token,ďc,12,12,9,3
+token,ďd,12,12,12,0
+token,ďe,12,12,7,5
+token,ďm,12,12,12,0
+token,eňo,12,12,12,0
+token,eř,12,12,12,0
+token,gčp,12,12,12,0
+token,géčko,12,12,10,2
+token,stav,12,12,1,11
+token,podmínky,12,12,0,12
+token,jš,12,12,11,1
+token,přes,12,12,1,11
+token,hěn,12,12,11,1
+token,hk,12,12,8,4
+token,rýže,12,12,1,11
+token,kuřim,12,12,2,10
+token,tanec,12,12,0,12
+token,ivana,12,12,10,2
+token,íčko,12,12,12,0
+token,dortíčky,12,12,0,12
+token,iňlis,12,12,11,1
+token,maršálek,12,12,0,12
+token,ušák,12,12,11,1
+token,jč,12,12,12,0
+token,kéž,12,12,12,0
+token,kýta,12,12,10,2
+token,ještěd,12,12,7,5
+token,lžíce,12,12,11,1
+token,půlnoční,12,12,12,0
+token,vodopád,12,12,0,12
+token,patrik,12,12,7,5
+token,týždeň,12,12,6,6
+token,míša,12,12,12,0
+token,žďorp,12,12,2,10
+token,krční,12,12,5,7
+token,nčzd,12,12,12,0
+token,němčina,12,12,1,11
+token,kleště,12,12,1,11
+token,peče,12,12,3,9
+token,alebo,12,12,0,12
+token,ukrajina,12,12,1,11
+token,keyboard,12,12,5,7
+token,odznak,12,12,10,2
+token,vejce,12,12,2,10
+token,podložka,12,12,2,10
+token,survivor,12,12,0,12
+token,ríša,12,11,9,2
+token,události,12,12,7,5
+token,ušní,12,12,10,2
+token,rč,12,12,10,2
+token,nahoře,12,12,10,2
+token,zdravotní,12,12,4,8
+token,1a,12,12,0,12
+token,teploměr,12,12,1,11
+token,řasenka,12,12,10,2
+token,sř,12,12,11,1
+token,dovolená,12,12,1,11
+token,ubytování,12,12,1,11
+token,ša,12,12,11,1
+token,microsoft,12,12,9,3
+token,lanka,12,11,0,12
+token,údržba,12,12,10,2
+token,vnitřní,12,12,8,4
+token,dní,12,12,6,6
+token,týdny,12,12,11,1
+token,skříňka,12,12,5,7
+token,vladimír,12,12,7,5
+token,vzp,12,12,8,4
+token,stříbra,12,12,3,9
+token,1ž,12,12,0,12
+token,yě,12,12,12,0
+token,ýr,12,12,11,1
+token,moč,12,12,2,10
+token,aňsat,12,12,10,2
+token,standings,12,12,0,12
+token,kofta,12,12,0,12
+token,žc,12,12,12,0
+token,žbirka,12,12,10,2
+token,štěstí,12,12,2,10
+token,žp,12,12,12,0
+token,žralok,12,12,10,2
+token,karty,12,12,0,12
+token,žž,12,12,11,1
+token,3ď,12,12,0,12
+token,obi,12,12,3,9
+token,platová,12,12,11,1
+token,ženu,12,12,0,12
+token,acš,12,12,12,0
+token,pohár,12,12,1,11
+token,vrijeme,12,12,1,11
+token,způsob,12,12,6,6
+token,vložky,12,12,4,8
+token,volby,12,12,6,6
+token,eken,12,9,2,10
+token,nikola,12,12,5,7
+token,monika,12,12,9,3
+token,ježek,12,12,9,3
+token,bižuterie,12,12,10,2
+token,ný,12,12,12,0
+token,bačkory,12,12,8,4
+token,koupit,12,12,1,11
+token,běh,12,12,3,9
+token,kemp,12,12,2,10
+token,bpž,12,12,10,2
+token,dýchání,12,12,2,10
+token,který,12,11,5,6
+token,stranger,12,12,1,11
+token,čech,12,12,7,5
+token,čtečka,12,12,7,5
+token,statek,12,12,0,12
+token,sv,12,12,4,8
+token,čerpadlo,12,12,3,9
+token,čsl,12,12,3,9
+token,páteř,12,12,4,8
+token,železo,12,12,5,7
+token,krnov,12,12,3,9
+token,kranj,12,12,0,12
+token,čp,12,12,12,0
+token,šport,12,12,5,7
+token,reiksme,12,12,1,11
+token,how,12,12,11,1
+token,language,12,12,6,6
+token,stěna,12,12,0,12
+token,frýdlant,12,12,4,8
+token,uničov,12,12,1,11
+token,agro,12,12,5,7
+token,nebe,12,12,1,11
+token,těšín,12,12,1,11
+token,tyčový,12,12,9,3
+token,evžen,12,12,12,0
+token,šrámek,12,12,6,6
+token,zvířat,12,12,0,12
+token,julie,12,12,7,5
+token,obličej,12,12,1,11
+token,zvolen,12,12,0,12
+token,world,12,12,11,1
+token,výrobce,12,12,2,10
+token,ňaňa,12,12,12,0
+token,matrace,12,12,2,10
+token,kožní,12,12,5,7
+token,mostar,12,12,0,12
+token,laďka,12,12,11,1
+token,yên,12,12,0,12
+token,taška,12,12,8,4
+token,výzva,12,12,9,3
+token,jaké,12,12,12,0
+token,tarot,12,12,1,11
+token,sýr,12,12,2,10
+token,stavebniny,12,12,1,11
+token,křtiny,12,12,7,5
+token,kzž,12,12,9,3
+token,měú,12,12,12,0
+token,škwor,12,12,12,0
+token,svůj,12,12,10,2
+token,veď,12,12,10,2
+token,šu,12,8,8,0
+token,ždb,12,12,12,0
+token,žo,12,10,10,0
+token,ďumbierska,12,12,12,0
+token,čtvrtletní,12,12,12,0
+token,písemná,12,12,0,12
+token,zimních,11,11,0,11
+token,mořský,11,11,5,6
+token,jču,11,11,10,1
+token,zítra,11,11,6,5
+token,řízek,11,11,5,6
+token,šedý,11,11,3,8
+token,čro,11,11,11,0
+token,spořící,11,11,3,8
+token,čši,11,11,11,0
+token,kas,11,11,1,10
+token,reikšmė,11,11,0,11
+token,dobrý,11,11,3,8
+token,ýt,11,11,11,0
+token,honzy,11,11,1,10
+token,dědka,11,11,0,11
+token,živnostenský,11,11,10,1
+token,bčs,11,11,10,1
+token,bč,11,11,10,1
+token,čfl,11,11,11,0
+token,duše,11,11,1,10
+token,zubů,11,11,0,11
+token,čbf,11,11,10,1
+token,katastru,11,11,0,11
+token,čína,11,11,10,1
+token,kariéra,11,11,0,11
+token,býk,11,11,9,2
+token,žlázy,11,11,3,8
+token,bžany,11,11,10,1
+token,ašvaganda,11,11,11,0
+token,aťka,11,11,11,0
+token,čks,11,11,11,0
+token,rozhlas,11,11,5,6
+token,čapek,11,11,10,1
+token,čt24,11,11,0,11
+token,cčm,11,11,11,0
+token,cviky,11,11,3,8
+token,kurzy,11,11,1,10
+token,čce,11,11,10,1
+token,čpp,11,11,11,0
+token,čolek,11,11,10,1
+token,pobočky,11,11,0,11
+token,dlažba,11,11,6,5
+token,fc,11,11,7,4
+token,ft,11,11,4,7
+token,dš,11,11,11,0
+token,fš,11,11,11,0
+token,dr,11,11,6,5
+token,ďr,11,11,11,0
+token,star,11,11,0,11
+token,eva,11,11,9,2
+token,ež,11,11,11,0
+token,ěč,11,11,4,7
+token,jř,11,11,11,0
+token,bank,11,11,1,10
+token,gž,11,11,11,0
+token,hš,11,11,11,0
+token,hory,11,11,0,11
+token,jů,11,11,11,0
+token,architekti,11,11,2,9
+token,reviews,11,11,0,11
+token,luhačovice,11,11,7,4
+token,ičz,11,11,10,1
+token,iď,11,11,6,5
+token,my,11,11,6,5
+token,kamera,11,11,0,11
+token,kčt,11,11,11,0
+token,kěyǐ,11,11,0,11
+token,lyžařské,11,11,5,6
+token,lůj,11,11,10,1
+token,ťv,11,11,10,1
+token,lš,11,11,11,0
+token,pc,11,11,2,9
+token,pč,11,11,11,0
+token,vzhůru,11,11,10,1
+token,word,11,11,4,7
+token,mč,11,11,11,0
+token,mňága,11,11,11,0
+token,méďa,11,11,11,0
+token,listového,11,11,1,10
+token,atletika,11,11,0,11
+token,zločinu,11,11,0,11
+token,roce,11,11,0,11
+token,velká,11,11,1,10
+token,download,11,11,2,9
+token,pět,11,11,8,3
+token,dámská,11,11,2,9
+token,pěší,11,11,8,3
+token,bábovka,11,11,2,9
+token,kafe,11,11,0,11
+token,el,11,11,7,4
+token,horní,11,11,2,9
+token,šenov,11,11,2,9
+token,rýmařov,11,11,6,5
+token,rčení,11,11,11,0
+token,hovorově,11,11,0,11
+token,řlp,11,11,11,0
+token,řo,11,11,11,0
+token,sčítání,11,11,11,0
+token,šťáva,11,11,10,1
+token,řd,11,11,6,5
+token,římská,11,11,10,1
+token,ch,11,11,5,6
+token,řasy,11,11,7,4
+token,rýmy,11,11,9,2
+token,šb,11,11,11,0
+token,šh,11,11,11,0
+token,šž,11,11,5,6
+token,království,11,11,2,9
+token,karviná,11,11,1,10
+token,skupiny,11,11,2,9
+token,šg,11,11,11,0
+token,prádlo,11,11,0,11
+token,konci,11,11,5,6
+token,mužů,11,11,1,10
+token,vňať,11,11,11,0
+token,luka,11,11,1,10
+token,pronounce,11,11,5,6
+token,kaunas,11,11,1,10
+token,šzp,11,11,9,2
+token,šz,11,11,11,0
+token,tj,11,11,8,3
+token,tž,11,11,11,0
+token,tčm,11,11,10,1
+token,tč,11,11,11,0
+token,čhv,11,11,11,0
+token,smrti,11,11,0,11
+token,komoda,11,11,10,1
+token,východ,11,11,5,6
+token,příspěvky,11,11,1,10
+token,hlavě,11,11,7,4
+token,meme,11,11,3,8
+token,ýe,11,11,11,0
+token,zřícenina,11,11,9,2
+token,ýl,11,11,11,0
+token,ýa,11,11,11,0
+token,změna,11,11,11,0
+token,zpěvák,11,11,2,9
+token,muzeum,11,11,2,9
+token,bazén,11,11,2,9
+token,žt,11,11,11,0
+token,žú,11,11,11,0
+token,svěrák,11,11,8,3
+token,zkoušky,11,11,2,9
+token,žfk,11,11,11,0
+token,žk,11,11,11,0
+token,žkk,11,11,11,0
+token,náhradní,11,11,5,6
+token,2ž,11,11,0,11
+token,zž,11,11,7,4
+token,žluva,11,11,10,1
+token,žzh,11,11,10,1
+token,akční,11,11,10,1
+token,soutěž,11,11,1,10
+token,kaufland,11,11,0,11
+token,umění,11,11,4,7
+token,křížů,11,11,11,0
+token,doma,11,11,0,11
+token,ače,11,11,9,2
+token,meno,11,11,0,11
+token,prší,11,8,7,1
+token,kadaň,11,11,1,10
+token,konference,11,11,6,5
+token,čokoláda,11,11,3,8
+token,hořice,11,11,2,9
+token,malá,11,11,5,6
+token,san,11,11,2,9
+token,spol,11,11,1,10
+token,dál,11,11,0,11
+token,čtení,11,11,3,8
+token,legal,11,11,0,11
+token,čakra,11,11,8,3
+token,sešit,11,11,9,2
+token,oko,11,11,0,11
+token,vojtěch,11,11,8,3
+token,barbora,11,11,7,4
+token,látky,11,11,5,6
+token,univerzita,11,11,2,9
+token,král,11,11,1,10
+token,oheň,11,11,7,4
+token,vz,11,11,5,6
+token,ústav,11,11,0,11
+token,tým,11,11,9,2
+token,obecní,11,11,2,9
+token,zahradě,11,11,0,11
+token,češi,11,11,9,2
+token,žns,11,11,10,1
+token,ml,11,11,0,11
+token,buňka,11,11,9,2
+token,které,11,11,3,8
+token,buňky,11,11,2,9
+token,návod,11,11,2,9
+token,mléko,11,11,1,10
+token,muži,11,11,4,7
+token,oč,11,11,9,2
+token,čau,11,7,7,0
+token,očí,11,11,1,10
+token,čt4,11,11,0,11
+token,čvn,11,11,11,0
+token,hořčík,11,11,6,5
+token,hbž,11,11,10,1
+token,než,11,11,5,6
+token,mákem,11,11,0,11
+token,katalog,11,11,0,11
+token,vína,11,11,0,11
+token,peněženka,11,11,1,10
+token,rezultati,11,11,1,10
+token,správa,11,11,3,8
+token,čms,11,11,4,7
+token,dnž,11,11,10,1
+token,prezime,11,11,2,9
+token,čtu,11,11,9,2
+token,vím,11,9,8,1
+token,držák,11,11,11,0
+token,švp,11,11,11,0
+token,vstupenky,11,11,2,9
+token,kooperativa,11,11,6,5
+token,bruslení,11,11,0,11
+token,mladší,11,11,0,11
+token,školákov,11,11,10,1
+token,moravská,11,11,2,9
+token,diňe,11,7,7,0
+token,goşgy,11,11,0,11
+token,ráže,11,11,10,1
+token,dub,11,11,7,4
+token,hlas,11,11,1,10
+token,začátek,11,11,8,3
+token,varaždin,11,11,0,11
+token,ai,11,10,3,7
+token,me,11,11,1,10
+token,etš,11,11,11,0
+token,zahradu,11,11,0,11
+token,zličín,11,11,8,3
+token,mýty,11,11,10,1
+token,evropa,11,11,5,6
+token,matematika,11,11,1,10
+token,louny,11,11,2,9
+token,maďarsko,11,11,6,5
+token,góp,11,11,11,0
+token,uab,11,11,5,6
+token,gorica,11,11,0,11
+token,atlary,11,11,0,11
+token,radhoštěm,11,11,0,11
+token,hnůj,11,11,10,1
+token,7zónová,11,11,0,11
+token,oznámení,11,11,6,5
+token,opžp,11,11,9,2
+token,iš,11,11,11,0
+token,izuš,11,11,11,0
+token,jděte,11,10,10,0
+token,jeřáb,11,11,8,3
+token,jenž,11,11,9,2
+token,panenky,11,11,0,11
+token,piešťany,11,11,0,11
+token,křp,11,11,10,1
+token,obočí,11,11,1,10
+token,věci,11,11,4,7
+token,tuleň,11,11,10,1
+token,nádobí,11,11,0,11
+token,měli,11,11,8,3
+token,šakówiŋ,11,11,0,11
+token,ms,11,11,3,8
+token,púť,11,11,11,0
+token,mýa,11,10,10,0
+token,půda,11,11,9,2
+token,giờ,11,8,0,11
+token,páže,11,11,10,1
+token,alkoholu,11,11,0,11
+token,poď,11,9,8,1
+token,přf,11,11,10,1
+token,uč,11,11,10,1
+token,svč,11,11,11,0
+token,šf,11,11,11,0
+token,úřední,11,11,9,2
+token,šč,11,11,11,0
+token,sereď,11,11,1,10
+token,šly,11,11,10,1
+token,šm,11,11,11,0
+token,tř,11,11,11,0
+token,úžín,11,11,2,9
+token,divočině,11,11,3,8
+token,zrušení,11,11,10,1
+token,afž,11,11,11,0
+token,sukně,10,10,1,9
+token,hrách,10,10,0,10
+token,advokát,10,10,0,10
+token,euro,10,10,6,4
+token,řapíkatý,10,10,10,0
+token,švýcarsko,10,10,4,6
+token,ťuhýk,10,10,10,0
+token,čúzk,10,10,9,1
+token,vltava,10,10,3,7
+token,úplněk,10,10,10,0
+token,tam,10,10,0,10
+token,ččh,10,10,10,0
+token,čapí,10,10,10,0
+token,čáp,10,10,8,2
+token,ačokča,10,10,10,0
+token,básničky,10,10,7,3
+token,čba,10,10,10,0
+token,čgf,10,10,10,0
+token,čhs,10,10,10,0
+token,čjf,10,10,10,0
+token,čbk,10,10,10,0
+token,čgs,10,10,10,0
+token,bůček,10,10,8,2
+token,býčí,10,10,9,1
+token,ař,10,10,8,2
+token,bš,10,10,10,0
+token,bóďa,10,10,10,0
+token,bříza,10,10,8,2
+token,ačiu,10,10,10,0
+token,a1,10,10,0,10
+token,nudle,10,10,2,8
+token,čkait,10,10,10,0
+token,čmelák,10,10,9,1
+token,tenoři,10,10,9,1
+token,čvančarová,10,10,9,1
+token,čkp,10,10,10,0
+token,velke,10,10,9,1
+token,přehrávač,10,10,4,6
+token,céčka,10,9,9,0
+token,dráhy,10,10,1,9
+token,áňa,10,10,10,0
+token,cžk,10,10,10,0
+token,čkd,10,10,10,0
+token,člk,10,10,10,0
+token,vozík,10,10,1,9
+token,dč,10,10,10,0
+token,potter,10,10,0,10
+token,strážnice,10,10,1,9
+token,dýně,10,10,8,2
+token,rd,10,10,7,3
+token,samuel,10,10,8,2
+token,zpěvačka,10,10,3,7
+token,ečv,10,10,10,0
+token,gěi,10,10,10,0
+token,gč,10,10,10,0
+token,fzš,10,10,10,0
+token,symbol,10,10,5,5
+token,gfř,10,10,10,0
+token,jšk,10,10,10,0
+token,lesní,10,10,1,9
+token,světla,10,10,0,10
+token,lěvoit,10,10,10,0
+token,gřc,10,10,10,0
+token,hči,10,10,10,0
+token,hřib,10,10,9,1
+token,hele,10,10,0,10
+token,měkké,10,10,7,3
+token,pavol,10,10,5,5
+token,hýl,10,10,10,0
+token,išelské,10,10,10,0
+token,iý,10,10,2,8
+token,výjezdy,10,10,5,5
+token,ičp,10,10,9,1
+token,kělè,10,10,0,10
+token,kťm,10,10,10,0
+token,kžc,10,10,10,0
+token,by,10,10,2,8
+token,kšpa,10,10,10,0
+token,kžm,10,10,10,0
+token,keňa,10,10,10,0
+token,ovzduší,10,10,8,2
+token,knedlík,10,10,1,9
+token,chrudim,10,10,0,10
+token,obchod,10,10,0,10
+token,kostel,10,10,0,10
+token,lze,10,10,7,3
+token,prostředí,10,10,0,10
+token,lidech,10,10,1,9
+token,lšu,10,10,10,0
+token,pálení,10,10,7,3
+token,princezna,10,10,0,10
+token,metoda,10,10,4,6
+token,mňam,10,6,6,0
+token,lmš,10,10,10,0
+token,nžt,10,10,10,0
+token,mžp,10,10,10,0
+token,místo,10,10,8,2
+token,nšk,10,10,10,0
+token,mžurka,10,10,10,0
+token,nehty,10,10,0,10
+token,nůše,10,10,10,0
+token,nšg,10,10,10,0
+token,lyží,10,10,0,10
+token,ogří,10,10,10,0
+token,doupě,10,10,0,10
+token,ožp,10,10,9,1
+token,krve,10,10,1,9
+token,sodný,10,10,0,10
+token,ukaž,10,10,10,0
+token,su,10,10,4,6
+token,světlo,10,10,1,9
+token,užovka,10,10,10,0
+token,ráj,10,10,5,5
+token,řidičský,10,10,8,2
+token,sždc,10,10,10,0
+token,šbk,10,10,10,0
+token,rýdl,10,10,10,0
+token,mail,10,10,4,6
+token,sběrný,10,10,9,1
+token,řkf,10,10,10,0
+token,dušan,10,10,9,1
+token,řvc,10,10,9,1
+token,rytíř,10,10,8,2
+token,řadící,10,10,10,0
+token,páka,10,10,0,10
+token,řvát,10,10,10,0
+token,šantovka,10,10,9,1
+token,úmluva,10,10,7,3
+token,office,10,10,7,3
+token,štěpán,10,10,8,2
+token,ůtulek,10,10,9,1
+token,úmč,10,10,10,0
+token,vám,10,9,3,6
+token,červené,10,10,3,7
+token,včd,10,10,10,0
+token,africký,10,10,3,7
+token,všechny,10,10,3,7
+token,šgv,10,10,10,0
+token,vířivka,10,10,9,1
+token,všechno,10,10,4,6
+token,šzš,10,10,10,0
+token,š1,10,10,0,10
+token,táňa,10,10,10,0
+token,tůma,10,10,8,2
+token,ťi,10,10,5,5
+token,útěk,10,10,9,1
+token,úvěr,10,10,9,1
+token,psaní,10,10,7,3
+token,výkup,10,10,7,3
+token,vyšehrad,10,10,7,3
+token,wěi,10,10,10,0
+token,wc,10,10,5,5
+token,ýahoo,10,10,10,0
+token,ýunus,10,10,10,0
+token,série,10,10,0,10
+token,pečeně,10,10,0,10
+token,chí,10,10,9,1
+token,zčásti,10,10,10,0
+token,ýrr,10,10,8,2
+token,žába,10,10,10,0
+token,dĩ,10,10,0,10
+token,žs,10,10,9,1
+token,žula,10,10,10,0
+token,žpsv,10,10,10,0
+token,žsd,10,10,10,0
+token,žst,10,10,10,0
+token,žně,10,10,10,0
+token,žtr,10,10,10,0
+token,žgp,10,10,10,0
+token,vožnje,10,10,0,10
+token,váňa,10,10,6,4
+token,žgvacet,10,10,10,0
+token,žyczenia,10,10,10,0
+token,žít,10,10,7,3
+token,výkon,10,10,6,4
+token,denní,10,10,5,5
+token,albert,10,10,1,9
+token,oči,10,10,1,9
+token,gta,10,10,8,2
+token,skály,10,10,0,10
+token,adžika,10,10,10,0
+token,arů,10,10,8,2
+token,sušička,10,10,3,7
+token,tenis,10,10,1,9
+token,rafťáci,10,10,10,0
+token,kašel,10,10,1,9
+token,ašys,10,10,7,3
+token,galerie,10,10,2,8
+token,šroubovák,10,10,4,6
+token,znojmo,10,10,0,10
+token,filmas,10,10,3,7
+token,auředník,10,10,10,0
+token,avšak,10,10,10,0
+token,tiếng,10,10,0,10
+token,ayše,10,10,10,0
+token,aýperi,10,10,10,0
+token,market,10,10,2,8
+token,restoran,10,10,1,9
+token,ulica,10,10,2,8
+token,top,10,10,1,9
+token,rámeček,10,10,10,0
+token,áč,10,10,2,8
+token,myš,10,10,4,6
+token,richard,10,10,8,2
+token,stran,10,10,0,10
+token,byť,10,10,7,3
+token,bílá,10,10,2,8
+token,áš,10,7,7,0
+token,dá,10,10,9,1
+token,ostrov,10,10,0,10
+token,sirupy,10,10,0,10
+token,poslední,10,10,2,8
+token,domy,10,10,0,10
+token,blbý,10,10,10,0
+token,bbž,10,10,10,0
+token,registracija,10,10,0,10
+token,rodiče,10,10,0,10
+token,bpš,10,10,10,0
+token,noha,10,10,0,10
+token,břasy,10,10,10,0
+token,mo,10,10,3,7
+token,serie,10,10,10,0
+token,inkubační,10,10,2,8
+token,poměru,10,10,0,10
+token,bžán,10,10,6,4
+token,czš,10,10,10,0
+token,čsfr,10,10,10,0
+token,czý,10,10,0,10
+token,tobě,10,10,0,10
+token,chuť,10,10,7,3
+token,čípky,10,10,8,2
+token,pračky,10,10,0,10
+token,délka,10,10,7,3
+token,krista,10,10,0,10
+token,ckž,10,10,10,0
+token,vzdělávání,10,10,2,8
+token,čmn,10,10,10,0
+token,cmš,10,10,10,0
+token,uzeným,10,10,1,9
+token,čoi,10,10,10,0
+token,zbůch,10,10,8,2
+token,miminka,10,10,0,10
+token,rozvrh,10,10,0,10
+token,rizoto,10,10,3,7
+token,šternberk,10,10,5,5
+token,như,10,10,0,10
+token,čbr,10,10,10,0
+token,čakovec,10,10,0,10
+token,ví,10,10,8,2
+token,čh,10,10,10,0
+token,decathlon,10,10,2,8
+token,výlety,10,10,5,5
+token,čjl,10,10,4,6
+token,bolest,10,10,1,9
+token,pády,10,10,7,3
+token,čk,10,10,10,0
+token,člr,10,10,3,7
+token,pš,10,10,9,1
+token,dnš,10,10,10,0
+token,čn,10,10,10,0
+token,vzorec,10,10,0,10
+token,vepřové,10,10,5,5
+token,oběd,10,10,7,3
+token,ukončení,10,10,5,5
+token,čr1,10,10,0,10
+token,důl,10,10,7,3
+token,čs,10,10,10,0
+token,musí,10,10,1,9
+token,dpš,10,10,10,0
+token,ascii,10,10,10,0
+token,russian,10,10,5,5
+token,letter,10,10,8,2
+token,what,10,10,8,2
+token,ddš,10,10,10,0
+token,drť,10,10,10,0
+token,děbolín,10,10,10,0
+token,děťátko,10,10,10,0
+token,dě,10,10,10,0
+token,huť,10,10,8,2
+token,diův,10,10,10,0
+token,enčev,10,10,9,1
+token,dsř,10,10,9,1
+token,dšju,10,10,10,0
+token,sobota,10,10,0,10
+token,vk,10,10,4,6
+token,předplatné,10,10,0,10
+token,dú,10,6,6,0
+token,dvě,10,10,10,0
+token,dvířka,10,10,10,0
+token,rychnov,10,10,2,8
+token,raspored,10,10,0,10
+token,mikuláš,10,10,5,5
+token,ďaily,10,10,10,0
+token,ďapalovce,10,10,8,2
+token,ďeň,10,10,9,1
+token,ďoa,10,10,10,0
+token,kyjov,10,10,1,9
+token,ekčp,10,10,9,1
+token,ešče,10,10,10,0
+token,sad,10,10,0,10
+token,fpč,10,10,10,0
+token,ežys,10,10,10,0
+token,fs,10,10,9,1
+token,všfs,10,10,10,0
+token,žu,10,8,7,1
+token,fabia,10,10,4,6
+token,fhš,10,10,9,1
+token,města,10,10,0,10
+token,žodžiai,10,10,5,5
+token,gačr,10,10,10,0
+token,ladislav,10,10,9,1
+token,gáň,10,10,10,0
+token,seřízení,10,10,9,1
+token,gvž,10,10,7,3
+token,schůdky,10,10,9,1
+token,hnšk,10,10,10,0
+token,moslavina,10,10,0,10
+token,hnž,10,10,10,0
+token,hoý,10,10,2,8
+token,hruška,10,10,2,8
+token,hšk,10,10,10,0
+token,zrinjski,10,10,0,10
+token,hšrs,10,10,10,0
+token,htš,10,10,10,0
+token,hži,10,10,10,0
+token,ísť,10,10,10,0
+token,iň,10,10,10,0
+token,krčma,10,10,7,3
+token,iož,10,10,0,10
+token,ipša,10,10,10,0
+token,náplně,10,10,1,9
+token,užší,10,10,9,1
+token,vpž,10,10,4,6
+token,celý,10,10,0,10
+token,těle,10,10,1,9
+token,jmění,10,10,9,1
+token,lsž,10,10,8,2
+token,máňa,10,10,10,0
+token,ltž,10,10,10,0
+token,páření,10,10,10,0
+token,káď,10,10,9,1
+token,káťa,10,10,10,0
+token,kbš,10,10,10,0
+token,ksčm,10,10,9,1
+token,čemu,10,10,10,0
+token,ili,10,10,0,10
+token,kečup,10,10,9,1
+token,kuřecí,10,10,7,3
+token,vlčí,10,10,8,2
+token,kkž,10,10,10,0
+token,kmč,10,10,10,0
+token,kmš,10,10,10,0
+token,mgr,10,10,2,8
+token,oběť,10,10,10,0
+token,kpž,10,10,10,0
+token,kř,10,10,10,0
+token,banská,10,10,2,8
+token,kšv,10,10,10,0
+token,kšr,10,10,10,0
+token,kš,10,10,10,0
+token,kvš,10,10,10,0
+token,kžk,10,10,10,0
+token,lhůta,10,10,7,3
+token,bài,10,10,0,10
+token,suchý,10,10,7,3
+token,liči,10,10,10,0
+token,lěi,10,10,6,4
+token,lfš,10,10,10,0
+token,meníčka,10,10,10,0
+token,mí,10,10,7,3
+token,mý,10,10,9,1
+token,ořp,10,10,9,1
+token,oř,10,10,10,0
+token,odžmolkovač,10,10,10,0
+token,mržnja,10,10,10,0
+token,původní,10,10,8,2
+token,muďoul,10,10,10,0
+token,vůkol,10,10,9,1
+token,mýtus,10,10,10,0
+token,mzš,10,10,10,0
+token,mž,10,10,10,0
+token,ogš,10,10,10,0
+token,ohmův,10,10,10,0
+token,turnov,10,10,0,10
+token,okoř,10,10,10,0
+token,okž,10,10,10,0
+token,ngš,10,10,10,0
+token,oměj,10,10,10,0
+token,nša,10,10,10,0
+token,nvš,10,10,10,0
+token,os,10,10,7,3
+token,švejka,10,10,9,1
+token,ošd,10,10,10,0
+token,oyěwùmí,10,10,0,10
+token,oý,10,9,4,5
+token,ožys,10,10,10,0
+token,péťa,10,10,10,0
+token,pgž,10,10,10,0
+token,piě,10,10,10,0
+token,pleso,10,10,0,10
+token,ptš,10,10,10,0
+token,pzš,10,10,10,0
+token,řszk,10,10,10,0
+token,rsž,10,10,2,8
+token,ác,10,10,10,0
+token,ýy,10,10,8,2
+token,sbš,10,10,10,0
+token,sč,10,10,10,0
+token,slčr,10,10,9,1
+token,smůla,10,10,10,0
+token,stč,10,10,10,0
+token,xuýt,10,10,8,2
+token,švz,10,10,10,0
+token,sývota,10,10,6,4
+bigram,ý nghĩa,301,301,0,0
+bigram,české budějovice,111,111,0,0
+bigram,là gì,110,110,0,0
+bigram,filmy a,89,89,0,0
+bigram,a pořady,89,89,0,0
+bigram,to je,83,83,0,0
+bigram,co to,79,79,0,0
+bigram,nghĩa là,68,68,0,0
+bigram,pro děti,67,67,0,0
+bigram,andělská čísla,58,58,0,0
+bigram,týden těhotenství,54,54,0,0
+bigram,počet obyvatel,53,53,0,0
+bigram,av čr,50,50,0,0
+bigram,barada maglumat,48,48,0,0
+bigram,nghĩa gì,48,48,0,0
+bigram,volná místa,46,46,0,0
+bigram,ě je,44,44,0,0
+bigram,na 4,44,44,0,0
+bigram,in english,41,41,0,0
+bigram,slovní druh,38,38,0,0
+bigram,slevový kod,37,37,0,0
+bigram,pro kočky,35,35,0,0
+bigram,nový jičín,34,34,0,0
+bigram,u dětí,31,31,0,0
+bigram,v čr,30,30,0,0
+bigram,in chinese,30,30,0,0
+bigram,jindřichův hradec,30,30,0,0
+bigram,po anglicky,30,30,0,0
+bigram,studijní oddělení,30,30,0,0
+bigram,nad labem,29,29,0,0
+bigram,nad sázavou,28,28,0,0
+bigram,advokátní kancelář,28,28,0,0
+bigram,základní škola,28,28,0,0
+bigram,z příjmů,28,28,0,0
+bigram,na dřevo,27,27,0,0
+bigram,pracovní list,26,26,0,0
+bigram,palců na,26,26,0,0
+bigram,na cm,26,26,0,0
+bigram,je to,26,26,0,0
+bigram,co vidět,25,25,0,0
+bigram,zákona o,25,25,0,0
+bigram,ď ť,24,24,0,0
+bigram,to czk,24,24,0,0
+bigram,vrácení zboží,24,24,0,0
+bigram,na vlasy,24,24,0,0
+bigram,uherské hradiště,24,24,0,0
+bigram,nežádoucí účinky,24,24,0,0
+bigram,v těhotenství,24,24,0,0
+bigram,ú ů,23,23,0,0
+bigram,slevový kód,23,23,0,0
+bigram,a radeček,22,21,0,0
+bigram,có ý,22,22,0,0
+bigram,fotbalová liga,22,22,0,0
+bigram,áž áÿ,21,10,0,0
+bigram,áž áž,21,10,0,0
+bigram,jízdní řády,21,21,0,0
+bigram,hlavní město,21,21,0,0
+bigram,kč to,21,21,0,0
+bigram,v troubě,21,21,0,0
+bigram,hradec králové,21,21,0,0
+bigram,česká republika,20,20,0,0
+bigram,v akci,20,20,0,0
+bigram,dálniční známka,20,20,0,0
+bigram,ť ň,20,20,0,0
+bigram,to eur,20,20,0,0
+bigram,příbalový leták,20,20,0,0
+bigram,jízdní řád,20,20,0,0
+bigram,liga tabulka,20,20,0,0
+bigram,úřad práce,19,19,0,0
+bigram,česká lípa,19,19,0,0
+bigram,ke stažení,19,19,0,0
+bigram,na 3,19,19,0,0
+bigram,na 5,19,19,0,0
+bigram,význam slova,18,18,0,0
+bigram,jaký je,18,18,0,0
+bigram,vysoké mýto,18,18,0,0
+bigram,o daních,18,18,0,0
+bigram,daních z,18,18,0,0
+bigram,žďár nad,17,17,0,0
+bigram,valašské meziříčí,17,17,0,0
+bigram,meaning in,17,17,0,0
+bigram,kalendář 2026,17,17,0,0
+bigram,do auta,17,17,0,0
+bigram,žádost o,17,17,0,0
+bigram,v křížovce,17,17,0,0
+bigram,pro ženy,17,17,0,0
+bigram,česká fotbalová,17,17,0,0
+bigram,o5 a,16,15,0,0
+bigram,áÿ áž,16,7,0,0
+bigram,karlovy vary,16,16,0,0
+bigram,eur to,16,16,0,0
+bigram,praha 8,16,16,0,0
+bigram,š š,16,9,0,0
+bigram,zastarale křížovka,16,16,0,0
+bigram,čls jep,16,16,0,0
+bigram,frýdek místek,16,16,0,0
+bigram,slova s,16,16,0,0
+bigram,letov š,16,16,0,0
+bigram,čt sport,15,15,0,0
+bigram,čínský horoskop,15,15,0,0
+bigram,uherský brod,15,15,0,0
+bigram,přání k,15,15,0,0
+bigram,po česky,15,15,0,0
+bigram,otevírací doba,15,15,0,0
+bigram,pro muže,15,15,0,0
+bigram,havlíčkův brod,15,15,0,0
+bigram,bao nhiêu,15,15,0,0
+bigram,izbový byt,15,15,0,0
+bigram,ň na,14,14,0,0
+bigram,s kuřecím,14,14,0,0
+bigram,kuřecím masem,14,14,0,0
+bigram,kancelář s.r.o,14,14,0,0
+bigram,k narozeninám,14,14,0,0
+bigram,spol. s,14,14,0,0
+bigram,pě vě,14,14,0,0
+bigram,čem je,14,14,0,0
+bigram,pro slepice,14,14,0,0
+bigram,ý kiến,14,14,0,0
+bigram,měsíční miminko,14,14,0,0
+bigram,č 1,13,13,0,0
+bigram,na klavesnici,13,13,0,0
+bigram,vs čr,13,13,0,0
+bigram,na auto,13,13,0,0
+bigram,fasonlar 2025,13,13,0,0
+bigram,hrubého na,13,13,0,0
+bigram,na čisté,13,13,0,0
+bigram,nový bor,13,13,0,0
+bigram,s r.o,13,13,0,0
+bigram,u psa,13,13,0,0
+bigram,ústí nad,13,13,0,0
+bigram,občanského zákoníku,13,13,0,0
+bigram,mladá boleslav,13,13,0,0
+bigram,trestního řádu,13,13,0,0
+bigram,hokejová liga,13,13,0,0
+bigram,na klávesnici,12,12,0,0
+bigram,nahlížení do,12,12,0,0
+bigram,předpověď počasí,12,12,0,0
+bigram,new york,12,12,0,0
+bigram,i ťing,12,12,0,0
+bigram,na plech,12,12,0,0
+bigram,na prodej,12,12,0,0
+bigram,do kuchyně,12,12,0,0
+bigram,telefonní číslo,12,12,0,0
+bigram,lékařská fakulta,12,12,0,0
+bigram,stupňů fahrenheita,12,12,0,0
+bigram,platová třída,12,12,0,0
+bigram,n í,12,12,0,0
+bigram,na zeď,12,12,0,0
+bigram,vě mě,12,12,0,0
+bigram,stranger things,12,12,0,0
+bigram,v čem,12,12,0,0
+bigram,otevřených dveří,12,12,0,0
+bigram,dani z,12,12,0,0
+bigram,vedlejší účinky,12,12,0,0
+bigram,ý yên,12,12,0,0
+bigram,čtvrtletní písemná,12,12,0,0
+bigram,písemná práce,12,12,0,0
+bigram,práce z,12,12,0,0
+bigram,honzy dědka,11,11,0,0
+bigram,cestovní pojištění,11,11,0,0
+bigram,pro psa,11,11,0,0
+bigram,praha 4,11,11,0,0
+bigram,z listového,11,11,0,0
+bigram,listového těsta,11,11,0,0
+bigram,v roce,11,11,0,0
+bigram,celá země,11,11,0,0
+bigram,ošatka na,11,11,0,0
+bigram,nové město,11,11,0,0
+bigram,na chleba,11,11,0,0
+bigram,omáčka recept,11,11,0,0
+bigram,s kým,11,11,0,0
+bigram,na konci,11,11,0,0
+bigram,výpis z,11,11,0,0
+bigram,nghĩa của,11,11,0,0
+bigram,z čeho,11,11,0,0
+bigram,roční zúčtování,11,11,0,0
+bigram,ž š,11,11,0,0
+bigram,š č,11,11,0,0
+bigram,7 pádů,11,11,0,0
+bigram,9 křížů,11,11,0,0
+bigram,daňové přiznání,11,11,0,0
+bigram,ě a,11,11,0,0
+bigram,vyznam slova,11,11,0,0
+bigram,bě pě,11,11,0,0
+bigram,na tři,11,11,0,0
+bigram,s mákem,11,11,0,0
+bigram,na vodu,11,11,0,0
+bigram,dvůr králové,11,11,0,0
+bigram,český těšín,11,11,0,0
+bigram,tyčový vysavač,11,11,0,0
+bigram,pod radhoštěm,11,11,0,0
+bigram,se do,11,11,0,0
+bigram,v divočině,11,11,0,0
+bigram,9 května,11,11,0,0
+bigram,6 zš,11,11,0,0
+bigram,na zimních,10,10,0,0
+bigram,zimních olympijských,10,10,0,0
+bigram,olympijských hrách,10,10,0,0
+bigram,řapíkatý celer,10,10,0,0
+bigram,kas tai,10,10,0,0
+bigram,pádů honzy,10,10,0,0
+bigram,nový rok,10,10,0,0
+bigram,harry potter,10,10,0,0
+bigram,velké meziříčí,10,10,0,0
+bigram,černý most,10,10,0,0
+bigram,mč praha,10,10,0,0
+bigram,do vlasů,10,10,0,0
+bigram,mňága a,10,10,0,0
+bigram,a žďorp,10,10,0,0
+bigram,praha 10,10,10,0,0
+bigram,český krumlov,10,10,0,0
+bigram,peče celá,10,10,0,0
+bigram,řidičský průkaz,10,10,0,0
+bigram,řadící páka,10,10,0,0
+bigram,na prádlo,10,10,0,0
+bigram,ý dĩ,10,10,0,0
+bigram,čeho se,10,10,0,0
+bigram,2 žnl,10,10,0,0
+bigram,příspěvek na,10,10,0,0
+bigram,sparta praha,10,10,0,0
+bigram,občanský zákoník,10,10,0,0
+bigram,ac sparta,10,10,0,0
+bigram,ďábel a,10,10,0,0
+bigram,a je,10,10,0,0
+bigram,na 6,10,10,0,0
+bigram,barva na,10,10,0,0
+bigram,inkubační doba,10,10,0,0
+bigram,8 ďáblice,10,10,0,0
+bigram,den otevřených,10,10,0,0
+bigram,o čem,10,10,0,0
+bigram,držák na,10,10,0,0
+bigram,how to,10,10,0,0
+bigram,moravská třebová,10,10,0,0
+bigram,na zahradu,10,10,0,0
+bigram,góp ý,10,10,0,0
+bigram,hnšk moslavina,10,10,0,0
+bigram,co je,10,10,0,0
+bigram,na obličej,10,10,0,0
+bigram,k čemu,10,10,0,0
+bigram,knižně křížovka,10,10,0,0
+bigram,ohmův zákon,10,10,0,0
+bigram,s š,10,10,0,0
+bigram,ác ý,10,10,0,0
+bigram,world cup,10,10,0,0
+bigram,1 mš,10,10,0,0
+bigram,2 mš,10,10,0,0
+bigram,2 zš,10,10,0,0
+bigram,40 žen,10,10,0,0
+bigram,8 května,10,10,0,0
+bigram,8 zš,10,10,0,0
+bigram,ě ně,9,9,0,0
+bigram,ňun café,9,9,0,0
+bigram,koncerty 2026,9,9,0,0
+bigram,spořící účet,9,9,0,0
+bigram,ý ý,9,9,0,0
+bigram,do katastru,9,9,0,0
+bigram,č 5,9,9,0,0
+bigram,a hele,9,9,0,0
+bigram,na smetaně,9,9,0,0
+bigram,to usd,9,9,0,0
+bigram,a lidech,9,9,0,0
+bigram,mk lůžkoviny,9,9,0,0
+bigram,praha 6,9,9,0,0
+bigram,mě mně,9,9,0,0
+bigram,nn životní,9,9,0,0
+bigram,praha 5,9,9,0,0
+bigram,mlýnek na,9,9,0,0
+bigram,ogří doupě,9,9,0,0
+bigram,odznak vysočina,9,9,0,0
+bigram,na kolo,9,9,0,0
+bigram,řvi potichu,9,9,0,0
+bigram,potichu brácho,9,9,0,0
+bigram,sběrný dvůr,9,9,0,0
+bigram,nad orlicí,9,9,0,0
+bigram,šicí stroj,9,9,0,0
+bigram,s čárkou,9,9,0,0
+bigram,ýsa í,9,9,0,0
+bigram,ý chí,9,9,0,0
+bigram,octavia 2,9,9,0,0
+bigram,red vožnje,9,9,0,0
+bigram,9 týden,9,9,0,0
+bigram,a syn,9,9,0,0
+bigram,a ý,9,9,0,0
+bigram,ý là,9,9,0,0
+bigram,v moči,9,9,0,0
+bigram,na jazyku,9,9,0,0
+bigram,dá se,9,9,0,0
+bigram,počet stran,9,9,0,0
+bigram,kde koupit,9,9,0,0
+bigram,obecní úřad,9,9,0,0
+bigram,na světě,9,9,0,0
+bigram,pracovního poměru,9,9,0,0
+bigram,š ž,9,9,0,0
+bigram,novo mesto,9,9,0,0
+bigram,2012 sb,9,9,0,0
+bigram,z příjmu,9,9,0,0
+bigram,anglicky křížovka,9,9,0,0
+bigram,dě tě,9,9,0,0
+bigram,tě ně,9,9,0,0
+bigram,škoda plzeň,9,9,0,0
+bigram,rožnov pod,9,9,0,0
+bigram,zrinjski mostar,9,9,0,0
+bigram,y ý,9,9,0,0
+bigram,v těle,9,9,0,0
+bigram,ký hiệu,9,9,0,0
+bigram,narozeninám pro,9,9,0,0
+bigram,oc řepy,9,9,0,0
+bigram,mz čr,9,9,0,0
+bigram,může pes,9,9,0,0
+bigram,otřes mozku,9,9,0,0
+bigram,pjér la,9,9,0,0
+bigram,prci prci,9,9,0,0
+bigram,prci prcičky,9,9,0,0
+bigram,p ř,9,9,0,0
+bigram,á n,9,9,0,0
+bigram,škf sereď,9,9,0,0
+bigram,u švejka,9,9,0,0
+bigram,štrbské pleso,9,9,0,0
+bigram,šú sr,9,9,0,0
+bigram,ý xuân,9,9,0,0
+bigram,4 ý,9,9,0,0
+bigram,1 lékařská,9,9,0,0
+bigram,s čipem,9,9,0,0
+bigram,zš plzeň,9,9,0,0
+bigram,října znamení,9,9,0,0
+bigram,měsíc těhotenství,9,9,0,0
+bigram,žilový kabel,9,9,0,0
+bigram,7 zš,9,9,0,0
+bigram,8 března,9,9,0,0
+bigram,aťka janoušková,8,8,0,0
+bigram,čz 250,8,8,0,0
+bigram,na čaj,8,8,0,0
+bigram,som sa,8,8,0,0
+bigram,sa neoženil,8,8,0,0
+bigram,jů a,8,8,0,0
+bigram,pro dospělé,8,8,0,0
+bigram,středočeského kraje,8,8,0,0
+bigram,iž 18,8,8,0,0
+bigram,iýki dogdun,8,8,0,0
+bigram,na koně,8,8,0,0
+bigram,místo zločinu,8,8,0,0
+bigram,nůžky na,8,8,0,0
+bigram,na maso,8,8,0,0
+bigram,dálniční známky,8,8,0,0
+bigram,ť na,8,8,0,0
+bigram,online cz,8,8,0,0
+bigram,kým žije,8,8,0,0
+bigram,úmč praha,8,8,0,0
+bigram,na mobil,8,8,0,0
+bigram,banja luka,8,8,0,0
+bigram,diář 2026,8,8,0,0
+bigram,tchýnin jazyk,8,8,0,0
+bigram,česká třebová,8,8,0,0
+bigram,v hlavě,8,8,0,0
+bigram,ýunus amanow,8,8,0,0
+bigram,zvíře na,8,8,0,0
+bigram,zúčtování daně,8,8,0,0
+bigram,crvena zvezda,8,8,0,0
+bigram,občanský průkaz,8,8,0,0
+bigram,č ř,8,8,0,0
+bigram,u dospělých,8,8,0,0
+bigram,na 2,8,8,0,0
+bigram,se mi,8,8,0,0
+bigram,středočeský kraj,8,8,0,0
+bigram,na moravě,8,8,0,0
+bigram,řidičák cena,8,8,0,0
+bigram,spol s,8,8,0,0
+bigram,s ro,8,8,0,0
+bigram,báťkovy sirupy,8,8,0,0
+bigram,nad hronom,8,8,0,0
+bigram,čt živě,8,8,0,0
+bigram,čágo belo,8,8,0,0
+bigram,přehled osvč,8,8,0,0
+bigram,dieta č,8,8,0,0
+bigram,č ú,8,8,0,0
+bigram,zákon č,8,8,0,0
+bigram,1997 sb,8,8,0,0
+bigram,veřejné bruslení,8,8,0,0
+bigram,hc škoda,8,8,0,0
+bigram,se zelím,8,8,0,0
+bigram,na cvičení,8,8,0,0
+bigram,hšk zrinjski,8,8,0,0
+bigram,mistrovství světa,8,8,0,0
+bigram,jáňův dvůr,8,8,0,0
+bigram,laďka něrgešová,8,8,0,0
+bigram,krém na,8,8,0,0
+bigram,do důchodu,8,8,0,0
+bigram,í k,8,8,0,0
+bigram,nghĩa bài,8,8,0,0
+bigram,očhéthi šakówiŋ,8,8,0,0
+bigram,3 řada,8,8,0,0
+bigram,živý plot,8,8,0,0
+bigram,nůzky na,8,8,0,0
+bigram,banská bystrica,8,8,0,0
+bigram,pějme píseň,8,8,0,0
+bigram,ř i,8,8,0,0
+bigram,ufňukaná uršula,8,8,0,0
+bigram,s čím,8,8,0,0
+bigram,s ďáblem,8,8,0,0
+bigram,úřád práce,8,8,0,0
+bigram,veď mě,8,8,0,0
+bigram,v ý,8,8,0,0
+bigram,ý tưởng,8,8,0,0
+bigram,zešílet v,8,8,0,0
+bigram,zš 6,8,8,0,0
+bigram,4 zš,8,8,0,0
+bigram,řada superstar,8,8,0,0
+bigram,španělská liga,8,8,0,0
+bigram,1 ý,8,8,0,0
+bigram,2 měsíční,8,8,0,0
+bigram,2 ý,8,8,0,0
+bigram,3 čtvrtletní,8,8,0,0
+bigram,4 základní,8,8,0,0
+bigram,4 řada,8,8,0,0
+bigram,5 zš,8,8,0,0
+bigram,af škoda,8,8,0,0
+bigram,ďábel nosí,7,7,0,0
+bigram,nosí pradu,7,7,0,0
+bigram,ťan šan,7,7,0,0
+bigram,čwachták fest,7,7,0,0
+bigram,katastru nemovitostí,7,7,0,0
+bigram,původ slova,7,7,0,0
+bigram,sport plus,7,7,0,0
+bigram,č 2,7,7,0,0
+bigram,adventní kalendář,7,7,0,0
+bigram,do koupelny,7,7,0,0
+bigram,když se,7,7,0,0
+bigram,lžíce na,7,7,0,0
+bigram,praha 2,7,7,0,0
+bigram,mďď le,7,7,0,0
+bigram,le fameux,7,7,0,0
+bigram,mžitky před,7,7,0,0
+bigram,s tvarohem,7,7,0,0
+bigram,životní pojištění,7,7,0,0
+bigram,salát recept,7,7,0,0
+bigram,výdejní místa,7,7,0,0
+bigram,péče o,7,7,0,0
+bigram,rázový utahovák,7,7,0,0
+bigram,řbitov zvířátek,7,7,0,0
+bigram,pre nevestu,7,7,0,0
+bigram,ůřad práce,7,7,0,0
+bigram,výměna manželek,7,7,0,0
+bigram,se mnou,7,7,0,0
+bigram,ý em,7,7,0,0
+bigram,ýylyň şygary,7,7,0,0
+bigram,ýupka kofta,7,7,0,0
+bigram,žehlička na,7,7,0,0
+bigram,žú praha,7,7,0,0
+bigram,náhradní díly,7,7,0,0
+bigram,ž á,7,7,0,0
+bigram,451 stupňů,7,7,0,0
+bigram,mechanizovaný prapor,7,7,0,0
+bigram,4 tenoři,7,7,0,0
+bigram,na bydlení,7,7,0,0
+bigram,afgánský chrt,7,7,0,0
+bigram,aujeszkyho choroba,7,7,0,0
+bigram,hava durumu,7,7,0,0
+bigram,ayše pružinec,7,7,0,0
+bigram,se vyléčit,7,7,0,0
+bigram,daně z,7,7,0,0
+bigram,na nože,7,7,0,0
+bigram,b ý,7,7,0,0
+bigram,žloutenka b,7,7,0,0
+bigram,bystřice nad,7,7,0,0
+bigram,nad pernštejnem,7,7,0,0
+bigram,čeňkova pila,7,7,0,0
+bigram,zkratka země,7,7,0,0
+bigram,s uzeným,7,7,0,0
+bigram,lyžařská bunda,7,7,0,0
+bigram,jang c,7,7,0,0
+bigram,c ý,7,7,0,0
+bigram,như ý,7,7,0,0
+bigram,ča ča,7,5,0,0
+bigram,kutná hora,7,7,0,0
+bigram,čí je,7,7,0,0
+bigram,s rýží,7,7,0,0
+bigram,u prahy,7,7,0,0
+bigram,pro psy,7,7,0,0
+bigram,oprav dům,7,7,0,0
+bigram,dům po,7,7,0,0
+bigram,po babičce,7,7,0,0
+bigram,č 48,7,7,0,0
+bigram,č o,7,7,0,0
+bigram,č účtu,7,7,0,0
+bigram,č 89,7,7,0,0
+bigram,89 2012,7,7,0,0
+bigram,s.r.o. -,7,7,0,0
+bigram,dršťková polévka,7,7,0,0
+bigram,diňe sen,7,3,0,0
+bigram,odštěpný závod,7,7,0,0
+bigram,rychnov nad,7,7,0,0
+bigram,nad kněžnou,7,7,0,0
+bigram,d ý,7,7,0,0
+bigram,in czech,7,7,0,0
+bigram,e jídelníček,7,7,0,0
+bigram,si já,7,7,0,0
+bigram,novi sad,7,7,0,0
+bigram,7zónová taštičková,7,7,0,0
+bigram,taštičková matrace,7,7,0,0
+bigram,vozni red,7,7,0,0
+bigram,ič dph,7,7,0,0
+bigram,na dítě,7,7,0,0
+bigram,en iýi,7,7,0,0
+bigram,en iý,7,7,0,0
+bigram,ň in,7,7,0,0
+bigram,jpš šume,7,7,0,0
+bigram,máří magdaléna,7,7,0,0
+bigram,káď na,7,7,0,0
+bigram,čemu je,7,7,0,0
+bigram,u ňaňa,7,7,0,0
+bigram,ze závislé,7,7,0,0
+bigram,závislé činnosti,7,7,0,0
+bigram,lážo plážo,7,7,0,0
+bigram,odchod do,7,7,0,0
+bigram,něvská maškaráda,7,7,0,0
+bigram,ở ý,7,7,0,0
+bigram,pč hokejā,7,7,0,0
+bigram,la šé'z,7,7,0,0
+bigram,ťatliakova chata,7,7,0,0
+bigram,k dani,7,7,0,0
+bigram,ff uk,7,7,0,0
+bigram,púť do,7,7,0,0
+bigram,i z,7,7,0,0
+bigram,z n,7,7,0,0
+bigram,n á,7,7,0,0
+bigram,s ý,7,7,0,0
+bigram,žena v,7,7,0,0
+bigram,sága rodu,7,7,0,0
+bigram,sáňkařská dráha,7,7,0,0
+bigram,unška koliševka,7,7,0,0
+bigram,š autoservis,7,7,0,0
+bigram,š p,7,7,0,0
+bigram,p á,7,7,0,0
+bigram,mě dál,7,7,0,0
+bigram,v původním,7,7,0,0
+bigram,wičháȟpi wóyute,7,7,0,0
+bigram,ýuwaş gelin,7,7,0,0
+bigram,zažehlovací korálky,7,7,0,0
+bigram,z matematiky,7,7,0,0
+bigram,ž in,7,7,0,0
+bigram,4 pád,7,7,0,0
+bigram,pád němčina,7,7,0,0
+bigram,1 česká,7,7,0,0
+bigram,česká liga,7,7,0,0
+bigram,zš most,7,7,0,0
+bigram,to měsíc,7,7,0,0
+bigram,2 základní,7,7,0,0
+bigram,z českého,7,7,0,0
+bigram,českého jazyka,7,7,0,0
+bigram,zš kladno,7,7,0,0
+bigram,průměrné mzdy,7,7,0,0
+bigram,autobus jízdní,7,7,0,0
+bigram,billeder af,7,7,0,0
+bigram,ah što,7,7,0,0
+bigram,leoš mareš,6,6,0,0
+bigram,ťuk ťuk,6,6,0,0
+bigram,báječná léta,6,6,0,0
+bigram,pod psa,6,6,0,0
+bigram,čapí hnízdo,6,6,0,0
+bigram,divů světa,6,6,0,0
+bigram,8 hrozných,6,6,0,0
+bigram,čistá mzda,6,6,0,0
+bigram,aňa geislerová,6,6,0,0
+bigram,aň bistro,6,6,0,0
+bigram,střední škola,6,6,0,0
+bigram,ať žijí,6,6,0,0
+bigram,až na,6,6,0,0
+bigram,kuchařka pro,6,6,0,0
+bigram,polévka recept,6,6,0,0
+bigram,na klíč,6,6,0,0
+bigram,ďc vs,6,6,0,0
+bigram,s háčkem,6,6,0,0
+bigram,eňo ňuňo,6,6,0,0
+bigram,fx šaldy,6,6,0,0
+bigram,měření rychlosti,6,6,0,0
+bigram,gř hzs,6,6,0,0
+bigram,na lyže,6,6,0,0
+bigram,kč na,6,6,0,0
+bigram,na běžky,6,6,0,0
+bigram,o myších,6,6,0,0
+bigram,myších a,6,6,0,0
+bigram,program dnes,6,6,0,0
+bigram,před očima,6,6,0,0
+bigram,někdo to,6,6,0,0
+bigram,něco za,6,6,0,0
+bigram,koláč s,6,6,0,0
+bigram,mšk žilina,6,6,0,0
+bigram,velká bíteš,6,6,0,0
+bigram,jak se,6,6,0,0
+bigram,zdravotní pojišťovna,6,6,0,0
+bigram,už je,6,6,0,0
+bigram,sérum na,6,6,0,0
+bigram,do myčky,6,6,0,0
+bigram,čerty nejsou,6,6,0,0
+bigram,nejsou žerty,6,6,0,0
+bigram,rytíř sedmi,6,6,0,0
+bigram,sedmi království,6,6,0,0
+bigram,vozidla z,6,6,0,0
+bigram,úložný box,6,6,0,0
+bigram,úmluva o,6,6,0,0
+bigram,z červené,6,6,0,0
+bigram,šťouchané brambory,6,6,0,0
+bigram,vůně do,6,6,0,0
+bigram,do sušičky,6,6,0,0
+bigram,špindlerův mlýn,6,6,0,0
+bigram,š 706,6,6,0,0
+bigram,v zajetí,6,6,0,0
+bigram,zajetí démonů,6,6,0,0
+bigram,stříbra cena,6,6,0,0
+bigram,g 2,6,6,0,0
+bigram,á ensku,6,6,0,0
+bigram,změna času,6,6,0,0
+bigram,kofta fasonlar,6,6,0,0
+bigram,se počítá,6,6,0,0
+bigram,v nezaměstnanosti,6,6,0,0
+bigram,o roční,6,6,0,0
+bigram,o s,6,6,0,0
+bigram,daňového zvýhodnění,6,6,0,0
+bigram,světová válka,6,6,0,0
+bigram,abšmalcane mahune,6,6,0,0
+bigram,a bůh,6,6,0,0
+bigram,v praze,6,6,0,0
+bigram,je dnes,6,6,0,0
+bigram,auředník ložiska,6,6,0,0
+bigram,ú a,6,6,0,0
+bigram,a ů,6,6,0,0
+bigram,pružinec eren,6,6,0,0
+bigram,hlavní nádraží,6,6,0,0
+bigram,áš áˆ,6,5,0,0
+bigram,pro ženu,6,6,0,0
+bigram,á š,6,6,0,0
+bigram,fyzických osob,6,6,0,0
+bigram,brýle na,6,6,0,0
+bigram,búšenie srdca,6,6,0,0
+bigram,na hubnutí,6,6,0,0
+bigram,počet obyvateľov,6,6,0,0
+bigram,belo šílenci,6,6,0,0
+bigram,č 50,6,6,0,0
+bigram,fest 2026,6,6,0,0
+bigram,na ryby,6,6,0,0
+bigram,mezinárodní den,6,6,0,0
+bigram,číslo účtu,6,6,0,0
+bigram,online zdarma,6,6,0,0
+bigram,dnš prevalje,6,6,0,0
+bigram,čože je,6,6,0,0
+bigram,v pákistánu,6,6,0,0
+bigram,do kdy,6,6,0,0
+bigram,č budějovice,6,6,0,0
+bigram,č 4,6,6,0,0
+bigram,o que,6,6,0,0
+bigram,to pronounce,6,6,0,0
+bigram,que significa,6,6,0,0
+bigram,č 6,6,6,0,0
+bigram,sb o,6,6,0,0
+bigram,daň z,6,6,0,0
+bigram,dařbuján a,6,6,0,0
+bigram,a pandrhola,6,6,0,0
+bigram,polévka z,6,6,0,0
+bigram,v oku,6,6,0,0
+bigram,dr max,6,6,0,0
+bigram,emg vyšetření,6,6,0,0
+bigram,murska sobota,6,6,0,0
+bigram,na kávu,6,6,0,0
+bigram,granule pro,6,6,0,0
+bigram,na čtyři,6,6,0,0
+bigram,ešrefov san,6,6,0,0
+bigram,já pohár,6,6,0,0
+bigram,pohár vína,6,6,0,0
+bigram,ešče si,6,6,0,0
+bigram,velký osek,6,6,0,0
+bigram,u koček,6,6,0,0
+bigram,wordwall ě,6,6,0,0
+bigram,feťačka katka,6,6,0,0
+bigram,ne demek,6,6,0,0
+bigram,hiến pháp,6,6,0,0
+bigram,úvod do,6,6,0,0
+bigram,nad bečvou,6,6,0,0
+bigram,nova gorica,6,6,0,0
+bigram,nghĩa tên,6,6,0,0
+bigram,slovan bratislava,6,6,0,0
+bigram,mariánské lázně,6,6,0,0
+bigram,hučení v,6,6,0,0
+bigram,řecké abecedy,6,6,0,0
+bigram,p věty,6,6,0,0
+bigram,h řeznictví,6,6,0,0
+bigram,iňlis dili,6,6,0,0
+bigram,izžrebane številke,6,6,0,0
+bigram,železniční koridor,6,6,0,0
+bigram,ječné zrno,6,6,0,0
+bigram,ňu ňu,6,3,0,0
+bigram,ltž pokrov,6,6,0,0
+bigram,kože na,6,6,0,0
+bigram,káže vodu,6,6,0,0
+bigram,kdu čsl,6,6,0,0
+bigram,keýmir kör,6,6,0,0
+bigram,na dort,6,6,0,0
+bigram,bài hát,6,6,0,0
+bigram,praha 9,6,6,0,0
+bigram,české republiky,6,6,0,0
+bigram,léky na,6,6,0,0
+bigram,lhk jestřábi,6,6,0,0
+bigram,měrná tepelná,6,6,0,0
+bigram,tepelná kapacita,6,6,0,0
+bigram,oc šestka,6,6,0,0
+bigram,pro lidi,6,6,0,0
+bigram,odťahová služba,6,6,0,0
+bigram,ořp praha,6,6,0,0
+bigram,múže pes,6,6,0,0
+bigram,đà lạt,6,5,0,0
+bigram,niťový lifting,6,6,0,0
+bigram,na obočí,6,6,0,0
+bigram,ottův slovník,6,6,0,0
+bigram,zákon o,6,6,0,0
+bigram,ženy ženy,6,6,0,0
+bigram,o 12,6,6,0,0
+bigram,páté dveře,6,6,0,0
+bigram,žiar nad,6,6,0,0
+bigram,jazyků lásky,6,6,0,0
+bigram,učlanjenje u,6,6,0,0
+bigram,slovácký expres,6,6,0,0
+bigram,ř in,6,6,0,0
+bigram,ř 6,6,6,0,0
+bigram,sáčky do,6,6,0,0
+bigram,srí lanka,6,6,0,0
+bigram,sh čms,6,6,0,0
+bigram,sýc rousný,6,6,0,0
+bigram,5 kč,6,6,0,0
+bigram,s ě,6,6,0,0
+bigram,0 32,6,6,0,0
+bigram,u šroubka,6,6,0,0
+bigram,šk slovan,6,6,0,0
+bigram,šroťák na,6,6,0,0
+bigram,šujanovo náměstí,6,6,0,0
+bigram,komoda š,6,6,0,0
+bigram,tnž 34,6,6,0,0
+bigram,výročí svatby,6,6,0,0
+bigram,tů tů,6,3,0,0
+bigram,už se,6,6,0,0
+bigram,u ú,6,6,0,0
+bigram,úsťová rychlost,6,6,0,0
+bigram,ú ú,6,6,0,0
+bigram,dál cesto,6,6,0,0
+bigram,cesto má,6,6,0,0
+bigram,věšák na,6,6,0,0
+bigram,vyvýšený záhon,6,6,0,0
+bigram,vtž chomutov,6,6,0,0
+bigram,vymítač ďábla,6,6,0,0
+bigram,paušální daně,6,6,0,0
+bigram,ďábel v,6,6,0,0
+bigram,xučyun ruwway,6,6,0,0
+bigram,pyré z,6,6,0,0
+bigram,ýokary liga,6,6,0,0
+bigram,ždb drátovna,6,6,0,0
+bigram,zmlazovací řez,6,6,0,0
+bigram,zš 4,6,6,0,0
+bigram,z ý,6,6,0,0
+bigram,naběračka na,6,6,0,0
+bigram,ž ž,6,5,0,0
+bigram,počet hodin,6,6,0,0
+bigram,0 ý,6,6,0,0
+bigram,1 kč,6,6,0,0
+bigram,air s,6,6,0,0
+bigram,odst 1,6,6,0,0
+bigram,těhotenství jaký,6,6,0,0
+bigram,1 zš,6,6,0,0
+bigram,2 kč,6,6,0,0
+bigram,těhotenství ultrazvuk,6,6,0,0
+bigram,týdenní miminko,6,6,0,0
+bigram,zš kolín,6,6,0,0
+bigram,3 fázový,6,6,0,0
+bigram,3 kčs,6,6,0,0
+bigram,3 měsíční,6,6,0,0
+bigram,3 základní,6,6,0,0
+bigram,5 řada,6,6,0,0
+bigram,6 ý,6,6,0,0
+bigram,7 října,6,6,0,0
+bigram,7 týden,6,6,0,0
+bigram,9 října,6,6,0,0
+bigram,9 životů,6,6,0,0
+bigram,raději zešílet,6,6,0,0
+bigram,af mendelu,6,6,0,0
+bigram,česká televize,5,5,0,0
+bigram,česká spořitelna,5,5,0,0
+bigram,pradu 2,5,5,0,0
+bigram,čr brno,5,5,0,0
+bigram,fest 2025,5,5,0,0
+bigram,ážÿáž áž,5,5,0,0
+bigram,léta pod,5,5,0,0
+bigram,čchi kung,5,5,0,0
+bigram,rok 2026,5,5,0,0
+bigram,praha 1,5,5,0,0
+bigram,čfl skupina,5,5,0,0
+bigram,skupina b,5,5,0,0
+bigram,čd travel,5,5,0,0
+bigram,č rozhlas,5,5,0,0
+bigram,č t,5,5,0,0
+bigram,na kyselo,5,5,0,0
+bigram,pro dceru,5,5,0,0
+bigram,český rozhlas,5,5,0,0
+bigram,republika s.r.o,5,5,0,0
+bigram,didaktický test,5,5,0,0
+bigram,dlouhodobá předpověď,5,5,0,0
+bigram,servis s.r.o,5,5,0,0
+bigram,dóžecí palác,5,5,0,0
+bigram,a půl,5,5,0,0
+bigram,fžp ujep,5,5,0,0
+bigram,gábinin kouzelný,5,5,0,0
+bigram,kouzelný domek,5,5,0,0
+bigram,na židli,5,5,0,0
+bigram,hmoždinky do,5,5,0,0
+bigram,jó třešně,5,5,0,0
+bigram,třešně zrály,5,5,0,0
+bigram,hýl obecný,5,5,0,0
+bigram,stačí přidat,5,5,0,0
+bigram,přidat vodu,5,5,0,0
+bigram,išelské dortíčky,5,5,0,0
+bigram,p r,5,5,0,0
+bigram,kája a,5,5,0,0
+bigram,a bambuláček,5,5,0,0
+bigram,lěvoit air,5,5,0,0
+bigram,do kn,5,5,0,0
+bigram,lyžařské kalhoty,5,5,0,0
+bigram,na boty,5,5,0,0
+bigram,pýcha a,5,5,0,0
+bigram,jak dlouho,5,5,0,0
+bigram,řebíčku zahradnický,5,5,0,0
+bigram,to rád,5,5,0,0
+bigram,za něco,5,5,0,0
+bigram,mnichovo hradiště,5,5,0,0
+bigram,métský salám,5,5,0,0
+bigram,mřížkový koláč,5,5,0,0
+bigram,na pečení,5,5,0,0
+bigram,na nehty,5,5,0,0
+bigram,na větve,5,5,0,0
+bigram,roce 2026,5,5,0,0
+bigram,google maps,5,5,0,0
+bigram,on keyboard,5,5,0,0
+bigram,bunda dámská,5,5,0,0
+bigram,město nad,5,5,0,0
+bigram,nad metují,5,5,0,0
+bigram,alt code,5,5,0,0
+bigram,okresní přebor,5,5,0,0
+bigram,očkování proti,5,5,0,0
+bigram,rd rýmařov,5,5,0,0
+bigram,učíme se,5,5,0,0
+bigram,umělá inteligence,5,5,0,0
+bigram,samsung a,5,5,0,0
+bigram,hovorově křížovka,5,5,0,0
+bigram,uši na,5,5,0,0
+bigram,na helmu,5,5,0,0
+bigram,řbitov zviřátek,5,5,0,0
+bigram,na přání,5,5,0,0
+bigram,v orlických,5,5,0,0
+bigram,orlických horách,5,5,0,0
+bigram,sčítání a,5,5,0,0
+bigram,a odčítání,5,5,0,0
+bigram,šňůrka na,5,5,0,0
+bigram,šťastný nový,5,5,0,0
+bigram,užij si,5,5,0,0
+bigram,vchodové dveře,5,5,0,0
+bigram,dveře do,5,5,0,0
+bigram,újv řež,5,5,0,0
+bigram,šťáva z,5,5,0,0
+bigram,újezd u,5,5,0,0
+bigram,do bytu,5,5,0,0
+bigram,údržba silnic,5,5,0,0
+bigram,šňupací tabák,5,5,0,0
+bigram,na obilí,5,5,0,0
+bigram,fn plzeň,5,5,0,0
+bigram,úhradová vyhláška,5,5,0,0
+bigram,vkladový bankomat,5,5,0,0
+bigram,týdny v,5,5,0,0
+bigram,bramborový salát,5,5,0,0
+bigram,útěk z,5,5,0,0
+bigram,vánoční trhy,5,5,0,0
+bigram,zkumavka na,5,5,0,0
+bigram,na moč,5,5,0,0
+bigram,ztracené bednění,5,5,0,0
+bigram,zřícenina hradu,5,5,0,0
+bigram,a zemřeš,5,5,0,0
+bigram,podpora v,5,5,0,0
+bigram,žfk crvena,5,5,0,0
+bigram,na péči,5,5,0,0
+bigram,bez cukru,5,5,0,0
+bigram,živnostenský úřad,5,5,0,0
+bigram,t o,5,5,0,0
+bigram,zúčtování záloh,5,5,0,0
+bigram,záloh a,5,5,0,0
+bigram,a daňového,5,5,0,0
+bigram,3čave pjesme,5,5,0,0
+bigram,piva plzeň,5,5,0,0
+bigram,4slim čekankový,5,5,0,0
+bigram,čekankový sirup,5,5,0,0
+bigram,akční leták,5,5,0,0
+bigram,adhezní můstek,5,5,0,0
+bigram,bůh stvořil,5,5,0,0
+bigram,stvořil ženu,5,5,0,0
+bigram,anafylaktický šok,5,5,0,0
+bigram,2025 program,5,5,0,0
+bigram,ať se,5,5,0,0
+bigram,česky na,5,5,0,0
+bigram,pouť 2026,5,5,0,0
+bigram,město na,5,5,0,0
+bigram,brandýs nad,5,5,0,0
+bigram,a škubánek,5,5,0,0
+bigram,a život,5,5,0,0
+bigram,aýgytly ädim,5,5,0,0
+bigram,rozměry cm,5,5,0,0
+bigram,ážšáž áž,5,5,0,0
+bigram,příjmů fyzických,5,5,0,0
+bigram,do školy,5,5,0,0
+bigram,čr s.r.o,5,5,0,0
+bigram,v uchu,5,5,0,0
+bigram,na stůl,5,5,0,0
+bigram,ordinace v,5,5,0,0
+bigram,v růžové,5,5,0,0
+bigram,růžové zahradě,5,5,0,0
+bigram,4 křížovka,5,5,0,0
+bigram,2026 program,5,5,0,0
+bigram,bšk zmaj,5,5,0,0
+bigram,buřty na,5,5,0,0
+bigram,bušení srdce,5,5,0,0
+bigram,dům na,5,5,0,0
+bigram,b řidičák,5,5,0,0
+bigram,na dveře,5,5,0,0
+bigram,barada düşünje,5,5,0,0
+bigram,čeho je,5,5,0,0
+bigram,na obličeji,5,5,0,0
+bigram,kadeřnictví praha,5,5,0,0
+bigram,pro seniory,5,5,0,0
+bigram,s.r.o. recenze,5,5,0,0
+bigram,uzeným masem,5,5,0,0
+bigram,dát si,5,5,0,0
+bigram,k ý,5,5,0,0
+bigram,značka fyzika,5,5,0,0
+bigram,průměrná mzda,5,5,0,0
+bigram,češi na,5,5,0,0
+bigram,50 1978,5,5,0,0
+bigram,1978 sb,5,5,0,0
+bigram,v zimě,5,5,0,0
+bigram,skupina a,5,5,0,0
+bigram,čhv u,5,5,0,0
+bigram,z vepřového,5,5,0,0
+bigram,vepřového masa,5,5,0,0
+bigram,v kostce,5,5,0,0
+bigram,čsn 73,5,5,0,0
+bigram,čla trutnov,5,5,0,0
+bigram,dny v,5,5,0,0
+bigram,dohoda o,5,5,0,0
+bigram,ukončení pracovního,5,5,0,0
+bigram,dopravní nehodě,5,5,0,0
+bigram,dopravní nehody,5,5,0,0
+bigram,čúbp č,5,5,0,0
+bigram,č in,5,5,0,0
+bigram,ascii code,5,5,0,0
+bigram,2005 sb,5,5,0,0
+bigram,2016 sb,5,5,0,0
+bigram,č zkratka,5,5,0,0
+bigram,č 40,5,5,0,0
+bigram,živnost č,5,5,0,0
+bigram,o dani,5,5,0,0
+bigram,2013 sb,5,5,0,0
+bigram,pro nejmenší,5,5,0,0
+bigram,po operaci,5,5,0,0
+bigram,prázdniny 2026,5,5,0,0
+bigram,dsš lendava,5,5,0,0
+bigram,v hudbě,5,5,0,0
+bigram,a jedna,5,5,0,0
+bigram,ď d,5,5,0,0
+bigram,v autě,5,5,0,0
+bigram,pronunciation czech,5,5,0,0
+bigram,nikola tesla,5,5,0,0
+bigram,veřejné zakázky,5,5,0,0
+bigram,vína zaplatím,5,5,0,0
+bigram,pro začátečníky,5,5,0,0
+bigram,fpe zču,5,5,0,0
+bigram,fasonlar 2024,5,5,0,0
+bigram,správa železnic,5,5,0,0
+bigram,fráňa šrámek,5,5,0,0
+bigram,e ě,5,5,0,0
+bigram,listové těsto,5,5,0,0
+bigram,fs čvut,5,5,0,0
+bigram,evropa ě,5,5,0,0
+bigram,řecké písmeno,5,5,0,0
+bigram,bakalářské práce,5,5,0,0
+bigram,f ý,5,5,0,0
+bigram,j &,5,5,0,0
+bigram,tepelné čerpadlo,5,5,0,0
+bigram,se anglicky,5,5,0,0
+bigram,na šest,5,5,0,0
+bigram,gyčio paškevičiaus,5,5,0,0
+bigram,kde sledovat,5,5,0,0
+bigram,smútočné oznámenia,5,5,0,0
+bigram,u dvou,5,5,0,0
+bigram,smuteční oznámení,5,5,0,0
+bigram,tiếng anh,5,5,0,0
+bigram,odborná škola,5,5,0,0
+bigram,v bytě,5,5,0,0
+bigram,písmeno řecké,5,5,0,0
+bigram,h h,5,5,0,0
+bigram,h ý,5,5,0,0
+bigram,světa v,5,5,0,0
+bigram,v hokeji,5,5,0,0
+bigram,týž tentýž,5,5,0,0
+bigram,piškotová roláda,5,5,0,0
+bigram,i když,5,5,0,0
+bigram,išlské dortíčky,5,5,0,0
+bigram,dolný kubín,5,5,0,0
+bigram,inď vs,5,5,0,0
+bigram,je týden,5,5,0,0
+bigram,i í,5,5,0,0
+bigram,ý i,5,5,0,0
+bigram,žnl vpž,5,5,0,0
+bigram,v ňom,5,5,0,0
+bigram,jeď opatrně,5,5,0,0
+bigram,jak napsat,5,5,0,0
+bigram,maťo ďurinda,5,5,0,0
+bigram,jak udelat,5,5,0,0
+bigram,udelat ň,5,5,0,0
+bigram,kácení stromů,5,5,0,0
+bigram,vodu pije,5,5,0,0
+bigram,pije víno,5,5,0,0
+bigram,káťa a,5,5,0,0
+bigram,se význam,5,5,0,0
+bigram,podstatných jmen,5,5,0,0
+bigram,kuřecí maso,5,5,0,0
+bigram,a partneři,5,5,0,0
+bigram,škofja loka,5,5,0,0
+bigram,kúsok zo,5,5,0,0
+bigram,zo mňa,5,5,0,0
+bigram,na krk,5,5,0,0
+bigram,zlá babička,5,5,0,0
+bigram,podle §,5,5,0,0
+bigram,k žižkovu,5,5,0,0
+bigram,láďa hruška,5,5,0,0
+bigram,lečo s,5,5,0,0
+bigram,rostlina křížovka,5,5,0,0
+bigram,jestřábi prostějov,5,5,0,0
+bigram,celý den,5,5,0,0
+bigram,na nádobí,5,5,0,0
+bigram,v mš,5,5,0,0
+bigram,odjezdy vlaků,5,5,0,0
+bigram,mrzák inishmaanský,5,5,0,0
+bigram,muďoul trojlaločný,5,5,0,0
+bigram,můj čas,5,5,0,0
+bigram,pítko pro,5,5,0,0
+bigram,nátěr na,5,5,0,0
+bigram,nekonečný příběh,5,5,0,0
+bigram,křížovka na,5,5,0,0
+bigram,nhý villa,5,5,0,0
+bigram,nůše na,5,5,0,0
+bigram,nvš krepšelis,5,5,0,0
+bigram,opýtaj sa,5,5,0,0
+bigram,n ý,5,5,0,0
+bigram,slovník naučný,5,5,0,0
+bigram,ožji družinski,5,5,0,0
+bigram,o ďáblovi,5,5,0,0
+bigram,mấy giờ,5,5,0,0
+bigram,12 měsíčkách,5,5,0,0
+bigram,ó ženy,5,5,0,0
+bigram,2 combi,5,5,0,0
+bigram,octavia 1,5,5,0,0
+bigram,a jeho,5,5,0,0
+bigram,píseň dokola,5,5,0,0
+bigram,je ť,5,5,0,0
+bigram,ppš 41,5,5,0,0
+bigram,t šroub,5,5,0,0
+bigram,9 třída,5,5,0,0
+bigram,ťažký týždeň,5,5,0,0
+bigram,přiznání k,5,5,0,0
+bigram,na ť,5,5,0,0
+bigram,učme se,5,5,0,0
+bigram,uč se,5,5,0,0
+bigram,učňovské kadeřnictví,5,5,0,0
+bigram,daně 2026,5,5,0,0
+bigram,ve sportce,5,5,0,0
+bigram,ruža pre,5,5,0,0
+bigram,musí být,5,5,0,0
+bigram,os ř,5,5,0,0
+bigram,ř v,5,5,0,0
+bigram,ř 5,5,5,0,0
+bigram,saša rašilov,5,5,0,0
+bigram,sbš ostrava,5,5,0,0
+bigram,u pěti,5,5,0,0
+bigram,a voš,5,5,0,0
+bigram,xuýt xoa,5,5,0,0
+bigram,uršula kluková,5,5,0,0
+bigram,uřád práce,5,5,0,0
+bigram,s ů,5,5,0,0
+bigram,šampon na,5,5,0,0
+bigram,šaolinový olej,5,5,0,0
+bigram,0 63,5,5,0,0
+bigram,šaffova ostroha,5,5,0,0
+bigram,sereď vs,5,5,0,0
+bigram,v říši,5,5,0,0
+bigram,šly panenky,5,5,0,0
+bigram,šl 11,5,5,0,0
+bigram,šm 11,5,5,0,0
+bigram,šúdolská viecha,5,5,0,0
+bigram,veľký krtíš,5,5,0,0
+bigram,á ra,5,5,0,0
+bigram,ra sro,5,5,0,0
+bigram,š 328,5,5,0,0
+bigram,š 80,5,5,0,0
+bigram,tužka na,5,5,0,0
+bigram,tv šlágr,5,5,0,0
+bigram,tv živě,5,5,0,0
+bigram,u řeky,5,5,0,0
+bigram,2 třída,5,5,0,0
+bigram,u ý,5,5,0,0
+bigram,vědecká knihovna,5,5,0,0
+bigram,vím že,5,5,0,0
+bigram,vžít se,5,5,0,0
+bigram,v obytné,5,5,0,0
+bigram,ý w,5,5,0,0
+bigram,ýeňiş güni,5,5,0,0
+bigram,ýaman eken,5,4,0,0
+bigram,ýol hereketiniň,5,5,0,0
+bigram,ýulduz usmonova,5,5,0,0
+bigram,ý lan,5,5,0,0
+bigram,ý 750,5,5,0,0
+bigram,zkšt žalec,5,5,0,0
+bigram,zš 1,5,5,0,0
+bigram,zš 9,5,5,0,0
+bigram,ž liauksmino,5,5,0,0
+bigram,9 ročník,5,5,0,0
+bigram,6 třída,5,5,0,0
+bigram,žgvacet od,5,5,0,0
+bigram,1 žnl,5,5,0,0
+bigram,žrď na,5,5,0,0
+bigram,ž burger,5,5,0,0
+bigram,úvazek 0,5,5,0,0
+bigram,1a třída,5,5,0,0
+bigram,třída skupina,5,5,0,0
+bigram,pásmo paušální,5,5,0,0
+bigram,superstar finalisté,5,5,0,0
+bigram,švédská hokejová,5,5,0,0
+bigram,2 česká,5,5,0,0
+bigram,2 izbový,5,5,0,0
+bigram,2 kčs,5,5,0,0
+bigram,pohovka s,5,5,0,0
+bigram,2 pád,5,5,0,0
+bigram,8 ročník,5,5,0,0
+bigram,června znamení,5,5,0,0
+bigram,zš mladá,5,5,0,0
+bigram,3 mušketýři,5,5,0,0
+bigram,3 pád,5,5,0,0
+bigram,3 ženy,5,5,0,0
+bigram,žen a,5,5,0,0
+bigram,4 izbový,5,5,0,0
+bigram,4 rockeři,5,5,0,0
+bigram,třída matematika,5,5,0,0
+bigram,nemoc příznaky,5,5,0,0
+bigram,5 ý,5,5,0,0
+bigram,gậy ý,5,5,0,0
+bigram,října svátek,5,5,0,0
+bigram,žen jindřicha,5,5,0,0
+bigram,7 smrtelných,5,5,0,0
+bigram,smrtelných hříchů,5,5,0,0
+bigram,9 zš,5,5,0,0
+bigram,za lampe,5,5,0,0
+bigram,ab šimić,5,5,0,0
+bigram,ac vyškov,5,5,0,0
+bigram,ad hoc,5,5,0,0
+bigram,aeg myčka,5,5,0,0
+bigram,aftózní stomatitida,5,5,0,0
+bigram,ag štěpánská,5,5,0,0
+bigram,čočková polévka,4,4,0,0
+bigram,ě nebo,4,4,0,0
+bigram,jiřina bohdalová,4,4,0,0
+bigram,radeček koncerty,4,4,0,0
+bigram,áÿ ážšáž,4,3,0,0
+bigram,áž tm,4,4,0,0
+bigram,škoda auto,4,4,0,0
+bigram,časová pásma,4,4,0,0
+bigram,bdělá okna,4,4,0,0
+bigram,čárka před,4,4,0,0
+bigram,na zuby,4,4,0,0
+bigram,činoherní klub,4,4,0,0
+bigram,býčí žlázy,4,4,0,0
+bigram,žijí duchové,4,4,0,0
+bigram,aýaz baba,4,4,0,0
+bigram,b komplex,4,4,0,0
+bigram,sport živě,4,4,0,0
+bigram,č j,4,4,0,0
+bigram,s klobásou,4,4,0,0
+bigram,fáze měsíce,4,4,0,0
+bigram,áňa štaidlová,4,4,0,0
+bigram,s námi,4,4,0,0
+bigram,hlášení škody,4,4,0,0
+bigram,počasí praha,4,4,0,0
+bigram,d1 aktuálně,4,4,0,0
+bigram,fřeude coffee,4,4,0,0
+bigram,půl chlapa,4,4,0,0
+bigram,ďragon ball,4,4,0,0
+bigram,eňa vacvalová,4,4,0,0
+bigram,eště som,4,4,0,0
+bigram,eiffelova věž,4,4,0,0
+bigram,letiště praha,4,4,0,0
+bigram,jídelní stůl,4,4,0,0
+bigram,se špenátem,4,4,0,0
+bigram,guláš recept,4,4,0,0
+bigram,gž klinika,4,4,0,0
+bigram,jšk advokátní,4,4,0,0
+bigram,hěn gāoxìng,4,4,0,0
+bigram,hdp čr,4,4,0,0
+bigram,pro miminko,4,4,0,0
+bigram,ht dveře,4,4,0,0
+bigram,hůlky na,4,4,0,0
+bigram,iž 27,4,4,0,0
+bigram,air purifier,4,4,0,0
+bigram,kéž by,4,4,0,0
+bigram,kýta na,4,4,0,0
+bigram,kýlní pás,4,4,0,0
+bigram,si včera,4,4,0,0
+bigram,včera bol,4,4,0,0
+bigram,kšíry pro,4,4,0,0
+bigram,kynutý knedlík,4,4,0,0
+bigram,kuře na,4,4,0,0
+bigram,na paprice,4,4,0,0
+bigram,olej účinky,4,4,0,0
+bigram,na c,4,4,0,0
+bigram,pronunciation in,4,4,0,0
+bigram,lš nitra,4,4,0,0
+bigram,a předsudek,4,4,0,0
+bigram,máslový krém,4,4,0,0
+bigram,metoda markovič,4,4,0,0
+bigram,móda prostějov,4,4,0,0
+bigram,míša řezy,4,4,0,0
+bigram,mňam mňam,4,4,0,0
+bigram,pojišťovna kontakt,4,4,0,0
+bigram,krční páteře,4,4,0,0
+bigram,né pětku,4,4,0,0
+bigram,pětku né,4,4,0,0
+bigram,mýlit se,4,4,0,0
+bigram,méďa ted,4,4,0,0
+bigram,s jablky,4,4,0,0
+bigram,společnost a.s,4,4,0,0
+bigram,do trouby,4,4,0,0
+bigram,mývalí kočka,4,4,0,0
+bigram,invalidní důchod,4,4,0,0
+bigram,n s,4,4,0,0
+bigram,oě arena,4,4,0,0
+bigram,náplň do,4,4,0,0
+bigram,ověření platnosti,4,4,0,0
+bigram,pěší zóna,4,4,0,0
+bigram,převody jednotek,4,4,0,0
+bigram,oto klempíř,4,4,0,0
+bigram,pštrosí vejce,4,4,0,0
+bigram,upíří deníky,4,4,0,0
+bigram,ťzp s,4,4,0,0
+bigram,nářečně křížovka,4,4,0,0
+bigram,učící věž,4,4,0,0
+bigram,rudolf hrušínský,4,4,0,0
+bigram,sýrová omáčka,4,4,0,0
+bigram,řazení vlaků,4,4,0,0
+bigram,na motorku,4,4,0,0
+bigram,ch kovo,4,4,0,0
+bigram,r a,4,4,0,0
+bigram,na ples,4,4,0,0
+bigram,sčítací operáty,4,4,0,0
+bigram,ř sound,4,4,0,0
+bigram,práce brno,4,4,0,0
+bigram,šsk bílovec,4,4,0,0
+bigram,o právech,4,4,0,0
+bigram,z vězení,4,4,0,0
+bigram,box na,4,4,0,0
+bigram,konci slova,4,4,0,0
+bigram,šd 11,4,4,0,0
+bigram,úsměvy smutných,4,4,0,0
+bigram,smutných mužů,4,4,0,0
+bigram,vňať z,4,4,0,0
+bigram,kuchyňskou linku,4,4,0,0
+bigram,u matěje,4,4,0,0
+bigram,šrucha zelná,4,4,0,0
+bigram,šrouby do,4,4,0,0
+bigram,těsto na,4,4,0,0
+bigram,do bot,4,4,0,0
+bigram,tísňová linka,4,4,0,0
+bigram,uprostřed slova,4,4,0,0
+bigram,týniště nad,4,4,0,0
+bigram,úrazové pojištění,4,4,0,0
+bigram,úštěk akce,4,4,0,0
+bigram,úvěr na,4,4,0,0
+bigram,čisté mzdy,4,4,0,0
+bigram,východ slunce,4,4,0,0
+bigram,podílový fond,4,4,0,0
+bigram,xénia gregušová,4,4,0,0
+bigram,v34 bělící,4,4,0,0
+bigram,bělící korektor,4,4,0,0
+bigram,w5 čistič,4,4,0,0
+bigram,yčo g,4,4,0,0
+bigram,köýnek fasonlar,4,4,0,0
+bigram,ýer titreme,4,4,0,0
+bigram,í ofni,4,4,0,0
+bigram,zjistit telefonní,4,4,0,0
+bigram,ýmir kópavogur,4,4,0,0
+bigram,şygary 2026,4,4,0,0
+bigram,zvýšení platů,4,4,0,0
+bigram,znamení zvěrokruhu,4,4,0,0
+bigram,daně 2025,4,4,0,0
+bigram,průkaz online,4,4,0,0
+bigram,žydrūnas savickas,4,4,0,0
+bigram,žůžo labůžo,4,4,0,0
+bigram,ženy v,4,4,0,0
+bigram,ma pel,4,4,0,0
+bigram,05 a,4,4,0,0
+bigram,odstínů šedi,4,4,0,0
+bigram,50 odstínů,4,4,0,0
+bigram,610 metrů,4,4,0,0
+bigram,metrů nad,4,4,0,0
+bigram,nad zemí,4,4,0,0
+bigram,adjustační ponožky,4,4,0,0
+bigram,8 týden,4,4,0,0
+bigram,9 platová,4,4,0,0
+bigram,adc autodoplňky,4,4,0,0
+bigram,třída ve,4,4,0,0
+bigram,ve státní,4,4,0,0
+bigram,státní správě,4,4,0,0
+bigram,kalendář 2025,4,4,0,0
+bigram,počasí březen,4,4,0,0
+bigram,považská bystrica,4,4,0,0
+bigram,abu dhabi,4,4,0,0
+bigram,s výměníkem,4,4,0,0
+bigram,ače semizovac,4,4,0,0
+bigram,ty jsi,4,3,0,0
+bigram,se vyrábí,4,4,0,0
+bigram,ve světě,4,4,0,0
+bigram,nový bydžov,4,4,0,0
+bigram,amj košile,4,4,0,0
+bigram,atď po,4,4,0,0
+bigram,choroba výskyt,4,4,0,0
+bigram,ulož to,4,4,0,0
+bigram,střední školy,4,4,0,0
+bigram,se ti,4,4,0,0
+bigram,a bude,4,4,0,0
+bigram,procvičování ú,4,4,0,0
+bigram,albi tužka,4,4,0,0
+bigram,aýbölek eken,4,4,0,0
+bigram,azylový dům,4,4,0,0
+bigram,s dětmi,4,4,0,0
+bigram,legal advokátní,4,4,0,0
+bigram,víš co,4,4,0,0
+bigram,kaše recept,4,4,0,0
+bigram,nad nisou,4,4,0,0
+bigram,zážitky pro,4,4,0,0
+bigram,dárky pro,4,4,0,0
+bigram,vyléčit rakovina,4,4,0,0
+bigram,š en,4,4,0,0
+bigram,š e,4,4,0,0
+bigram,e n,4,4,0,0
+bigram,na záda,4,4,0,0
+bigram,básničky 4,4,4,0,0
+bigram,4 sloky,4,4,0,0
+bigram,sloky pro,4,4,0,0
+bigram,stavební společnost,4,4,0,0
+bigram,to končí,4,4,0,0
+bigram,se na,4,4,0,0
+bigram,blbý a,4,4,0,0
+bigram,a blbější,4,4,0,0
+bigram,javni poziv,4,4,0,0
+bigram,v noci,4,4,0,0
+bigram,beáta kaňoková,4,4,0,0
+bigram,b tým,4,4,0,0
+bigram,boží dar,4,4,0,0
+bigram,doplněk stravy,4,4,0,0
+bigram,brémští muzikanti,4,4,0,0
+bigram,prostorni planovi,4,4,0,0
+bigram,bršlice kozí,4,4,0,0
+bigram,kozí noha,4,4,0,0
+bigram,na pivu,4,4,0,0
+bigram,těhotnej kuchař,4,4,0,0
+bigram,všem klukům,4,4,0,0
+bigram,na kabely,4,4,0,0
+bigram,hà nội,4,4,0,0
+bigram,búvaj dieťa,4,4,0,0
+bigram,dieťa krásne,4,4,0,0
+bigram,v horkovzdušné,4,4,0,0
+bigram,horkovzdušné fritéze,4,4,0,0
+bigram,který je,4,4,0,0
+bigram,bývalý ministr,4,4,0,0
+bigram,jižní čechy,4,4,0,0
+bigram,caše za,4,4,0,0
+bigram,územní plán,4,4,0,0
+bigram,čau čau,4,4,0,0
+bigram,dýdy baba,4,4,0,0
+bigram,české dráhy,4,4,0,0
+bigram,černá hora,4,4,0,0
+bigram,typu a,4,4,0,0
+bigram,jméno na,4,4,0,0
+bigram,ck české,4,4,0,0
+bigram,české kormidlo,4,4,0,0
+bigram,cký čtí,4,4,0,0
+bigram,což takhle,4,4,0,0
+bigram,los angeles,4,4,0,0
+bigram,chrčení při,4,4,0,0
+bigram,při dýchání,4,4,0,0
+bigram,u miminka,4,4,0,0
+bigram,čt art,4,4,0,0
+bigram,čt4 sport,4,4,0,0
+bigram,anglicky na,4,4,0,0
+bigram,na ř,4,4,0,0
+bigram,na oblečení,4,4,0,0
+bigram,v srdci,4,4,0,0
+bigram,římská číslice,4,4,0,0
+bigram,c ťiang,4,4,0,0
+bigram,č š,4,4,0,0
+bigram,žloutenka c,4,4,0,0
+bigram,pomazánka recept,4,4,0,0
+bigram,čaj na,4,4,0,0
+bigram,čalouněná postel,4,4,0,0
+bigram,čbr fi,4,4,0,0
+bigram,povinného ručení,4,4,0,0
+bigram,pojistné události,4,4,0,0
+bigram,hrách medaile,4,4,0,0
+bigram,čh bratislava,4,4,0,0
+bigram,ste husličky,4,4,0,0
+bigram,kuřecího masa,4,4,0,0
+bigram,příbuzná slova,4,4,0,0
+bigram,čísla sportky,4,4,0,0
+bigram,čítanka v,4,4,0,0
+bigram,4 ročník,4,4,0,0
+bigram,pojištění 2026,4,4,0,0
+bigram,vs nk,4,4,0,0
+bigram,dnž nešković,4,4,0,0
+bigram,črpalka za,4,4,0,0
+bigram,účastníci dopravní,4,4,0,0
+bigram,češky unesené,4,4,0,0
+bigram,unesené v,4,4,0,0
+bigram,penzijní společnost,4,4,0,0
+bigram,štítná žláza,4,4,0,0
+bigram,živé vysílání,4,4,0,0
+bigram,z mletého,4,4,0,0
+bigram,mletého masa,4,4,0,0
+bigram,na iban,4,4,0,0
+bigram,na telefon,4,4,0,0
+bigram,toaletní papír,4,4,0,0
+bigram,švp mš,4,4,0,0
+bigram,spišská nová,4,4,0,0
+bigram,nová ves,4,4,0,0
+bigram,čz 83,4,4,0,0
+bigram,byt č,4,4,0,0
+bigram,č 13,4,4,0,0
+bigram,č p,4,4,0,0
+bigram,p č,4,4,0,0
+bigram,que é,4,4,0,0
+bigram,html code,4,4,0,0
+bigram,č 10,4,4,0,0
+bigram,in latex,4,4,0,0
+bigram,to type,4,4,0,0
+bigram,2025 sb,4,4,0,0
+bigram,řazení č,4,4,0,0
+bigram,štola č,4,4,0,0
+bigram,1 jáchymov,4,4,0,0
+bigram,finanční úřad,4,4,0,0
+bigram,č v,4,4,0,0
+bigram,what language,4,4,0,0
+bigram,xzn č,4,4,0,0
+bigram,utf 8,4,4,0,0
+bigram,č 56,4,4,0,0
+bigram,56 2001,4,4,0,0
+bigram,2001 sb,4,4,0,0
+bigram,2004 sb,4,4,0,0
+bigram,č 0361,4,4,0,0
+bigram,skutečných majitelů,4,4,0,0
+bigram,osobných údajov,4,4,0,0
+bigram,č 90,4,4,0,0
+bigram,dárek pro,4,4,0,0
+bigram,lysá nad,4,4,0,0
+bigram,v jízdě,4,4,0,0
+bigram,konferenční stolek,4,4,0,0
+bigram,děhel čínský,4,4,0,0
+bigram,อ่าน ว่า,4,4,0,0
+bigram,červené čočky,4,4,0,0
+bigram,z hlívy,4,4,0,0
+bigram,sen diňe,4,3,0,0
+bigram,přídavných jmen,4,4,0,0
+bigram,dušená mrkev,4,4,0,0
+bigram,dši novo,4,4,0,0
+bigram,jihočeského kraje,4,4,0,0
+bigram,osvč 2025,4,4,0,0
+bigram,dvířka do,4,4,0,0
+bigram,do vany,4,4,0,0
+bigram,rodičovský příspěvek,4,4,0,0
+bigram,džbán na,4,4,0,0
+bigram,na pivo,4,4,0,0
+bigram,cestovní kancelář,4,4,0,0
+bigram,sušeného droždí,4,4,0,0
+bigram,liptovský mikuláš,4,4,0,0
+bigram,d ž,4,4,0,0
+bigram,ž m,4,4,0,0
+bigram,ďoa sholat,4,4,0,0
+bigram,e řidičák,4,4,0,0
+bigram,ešče som,4,4,0,0
+bigram,sa prevodom,4,4,0,0
+bigram,e učebnice,4,4,0,0
+bigram,v zahraničí,4,4,0,0
+bigram,v kleci,4,4,0,0
+bigram,ježek sonic,4,4,0,0
+bigram,u mužů,4,4,0,0
+bigram,je ě,4,4,0,0
+bigram,portál farmáře,4,4,0,0
+bigram,nad váhom,4,4,0,0
+bigram,czech pronunciation,4,4,0,0
+bigram,ě in,4,4,0,0
+bigram,sound in,4,4,0,0
+bigram,doplňování ě,4,4,0,0
+bigram,farma zvířat,4,4,0,0
+bigram,feferonkový salát,4,4,0,0
+bigram,denní menu,4,4,0,0
+bigram,divadlo program,4,4,0,0
+bigram,se synonymum,4,4,0,0
+bigram,pro koně,4,4,0,0
+bigram,kde je,4,4,0,0
+bigram,koynek fasonlar,4,4,0,0
+bigram,ý văn,4,4,0,0
+bigram,văn kiện,4,4,0,0
+bigram,kiện đại,4,4,0,0
+bigram,đại hội,4,4,0,0
+bigram,ý sửa,4,4,0,0
+bigram,sửa đổi,4,4,0,0
+bigram,đổi hiến,4,4,0,0
+bigram,koncert 2026,4,4,0,0
+bigram,gulášová polévka,4,4,0,0
+bigram,howa maglumaty,4,4,0,0
+bigram,na predaj,4,4,0,0
+bigram,týpci a,4,4,0,0
+bigram,a zbraně,4,4,0,0
+bigram,g 6,4,4,0,0
+bigram,ledeč nad,4,4,0,0
+bigram,zavod za,4,4,0,0
+bigram,za zapošljavanje,4,4,0,0
+bigram,na houbách,4,4,0,0
+bigram,hpv virus,4,4,0,0
+bigram,hada na,4,4,0,0
+bigram,na prsou,4,4,0,0
+bigram,hšrs rezultati,4,4,0,0
+bigram,hů a,4,3,0,0
+bigram,a hů,4,3,0,0
+bigram,ísť po,4,4,0,0
+bigram,řeznictví h+,4,4,0,0
+bigram,h věty,4,4,0,0
+bigram,u kočky,4,4,0,0
+bigram,iň gowy,4,4,0,0
+bigram,išjunk šviesą,4,4,0,0
+bigram,je v,4,4,0,0
+bigram,ťing kniha,4,4,0,0
+bigram,kniha proměn,4,4,0,0
+bigram,ivšićev prilaz,4,4,0,0
+bigram,izraelský král,4,4,0,0
+bigram,308 win,4,4,0,0
+bigram,zpátky do,4,4,0,0
+bigram,jaké bude,4,4,0,0
+bigram,ňo bistro,4,4,0,0
+bigram,jihomoravský kraj,4,4,0,0
+bigram,jíme zdravě,4,4,0,0
+bigram,celý film,4,4,0,0
+bigram,alphabet lore,4,4,0,0
+bigram,andreje babiše,4,4,0,0
+bigram,jožin z,4,4,0,0
+bigram,z bažin,4,4,0,0
+bigram,slova na,4,4,0,0
+bigram,jurský svět,4,4,0,0
+bigram,malý princ,4,4,0,0
+bigram,v krvi,4,4,0,0
+bigram,s osvětlením,4,4,0,0
+bigram,j š,4,4,0,0
+bigram,pro studenty,4,4,0,0
+bigram,kaýum taňrygulyýew,4,4,0,0
+bigram,káťa kabanová,4,4,0,0
+bigram,vložky do,4,4,0,0
+bigram,kalhoty dámské,4,4,0,0
+bigram,lýra chicago,4,4,0,0
+bigram,akce 2026,4,4,0,0
+bigram,keď som,4,4,0,0
+bigram,koš na,4,4,0,0
+bigram,na tříděný,4,4,0,0
+bigram,tříděný odpad,4,4,0,0
+bigram,s.r.o. advokátní,4,4,0,0
+bigram,u brna,4,4,0,0
+bigram,staré město,4,4,0,0
+bigram,mgr advokát,4,4,0,0
+bigram,krýzovy jesličky,4,4,0,0
+bigram,dort recept,4,4,0,0
+bigram,pod očima,4,4,0,0
+bigram,krůtí maso,4,4,0,0
+bigram,veselí nad,4,4,0,0
+bigram,kř hzs,4,4,0,0
+bigram,kř pčr,4,4,0,0
+bigram,kšv group,4,4,0,0
+bigram,kůže na,4,4,0,0
+bigram,na plot,4,4,0,0
+bigram,obývací stěna,4,4,0,0
+bigram,pro miminka,4,4,0,0
+bigram,v podbřišku,4,4,0,0
+bigram,kzž stipendije,4,4,0,0
+bigram,občanského průkazu,4,4,0,0
+bigram,k řeporyjím,4,4,0,0
+bigram,roudnice nad,4,4,0,0
+bigram,k moci,4,4,0,0
+bigram,k životu,4,4,0,0
+bigram,odst. 6,4,4,0,0
+bigram,něrgešová děti,4,4,0,0
+bigram,laťkový rošt,4,4,0,0
+bigram,obří sud,4,4,0,0
+bigram,lezecká stěna,4,4,0,0
+bigram,léčivá zahrada,4,4,0,0
+bigram,na kůži,4,4,0,0
+bigram,na brambory,4,4,0,0
+bigram,myčka na,4,4,0,0
+bigram,počasí new,4,4,0,0
+bigram,mějte se,4,4,0,0
+bigram,miřenka čechová,4,4,0,0
+bigram,na beton,4,4,0,0
+bigram,mlšsh valtice,4,4,0,0
+bigram,pečené brambory,4,4,0,0
+bigram,na plechu,4,4,0,0
+bigram,brambory v,4,4,0,0
+bigram,to mp3,4,4,0,0
+bigram,oheň a,4,4,0,0
+bigram,mržnja prema,4,4,0,0
+bigram,na okna,4,4,0,0
+bigram,organizační struktura,4,4,0,0
+bigram,muří noha,4,4,0,0
+bigram,mv čr,4,4,0,0
+bigram,myňko dental,4,4,0,0
+bigram,mýty a,4,4,0,0
+bigram,m ý,4,4,0,0
+bigram,m ž,4,4,0,0
+bigram,nať z,4,4,0,0
+bigram,taška na,4,4,0,0
+bigram,v létě,4,4,0,0
+bigram,nčzd na,4,4,0,0
+bigram,na manželku,4,4,0,0
+bigram,nebe v,4,4,0,0
+bigram,nějaký anglicky,4,4,0,0
+bigram,v plzni,4,4,0,0
+bigram,ok google,4,4,0,0
+bigram,villa đà,4,4,0,0
+bigram,na živý,4,4,0,0
+bigram,oměj šalamounek,4,4,0,0
+bigram,slovenj gradec,4,4,0,0
+bigram,ný natý,4,4,0,0
+bigram,n ň,4,4,0,0
+bigram,zákony pro,4,4,0,0
+bigram,ošpice na,4,4,0,0
+bigram,na 7,4,4,0,0
+bigram,the invention,4,4,0,0
+bigram,invention of,4,4,0,0
+bigram,of women,4,4,0,0
+bigram,patní ostruhy,4,4,0,0
+bigram,oznámení o,4,4,0,0
+bigram,o šípkových,4,4,0,0
+bigram,šípkových růžích,4,4,0,0
+bigram,o třech,4,4,0,0
+bigram,žiadosť o,4,4,0,0
+bigram,záznam o,4,4,0,0
+bigram,dveře octavia,4,4,0,0
+bigram,fabia 1,4,4,0,0
+bigram,hokejā 2025,4,4,0,0
+bigram,nová paka,4,4,0,0
+bigram,píše se,4,4,0,0
+bigram,plánovací kalendář,4,4,0,0
+bigram,plemeno psa,4,4,0,0
+bigram,plná moc,4,4,0,0
+bigram,moc k,4,4,0,0
+bigram,k přepisu,4,4,0,0
+bigram,přepisu vozidla,4,4,0,0
+bigram,poď si,4,4,0,0
+bigram,don't ť,4,4,0,0
+bigram,t vysočina,4,4,0,0
+bigram,přf uk,4,4,0,0
+bigram,ťukání v,4,4,0,0
+bigram,pýšiť sa,4,4,0,0
+bigram,moravské budějovice,4,4,0,0
+bigram,p ý,4,4,0,0
+bigram,p žadeikos,4,4,0,0
+bigram,na zdraví,4,4,0,0
+bigram,se přežít,4,4,0,0
+bigram,uč jako,4,4,0,0
+bigram,rámeček na,4,4,0,0
+bigram,příspěvky 2026,4,4,0,0
+bigram,říjen znamení,4,4,0,0
+bigram,rizoto s,4,4,0,0
+bigram,čísla ve,4,4,0,0
+bigram,rs český,4,4,0,0
+bigram,český ráj,4,4,0,0
+bigram,rúčky na,4,4,0,0
+bigram,rúčka na,4,4,0,0
+bigram,v angličtině,4,4,0,0
+bigram,na din,4,4,0,0
+bigram,din lištu,4,4,0,0
+bigram,řítí se,4,4,0,0
+bigram,ř 1,4,4,0,0
+bigram,ř 47,4,4,0,0
+bigram,ř 26,4,4,0,0
+bigram,ipad air,4,4,0,0
+bigram,ř s,4,4,0,0
+bigram,k dph,4,4,0,0
+bigram,ř 7,4,4,0,0
+bigram,ve stranger,4,4,0,0
+bigram,rodu hardacrů,4,4,0,0
+bigram,do vysavače,4,4,0,0
+bigram,umučení krista,4,4,0,0
+bigram,únětický pivovar,4,4,0,0
+bigram,na trávu,4,4,0,0
+bigram,síň slávy,4,4,0,0
+bigram,šlp křtiny,4,4,0,0
+bigram,a sou,4,4,0,0
+bigram,solmizační slabika,4,4,0,0
+bigram,špunty do,4,4,0,0
+bigram,do uší,4,4,0,0
+bigram,6 zákona,4,4,0,0
+bigram,u pětníka,4,4,0,0
+bigram,pěti veverek,4,4,0,0
+bigram,upřímnou soustrast,4,4,0,0
+bigram,stlačený vzduch,4,4,0,0
+bigram,ve spreji,4,4,0,0
+bigram,stýská se,4,4,0,0
+bigram,suýt nữa,4,4,0,0
+bigram,špagety s,4,4,0,0
+bigram,s ňou,4,3,0,0
+bigram,la la,4,2,0,0
+bigram,useň z,4,4,0,0
+bigram,úsťová brzda,4,4,0,0
+bigram,šetřící dieta,4,4,0,0
+bigram,ostroha 2026,4,4,0,0
+bigram,ušák chicky,4,4,0,0
+bigram,šgd hercegbosanske,4,4,0,0
+bigram,hercegbosanske šume,4,4,0,0
+bigram,2 a,4,4,0,0
+bigram,vs fk,4,4,0,0
+bigram,škytavka u,4,4,0,0
+bigram,panenky silnicí,4,4,0,0
+bigram,šnicl restaurace,4,4,0,0
+bigram,špecle se,4,4,0,0
+bigram,v síti,4,4,0,0
+bigram,šumperk kontakty,4,4,0,0
+bigram,ču žou,4,4,0,0
+bigram,šu šu,4,2,0,0
+bigram,šúsaku endó,4,4,0,0
+bigram,švz hzs,4,4,0,0
+bigram,š chuang,4,4,0,0
+bigram,š octavia,4,4,0,0
+bigram,š pekárna,4,4,0,0
+bigram,80 cm,4,4,0,0
+bigram,tyč na,4,4,0,0
+bigram,tázací zájmena,4,4,0,0
+bigram,u zubu,4,4,0,0
+bigram,tuňáková pomazánka,4,4,0,0
+bigram,uždaroji akcinė,4,4,0,0
+bigram,akcinė bendrovė,4,4,0,0
+bigram,auto už,4,4,0,0
+bigram,je tu,4,4,0,0
+bigram,ů cvičení,4,4,0,0
+bigram,7 ročník,4,4,0,0
+bigram,výkaz o,4,4,0,0
+bigram,vábnička na,4,4,0,0
+bigram,výjezdy hasičů,4,4,0,0
+bigram,vcítění se,4,4,0,0
+bigram,věcné břemeno,4,4,0,0
+bigram,hlavový nerv,4,4,0,0
+bigram,slevový kupon,4,4,0,0
+bigram,v pořádku,4,4,0,0
+bigram,cup 2026,4,4,0,0
+bigram,vsž košice,4,4,0,0
+bigram,vtělení boha,4,4,0,0
+bigram,vw škoda,4,4,0,0
+bigram,škoda seat,4,4,0,0
+bigram,vyňatá slova,4,4,0,0
+bigram,vyúčtování daně,4,4,0,0
+bigram,daně termín,4,4,0,0
+bigram,srážkové daně,4,4,0,0
+bigram,dopravní značkou,4,4,0,0
+bigram,vzhůru do,4,4,0,0
+bigram,do oblak,4,4,0,0
+bigram,v íránu,4,4,0,0
+bigram,v jaké,4,4,0,0
+bigram,nghĩa icon,4,4,0,0
+bigram,w žárovka,4,4,0,0
+bigram,hay suýt,4,4,0,0
+bigram,škoda x,4,4,0,0
+bigram,ýeke özi,4,4,0,0
+bigram,ýeňil atletika,4,4,0,0
+bigram,ýogyn içege,4,4,0,0
+bigram,ýubka kofta,4,4,0,0
+bigram,ý a,4,4,0,0
+bigram,ýusup ahmet,4,4,0,0
+bigram,anh là,4,4,0,0
+bigram,ý bị,4,4,0,0
+bigram,bị loại,4,4,0,0
+bigram,mì ý,4,4,0,0
+bigram,óc eo,4,4,0,0
+bigram,chim én,4,4,0,0
+bigram,vô địch,4,4,0,0
+bigram,3 ý,4,4,0,0
+bigram,z francouzštiny,4,4,0,0
+bigram,zkd sušice,4,4,0,0
+bigram,zkřížená lateralita,4,4,0,0
+bigram,zoči voči,4,4,0,0
+bigram,zoí kruševac,4,4,0,0
+bigram,zřizovací listina,4,4,0,0
+bigram,zš a,4,4,0,0
+bigram,liauksmino g,4,4,0,0
+bigram,ďábel z,4,4,0,0
+bigram,žaucerjeva ulica,4,4,0,0
+bigram,žh holding,4,4,0,0
+bigram,žnl varaždin,4,4,0,0
+bigram,ž na,4,4,0,0
+bigram,ž 37,4,4,0,0
+bigram,termodynamický zákon,4,4,0,0
+bigram,a 1,4,4,0,0
+bigram,štěrk 0,4,4,0,0
+bigram,důvodů proč,4,4,0,0
+bigram,nhiêu tiền,4,4,0,0
+bigram,mš most,4,4,0,0
+bigram,mš jindřichův,4,4,0,0
+bigram,množného čísla,4,4,0,0
+bigram,jednotného čísla,4,4,0,0
+bigram,oš celje,4,4,0,0
+bigram,čipem m4,4,4,0,0
+bigram,11 zš,4,4,0,0
+bigram,dolarů to,4,4,0,0
+bigram,česká hokejová,4,4,0,0
+bigram,haléř 1953,4,4,0,0
+bigram,1 řada,4,4,0,0
+bigram,řádný termín,4,4,0,0
+bigram,byt ťahanovce,4,4,0,0
+bigram,ý đúng,4,4,0,0
+bigram,đúng sai,4,4,0,0
+bigram,nhiêu điểm,4,4,0,0
+bigram,kč 1993,4,4,0,0
+bigram,bez alkoholu,4,4,0,0
+bigram,s lenoškou,4,4,0,0
+bigram,2 týden,4,4,0,0
+bigram,těhotenství příznaky,4,4,0,0
+bigram,týden 2026,4,4,0,0
+bigram,2 týdny,4,4,0,0
+bigram,24 června,4,4,0,0
+bigram,2 čtvrtletní,4,4,0,0
+bigram,2 řada,4,4,0,0
+bigram,cestný ventil,4,4,0,0
+bigram,3 izbový,4,4,0,0
+bigram,3 kč,4,4,0,0
+bigram,36násobek průměrné,4,4,0,0
+bigram,39 žen,4,4,0,0
+bigram,ďumbierska 3,4,4,0,0
+bigram,3 španělská,4,4,0,0
+bigram,března znamení,4,4,0,0
+bigram,4 česká,4,4,0,0
+bigram,5 haléř,4,4,0,0
+bigram,5 haléřů,4,4,0,0
+bigram,nemoc u,4,4,0,0
+bigram,března svátek,4,4,0,0
+bigram,6 října,4,4,0,0
+bigram,výzva irop,4,4,0,0
+bigram,6 června,4,4,0,0
+bigram,6 žen,4,4,0,0
+bigram,6 ženichů,4,4,0,0
+bigram,ženichů a,4,4,0,0
+bigram,7 hříchů,4,4,0,0
+bigram,7 životů,4,4,0,0
+bigram,7 ý,4,4,0,0
+bigram,8 základní,4,4,0,0
+bigram,8 česká,4,4,0,0
+bigram,8 října,4,4,0,0
+bigram,8 žen,4,4,0,0
+bigram,9 ý,4,4,0,0
+bigram,abažuri za,4,4,0,0
+bigram,ab žemaitijos,4,4,0,0
+bigram,acc long,4,4,0,0
+bigram,ac řím,4,4,0,0
+bigram,stomatitida u,4,4,0,0
+bigram,ah čepin,4,4,0,0
+bigram,ačgārnā māja,3,3,0,0
+bigram,áčková sukně,3,3,0,0
+bigram,česko na,3,3,0,0
+bigram,česká pošta,3,3,0,0
+bigram,nebo je,3,3,0,0
+bigram,óčko tv,3,3,0,0
+bigram,áronské požehnání,3,3,0,0
+bigram,ňam ňam,3,3,0,0
+bigram,tv program,3,3,0,0
+bigram,ťuťu kids,3,3,0,0
+bigram,čši inspekční,3,3,0,0
+bigram,inspekční zprávy,3,3,0,0
+bigram,sport program,3,3,0,0
+bigram,čygo kalkio,3,3,0,0
+bigram,čz 175,3,3,0,0
+bigram,ťuk a,3,3,0,0
+bigram,pod kořenem,3,3,0,0
+bigram,bělení zubů,3,3,0,0
+bigram,čas v,3,3,0,0
+bigram,čd nostalgie,3,3,0,0
+bigram,7 divů,3,3,0,0
+bigram,ač sparta,3,3,0,0
+bigram,ačokča semena,3,3,0,0
+bigram,bělící pásky,3,3,0,0
+bigram,čgps karlovy,3,3,0,0
+bigram,béda trávníček,3,3,0,0
+bigram,čba educa,3,3,0,0
+bigram,bůček v,3,3,0,0
+bigram,býk znamení,3,3,0,0
+bigram,být stále,3,3,0,0
+bigram,stále mlád,3,3,0,0
+bigram,mzda 2026,3,3,0,0
+bigram,búrlivé výšiny,3,3,0,0
+bigram,aýlyk haklary,3,3,0,0
+bigram,až po,3,3,0,0
+bigram,po uši,3,3,0,0
+bigram,čkait seznam,3,3,0,0
+bigram,čočka na,3,3,0,0
+bigram,a3 rozměr,3,3,0,0
+bigram,centrum české,3,3,0,0
+bigram,císařské lázně,3,3,0,0
+bigram,ábelův mlýn,3,3,0,0
+bigram,a já,3,3,0,0
+bigram,cviky na,3,3,0,0
+bigram,na břicho,3,3,0,0
+bigram,ck čedok,3,3,0,0
+bigram,prima news,3,3,0,0
+bigram,cť sport,3,3,0,0
+bigram,pedf uk,3,3,0,0
+bigram,č popisné,3,3,0,0
+bigram,dětské písničky,3,3,0,0
+bigram,výměna oleje,3,3,0,0
+bigram,známka 2026,3,3,0,0
+bigram,déčko hry,3,3,0,0
+bigram,viktoria plzeň,3,3,0,0
+bigram,dórský sloup,3,3,0,0
+bigram,důchodová kalkulačka,3,3,0,0
+bigram,ďatlovova výprava,3,3,0,0
+bigram,fš litvínov,3,3,0,0
+bigram,dýňová polévka,3,3,0,0
+bigram,ďialničná známka,3,3,0,0
+bigram,ďj song,3,3,0,0
+bigram,star wars,3,3,0,0
+bigram,eeg vyšetření,3,3,0,0
+bigram,eýýaz butik,3,3,0,0
+bigram,kde domov,3,3,0,0
+bigram,domov můj,3,3,0,0
+bigram,fšm nutriachievers,3,3,0,0
+bigram,ohřev vody,3,3,0,0
+bigram,fžp čzu,3,3,0,0
+bigram,géčko ostrava,3,3,0,0
+bigram,gěi wǒ,3,3,0,0
+bigram,pojistné podmínky,3,3,0,0
+bigram,é €,3,3,0,0
+bigram,é å,3,3,0,0
+bigram,éž åo,3,3,0,0
+bigram,ěr meaning,3,3,0,0
+bigram,k zemi,3,3,0,0
+bigram,zemi hleď,3,3,0,0
+bigram,lázně bělohrad,3,3,0,0
+bigram,lěng meaning,3,3,0,0
+bigram,lněné semínko,3,3,0,0
+bigram,július satinský,3,3,0,0
+bigram,lněný olej,3,3,0,0
+bigram,jóga se,3,3,0,0
+bigram,se štěňaty,3,3,0,0
+bigram,lčr prodej,3,3,0,0
+bigram,lední hokej,3,3,0,0
+bigram,hokej na,3,3,0,0
+bigram,hzs čr,3,3,0,0
+bigram,gš seko,3,3,0,0
+bigram,jl klinika,3,3,0,0
+bigram,o trůny,3,3,0,0
+bigram,radeček hory,3,3,0,0
+bigram,do sádrokartonu,3,3,0,0
+bigram,hrášková polévka,3,3,0,0
+bigram,měkké perníčky,3,3,0,0
+bigram,hš beton,3,3,0,0
+bigram,harmonogram a,3,3,0,0
+bigram,a výsledky,3,3,0,0
+bigram,líbáš jako,3,3,0,0
+bigram,hákový kříž,3,3,0,0
+bigram,išelské cukroví,3,3,0,0
+bigram,led žárovky,3,3,0,0
+bigram,podle maršálka,3,3,0,0
+bigram,kěyǐ meaning,3,3,0,0
+bigram,kžc doprava,3,3,0,0
+bigram,jdi za,3,3,0,0
+bigram,za štěstím,3,3,0,0
+bigram,se zhasne,3,3,0,0
+bigram,kšpa kladno,3,3,0,0
+bigram,mi volal,3,3,0,0
+bigram,kě ài,3,3,0,0
+bigram,volá domů,3,3,0,0
+bigram,kť duke,3,3,0,0
+bigram,na tyči,3,3,0,0
+bigram,játrové knedlíčky,3,3,0,0
+bigram,kňučení psa,3,3,0,0
+bigram,ekonomická fakulta,3,3,0,0
+bigram,se jménem,3,3,0,0
+bigram,óda na,3,3,0,0
+bigram,na život,3,3,0,0
+bigram,obchod s,3,3,0,0
+bigram,f na,3,3,0,0
+bigram,do betléma,3,3,0,0
+bigram,lůj pro,3,3,0,0

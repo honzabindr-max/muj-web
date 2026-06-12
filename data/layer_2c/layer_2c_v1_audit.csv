@@ -1,0 +1,17 @@
+check_name,result,note
+corpus_scope,cz_strict,
+phrase_count,66504,
+precision_mode,high,
+recall_mode,intentionally_low,
+not_full_market_census,true,
+excluded_unknown,true,
+excluded_segments,no_diacritic;cz_soft_unanchored;foreign_leakage;cz_soft_clean,
+total_phrases,66504,
+distinct_head_terms_clean,29484,
+phrases_with_null_head_clean,1600,
+commercial_phrases,693,
+local_phrases,1244,
+question_phrases,300,
+opportunity_candidates,90,cluster_quality: phrase_count>=20
+top_10_head_terms,"zš,účet,čd,sb,ad,týden,andělská,ac,kč,mš",
+top_10_opportunity_clusters,"zš,řidičák,účet,čd,kč,mš,psč,ac,sb,ad",

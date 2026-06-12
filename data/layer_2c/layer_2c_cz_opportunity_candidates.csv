@@ -1,0 +1,91 @@
+cluster_key,phrase_count,unique_phrase_count,commercial_signal,local_signal,breadth_signal,opportunity_relevance_score,top_modifiers,example_phrases
+zš,246,246,0.0040650406504065045,0.07317073170731707,1.0,0.31666666666666665,"zš,6,4,9,1",zš jižní | zš dukelská | 2 zš kolín
+řidičák,38,38,0.21052631578947367,0.0,0.15447154471544716,0.15160462130937097,"řidičák,n,na,online,f",t řidičák cena | řidičák a | řidičák na motorku
+účet,91,91,0.0,0.0,0.3699186991869919,0.11097560975609756,"účet,google,microsoft,centrum,383",381 účet | 069 účet | 471 účet
+čd,71,71,0.028169014084507043,0.04225352112676056,0.2886178861788618,0.10912057712126418,"travel,telematika,lounge,nostalgie,čd",čd lyže | čd | čd 162
+kč,58,58,0.06896551724137931,0.0,0.23577235772357724,0.10521446593776282,"kč,na,to,000,0.00",kč to eur | kč na eura | 4 kč na eura
+mš,57,57,0.0,0.14035087719298245,0.23170731707317074,0.09758237056054772,"mš,hokej,čtyřlístek,úšovice,qočna",mš sluníčko | mš rousínov | 1 mš jindřichův hradec
+psč,45,45,0.0,0.2,0.18292682926829268,0.0948780487804878,"psč,praha,jihlava,pezinok,most",75301 psč | 38101 psč | 39143 psč
+ac,59,59,0.01694915254237288,0.06779661016949153,0.23983739837398374,0.09398511781727986,"vyškov,sparta,řím,pumpa,valhalla",ac ďc | ac vysoké mýto | ac šibenik
+sb,71,71,0.0,0.0,0.2886178861788618,0.08658536585365854,"90,89,48,40,65",č 85 1996 sb | č 13 1997 sb o pozemních komunikacích | č 62 2013 sb
+ad,64,64,0.015625,0.0,0.2601626016260163,0.08586128048780488,"hoc,šafář,žak,šiman,řezníček",ad žižkov | ad účet | ad boček
+týden,63,63,0.0,0.0,0.25609756097560976,0.07682926829268293,"týden,mozku,v",9 týden v roce 2026 | 9 týden 2026 | týden v roce
+ženy,20,20,0.1,0.0,0.08130081300813008,0.07439024390243902,"ženy,v,a,sobě",ženy v běhu | 3 ženy divadlo járy cimrmana | 3 ženy recenze
+nn,20,20,0.1,0.0,0.08130081300813008,0.07439024390243902,"životní,pojišťovna,penzijní,nn,přihlášení",nn životní pojišťovna | nn penzijní připojištění | nn životní
+andělská,59,59,0.0,0.0,0.23983739837398374,0.07195121951219512,"andělská,čísla,22,hora",333 andělská čísla | 0404 andělská čísla | 2332 andělská čísla
+ah,42,42,0.023809523809523808,0.023809523809523808,0.17073170731707318,0.06788617886178862,"što,čepin,škultétyho,ýarym,žene",ah što volim note | ah kateřinice | ah čepin vojnik
+ag,46,46,0.021739130434782608,0.0,0.18699186991869918,0.06696712619300105,"štěpánská,šperky,kroměříž,matoš,info",ag žlábek | ag stříbro | ag skořenice
+čt,54,54,0.0,0.0,0.21951219512195122,0.06585365853658537,"sport,živě,čt,art,živé",čt sport plus program | čt w | čt sport živé vysílání
+jiří,52,52,0.0,0.0,0.21138211382113822,0.06341463414634146,"straka,mádl,jiří,míža,žáček",jiří bartoška | p jiří koníček | jiří wažik
+počasí,30,30,0.0,0.13333333333333333,0.12195121951219512,0.0632520325203252,"new,praha,san,radar,pchery",počasí pchery | počasí radar | počasí new york city
+základní,29,29,0.0,0.13793103448275862,0.11788617886178862,0.06295206055508831,základní,8 základní škola frýdek místek | 4 základní škola most | 3 základní škola mladá boleslav
+vs,24,24,0.0,0.16666666666666666,0.0975609756097561,0.06260162601626015,"vs,čr,w,u21,ý",vs čr ostrava | ý u19 vs | ć vs čr
+martin,51,51,0.0,0.0,0.2073170731707317,0.062195121951219505,"ňachaj,šůna,řondík,shýbal,šaár",martin žaťko | martin žák | martin žec
+mudr,51,51,0.0,0.0,0.2073170731707317,0.062195121951219505,"ďžugan,šédová,turečková,ťurekova,púžová",mudr šůchová | mudr šnýdr | mudr záčok
+jan,50,50,0.0,0.0,0.2032520325203252,0.06097560975609756,"řmot,šáňa,olžbut,pěgřímek,pňakovič",jan ďuk | jan šépka | jan pňáček
+čz,50,50,0.0,0.0,0.2032520325203252,0.06097560975609756,"250,83,175,125,500",čz 250 455 | čz 83 jane | čz 502
+aa,31,31,0.03225806451612903,0.03225806451612903,0.12601626016260162,0.06038552321007081,"aa,škola,české,uherské,pirmas",za aa ž a | aa šiauliuose | aa žilina
+škoda,37,37,0.02702702702702703,0.0,0.15040650406504066,0.058635464733025715,"škoda,x,q,auto,rapid",škoda fabia | škoda q | škoda superb
+ab,44,44,0.0,0.022727272727272728,0.17886178861788618,0.0582039911308204,"šimić,žemaitijos,oil,žuk,šiaulių",ab žuk | ab šimić | ab šimić pjesme
+předvolba,46,46,0.0,0.0,0.18699186991869918,0.05609756097560975,předvolba,948 předvolba | 4915 předvolba | 493 předvolba
+česká,42,42,0.0,0.023809523809523808,0.17073170731707318,0.055981416957026714,"česká,televize,spořitelna,republika,pošta",3 česká fotbalová liga tabulka | 1 česká hokejová liga tabulka | h2tea česká lípa
+slova,45,45,0.0,0.0,0.18292682926829268,0.054878048780487805,"s,slova,na,z,n",slova s ý scrabble | slova na ť pro děti | slova s ď
+tv,30,30,0.03333333333333333,0.0,0.12195121951219512,0.053252032520325204,"tv,šlágr,živě,šalingrad,šport",tv živě prima | tv šlágr živě | tv živě zdarma
+ďábel,29,29,0.034482758620689655,0.0,0.11788617886178862,0.05260723296888141,"a,nosí,v,z,i",ďábel nosí pradu 2 premiéra | ďábel v ohiu | ďábel a syn rohony
+petr,43,43,0.0,0.0,0.17479674796747968,0.0524390243902439,"bůna,šívara,ťopek,řačák,řibal",petr vrňata | petr ťopek | petr řačák
+in,42,42,0.0,0.0,0.17073170731707318,0.051219512195121955,"in,počasí,240.00,šá",kěyǐ in chinese | in počasí | ď in czech
+rozměry,42,42,0.0,0.0,0.17073170731707318,0.051219512195121955,"rozměry,160,dxšxv,3/4,a4",l4h2 rozměry | ev9 rozměry | dn32 rozměry
+řada,39,39,0.0,0.0,0.15853658536585366,0.0475609756097561,"řada,nešťastných,f,anglicky",6 řada stranger things | 8 řada cizinka | 1 řada superstar
+žárovka,38,38,0.0,0.0,0.15447154471544716,0.046341463414634146,"žárovka,w,h,h7,f",žárovka e14 | žárovka gu10 | h3 žárovka
+dm,24,24,0.0,0.08333333333333333,0.0975609756097561,0.04593495934959349,"nový,ňnv,velké,zábřeh,frenštát",dm granule pro kočky | dm jičín | dm ňnv
+ač,23,23,0.0,0.08695652173913043,0.09349593495934959,0.04544008483563096,"sparta,milan,klub,význam,synonymum",ač milan dres | ač vyznam | ač sparta
+radeček,21,21,0.0,0.09523809523809523,0.08536585365853659,0.04465737514518003,"a,radeček,5",o5 a radeček | 05 a radeček koncerty | 05 a radeček hory
+těhotenství,36,36,0.0,0.0,0.14634146341463414,0.04390243902439024,"těhotenství,v",7tt těhotenství | 21tt těhotenství | 35tt těhotenství
+tomáš,36,36,0.0,0.0,0.14634146341463414,0.04390243902439024,"ňachaj,řmot,kňůr,koďousek,kůgel",tomáš adášek | tomáš feňo | tomáš olžbut
+čr,30,30,0.0,0.03333333333333333,0.12195121951219512,0.0432520325203252,"čr,brno,mapa,eu,kraje",v čr se uplatňuje model veřejné správy který nazýváme | čr eu | n čr ze
+zkratka,35,35,0.0,0.0,0.14227642276422764,0.04268292682926829,"č,iř,p,ačk,žkm",č ú zkratka | zkratka nžs | zkratka šsp
+značka,34,34,0.0,0.0,0.13821138211382114,0.041463414634146344,"značka,lyží,průměru,pneumatik,zákaz",t značka | p značka fyzika | značka lyží
+wordwall,32,32,0.0,0.0,0.13008130081300814,0.03902439024390244,"ě,wordwall,ď,ř,ů",wordwall y ý i í | wordwall ě ně | wordwall slova s ě je
+května,25,25,0.0,0.04,0.1016260162601626,0.03848780487804878,května,8 května | 8 května 2026 | ř května
+samsung,31,31,0.0,0.0,0.12601626016260162,0.03780487804878049,"a,a1ž,s2ý,s2ť,s2š",samsung s2ť | samsung a0ž | samsung sěř
+meaning,30,30,0.0,0.0,0.12195121951219512,0.036585365853658534,"meaning,of",yěxǔ meaning | kěyǐ meaning in chinese | wičháȟpi meaning
+ondřej,29,29,0.0,0.0,0.11788617886178862,0.03536585365853658,"brzobohatý,sokol,wáwra,kraus,těťál",ondřej wáwra | ondřej havelka | ondřej brousek
+jana,29,29,0.0,0.0,0.11788617886178862,0.03536585365853658,"žjak,švandová,zoňová,tšponová,šrýtrová",jana zoňová | jana boušková | jana jášová
+pavel,29,29,0.0,0.0,0.11788617886178862,0.03536585365853658,"běťák,řánek,ačai,žywczok,záček",pavel ačai | pavel říbal | pavel póčik
+března,21,21,0.0,0.047619047619047616,0.08536585365853659,0.0351335656213705,března,1 března | 8 března svatek | 8 března liberec
+pronunciation,28,28,0.0,0.0,0.11382113821138211,0.03414634146341463,"pronunciation,of,xšāyaθiyānām,kǎoyā",ě pronunciation czech | ů pronunciation czech | ě pronunciation in english
+bmw,28,28,0.0,0.0,0.11382113821138211,0.03414634146341463,"mť,xě,ř,ť,mř",bmw ečž | bmw ť | bmw ž5
+oš,28,28,0.0,0.0,0.11382113821138211,0.03414634146341463,"oš,1,2,mjč,horšovský",oš trnovo urnik | 3 oš celje | oš kyrgyzstan
+žnl,28,28,0.0,0.0,0.11382113821138211,0.03414634146341463,"žnl,vs,kc,šibenik,vpž",žnl vpž | 2 žnl vpž istok | žnl
+iž,28,28,0.0,0.0,0.11382113821138211,0.03414634146341463,"18,27,22,49,350",iž 18 mh | iž auto | iž 18 mh karabin
+david,27,27,0.0,0.0,0.10975609756097561,0.032926829268292684,"pastrňák,póč,žefran,w,užák",david fíža | david olžbut | david gáč
+už,27,27,0.0,0.0,0.10975609756097561,0.032926829268292684,"se,už,jsme,synonymum,to",už jsi | už se zase těším na pondělí | už
+palců,27,27,0.0,0.0,0.10975609756097561,0.032926829268292684,palců,98 palců na cm | 36 palců na cm | 18 palců na cm
+října,27,27,0.0,0.0,0.10975609756097561,0.032926829268292684,října,6 října | 7 října 2023 izrael | 6 října svátek
+pád,26,26,0.0,0.0,0.10569105691056911,0.03170731707317073,"pád,domu,a,anděla,třetí",2 pád němčina | 3 pád mě | ě pád
+aktuálně,26,26,0.0,0.0,0.10569105691056911,0.03170731707317073,"aktuálně,cz,1",d2 aktuálně | d48 aktuálně | d1 aktuálně
+rozměr,25,25,0.0,0.0,0.1016260162601626,0.03048780487804878,"rozměr,1/4,1/2,6,3/8",a0 rozměr cm | b0 rozměr | a0 rozměr
+žen,24,24,0.0,0.0,0.0975609756097561,0.029268292682926828,žen,40 žen ve vězení kniha | 6 žen jindřicha 8 dokument | 39 žen a 1 dívka
+oc,24,24,0.0,0.0,0.0975609756097561,0.029268292682926828,"řepy,šestka,štěrboholy,nový,šantovka",oc řepy | oc šestka otevírací doba | oc nový smíchov
+čem,24,24,0.0,0.0,0.0975609756097561,0.029268292682926828,čem,o čem je hamlet | o čem bude ďábel nosí pradu 2 | v čem je vláknina
+význam,24,24,0.0,0.0,0.0975609756097561,0.029268292682926828,"význam,j,č,smajlíků,slova",význam slova | 09 09 význam | á význam
+michal,23,23,0.0,0.0,0.09349593495934959,0.028048780487804875,"čóka,láš,žoček,ždych,žáža",michal roďan | michal gúčik | michal čóka
+zuzana,23,23,0.0,0.0,0.09349593495934959,0.028048780487804875,"maděrová,néč,žecová,ždychová,bydžovská",zuzana šlúchová | zuzana hýnová | zuzana maděrová
+vivo,23,23,0.0,0.0,0.09349593495934959,0.028048780487804875,"ý100,ý17s,ý9,ý27,ý22",vivo ý21 | vivo ý31 | vivo ý100
+jaroslav,23,23,0.0,0.0,0.09349593495934959,0.028048780487804875,"bůna,křůpala,žícha,šůma,šůla",jaroslav sýbek | jaroslav dušek | jaroslav bůna
+třída,22,22,0.0,0.0,0.08943089430894309,0.026829268292682926,"třída,ť,ú,a,b",ď ť ň 1 třída | 3 třída | 1b třída skupina c
+měsíční,22,22,0.0,0.0,0.08943089430894309,0.026829268292682926,"měsíční,kámen,kalendář",měsíční kámen | 3 měsíční kalendář 2026 | 2 měsíční miminko
+mě,21,21,0.0,0.0,0.08536585365853659,0.025609756097560978,"mně,mě,mercedes,me,se",mě mně | mě sílu dáš | mě x mně
+kým,21,21,0.0,0.0,0.08536585365853659,0.025609756097560978,"kým,čím,kohút,jsem,budu",s kým žije martina sáblíková | s kým žije linda rybová | s kým žije lucie borhyová
+členové,21,21,0.0,0.0,0.08536585365853659,0.025609756097560978,"členové,lucie,stray,linkin,katseye",členové lucie | 58g členové | členové y&t
+žloutenka,21,21,0.0,0.0,0.08536585365853659,0.025609756097560978,"b,c,typu,žloutenka,a",žloutenka | žloutenka typu b | žloutenka f
+google,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"google,překladač,přěkladač,acaďemico,úř",google překladač | ž google maps | google šbersetzer
+en,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"iýi,iý,en,ť",č en mayuscula | š en latex | je ť en prie
+čsfd,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"čsfd,avatar,cz,top,někdo",čsfd | čsfd někdo to rád v plzni | čsfd na horách
+živě,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"živě,1",čř24 živě | živě | tv1 živě
+letov,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"š,š8,š50,š2,š1",letov š8 | letov š 6 | letov š 428
+marek,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"bíško,ďopan,žúbor,ždych,šúň",marek bíško | marek ždych | marek šmůla
+můj,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"čas,čez,vodafone.cz,přítel,vodafone",můj vodafone.cz | můj čas | můj čas na kafíčko pro ženy
+ať,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"žijí,se,stále,slovní,přiletí",ať slovní druh | ať se ti daří | ať se stane cokoli
+có,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"có,ý,chuồn,rô,cơ",(c) có ý nghĩa gì | ý yên có bao nhiêu xã | x có ý nghĩa gì
+iphone,20,20,0.0,0.0,0.08130081300813008,0.024390243902439022,"1č,1ě,16ž,16ň,15ž",iphone 1č | iphone 16ň | iphone 15ň
