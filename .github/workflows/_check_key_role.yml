@@ -1,0 +1,11 @@
+name: _check_key_role (DELETE AFTER USE)
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          python3 -c "import os,base64,json;t=os.environ['K'];p=t.split('.')[1];p+='='*(-len(p)%4);print('ROLE:',json.loads(base64.urlsafe_b64decode(p)).get('role'))"
+        env:
+          K: ${{ secrets.SUPABASE_KEY }}
