@@ -64,6 +64,12 @@ function merge24h(prev: DashboardRow[], new24hRows: New24hRow[]): DashboardRow[]
   }));
 }
 
+async function apiFetch<T>(path: string): Promise<T[]> {
+  const res = await fetch(path, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${path} ${res.status}`);
+  return (await res.json()) as T[];
+}
+
 export function useDashboardData() {
   const [rows, setRows] = useState<DashboardRow[]>([]);
   const [summary, setSummary] = useState<DashboardSummary>({
@@ -90,28 +96,27 @@ export function useDashboardData() {
     let cancelled = false;
 
     async function init() {
-      const [rowsRes, new24hRes] = await Promise.all([
-        supabase.rpc("get_dashboard_rows"),
-        supabase.rpc("get_new_phrases_24h"),
+      const [rowsData, new24hData] = await Promise.all([
+        apiFetch<DashboardRow>("/api/suggest/dashboard-rows").catch(() => null),
+        apiFetch<New24hRow>("/api/suggest/new-phrases-24h").catch(() => null),
       ]);
 
       if (cancelled) return;
 
-      if (rowsRes.error || !rowsRes.data) {
+      if (!rowsData) {
         setLoadState("error");
         return;
       }
 
-      const raw = rowsRes.data as DashboardRow[];
-      const totalPhrases = raw.reduce((s, r) => s + Number(r.phrase_count), 0);
+      const totalPhrases = rowsData.reduce((s, r) => s + Number(r.phrase_count), 0);
       const new24hMap = new Map<string, number>(
-        ((new24hRes.data as New24hRow[]) ?? []).map((r) => [
+        ((new24hData ?? []) as New24hRow[]).map((r) => [
           `${r.gl}-${r.hl}`,
           Number(r.new_24h),
         ]),
       );
 
-      const enriched: DashboardRow[] = raw.map((r) => ({
+      const enriched: DashboardRow[] = rowsData.map((r) => ({
         ...r,
         phrase_count: Number(r.phrase_count),
         depth_pct: r.depth_pct !== null ? Number(r.depth_pct) : null,
@@ -140,9 +145,11 @@ export function useDashboardData() {
   // Shared state fetch — called by Realtime handler and fast poll fallback
   const fetchAndMergeState = useCallback(async () => {
     if (loadStateRef.current !== "ready") return;
-    const { data, error } = await supabase.rpc("get_dashboard_state");
-    if (!error && data) {
-      updateRows((prev) => mergeState(prev, data as StateRow[]));
+    try {
+      const data = await apiFetch<StateRow>("/api/suggest/dashboard-state");
+      updateRows((prev) => mergeState(prev, data));
+    } catch {
+      // silent — fast poll retries in 3s
     }
   }, [updateRows]);
 
@@ -172,9 +179,11 @@ export function useDashboardData() {
   useEffect(() => {
     const id = setInterval(async () => {
       if (loadStateRef.current !== "ready") return;
-      const { data, error } = await supabase.rpc("get_dashboard_rows");
-      if (!error && data) {
-        updateRows((prev) => mergePhraseCount(prev, data as DashboardRow[]));
+      try {
+        const data = await apiFetch<DashboardRow>("/api/suggest/dashboard-rows");
+        updateRows((prev) => mergePhraseCount(prev, data));
+      } catch {
+        // silent — retries next cycle
       }
     }, PHRASE_COUNT_POLL_MS);
     return () => clearInterval(id);
@@ -184,9 +193,11 @@ export function useDashboardData() {
   useEffect(() => {
     const id = setInterval(async () => {
       if (loadStateRef.current !== "ready") return;
-      const { data, error } = await supabase.rpc("get_new_phrases_24h");
-      if (!error && data) {
-        updateRows((prev) => merge24h(prev, data as New24hRow[]));
+      try {
+        const data = await apiFetch<New24hRow>("/api/suggest/new-phrases-24h");
+        updateRows((prev) => merge24h(prev, data));
+      } catch {
+        // silent — retries next cycle
       }
     }, SLOW_POLL_MS);
     return () => clearInterval(id);
