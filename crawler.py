@@ -914,7 +914,246 @@ def parse_args():
                    help="Identifikátor běhu (auto: UUID8). Prochází logy a jménem emergency souboru.")
     p.add_argument("--resume-from",   default="",
                    help="Cesta k crawler_state_emergency_*.json pro explicitní resume.")
+    p.add_argument("--runtime-config", default=None,
+                   help="(Runtime mode) Cesta k runtime_config.json od subprocess_adapter.")
+    p.add_argument("--runtime-result", default=None,
+                   help="(Runtime mode) Cesta pro zápis runtime_result.json.")
     return p.parse_args()
+
+
+# ─────────────────────────────────────────────────────────────
+# Runtime mode — volán z runtime/subprocess_adapter.py
+# ─────────────────────────────────────────────────────────────
+
+def map_exception_to_runtime_error(exc: Exception) -> tuple[int, dict]:
+    """Map exception to (exit_code, error_dict) dle spec sekce 6."""
+    msg = str(exc).lower()
+    etype = type(exc).__name__.lower()
+
+    if "write_target_guard" in msg:
+        return 50, {"code": "write_target_guard", "message": str(exc),
+                    "retryable": False, "blocked": True}
+    if "geo_mismatch" in msg or "geo mismatch" in msg:
+        return 40, {"code": "geo_mismatch", "message": str(exc),
+                    "retryable": False, "blocked": True}
+    if "integrity" in msg or ("psycopg" in etype and "unique" in msg):
+        return 51, {"code": "db_integrity", "message": str(exc),
+                    "retryable": False, "blocked": True}
+    if any(k in msg for k in ("psycopg", "postgres", "database", "db error", "connection refused")):
+        return 20, {"code": "db_transient", "message": str(exc),
+                    "retryable": True, "blocked": False}
+    if "proxy" in msg and ("auth" in msg or "407" in msg or "credentials" in msg):
+        return 20, {"code": "proxy_auth", "message": str(exc),
+                    "retryable": True, "blocked": False}
+    if "proxy" in msg or ("connection" in msg and "timeout" in msg) or "socks" in msg:
+        return 20, {"code": "proxy_timeout", "message": str(exc),
+                    "retryable": True, "blocked": False}
+    if "429" in msg or "rate limit" in msg or "suspicious" in msg or "captcha" in msg:
+        return 20, {"code": "google_429", "message": str(exc),
+                    "retryable": True, "blocked": False}
+    if "timeout" in msg or "timed out" in msg:
+        return 90, {"code": "soft_timeout", "message": str(exc),
+                    "retryable": True, "blocked": False}
+    return 20, {"code": "app_exception", "message": str(exc),
+                "retryable": True, "blocked": False}
+
+
+def write_runtime_result_atomic(path: str, payload: dict) -> None:
+    """Write payload to *path* atomically via .tmp → rename."""
+    import tempfile
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f, indent=2)
+    os.rename(tmp, path)
+
+
+def _build_runtime_result(
+    pilot_id: str, queue_id: int, gl: str, hl: str,
+    expected_geo: str, actual_geo: str,
+    write_target: str, dry_run: bool, no_db: bool,
+    exit_code: int, status: str,
+    metrics: dict, artifact_dir: str,
+    error: dict | None,
+) -> dict:
+    summary_path = os.path.join(artifact_dir, "phase-2b-pilot-summary.json")
+    return {
+        "schema_version": 1,
+        "status": status,
+        "exit_code": exit_code,
+        "pilot_id": pilot_id,
+        "queue_id": queue_id,
+        "market": {
+            "gl": gl,
+            "hl": hl,
+            "expected_geo_country": expected_geo,
+            "actual_geo_country": actual_geo,
+        },
+        "write_target": write_target,
+        "dry_run": dry_run,
+        "no_db": no_db,
+        "metrics": metrics,
+        "artifacts": {"summary_path": summary_path if os.path.exists(summary_path) else None},
+        "error": error,
+    }
+
+
+def _empty_metrics(duration: float = 0.0) -> dict:
+    return {
+        "rows_inserted": 0,
+        "parents_completed": 0,
+        "parents_failed": 0,
+        "requests_total": 0,
+        "google_429": 0,
+        "google_suspicious": 0,
+        "proxy_timeouts": 0,
+        "db_errors": 0,
+        "duration_seconds": duration,
+    }
+
+
+def run_runtime_mode(config_path: str, result_path: str) -> int:
+    """Entry point when --runtime-config and --runtime-result are provided.
+
+    Loads runtime_config.json, enforces write-target guard, runs crawl via
+    existing run_market(), writes runtime_result.json atomically, and returns
+    an exit code (0=success, 20=retryable failure, 40=geo blocked,
+    50=write guard blocked, 51=db integrity blocked, 90=soft timeout).
+
+    GHA path (no --runtime-config) is NEVER touched by this function.
+    """
+    start_time = time.time()
+
+    with open(config_path) as f:
+        rc = json.load(f)
+
+    gl         = rc["gl"]
+    hl         = rc["hl"]
+    pilot_id   = str(rc.get("pilot_id", ""))
+    queue_id   = int(rc.get("queue_id", 0))
+    artifact_dir = rc.get("artifact_dir", os.path.dirname(result_path))
+    no_db      = bool(rc.get("no_db", False))
+    dry_run    = bool(rc.get("dry_run", False)) or no_db  # no_db implies dry_run
+    caps       = rc.get("caps", {})
+    write_cfg  = rc.get("write", {})
+    proxy_cfg  = rc.get("proxy", {})
+    expected_geo = rc.get("expected_geo_country", "")
+
+    write_target = write_cfg.get("target", "supabase")
+
+    # ── Write-target guard PŘED jakýmkoli zápisem ──
+    allow_hetzner = os.environ.get("SUGGEST_ALLOW_HETZNER_WRITE", "false").lower() == "true"
+    require_s4_go = os.environ.get("SUGGEST_REQUIRE_S4_GO", "false").lower() == "true"
+    if write_target == "hetzner" and not (allow_hetzner and require_s4_go):
+        payload = _build_runtime_result(
+            pilot_id=pilot_id, queue_id=queue_id, gl=gl, hl=hl,
+            expected_geo=expected_geo, actual_geo="",
+            write_target=write_target, dry_run=dry_run, no_db=no_db,
+            exit_code=50, status="blocked",
+            metrics=_empty_metrics(0.0), artifact_dir=artifact_dir,
+            error={
+                "code": "write_target_guard",
+                "message": "Hetzner write blocked: SUGGEST_ALLOW_HETZNER_WRITE and/or SUGGEST_REQUIRE_S4_GO not set",
+                "retryable": False, "blocked": True,
+            },
+        )
+        write_runtime_result_atomic(result_path, payload)
+        print("✗ write_target_guard: Hetzner write blocked — S4 flags not set. Exit 50.")
+        return 50
+
+    # ── Proxy (informativní — opener je nastaven jako global při importu) ──
+    proxy_url_env = proxy_cfg.get("url_env", "IPROYAL_PROXY_URL")
+    _proxy_used = os.environ.get(proxy_url_env, os.environ.get("PROXY_URL", ""))
+
+    # ── DB připojení ──
+    if no_db or dry_run:
+        supabase_url, supabase_key = "", ""
+    else:
+        dsn_env = write_cfg.get("dsn_env", "SUGGEST_CRAWLER_WRITE_DATABASE_URL")
+        supabase_url = os.environ.get("SUPABASE_URL", os.environ.get(dsn_env, ""))
+        supabase_key = os.environ.get("SUPABASE_KEY", "")
+
+    db = DB(supabase_url, supabase_key)
+
+    # ── Sestavení market + cfg dicts pro run_market ──
+    market = {
+        "gl": gl,
+        "hl": hl,
+        "enabled": True,
+        "max_depth":              caps.get("max_depth", 2),
+        "max_runtime_minutes":    caps.get("max_runtime_minutes", 28),
+        "batch_size":             caps.get("batch_size", 100),
+        "delay_between_requests_ms": caps.get("delay_between_requests_ms", 150),
+    }
+    cfg_defaults = {
+        "max_depth":              caps.get("max_depth", 2),
+        "max_runtime_minutes":    caps.get("max_runtime_minutes", 28),
+        "batch_size":             caps.get("batch_size", 100),
+        "delay_between_requests_ms": caps.get("delay_between_requests_ms", 150),
+    }
+
+    run_id = f"rt-{pilot_id[:8]}-{queue_id}"
+
+    # ── Spustit crawl ──
+    exit_code = 0
+    status = "success"
+    error: dict | None = None
+
+    try:
+        crawl_status = run_market(
+            db, market, cfg_defaults, dry_run,
+            run_id=run_id,
+            resume_from="",
+        )
+        # Map run_market status → runtime status
+        if crawl_status in ("done", "paused"):
+            status, exit_code = "success", 0
+        elif crawl_status == "blocked":
+            status, exit_code = "blocked", 40
+            error = {"code": "geo_mismatch", "message": "Market blocked by run_market",
+                     "retryable": False, "blocked": True}
+        else:  # "emergency"
+            status, exit_code = "failed", 20
+            error = {"code": "app_exception", "message": f"run_market returned {crawl_status!r}",
+                     "retryable": True, "blocked": False}
+
+    except Exception as exc:
+        exit_code, error = map_exception_to_runtime_error(exc)
+        status = "blocked" if (error.get("blocked")) else "failed"
+        print(f"✗ Runtime crawl error: {type(exc).__name__}: {exc}")
+
+    duration = time.time() - start_time
+
+    # ── Metriky (best-effort z dry_run; live metriky budou 0 pro now) ──
+    metrics = _empty_metrics(round(duration, 2))
+
+    # ── Zapsat phase-2b-pilot-summary.json (doplňkový, runtime ho NEčte jako pravdu) ──
+    os.makedirs(artifact_dir, exist_ok=True)
+    summary_path = os.path.join(artifact_dir, "phase-2b-pilot-summary.json")
+    try:
+        summary = {
+            "pilot_id": pilot_id, "queue_id": queue_id,
+            "gl": gl, "hl": hl,
+            "status": status, "exit_code": exit_code,
+            "dry_run": dry_run, "no_db": no_db,
+            "duration_seconds": round(duration, 2),
+        }
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2)
+    except Exception as exc:
+        print(f"  ⚠ Could not write summary: {exc}")
+
+    # ── Zapsat runtime_result.json atomicky ──
+    payload = _build_runtime_result(
+        pilot_id=pilot_id, queue_id=queue_id, gl=gl, hl=hl,
+        expected_geo=expected_geo, actual_geo="",
+        write_target=write_target, dry_run=dry_run, no_db=no_db,
+        exit_code=exit_code, status=status,
+        metrics=metrics, artifact_dir=artifact_dir,
+        error=error,
+    )
+    write_runtime_result_atomic(result_path, payload)
+    print(f"  ✓ runtime_result.json written: status={status} exit={exit_code}")
+    return exit_code
 
 
 def load_config(max_depth_override: int) -> tuple[dict, list]:
@@ -927,7 +1166,12 @@ def load_config(max_depth_override: int) -> tuple[dict, list]:
 
 
 def main():
-    args    = parse_args()
+    args = parse_args()
+
+    # Runtime mode fork — GHA path is completely untouched when args are absent
+    if args.runtime_config and args.runtime_result:
+        sys.exit(run_runtime_mode(args.runtime_config, args.runtime_result))
+
     dry_run = args.dry_run.lower() in ("true", "1", "yes")
     run_id  = args.run_id or uuid.uuid4().hex[:8]
 
