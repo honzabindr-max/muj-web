@@ -311,6 +311,297 @@ class DB:
 
 
 # ─────────────────────────────────────────────────────────────
+# HetznerPgWriter — psycopg2 direct-PG write path (S4)
+# ─────────────────────────────────────────────────────────────
+_PG_COL_SAFE = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+_STATE_COLS_ALLOWED = frozenset({
+    "gl", "hl", "current_depth", "current_prefix", "queue", "next_queue",
+    "status", "processed", "queries_total", "new_total",
+    "last_started_at", "last_finished_at", "updated_at",
+})
+
+_CONTROL_COLS_ALLOWED = frozenset({
+    "stop_flag", "stop_reason", "stopped_at", "cooldown_until",
+    "block_count_today", "block_count_date", "shared_delay_ms", "updated_at",
+})
+
+_JSONB_COLS = frozenset({"queue", "next_queue"})
+
+_SUGG_INSERT_COLS = (
+    "gl", "hl", "phrase", "phrase_norm", "depth", "parent_prefix",
+    "first_seen_at", "last_seen_at", "seen_count",
+)
+
+
+def _parse_postgrest_eq_filter(p: str) -> list[tuple[str, str]]:
+    """PostgREST filter string → list of (col, value) eq. pairs.
+
+    'select=*&gl=eq.cz&hl=eq.cs' → [('gl', 'cz'), ('hl', 'cs')]
+    Skips meta-keys (select, order, limit, offset) and non-eq. ops.
+    """
+    result = []
+    for part in p.split("&"):
+        if not part or "=" not in part:
+            continue
+        col, rest = part.split("=", 1)
+        col = col.strip()
+        if col in ("select", "order", "limit", "offset"):
+            continue
+        if rest.startswith("eq."):
+            result.append((col, rest[3:]))
+    return result
+
+
+class HetznerPgWriter:
+    """psycopg2-based write path for Hetzner PostgreSQL (S4 write cutover).
+
+    Drop-in replacement for DB() with the same public interface.
+    DSN is never logged — errors mask the connection string.
+    """
+
+    def __init__(self, dsn: str) -> None:
+        try:
+            import psycopg2
+            import psycopg2.extras
+        except ImportError:
+            raise RuntimeError("psycopg2 not installed — run: pip install psycopg2-binary")
+
+        self._psycopg2 = psycopg2
+        self._extras = psycopg2.extras
+
+        # OPEN: google_suggestions_v2 and google_crawler_state have no pilot_id/run_id column.
+        # Canary row identification is not possible without a schema change.
+        # Flagged OPEN for Opus — proceeding without canary tagging.
+        canary_pilot = os.environ.get("S4_CANARY_PILOT_ID", "")
+        if canary_pilot:
+            print(
+                f"  ⚠ OPEN: S4_CANARY_PILOT_ID={canary_pilot!r} is set but google_suggestions_v2 "
+                "has no pilot_id column — canary row identification NOT possible. "
+                "Requires schema decision from Opus before enabling."
+            )
+
+        try:
+            self._conn = psycopg2.connect(dsn)
+            self._conn.autocommit = False
+        except psycopg2.Error as exc:
+            raise RuntimeError(
+                f"HetznerPgWriter: DB connect failed ({type(exc).__name__})"
+            ) from None
+
+        self._control_cache: dict = {"ts": 0.0, "data": None}
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def _cursor(self):
+        return self._conn.cursor(cursor_factory=self._extras.RealDictCursor)
+
+    def _exec(self, sql: str, params=None, *, fetch: bool = False):
+        """Execute parameterized SQL with commit/rollback. Returns rows if fetch=True."""
+        try:
+            with self._cursor() as cur:
+                cur.execute(sql, params)
+                if fetch:
+                    rows = [dict(r) for r in cur.fetchall()]
+                    self._conn.commit()
+                    return rows
+                self._conn.commit()
+                return True
+        except self._psycopg2.Error as exc:
+            self._conn.rollback()
+            # Redact DSN patterns before logging (psycopg2 embeds DSN in some error messages)
+            raw = str(exc)[:400]
+            safe = re.sub(r"[a-zA-Z][a-zA-Z0-9+\-.]*://[^\s'\"@]*@[^\s'\"]*", "<dsn-redacted>", raw)
+            print(f"  ⚠ PgWriter SQL error ({type(exc).__name__}): {safe[:200]}")
+            return None
+
+    def select(self, t: str, p: str = "") -> list:
+        """Parse PostgREST eq. filter → SQL SELECT WHERE."""
+        if not _PG_COL_SAFE.match(t):
+            print(f"  ⚠ PgWriter.select: unsafe table name {t!r}")
+            return []
+        filters = _parse_postgrest_eq_filter(p)
+        where_parts, values = [], []
+        for col, val in filters:
+            if not _PG_COL_SAFE.match(col):
+                continue
+            where_parts.append(f"{col} = %s")
+            values.append(val)
+        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        result = self._exec(f"SELECT * FROM {t} {where}", values or None, fetch=True)
+        return result if result is not None else []
+
+    def get_control(self) -> dict | None:
+        """Loads crawler_control with 5s TTL cache (per-instance)."""
+        now = time.time()
+        if now - self._control_cache["ts"] < 5.0 and self._control_cache["data"] is not None:
+            return self._control_cache["data"]
+        rows = self._exec(
+            f"SELECT * FROM {CONTROL_TABLE} WHERE id = %s", (1,), fetch=True
+        )
+        if rows:
+            self._control_cache = {"ts": now, "data": rows[0]}
+            return rows[0]
+        return None
+
+    def count_market(self, gl: str, hl: str) -> int:
+        rows = self._exec(
+            f"SELECT COUNT(*) AS n FROM {TABLE} WHERE gl = %s AND hl = %s",
+            (gl, hl), fetch=True,
+        )
+        return int(rows[0].get("n", 0)) if rows else 0
+
+    def upsert_batch(self, rows: list) -> list | None:
+        """Batch insert into google_suggestions_v2. ON CONFLICT (gl,hl,phrase_norm) DO NOTHING."""
+        if not rows:
+            return []
+        col_list = ", ".join(_SUGG_INSERT_COLS)
+        placeholders = ", ".join(["%s"] * len(_SUGG_INSERT_COLS))
+        sql = (
+            f"INSERT INTO {TABLE} ({col_list}) VALUES ({placeholders}) "
+            "ON CONFLICT (gl, hl, phrase_norm) DO NOTHING"
+        )
+        try:
+            with self._cursor() as cur:
+                data = [tuple(r.get(c) for c in _SUGG_INSERT_COLS) for r in rows]
+                self._extras.execute_batch(cur, sql, data)
+                self._conn.commit()
+                return []  # mirrors DB(): [] on DO NOTHING = OK
+        except self._psycopg2.Error as exc:
+            self._conn.rollback()
+            print(f"  ⚠ PgWriter.upsert_batch error ({type(exc).__name__}): {str(exc)[:200]}")
+            return None
+
+    def upsert_state(self, gl: str, hl: str, d: dict) -> bool:
+        """Upsert google_crawler_state for (gl,hl). ON CONFLICT (gl,hl) DO UPDATE."""
+        safe_d = {
+            k: v for k, v in d.items()
+            if k in _STATE_COLS_ALLOWED and _PG_COL_SAFE.match(k)
+        }
+        full = {**safe_d, "gl": gl, "hl": hl}
+        cols = list(full.keys())
+        col_list = ", ".join(cols)
+        placeholders = ", ".join(["%s"] * len(cols))
+        update_parts = ", ".join(
+            f"{c} = EXCLUDED.{c}" for c in cols if c not in ("gl", "hl")
+        )
+        sql = (
+            f"INSERT INTO {STATE_TABLE} ({col_list}) VALUES ({placeholders}) "
+            f"ON CONFLICT (gl, hl) DO UPDATE SET {update_parts}"
+        )
+        values = [
+            self._extras.Json(v) if k in _JSONB_COLS else v
+            for k, v in full.items()
+        ]
+        return self._exec(sql, values) is not None
+
+    def update(self, t: str, p: str, d: dict) -> bool | None:
+        """Generic: parse PostgREST eq. filter → SQL UPDATE WHERE."""
+        if not _PG_COL_SAFE.match(t):
+            print(f"  ⚠ PgWriter.update: unsafe table name {t!r}")
+            return None
+        allowed = (
+            _CONTROL_COLS_ALLOWED if t == CONTROL_TABLE else
+            _STATE_COLS_ALLOWED   if t == STATE_TABLE   else
+            None
+        )
+        safe_d = {
+            k: v for k, v in d.items()
+            if _PG_COL_SAFE.match(k) and (allowed is None or k in allowed)
+        }
+        if not safe_d:
+            return True
+        filters = _parse_postgrest_eq_filter(p)
+        where_parts, where_vals = [], []
+        for col, val in filters:
+            if not _PG_COL_SAFE.match(col):
+                continue
+            where_parts.append(f"{col} = %s")
+            where_vals.append(val)
+        set_parts = ", ".join(f"{k} = %s" for k in safe_d)
+        where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        sql = f"UPDATE {t} SET {set_parts} {where}"
+        return self._exec(sql, list(safe_d.values()) + where_vals) is not None
+
+    def trip_killswitch(self, reason: str, gl: str, hl: str) -> bool:
+        ctrl = self.get_control()
+        if ctrl and ctrl.get("stop_flag"):
+            return True  # idempotency guard
+
+        today = datetime.now(timezone.utc).date().isoformat()
+        n = 1
+        if ctrl and ctrl.get("block_count_date") == today:
+            n = (ctrl.get("block_count_today") or 0) + 1
+
+        minutes = {1: 15, 2: 60}.get(n, 360)
+        now_dt = datetime.now(timezone.utc)
+        cooldown_until = (now_dt + timedelta(minutes=minutes)).isoformat()
+
+        sql = (
+            f"UPDATE {CONTROL_TABLE} SET "
+            "stop_flag = %s, stop_reason = %s, stopped_at = %s, "
+            "cooldown_until = %s, block_count_today = %s, block_count_date = %s, "
+            "updated_at = %s WHERE id = %s"
+        )
+        result = self._exec(sql, (
+            True, reason[:500], now_dt.isoformat(),
+            cooldown_until, n, today,
+            now_dt.isoformat(), 1,
+        ))
+        self._control_cache["ts"] = 0.0  # invalidate
+
+        _notify_send(
+            f"🛑 Kill-switch aktivován\nMarket: {gl}/{hl}\n"
+            f"Důvod: {reason[:200]}\n"
+            f"Cooldown: {minutes} min (blok #{n} dnes)\n"
+            f"Obnovení: {cooldown_until}"
+        )
+        return result is not None
+
+    def set_shared_delay(self, ms: int) -> None:
+        self._exec(
+            f"UPDATE {CONTROL_TABLE} SET shared_delay_ms = %s, updated_at = %s WHERE id = %s",
+            (ms, datetime.now(timezone.utc).isoformat(), 1),
+        )
+        self._control_cache["ts"] = 0.0
+
+
+def _create_write_client(
+    write_target: str,
+    write_cfg: dict,
+    *,
+    no_db: bool = False,
+    dry_run: bool = False,
+):
+    """Route to the correct write backend.
+
+    Guards (SUGGEST_ALLOW_HETZNER_WRITE / SUGGEST_REQUIRE_S4_GO) are checked
+    by the caller before this function is called — this function only constructs.
+    Raises RuntimeError on unknown write_target or missing DSN env var.
+    """
+    if no_db or dry_run:
+        return DB("", "")
+    if write_target in ("supabase", "supabase_postgrest"):
+        dsn_env = write_cfg.get("dsn_env", "SUGGEST_CRAWLER_WRITE_DATABASE_URL")
+        supabase_url = os.environ.get("SUPABASE_URL", os.environ.get(dsn_env, ""))
+        supabase_key = os.environ.get("SUPABASE_KEY", "")
+        return DB(supabase_url, supabase_key)
+    if write_target in ("hetzner", "hetzner_pg"):
+        dsn_env = write_cfg.get("dsn_env", "SUGGEST_CRAWLER_WRITE_DATABASE_URL")
+        dsn = os.environ.get(dsn_env, "")
+        if not dsn:
+            raise RuntimeError(
+                f"HetznerPgWriter: env var {dsn_env!r} is not set"
+            )
+        return HetznerPgWriter(dsn)
+    raise RuntimeError(f"write_target_guard: unknown write_target={write_target!r}")
+
+
+# ─────────────────────────────────────────────────────────────
 # Google Suggest API — adaptivní delay + backoff
 # ─────────────────────────────────────────────────────────────
 class GoogleAPI:
@@ -1064,15 +1355,25 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
     proxy_url_env = proxy_cfg.get("url_env", "IPROYAL_PROXY_URL")
     _proxy_used = os.environ.get(proxy_url_env, os.environ.get("PROXY_URL", ""))
 
-    # ── DB připojení ──
-    if no_db or dry_run:
-        supabase_url, supabase_key = "", ""
-    else:
-        dsn_env = write_cfg.get("dsn_env", "SUGGEST_CRAWLER_WRITE_DATABASE_URL")
-        supabase_url = os.environ.get("SUPABASE_URL", os.environ.get(dsn_env, ""))
-        supabase_key = os.environ.get("SUPABASE_KEY", "")
-
-    db = DB(supabase_url, supabase_key)
+    # ── Write-target router ──
+    try:
+        db = _create_write_client(write_target, write_cfg, no_db=no_db, dry_run=dry_run)
+    except RuntimeError as exc:
+        payload = _build_runtime_result(
+            pilot_id=pilot_id, queue_id=queue_id, gl=gl, hl=hl,
+            expected_geo=expected_geo, actual_geo="",
+            write_target=write_target, dry_run=dry_run, no_db=no_db,
+            exit_code=50, status="blocked",
+            metrics=_empty_metrics(0.0), artifact_dir=artifact_dir,
+            error={
+                "code": "write_target_guard",
+                "message": str(exc),
+                "retryable": False, "blocked": True,
+            },
+        )
+        write_runtime_result_atomic(result_path, payload)
+        print(f"✗ write_target_guard: {exc}. Exit 50.")
+        return 50
 
     # ── Sestavení market + cfg dicts pro run_market ──
     market = {
@@ -1153,6 +1454,8 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
     )
     write_runtime_result_atomic(result_path, payload)
     print(f"  ✓ runtime_result.json written: status={status} exit={exit_code}")
+    if isinstance(db, HetznerPgWriter):
+        db.close()
     return exit_code
 
 
