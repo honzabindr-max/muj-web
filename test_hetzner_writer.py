@@ -34,7 +34,7 @@ def _make_psycopg2_stub():
     stub.extras = extras
     stub.Error = Exception
 
-    def connect(dsn):
+    def connect(dsn, **kwargs):
         conn = MagicMock()
         conn.autocommit = False
         cursor_cm = MagicMock()
@@ -70,9 +70,10 @@ def _import_crawler():
     notify_stub.send = MagicMock()
     sys.modules["notify"] = notify_stub
 
-    # Reload to pick up the stubs
+    # psycopg2 is imported lazily inside HetznerPgWriter.__init__ — no module reload needed.
+    # Deleting sys.modules["crawler"] here would break @patch("crawler.x") in other test files.
     if "crawler" in sys.modules:
-        del sys.modules["crawler"]
+        return sys.modules["crawler"]
     import crawler
     return crawler
 
@@ -136,12 +137,11 @@ class TestWriteTargetRouter(unittest.TestCase):
         self.assertIsInstance(client, HetznerPgWriter)
         client.close()
 
-    def test_hetzner_pg_alias(self):
-        env = {"SUGGEST_CRAWLER_WRITE_DATABASE_URL": "postgresql://fake:5432/db"}
-        with patch.dict(os.environ, env):
-            client = _create_write_client("hetzner_pg", {}, no_db=False, dry_run=False)
-        self.assertIsInstance(client, HetznerPgWriter)
-        client.close()
+    def test_hetzner_pg_now_hard_fails(self):
+        # Per spec #2: "hetzner_pg" is no longer an alias — it is an unknown target → hard fail
+        with self.assertRaises(RuntimeError) as ctx:
+            _create_write_client("hetzner_pg", {}, no_db=False, dry_run=False)
+        self.assertIn("hard fail", str(ctx.exception))
 
     def test_dry_run_always_returns_db(self):
         client = _create_write_client("hetzner", {}, no_db=False, dry_run=True)

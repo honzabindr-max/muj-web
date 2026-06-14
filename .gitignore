@@ -44,3 +44,4 @@ node_modules/
 
 # Claude Code — osobní lokální overrides (projektový settings.json zůstává verzovaný)
 /.claude/settings.local.json
+crawler_state_emergency_*.json

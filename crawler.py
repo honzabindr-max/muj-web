@@ -353,11 +353,30 @@ def _parse_postgrest_eq_filter(p: str) -> list[tuple[str, str]]:
     return result
 
 
+def _dsn_meta(dsn: str) -> dict:
+    """Extract non-secret host metadata from DSN URL. Never returns credentials."""
+    try:
+        parsed = urllib.parse.urlparse(dsn)
+        host = parsed.hostname or "unknown"
+        port = parsed.port or 5432
+        if host in ("127.0.0.1", "localhost", "::1"):
+            host_class = "local"
+        elif host.startswith("100."):  # Tailscale IP range
+            host_class = "tailscale"
+        else:
+            host_class = "remote"
+        return {"host_class": host_class, "port": port}
+    except Exception:
+        return {"host_class": "unknown", "port": "unknown"}
+
+
 class HetznerPgWriter:
     """psycopg2-based write path for Hetzner PostgreSQL (S4 write cutover).
 
     Drop-in replacement for DB() with the same public interface.
     DSN is never logged — errors mask the connection string.
+    When S4_CANARY_ID env is set, activates canary mode: writes a synthetic
+    phrase and an audit row to s4_write_canary_audit (fail-closed).
     """
 
     def __init__(self, dsn: str) -> None:
@@ -370,19 +389,33 @@ class HetznerPgWriter:
         self._psycopg2 = psycopg2
         self._extras = psycopg2.extras
 
-        # OPEN: google_suggestions_v2 and google_crawler_state have no pilot_id/run_id column.
-        # Canary row identification is not possible without a schema change.
-        # Flagged OPEN for Opus — proceeding without canary tagging.
-        canary_pilot = os.environ.get("S4_CANARY_PILOT_ID", "")
-        if canary_pilot:
-            print(
-                f"  ⚠ OPEN: S4_CANARY_PILOT_ID={canary_pilot!r} is set but google_suggestions_v2 "
-                "has no pilot_id column — canary row identification NOT possible. "
-                "Requires schema decision from Opus before enabling."
-            )
+        # Canary mode: S4_CANARY_ID is canonical; S4_CANARY_PILOT_ID accepted as alias
+        self._canary_id = (
+            os.environ.get("S4_CANARY_ID", "")
+            or os.environ.get("S4_CANARY_PILOT_ID", "")
+        )
+        self._canary_gl = ""
+        self._canary_hl = ""
+        self._canary_run_id = ""
+
+        # Safe DSN metadata for logging — credentials are never printed
+        meta = _dsn_meta(dsn)
+        self._writer_route = f"{meta['host_class']}_{meta['port']}"
+        app_name = (
+            f"suggest_s4_canary_{self._writer_route}_{self._canary_id}"
+            if self._canary_id
+            else "suggest_crawler"
+        )
+
+        print(
+            f"  [HetznerPgWriter] writer_route={self._writer_route} "
+            f"db_host_class={meta['host_class']} db_port={meta['port']} "
+            f"dsn_secret_printed=false"
+            + (f" canary_id={self._canary_id!r}" if self._canary_id else "")
+        )
 
         try:
-            self._conn = psycopg2.connect(dsn)
+            self._conn = psycopg2.connect(dsn, application_name=app_name)
             self._conn.autocommit = False
         except psycopg2.Error as exc:
             raise RuntimeError(
@@ -456,7 +489,11 @@ class HetznerPgWriter:
         return int(rows[0].get("n", 0)) if rows else 0
 
     def upsert_batch(self, rows: list) -> list | None:
-        """Batch insert into google_suggestions_v2. ON CONFLICT (gl,hl,phrase_norm) DO NOTHING."""
+        """Batch insert into google_suggestions_v2. ON CONFLICT (gl,hl,phrase_norm) DO NOTHING.
+
+        In canary mode (S4_CANARY_ID set): additionally inserts a synthetic canary phrase
+        and writes an audit row to s4_write_canary_audit (fail-closed on audit failure).
+        """
         if not rows:
             return []
         col_list = ", ".join(_SUGG_INSERT_COLS)
@@ -470,14 +507,102 @@ class HetznerPgWriter:
                 data = [tuple(r.get(c) for c in _SUGG_INSERT_COLS) for r in rows]
                 self._extras.execute_batch(cur, sql, data)
                 self._conn.commit()
-                return []  # mirrors DB(): [] on DO NOTHING = OK
         except self._psycopg2.Error as exc:
             self._conn.rollback()
             print(f"  ⚠ PgWriter.upsert_batch error ({type(exc).__name__}): {str(exc)[:200]}")
+            if self._canary_id:
+                self._write_canary_audit(
+                    status="error", suggestions_before=0, suggestions_after=0,
+                    state_touched=False, result="upsert_batch_failed",
+                    error=type(exc).__name__,
+                )
             return None
+
+        # ── Canary synthetic phrase + audit (fail-closed) ──
+        if self._canary_id:
+            nonce = uuid.uuid4().hex[:8]
+            canary_phrase = f"__s4canary__{self._canary_id}__{nonce}"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            canary_row = {
+                "gl": self._canary_gl or (rows[0].get("gl") if rows else "xx"),
+                "hl": self._canary_hl or (rows[0].get("hl") if rows else "xx"),
+                "phrase": canary_phrase,
+                "phrase_norm": canary_phrase,
+                "depth": 0,
+                "parent_prefix": "__canary__",
+                "first_seen_at": now_iso,
+                "last_seen_at": now_iso,
+                "seen_count": 1,
+            }
+            canary_ok = False
+            try:
+                with self._cursor() as cur:
+                    cur.execute(sql, tuple(canary_row.get(c) for c in _SUGG_INSERT_COLS))
+                    self._conn.commit()
+                    canary_ok = True
+            except self._psycopg2.Error as exc:
+                self._conn.rollback()
+                print(f"  ⚠ PgWriter.canary insert error ({type(exc).__name__}): {str(exc)[:200]}")
+
+            audit_ok = self._write_canary_audit(
+                status="success" if canary_ok else "error",
+                suggestions_before=0,
+                suggestions_after=1 if canary_ok else 0,
+                state_touched=False,
+                result="canary_phrase_inserted" if canary_ok else "canary_insert_failed",
+                error=None if canary_ok else "canary_insert_failed",
+            )
+            if audit_ok is None:
+                raise RuntimeError(
+                    f"canary_audit_fail: s4_write_canary_audit write failed "
+                    f"(canary_id={self._canary_id!r}) — fail-closed, canary is NOT verified"
+                )
+
+        return []  # mirrors DB(): [] on DO NOTHING = OK
+
+    def _write_canary_audit(
+        self, *, status: str, suggestions_before: int, suggestions_after: int,
+        state_touched: bool, result: str, error: str | None,
+    ):
+        """Insert/update audit row in s4_write_canary_audit. Returns None on failure."""
+        sql = """
+            INSERT INTO public.s4_write_canary_audit (
+                canary_id, write_target, writer, source,
+                gl, hl, first_pg_write_at, status,
+                suggestions_before, suggestions_after, state_touched,
+                run_id, canary_prefix, expected_batch_size,
+                writer_route, application_name, result, error
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, now(), %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s
+            )
+            ON CONFLICT (canary_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                suggestions_after = EXCLUDED.suggestions_after,
+                result = EXCLUDED.result,
+                error = EXCLUDED.error
+        """
+        app_name = f"suggest_s4_canary_{self._writer_route}_{self._canary_id}"
+        params = (
+            self._canary_id, "hetzner", "HetznerPgWriter", "crawler_runtime",
+            self._canary_gl or None, self._canary_hl or None, status,
+            suggestions_before, suggestions_after, state_touched,
+            self._canary_run_id or None, f"__s4canary__{self._canary_id}__", None,
+            self._writer_route, app_name,
+            result, error,
+        )
+        return self._exec(sql, params)
 
     def upsert_state(self, gl: str, hl: str, d: dict) -> bool:
         """Upsert google_crawler_state for (gl,hl). ON CONFLICT (gl,hl) DO UPDATE."""
+        if self._canary_id:
+            raise RuntimeError(
+                f"canary_guard: upsert_state blocked during canary "
+                f"(S4_CANARY_ID={self._canary_id!r}) — state must not be touched in canary mode"
+            )
         safe_d = {
             k: v for k, v in d.items()
             if k in _STATE_COLS_ALLOWED and _PG_COL_SAFE.match(k)
@@ -590,7 +715,7 @@ def _create_write_client(
         supabase_url = os.environ.get("SUPABASE_URL", os.environ.get(dsn_env, ""))
         supabase_key = os.environ.get("SUPABASE_KEY", "")
         return DB(supabase_url, supabase_key)
-    if write_target in ("hetzner", "hetzner_pg"):
+    if write_target == "hetzner":
         dsn_env = write_cfg.get("dsn_env", "SUGGEST_CRAWLER_WRITE_DATABASE_URL")
         dsn = os.environ.get(dsn_env, "")
         if not dsn:
@@ -598,7 +723,7 @@ def _create_write_client(
                 f"HetznerPgWriter: env var {dsn_env!r} is not set"
             )
         return HetznerPgWriter(dsn)
-    raise RuntimeError(f"write_target_guard: unknown write_target={write_target!r}")
+    raise RuntimeError(f"write_target_guard: unknown write_target={write_target!r} — hard fail")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1209,6 +1334,8 @@ def parse_args():
                    help="(Runtime mode) Cesta k runtime_config.json od subprocess_adapter.")
     p.add_argument("--runtime-result", default=None,
                    help="(Runtime mode) Cesta pro zápis runtime_result.json.")
+    p.add_argument("--preflight-write-target", action="store_true", default=False,
+                   help="(Preflight) Ověří write_target konfiguraci bez DB write. Vypíše stav a skončí.")
     return p.parse_args()
 
 
@@ -1300,6 +1427,53 @@ def _empty_metrics(duration: float = 0.0) -> dict:
         "db_errors": 0,
         "duration_seconds": duration,
     }
+
+
+def run_preflight_write_target(args) -> int:
+    """Preflight: resolve write_target, verify guards + DSN presence, print status, exit.
+
+    Never opens a DB connection. Never prints the DSN value.
+    Returns 0 for valid/known targets, 1 for unknown or forbidden targets.
+    """
+    # Load write_target: runtime_config.json takes priority over env
+    if args.runtime_config:
+        try:
+            with open(args.runtime_config) as f:
+                rc = json.load(f)
+            write_target = rc.get("write", {}).get(
+                "target", os.environ.get("SUGGEST_WRITE_TARGET", "supabase")
+            )
+        except Exception as exc:
+            print(f"preflight_error: cannot read runtime_config: {exc}")
+            return 1
+    else:
+        write_target = os.environ.get("SUGGEST_WRITE_TARGET", "supabase")
+
+    # Hard fail for unknown / forbidden targets (includes "hetzner_pg")
+    if write_target not in ("supabase", "supabase_postgrest", "hetzner"):
+        print(f"preflight_error: unknown or forbidden write_target={write_target!r} — hard fail")
+        return 1
+
+    if write_target == "hetzner":
+        writer = "HetznerPgWriter"
+        dsn = (
+            os.environ.get("SUGGEST_CRAWLER_WRITE_DATABASE_URL", "")
+            or os.environ.get("HETZNER_DATABASE_URL", "")
+            or os.environ.get("HETZNER_WRITE_DATABASE_URL", "")
+        )
+        hetzner_dsn_present = bool(dsn)
+        guard_ok = hetzner_dsn_present
+    else:
+        writer = "DB"
+        hetzner_dsn_present = False
+        guard_ok = True
+
+    print(f"write_target={write_target}")
+    print(f"writer={writer}")
+    print(f"guard_ok={str(guard_ok).lower()}")
+    print(f"hetzner_dsn_present={str(hetzner_dsn_present).lower()}")
+    print("will_write=false")
+    return 0
 
 
 def run_runtime_mode(config_path: str, result_path: str) -> int:
@@ -1394,6 +1568,12 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
 
     run_id = f"rt-{pilot_id[:8]}-{queue_id}"
 
+    # Propagate canary context to HetznerPgWriter when active
+    if isinstance(db, HetznerPgWriter):
+        db._canary_gl = gl
+        db._canary_hl = hl
+        db._canary_run_id = run_id
+
     # ── Spustit crawl ──
     exit_code = 0
     status = "success"
@@ -1470,6 +1650,10 @@ def load_config(max_depth_override: int) -> tuple[dict, list]:
 
 def main():
     args = parse_args()
+
+    # Preflight fork — check write_target config without any DB write
+    if args.preflight_write_target:
+        sys.exit(run_preflight_write_target(args))
 
     # Runtime mode fork — GHA path is completely untouched when args are absent
     if args.runtime_config and args.runtime_result:
