@@ -59,6 +59,7 @@ const ALPHA2_TO_NUMERIC: Record<string, number> = {
   ug: 800, ua: 804, ae: 784, gb: 826, us: 840, uy: 858, uz: 860,
   vu: 548, ve: 862, vn: 704, ye: 887, zm: 894, zw: 716,
   uk: 826, // alias for gb
+  kr: 410, hk: 344, ps: 275, kp: 408, pr: 630, gl: 304,
 };
 
 // Reverse map (numeric → alpha2), 'gb' preferred over alias 'uk'
