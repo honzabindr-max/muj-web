@@ -1,11 +1,8 @@
 name: Crawler Watchdog
 
 on:
-  # schedule:
-  #   - cron: '0 * * * *'
-  # Vypnuto 2026-06-08 — watchdog hlídá staré crony (Google v2 crawler),
-  # ten byl trvale zastaven. Watchdog nezná stop_flag → falešné alerty.
-  # Vzkříšení: odkomentovat až watchdog umí rozlišit záměrně vypnutý engine.
+  schedule:
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
