@@ -344,7 +344,7 @@ export function SuggestWorldMap({
       .attr("class", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status = rd?.hasCrawlerData
+        const status = rd
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         return `country ${status}`;
@@ -352,7 +352,7 @@ export function SuggestWorldMap({
       .attr("stroke", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd?.hasCrawlerData
+        const status: CountryStatus = rd
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].color;
@@ -360,7 +360,7 @@ export function SuggestWorldMap({
       .attr("stroke-width", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd?.hasCrawlerData
+        const status: CountryStatus = rd
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].width;
@@ -381,7 +381,7 @@ export function SuggestWorldMap({
         const rd = renderMap.get(Number((d as any).id));
         if (!rd) return;
 
-        const status: CountryStatus = rd.hasCrawlerData
+        const status: CountryStatus = rd
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
 
@@ -406,7 +406,7 @@ export function SuggestWorldMap({
       .on("mouseleave", function (_, d) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd?.hasCrawlerData
+        const status: CountryStatus = rd
           ? (glStatusMapRef.current.get(rd.gl) ?? "idle")
           : "idle";
         d3.select(this)
@@ -430,7 +430,7 @@ export function SuggestWorldMap({
       .attr("class", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status = rd?.hasCrawlerData
+        const status = rd
           ? (glStatusMap.get(rd.gl) ?? "idle")
           : "idle";
         return `country ${status}`;
@@ -438,7 +438,7 @@ export function SuggestWorldMap({
       .attr("stroke", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd?.hasCrawlerData
+        const status: CountryStatus = rd
           ? (glStatusMap.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].color;
@@ -446,7 +446,7 @@ export function SuggestWorldMap({
       .attr("stroke-width", (d) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rd = renderMap.get(Number((d as any).id));
-        const status: CountryStatus = rd?.hasCrawlerData
+        const status: CountryStatus = rd
           ? (glStatusMap.get(rd.gl) ?? "idle")
           : "idle";
         return STATUS_STROKE[status].width;
