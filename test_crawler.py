@@ -13,10 +13,17 @@ from unittest.mock import MagicMock, patch, call
 sys.path.insert(0, os.path.dirname(__file__))
 import crawler
 from crawler import (
-    DB, CircuitBreaker, _EMPTY_SUCCESS,
-    CIRCUIT_BREAKER_THRESHOLD, DB_MAX_RETRIES,
-    load_state, save_state, emergency_save, load_emergency_state,
-    normalize, run_market,
+    DB,
+    CircuitBreaker,
+    _EMPTY_SUCCESS,
+    CIRCUIT_BREAKER_THRESHOLD,
+    DB_MAX_RETRIES,
+    load_state,
+    save_state,
+    emergency_save,
+    load_emergency_state,
+    normalize,
+    run_market,
 )
 
 
@@ -43,19 +50,26 @@ class TestReqExceptionHandling(unittest.TestCase):
 
     def test_ssl_error_returns_none(self):
         import ssl
+
         with self._make_urlopen_error(ssl.SSLError("ssl error")):
             result = self.db._req("GET", "test")
         self.assertIsNone(result)
 
     def test_url_error_returns_none(self):
         import urllib.error
-        with self._make_urlopen_error(urllib.error.URLError("name or service not known")):
+
+        with self._make_urlopen_error(
+            urllib.error.URLError("name or service not known")
+        ):
             result = self.db._req("GET", "test")
         self.assertIsNone(result)
 
     def test_http_error_non_409_returns_none(self):
         import urllib.error, io
-        err = urllib.error.HTTPError("url", 503, "Service Unavailable", {}, io.BytesIO(b""))
+
+        err = urllib.error.HTTPError(
+            "url", 503, "Service Unavailable", {}, io.BytesIO(b"")
+        )
         with self._make_urlopen_error(err):
             result = self.db._req("POST", "test", {"x": 1})
         self.assertIsNone(result)
@@ -72,8 +86,11 @@ class TestReqExceptionHandling(unittest.TestCase):
     def test_no_exception_propagates(self):
         """_req() nesmí za žádné situace vyhodit výjimku ven."""
         bad_errors = [
-            TimeoutError(), ConnectionResetError(), ConnectionRefusedError(),
-            BrokenPipeError(), OSError("low-level"),
+            TimeoutError(),
+            ConnectionResetError(),
+            ConnectionRefusedError(),
+            BrokenPipeError(),
+            OSError("low-level"),
         ]
         for exc in bad_errors:
             with self.subTest(exc=type(exc).__name__):
@@ -112,7 +129,9 @@ class TestRetryWrapper(unittest.TestCase):
         self.db._req = lambda m, p, d=None, eh=None: None
         result = self.db._req_with_retry("POST", "test", max_attempts=3)
         self.assertIsNone(result)
-        self.assertEqual(mock_sleep.call_count, 2)  # sleep po 1. a 2. pokusu; 3. bez sleep
+        self.assertEqual(
+            mock_sleep.call_count, 2
+        )  # sleep po 1. a 2. pokusu; 3. bez sleep
 
 
 # ─────────────────────────────────────────────────────────────
@@ -177,7 +196,7 @@ class TestCircuitBreaker(unittest.TestCase):
         cb = CircuitBreaker(3)
         self.assertFalse(cb.record_failure())  # 1
         self.assertFalse(cb.record_failure())  # 2
-        self.assertTrue(cb.record_failure())   # 3 → tripped
+        self.assertTrue(cb.record_failure())  # 3 → tripped
         self.assertTrue(cb.tripped)
 
     def test_resets_on_success(self):
@@ -212,28 +231,29 @@ class TestCircuitBreakerIntegration(unittest.TestCase):
         """Když upsert_batch vždy selže, circuit breaker musí zavolat emergency_save
         a run_market musí vrátit 'emergency' bez neošetřené výjimky."""
         db = DB("http://test", "key")
-        db.upsert_batch   = lambda rows: None   # vždy selže
-        db.upsert_state   = lambda gl, hl, d: False
-        db.count_market   = lambda gl, hl: 0
-        db.select         = lambda t, p: []     # žádný uložený stav
+        db.upsert_batch = lambda rows: None  # vždy selže
+        db.upsert_state = lambda gl, hl, d: False
+        db.count_market = lambda gl, hl: 0
+        db.select = lambda t, p: []  # žádný uložený stav
 
         market = {"gl": "cz", "hl": "cs"}
-        cfg    = {
-            "max_depth":                   1,
-            "max_runtime_minutes":         25,
-            "batch_size":                  1,   # každý prefix → flush → failure
-            "delay_between_requests_ms":   0,
+        cfg = {
+            "max_depth": 1,
+            "max_runtime_minutes": 25,
+            "batch_size": 1,  # každý prefix → flush → failure
+            "delay_between_requests_ms": 0,
         }
 
         with patch.object(crawler.GoogleAPI, "fetch", return_value=["test phrase"]):
             result = run_market(db, market, cfg, dry_run=False, run_id="test1234")
 
-        self.assertEqual(result, "emergency",
-                         "circuit breaker musí vést k výsledku 'emergency'")
+        self.assertEqual(
+            result, "emergency", "circuit breaker musí vést k výsledku 'emergency'"
+        )
         mock_emergency_save.assert_called_once()
         args = mock_emergency_save.call_args
-        self.assertEqual(args[0][1], "cz")   # gl
-        self.assertEqual(args[0][2], "cs")   # hl
+        self.assertEqual(args[0][1], "cz")  # gl
+        self.assertEqual(args[0][2], "cs")  # hl
 
 
 # ─────────────────────────────────────────────────────────────
@@ -252,15 +272,17 @@ class TestEmergencySave(unittest.TestCase):
             os.chdir(tmpdir)
             try:
                 state = {
-                    "current_depth":  1,
+                    "current_depth": 1,
                     "current_prefix": "ab",
-                    "queue":          ["ac", "ad"],
-                    "next_queue":     [],
-                    "processed":      10,
-                    "queries_total":  50,
-                    "new_total":      5,
+                    "queue": ["ac", "ad"],
+                    "next_queue": [],
+                    "processed": 10,
+                    "queries_total": 50,
+                    "new_total": 5,
                 }
-                result = emergency_save(self._make_db(), "cz", "cs", state, "run001", "test")
+                result = emergency_save(
+                    self._make_db(), "cz", "cs", state, "run001", "test"
+                )
                 self.assertTrue(result)
 
                 fname = "crawler_state_emergency_run001_cz_cs.json"
@@ -287,12 +309,20 @@ class TestEmergencySave(unittest.TestCase):
             orig = os.getcwd()
             os.chdir(tmpdir)
             try:
-                state = {"current_depth": 0, "current_prefix": "",
-                         "queue": [], "next_queue": [],
-                         "processed": 0, "queries_total": 0, "new_total": 0}
+                state = {
+                    "current_depth": 0,
+                    "current_prefix": "",
+                    "queue": [],
+                    "next_queue": [],
+                    "processed": 0,
+                    "queries_total": 0,
+                    "new_total": 0,
+                }
                 result = emergency_save(db, "cz", "cs", state, "run002")
                 self.assertTrue(result)
-                self.assertFalse(os.path.exists("crawler_state_emergency_run002_cz_cs.json"))
+                self.assertFalse(
+                    os.path.exists("crawler_state_emergency_run002_cz_cs.json")
+                )
             finally:
                 os.chdir(orig)
 
@@ -309,10 +339,16 @@ class TestLoadState(unittest.TestCase):
 
     def test_running_status_returns_state_with_queue(self):
         row = {
-            "gl": "cz", "hl": "cs", "status": "running",
-            "current_depth": 1, "current_prefix": "ab",
-            "queue": ["ac", "ad", "ae"], "next_queue": [],
-            "processed": 42, "queries_total": 100, "new_total": 10,
+            "gl": "cz",
+            "hl": "cs",
+            "status": "running",
+            "current_depth": 1,
+            "current_prefix": "ab",
+            "queue": ["ac", "ad", "ae"],
+            "next_queue": [],
+            "processed": 42,
+            "queries_total": 100,
+            "new_total": 10,
             "updated_at": "2026-06-02T08:00:00+00:00",
         }
         state = load_state(self._db_with_row(row), "cz", "cs")
@@ -322,10 +358,16 @@ class TestLoadState(unittest.TestCase):
 
     def test_paused_status_returns_state(self):
         row = {
-            "gl": "cz", "hl": "cs", "status": "paused",
-            "current_depth": 1, "current_prefix": "xy",
-            "queue": ["xz"], "next_queue": [],
-            "processed": 99, "queries_total": 200, "new_total": 50,
+            "gl": "cz",
+            "hl": "cs",
+            "status": "paused",
+            "current_depth": 1,
+            "current_prefix": "xy",
+            "queue": ["xz"],
+            "next_queue": [],
+            "processed": 99,
+            "queries_total": 200,
+            "new_total": 50,
         }
         state = load_state(self._db_with_row(row), "cz", "cs")
         self.assertIsNotNone(state)
@@ -334,11 +376,16 @@ class TestLoadState(unittest.TestCase):
     def test_json_string_queue_decoded(self):
         """Zpětná kompatibilita: queue jako JSON string (starý formát) se dekóduje."""
         row = {
-            "gl": "cz", "hl": "cs", "status": "paused",
-            "current_depth": 0, "current_prefix": "",
-            "queue": '["a", "b", "c"]',   # starý double-serialized formát
+            "gl": "cz",
+            "hl": "cs",
+            "status": "paused",
+            "current_depth": 0,
+            "current_prefix": "",
+            "queue": '["a", "b", "c"]',  # starý double-serialized formát
             "next_queue": "[]",
-            "processed": 0, "queries_total": 0, "new_total": 0,
+            "processed": 0,
+            "queries_total": 0,
+            "new_total": 0,
         }
         state = load_state(self._db_with_row(row), "cz", "cs")
         self.assertEqual(state["queue"], ["a", "b", "c"])
@@ -347,11 +394,16 @@ class TestLoadState(unittest.TestCase):
     def test_native_list_queue_used_directly(self):
         """Nový formát: queue jako Python list (nativní JSONB) prochází přímo."""
         row = {
-            "gl": "cz", "hl": "cs", "status": "paused",
-            "current_depth": 0, "current_prefix": "",
-            "queue": ["a", "b"],   # nativní list
+            "gl": "cz",
+            "hl": "cs",
+            "status": "paused",
+            "current_depth": 0,
+            "current_prefix": "",
+            "queue": ["a", "b"],  # nativní list
             "next_queue": [],
-            "processed": 0, "queries_total": 0, "new_total": 0,
+            "processed": 0,
+            "queries_total": 0,
+            "new_total": 0,
         }
         state = load_state(self._db_with_row(row), "cz", "cs")
         self.assertEqual(state["queue"], ["a", "b"])
@@ -380,51 +432,64 @@ class TestLoadEmergencyState(unittest.TestCase):
 
     def test_newer_file_used_when_db_older(self):
         snap = {
-            "gl": "cz", "hl": "cs", "status": "paused",
+            "gl": "cz",
+            "hl": "cs",
+            "status": "paused",
             "emergency_at": "2026-06-02T10:00:00+00:00",
-            "queue": ["ab", "ac"], "next_queue": [],
-            "current_depth": 1, "processed": 50,
-            "queries_total": 100, "new_total": 5,
+            "queue": ["ab", "ac"],
+            "next_queue": [],
+            "current_depth": 1,
+            "processed": 50,
+            "queries_total": 100,
+            "new_total": 5,
         }
         with tempfile.TemporaryDirectory() as d:
-            path  = self._write_snap(snap, d)
-            db    = self._db_with_ts("2026-06-02T08:00:00+00:00")  # starší DB
+            path = self._write_snap(snap, d)
+            db = self._db_with_ts("2026-06-02T08:00:00+00:00")  # starší DB
             state = load_emergency_state(path, "cz", "cs", db)
         self.assertIsNotNone(state)
         self.assertEqual(state["queue"], ["ab", "ac"])
 
     def test_older_file_ignored_when_db_newer(self):
         snap = {
-            "gl": "cz", "hl": "cs", "status": "paused",
+            "gl": "cz",
+            "hl": "cs",
+            "status": "paused",
             "emergency_at": "2026-06-02T06:00:00+00:00",  # starší soubor
-            "queue": ["old"], "next_queue": [],
+            "queue": ["old"],
+            "next_queue": [],
         }
         with tempfile.TemporaryDirectory() as d:
-            path  = self._write_snap(snap, d)
-            db    = self._db_with_ts("2026-06-02T09:00:00+00:00")  # novější DB
+            path = self._write_snap(snap, d)
+            db = self._db_with_ts("2026-06-02T09:00:00+00:00")  # novější DB
             state = load_emergency_state(path, "cz", "cs", db)
         self.assertIsNone(state, "Starší soubor musí být ignorován")
 
     def test_wrong_market_rejected(self):
         snap = {"gl": "de", "hl": "de", "queue": [], "next_queue": []}
         with tempfile.TemporaryDirectory() as d:
-            path  = self._write_snap(snap, d)
-            db    = self._db_with_ts(None)
+            path = self._write_snap(snap, d)
+            db = self._db_with_ts(None)
             state = load_emergency_state(path, "cz", "cs", db)
         self.assertIsNone(state, "Jiný market musí být odmítnut")
 
     def test_no_db_row_uses_file(self):
         """Pokud DB nemá záznam, soubor se použije bez ohledu na timestamp."""
         snap = {
-            "gl": "cz", "hl": "cs", "status": "paused",
+            "gl": "cz",
+            "hl": "cs",
+            "status": "paused",
             "emergency_at": "2026-06-02T10:00:00+00:00",
-            "queue": ["xy"], "next_queue": [],
-            "current_depth": 0, "processed": 0,
-            "queries_total": 0, "new_total": 0,
+            "queue": ["xy"],
+            "next_queue": [],
+            "current_depth": 0,
+            "processed": 0,
+            "queries_total": 0,
+            "new_total": 0,
         }
         with tempfile.TemporaryDirectory() as d:
-            path  = self._write_snap(snap, d)
-            db    = self._db_with_ts(None)   # žádný DB záznam
+            path = self._write_snap(snap, d)
+            db = self._db_with_ts(None)  # žádný DB záznam
             state = load_emergency_state(path, "cz", "cs", db)
         self.assertIsNotNone(state)
         self.assertEqual(state["queue"], ["xy"])
@@ -461,34 +526,39 @@ class TestKillSwitch(unittest.TestCase):
     def test_killswitch_stops_market(self, mock_sleep):
         """stop_flag=True → run_market vrátí 'paused' bez volání fetch."""
         db = DB("http://test", "key")
-        db.get_control  = lambda: {"stop_flag": True}
+        db.get_control = lambda: {"stop_flag": True}
         db.upsert_state = lambda gl, hl, d: True
         db.upsert_batch = lambda rows: []
         db.count_market = lambda gl, hl: 0
-        db.select       = lambda t, p: []
+        db.select = lambda t, p: []
         cfg = {
-            "max_depth": 1, "max_runtime_minutes": 25,
-            "batch_size": 50, "delay_between_requests_ms": 0,
+            "max_depth": 1,
+            "max_runtime_minutes": 25,
+            "batch_size": 50,
+            "delay_between_requests_ms": 0,
         }
         with patch.object(crawler.GoogleAPI, "fetch", return_value=["test phrase"]):
             result = run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "ks001")
-        self.assertEqual(result, "paused",
-                         "Kill-switch musí zastavit market a vrátit 'paused'")
+        self.assertEqual(
+            result, "paused", "Kill-switch musí zastavit market a vrátit 'paused'"
+        )
 
     @patch("time.sleep")
     @patch("crawler._notify_send")
     def test_403_trips_killswitch(self, mock_notify, mock_sleep):
         """fetch()=None (403) → trip_killswitch volán, status='paused', return 'blocked'."""
         db = DB("http://test", "key")
-        db.get_control     = lambda: {"stop_flag": False, "shared_delay_ms": 300}
-        db.upsert_state    = MagicMock(return_value=True)
-        db.upsert_batch    = lambda rows: []
-        db.count_market    = lambda gl, hl: 0
-        db.select          = lambda t, p: []
+        db.get_control = lambda: {"stop_flag": False, "shared_delay_ms": 300}
+        db.upsert_state = MagicMock(return_value=True)
+        db.upsert_batch = lambda rows: []
+        db.count_market = lambda gl, hl: 0
+        db.select = lambda t, p: []
         db.trip_killswitch = MagicMock(return_value=True)
         cfg = {
-            "max_depth": 1, "max_runtime_minutes": 25,
-            "batch_size": 50, "delay_between_requests_ms": 0,
+            "max_depth": 1,
+            "max_runtime_minutes": 25,
+            "batch_size": 50,
+            "delay_between_requests_ms": 0,
         }
         with patch.object(crawler.GoogleAPI, "fetch", return_value=None):
             result = run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "ks002")
@@ -500,6 +570,145 @@ class TestKillSwitch(unittest.TestCase):
         self.assertEqual(call_args[2], "cs")
         # Stav uložen jako 'paused' (ne 'error')
         self.assertEqual(db.upsert_state.call_args[0][2].get("status"), "paused")
+
+
+# ─────────────────────────────────────────────────────────────
+# P0 — soft-block, stale conflict_ratio, killswitch regressions
+# ─────────────────────────────────────────────────────────────
+
+
+def make_api_with_window(hit_ratio: float, conflict_ratio: float):
+    """GoogleAPI s naplněným 30-prvkovým oknem a nastaveným _last_conflict_ratio."""
+    db = MagicMock()
+    api = crawler.GoogleAPI("cz", "cs", delay_ms=0, db=db)
+    WINDOW = 30
+    true_count = int(WINDOW * hit_ratio)
+    api._result_window = [True] * true_count + [False] * (WINDOW - true_count)
+    api._last_conflict_ratio = conflict_ratio
+    return api
+
+
+class TestP0SoftBlockAndKillswitch(unittest.TestCase):
+
+    def test_soft_block_mature_no_strike(self):
+        """low hit_ratio + high conflict_ratio (mature) → bypass, NO strike"""
+        api = make_api_with_window(hit_ratio=0.05, conflict_ratio=0.90)
+        strikes_before = api._soft_block_strikes
+        api._check_soft_block("testprefix")
+        self.assertEqual(
+            api._soft_block_strikes,
+            strikes_before,
+            "Mature market nesmí inkrementovat strike",
+        )
+
+    def test_soft_block_garbage_strike(self):
+        """low hit_ratio + low conflict_ratio (garbage) → strike inkrement"""
+        api = make_api_with_window(hit_ratio=0.05, conflict_ratio=0.10)
+        api._check_soft_block("testprefix")
+        self.assertEqual(api._soft_block_strikes, 1)
+
+    @patch("time.sleep")
+    def test_403_trips_killswitch_regression(self, mock_sleep):
+        """403 BLOCKED → trip_killswitch volán (regresní test ř.1407)"""
+        db = DB("http://test", "key")
+        db.get_control = lambda: {"stop_flag": False, "shared_delay_ms": 0}
+        db.upsert_state = MagicMock(return_value=True)
+        db.upsert_batch = lambda rows: []
+        db.count_market = lambda gl, hl: 0
+        db.select = lambda t, p: []
+        db.trip_killswitch = MagicMock(return_value=True)
+        cfg = {
+            "max_depth": 1,
+            "max_runtime_minutes": 25,
+            "batch_size": 50,
+            "delay_between_requests_ms": 0,
+        }
+        with patch.object(crawler.GoogleAPI, "fetch", return_value=None):
+            result = run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "p0-403")
+        self.assertEqual(result, "blocked")
+        db.trip_killswitch.assert_called_once()
+
+    def test_soft_block_stale_reset(self):
+        """Po mature flushu (conflict=0.90) → reset na 0.0 → garbage okno → strike"""
+        api = make_api_with_window(hit_ratio=0.05, conflict_ratio=0.90)
+        api._last_conflict_ratio = 0.90  # stará mature hodnota
+        api._last_conflict_ratio = 0.0  # flush reset (BLOKER 1 fix simulován)
+        api._check_soft_block("garbage")
+        self.assertEqual(
+            api._soft_block_strikes, 1, "Garbage po resetu musí inkrementovat strike"
+        )
+
+    @patch("time.sleep")
+    def test_auto_reset_expired_cooldown(self, mock_sleep):
+        """stop_flag=True + cooldown_until v minulosti → reset_killswitch_after_cooldown volán"""
+        from datetime import datetime, timezone, timedelta
+
+        expired_iso = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+
+        db = DB("http://test", "key")
+        _calls = [0]
+
+        def get_ctrl():
+            _calls[0] += 1
+            if _calls[0] == 1:
+                return {
+                    "stop_flag": True,
+                    "cooldown_until": expired_iso,
+                    "shared_delay_ms": 0,
+                }
+            return {"stop_flag": False, "shared_delay_ms": 0}
+
+        db.get_control = get_ctrl
+        db.upsert_state = MagicMock(return_value=True)
+        db.upsert_batch = lambda rows: []
+        db.count_market = lambda gl, hl: 0
+        db.select = lambda t, p: []
+        db.reset_killswitch_after_cooldown = MagicMock(return_value=True)
+        db.trip_killswitch = MagicMock(return_value=True)
+
+        cfg = {
+            "max_depth": 1,
+            "max_runtime_minutes": 25,
+            "batch_size": 50,
+            "delay_between_requests_ms": 0,
+        }
+
+        with patch.object(crawler.GoogleAPI, "fetch", return_value=None):
+            run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "p0-expired")
+
+        db.reset_killswitch_after_cooldown.assert_called_once()
+
+    @patch("time.sleep")
+    def test_no_reset_active_cooldown(self, mock_sleep):
+        """stop_flag=True + cooldown_until v budoucnosti → reset_killswitch_after_cooldown NENÍ volán"""
+        from datetime import datetime, timezone, timedelta
+
+        future_iso = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+        db = DB("http://test", "key")
+        db.get_control = lambda: {
+            "stop_flag": True,
+            "cooldown_until": future_iso,
+            "shared_delay_ms": 0,
+        }
+        db.upsert_state = MagicMock(return_value=True)
+        db.upsert_batch = lambda rows: []
+        db.count_market = lambda gl, hl: 0
+        db.select = lambda t, p: []
+        db.reset_killswitch_after_cooldown = MagicMock(return_value=True)
+
+        cfg = {
+            "max_depth": 1,
+            "max_runtime_minutes": 25,
+            "batch_size": 50,
+            "delay_between_requests_ms": 0,
+        }
+
+        with patch.object(crawler.GoogleAPI, "fetch", return_value=["dummy"]):
+            result = run_market(db, {"gl": "cz", "hl": "cs"}, cfg, False, "p0-active")
+
+        self.assertEqual(result, "paused")
+        db.reset_killswitch_after_cooldown.assert_not_called()
 
 
 if __name__ == "__main__":

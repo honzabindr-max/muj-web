@@ -32,7 +32,10 @@ except ImportError:
 try:
     from notify import send as _notify_send
 except ImportError:
-    def _notify_send(msg): print(f"  [notify] {msg}")
+
+    def _notify_send(msg):
+        print(f"  [notify] {msg}")
+
 
 # ─────────────────────────────────────────────────────────────
 # Proxy setup — jeden opener pro celý run (thread-safe pro čtení)
@@ -48,17 +51,17 @@ else:
 # ─────────────────────────────────────────────────────────────
 # Konfigurace
 # ─────────────────────────────────────────────────────────────
-SUGGEST_URL              = "https://suggestqueries.google.com/complete/search"
-SUGGEST_LIMIT            = 10
-MAX_RETRIES              = 3      # Google API retry pokusy
-TABLE                    = "google_suggestions_v2"
-STATE_TABLE              = "google_crawler_state"
-CONTROL_TABLE            = "crawler_control"
-SAFE                     = '=&.,()!*:"'
+SUGGEST_URL = "https://suggestqueries.google.com/complete/search"
+SUGGEST_LIMIT = 10
+MAX_RETRIES = 3  # Google API retry pokusy
+TABLE = "google_suggestions_v2"
+STATE_TABLE = "google_crawler_state"
+CONTROL_TABLE = "crawler_control"
+SAFE = '=&.,()!*:"'
 
-DB_MAX_RETRIES            = 6    # Max retry pokusů na jeden DB request
-DB_BACKOFF_BASE           = 1.0  # Základ exponential backoff (sekundy)
-CIRCUIT_BREAKER_THRESHOLD = 3    # Počet vyčerpaných flush bloků před emergency_save
+DB_MAX_RETRIES = 6  # Max retry pokusů na jeden DB request
+DB_BACKOFF_BASE = 1.0  # Základ exponential backoff (sekundy)
+CIRCUIT_BREAKER_THRESHOLD = 3  # Počet vyčerpaných flush bloků před emergency_save
 
 # Sentinel: 2xx s prázdným tělem (return=minimal / 204 No Content).
 # Odlišuje "úspěch bez dat" od "selhání" (None).
@@ -94,8 +97,10 @@ ALPHABETS: dict[str, list[str]] = {
     "ms": _LATIN_BASE,
 }
 
+
 def get_alphabet(hl: str) -> list[str]:
     return ALPHABETS.get(hl, _LATIN_BASE)
+
 
 def get_roots(hl: str) -> list[str]:
     return [c for c in get_alphabet(hl) if c != " "]
@@ -114,6 +119,7 @@ def normalize(phrase: str) -> str:
 # ─────────────────────────────────────────────────────────────
 class CircuitBreaker:
     """Čítač po sobě jdoucích DB selhání (každé = 1 vyčerpaný retry blok)."""
+
     def __init__(self, threshold: int):
         self.threshold = threshold
         self.failures = 0
@@ -170,35 +176,47 @@ class DB:
                 print(f"  ⚠ HTTP {code}: {err[:120]}")
             return None
         except (
-            urllib.error.URLError,       # DNS fail, connection refused, wraps socket.timeout
-            TimeoutError,                # Python 3.11+, také read/write timeout
-            socket.timeout,              # Python < 3.11
+            urllib.error.URLError,  # DNS fail, connection refused, wraps socket.timeout
+            TimeoutError,  # Python 3.11+, také read/write timeout
+            socket.timeout,  # Python < 3.11
             http.client.RemoteDisconnected,
             http.client.IncompleteRead,
-            ConnectionError,             # ConnectionResetError, BrokenPipeError, …
+            ConnectionError,  # ConnectionResetError, BrokenPipeError, …
             ssl.SSLError,
-            OSError,                     # socket-level errors na některých platformách
+            OSError,  # socket-level errors na některých platformách
         ) as e:
             print(f"  ⚠ Network error ({type(e).__name__}): {str(e)[:120]}")
             return None
 
-    def _req_with_retry(s, m, p, d=None, eh=None,
-                        max_attempts: int = DB_MAX_RETRIES,
-                        backoff_base: float = DB_BACKOFF_BASE):
+    def _req_with_retry(
+        s,
+        m,
+        p,
+        d=None,
+        eh=None,
+        max_attempts: int = DB_MAX_RETRIES,
+        backoff_base: float = DB_BACKOFF_BASE,
+    ):
         """_req() s exponential backoff + jitter. Vrátí None pokud všechny pokusy selžou."""
         for attempt in range(max_attempts):
             result = s._req(m, p, d, eh)
-            if result is not None:  # None = failure; vše ostatní (incl. [] a _EMPTY_SUCCESS) = OK
+            if (
+                result is not None
+            ):  # None = failure; vše ostatní (incl. [] a _EMPTY_SUCCESS) = OK
                 return result
             if attempt < max_attempts - 1:
-                wait = min(60.0, backoff_base * (2 ** attempt))
-                wait *= (0.8 + 0.4 * random.random())  # ±20% jitter
-                print(f"  ↺ DB retry {attempt + 1}/{max_attempts - 1}, backoff {wait:.1f}s")
+                wait = min(60.0, backoff_base * (2**attempt))
+                wait *= 0.8 + 0.4 * random.random()  # ±20% jitter
+                print(
+                    f"  ↺ DB retry {attempt + 1}/{max_attempts - 1}, backoff {wait:.1f}s"
+                )
                 time.sleep(wait)
         return None
 
     def select(s, t, p=""):
-        res = s._req_with_retry("GET", t + "?" + urllib.parse.quote(p, safe=SAFE), max_attempts=3)
+        res = s._req_with_retry(
+            "GET", t + "?" + urllib.parse.quote(p, safe=SAFE), max_attempts=3
+        )
         if res is None or res is _EMPTY_SUCCESS:
             return []
         return res if isinstance(res, list) else []
@@ -224,9 +242,9 @@ class DB:
             {"Prefer": "resolution=ignore-duplicates,return=representation"},
         )
         if res is None:
-            return None     # trvalé selhání
+            return None  # trvalé selhání
         if res is _EMPTY_SUCCESS:
-            return []       # neočekávané prázdné tělo → treat as no inserts
+            return []  # neočekávané prázdné tělo → treat as no inserts
         return res if isinstance(res, list) else []
 
     def upsert_state(s, gl: str, hl: str, d: dict) -> bool:
@@ -281,15 +299,17 @@ class DB:
         cooldown_until = (now_dt + timedelta(minutes=minutes)).isoformat()
 
         payload = {
-            "stop_flag":         True,
-            "stop_reason":       reason[:500],
-            "stopped_at":        now_dt.isoformat(),
-            "cooldown_until":    cooldown_until,
+            "stop_flag": True,
+            "stop_reason": reason[:500],
+            "stopped_at": now_dt.isoformat(),
+            "cooldown_until": cooldown_until,
             "block_count_today": n,
-            "block_count_date":  today,
-            "updated_at":        now_dt.isoformat(),
+            "block_count_date": today,
+            "updated_at": now_dt.isoformat(),
         }
-        ok = s._req("PATCH", CONTROL_TABLE + "?id=eq.1", payload, {"Prefer": "return=minimal"})
+        ok = s._req(
+            "PATCH", CONTROL_TABLE + "?id=eq.1", payload, {"Prefer": "return=minimal"}
+        )
         s._control_cache["ts"] = 0.0  # invalidate
 
         _notify_send(
@@ -300,11 +320,30 @@ class DB:
         )
         return ok is not None
 
+    def reset_killswitch_after_cooldown(s) -> bool:
+        """Auto-reset stop_flag po vypršení cooldownu. NE-resetuje emergency stop (cooldown_until=NULL)."""
+        ok = s._req_with_retry(
+            "PATCH",
+            CONTROL_TABLE + "?id=eq.1&stop_flag=eq.true&cooldown_until=not.is.null",
+            {
+                "stop_flag": False,
+                "stop_reason": None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            {"Prefer": "return=minimal"},
+        )
+        s._control_cache["ts"] = 0.0  # invalidate cache povinně
+        return ok is not None
+
     def set_shared_delay(s, ms: int) -> None:
         """Nastaví sdílený delay pro všechny thready (fire-and-forget)."""
         s._req(
-            "PATCH", CONTROL_TABLE + "?id=eq.1",
-            {"shared_delay_ms": ms, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "PATCH",
+            CONTROL_TABLE + "?id=eq.1",
+            {
+                "shared_delay_ms": ms,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
             {"Prefer": "return=minimal"},
         )
         s._control_cache["ts"] = 0.0
@@ -315,22 +354,49 @@ class DB:
 # ─────────────────────────────────────────────────────────────
 _PG_COL_SAFE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-_STATE_COLS_ALLOWED = frozenset({
-    "gl", "hl", "current_depth", "current_prefix", "queue", "next_queue",
-    "status", "processed", "queries_total", "new_total",
-    "last_started_at", "last_finished_at", "updated_at",
-})
+_STATE_COLS_ALLOWED = frozenset(
+    {
+        "gl",
+        "hl",
+        "current_depth",
+        "current_prefix",
+        "queue",
+        "next_queue",
+        "status",
+        "processed",
+        "queries_total",
+        "new_total",
+        "last_started_at",
+        "last_finished_at",
+        "updated_at",
+    }
+)
 
-_CONTROL_COLS_ALLOWED = frozenset({
-    "stop_flag", "stop_reason", "stopped_at", "cooldown_until",
-    "block_count_today", "block_count_date", "shared_delay_ms", "updated_at",
-})
+_CONTROL_COLS_ALLOWED = frozenset(
+    {
+        "stop_flag",
+        "stop_reason",
+        "stopped_at",
+        "cooldown_until",
+        "block_count_today",
+        "block_count_date",
+        "shared_delay_ms",
+        "updated_at",
+    }
+)
 
 _JSONB_COLS = frozenset({"queue", "next_queue"})
 
 _SUGG_INSERT_COLS = (
-    "gl", "hl", "phrase", "phrase_norm", "depth", "parent_prefix",
-    "first_seen_at", "last_seen_at", "seen_count",
+    "gl",
+    "hl",
+    "phrase",
+    "phrase_norm",
+    "depth",
+    "parent_prefix",
+    "first_seen_at",
+    "last_seen_at",
+    "seen_count",
 )
 
 
@@ -384,15 +450,16 @@ class HetznerPgWriter:
             import psycopg2
             import psycopg2.extras
         except ImportError:
-            raise RuntimeError("psycopg2 not installed — run: pip install psycopg2-binary")
+            raise RuntimeError(
+                "psycopg2 not installed — run: pip install psycopg2-binary"
+            )
 
         self._psycopg2 = psycopg2
         self._extras = psycopg2.extras
 
         # Canary mode: S4_CANARY_ID is canonical; S4_CANARY_PILOT_ID accepted as alias
-        self._canary_id = (
-            os.environ.get("S4_CANARY_ID", "")
-            or os.environ.get("S4_CANARY_PILOT_ID", "")
+        self._canary_id = os.environ.get("S4_CANARY_ID", "") or os.environ.get(
+            "S4_CANARY_PILOT_ID", ""
         )
         self._canary_gl = ""
         self._canary_hl = ""
@@ -448,7 +515,11 @@ class HetznerPgWriter:
             self._conn.rollback()
             # Redact DSN patterns before logging (psycopg2 embeds DSN in some error messages)
             raw = str(exc)[:400]
-            safe = re.sub(r"[a-zA-Z][a-zA-Z0-9+\-.]*://[^\s'\"@]*@[^\s'\"]*", "<dsn-redacted>", raw)
+            safe = re.sub(
+                r"[a-zA-Z][a-zA-Z0-9+\-.]*://[^\s'\"@]*@[^\s'\"]*",
+                "<dsn-redacted>",
+                raw,
+            )
             print(f"  ⚠ PgWriter SQL error ({type(exc).__name__}): {safe[:200]}")
             return None
 
@@ -471,7 +542,10 @@ class HetznerPgWriter:
     def get_control(self) -> dict | None:
         """Loads crawler_control with 5s TTL cache (per-instance)."""
         now = time.time()
-        if now - self._control_cache["ts"] < 5.0 and self._control_cache["data"] is not None:
+        if (
+            now - self._control_cache["ts"] < 5.0
+            and self._control_cache["data"] is not None
+        ):
             return self._control_cache["data"]
         rows = self._exec(
             f"SELECT * FROM {CONTROL_TABLE} WHERE id = %s", (1,), fetch=True
@@ -484,7 +558,8 @@ class HetznerPgWriter:
     def count_market(self, gl: str, hl: str) -> int:
         rows = self._exec(
             f"SELECT COUNT(*) AS n FROM {TABLE} WHERE gl = %s AND hl = %s",
-            (gl, hl), fetch=True,
+            (gl, hl),
+            fetch=True,
         )
         return int(rows[0].get("n", 0)) if rows else 0
 
@@ -509,11 +584,16 @@ class HetznerPgWriter:
                 self._conn.commit()
         except self._psycopg2.Error as exc:
             self._conn.rollback()
-            print(f"  ⚠ PgWriter.upsert_batch error ({type(exc).__name__}): {str(exc)[:200]}")
+            print(
+                f"  ⚠ PgWriter.upsert_batch error ({type(exc).__name__}): {str(exc)[:200]}"
+            )
             if self._canary_id:
                 self._write_canary_audit(
-                    status="error", suggestions_before=0, suggestions_after=0,
-                    state_touched=False, result="upsert_batch_failed",
+                    status="error",
+                    suggestions_before=0,
+                    suggestions_after=0,
+                    state_touched=False,
+                    result="upsert_batch_failed",
                     error=type(exc).__name__,
                 )
             return None
@@ -537,19 +617,25 @@ class HetznerPgWriter:
             canary_ok = False
             try:
                 with self._cursor() as cur:
-                    cur.execute(sql, tuple(canary_row.get(c) for c in _SUGG_INSERT_COLS))
+                    cur.execute(
+                        sql, tuple(canary_row.get(c) for c in _SUGG_INSERT_COLS)
+                    )
                     self._conn.commit()
                     canary_ok = True
             except self._psycopg2.Error as exc:
                 self._conn.rollback()
-                print(f"  ⚠ PgWriter.canary insert error ({type(exc).__name__}): {str(exc)[:200]}")
+                print(
+                    f"  ⚠ PgWriter.canary insert error ({type(exc).__name__}): {str(exc)[:200]}"
+                )
 
             audit_ok = self._write_canary_audit(
                 status="success" if canary_ok else "error",
                 suggestions_before=0,
                 suggestions_after=1 if canary_ok else 0,
                 state_touched=False,
-                result="canary_phrase_inserted" if canary_ok else "canary_insert_failed",
+                result=(
+                    "canary_phrase_inserted" if canary_ok else "canary_insert_failed"
+                ),
                 error=None if canary_ok else "canary_insert_failed",
             )
             if audit_ok is None:
@@ -561,8 +647,14 @@ class HetznerPgWriter:
         return []  # mirrors DB(): [] on DO NOTHING = OK
 
     def _write_canary_audit(
-        self, *, status: str, suggestions_before: int, suggestions_after: int,
-        state_touched: bool, result: str, error: str | None,
+        self,
+        *,
+        status: str,
+        suggestions_before: int,
+        suggestions_after: int,
+        state_touched: bool,
+        result: str,
+        error: str | None,
     ):
         """Insert/update audit row in s4_write_canary_audit. Returns None on failure."""
         sql = """
@@ -587,12 +679,23 @@ class HetznerPgWriter:
         """
         app_name = f"suggest_s4_canary_{self._writer_route}_{self._canary_id}"
         params = (
-            self._canary_id, "hetzner", "HetznerPgWriter", "crawler_runtime",
-            self._canary_gl or None, self._canary_hl or None, status,
-            suggestions_before, suggestions_after, state_touched,
-            self._canary_run_id or None, f"__s4canary__{self._canary_id}__", None,
-            self._writer_route, app_name,
-            result, error,
+            self._canary_id,
+            "hetzner",
+            "HetznerPgWriter",
+            "crawler_runtime",
+            self._canary_gl or None,
+            self._canary_hl or None,
+            status,
+            suggestions_before,
+            suggestions_after,
+            state_touched,
+            self._canary_run_id or None,
+            f"__s4canary__{self._canary_id}__",
+            None,
+            self._writer_route,
+            app_name,
+            result,
+            error,
         )
         return self._exec(sql, params)
 
@@ -604,7 +707,8 @@ class HetznerPgWriter:
                 f"(S4_CANARY_ID={self._canary_id!r}) — state must not be touched in canary mode"
             )
         safe_d = {
-            k: v for k, v in d.items()
+            k: v
+            for k, v in d.items()
             if k in _STATE_COLS_ALLOWED and _PG_COL_SAFE.match(k)
         }
         full = {**safe_d, "gl": gl, "hl": hl}
@@ -619,8 +723,7 @@ class HetznerPgWriter:
             f"ON CONFLICT (gl, hl) DO UPDATE SET {update_parts}"
         )
         values = [
-            self._extras.Json(v) if k in _JSONB_COLS else v
-            for k, v in full.items()
+            self._extras.Json(v) if k in _JSONB_COLS else v for k, v in full.items()
         ]
         return self._exec(sql, values) is not None
 
@@ -630,12 +733,13 @@ class HetznerPgWriter:
             print(f"  ⚠ PgWriter.update: unsafe table name {t!r}")
             return None
         allowed = (
-            _CONTROL_COLS_ALLOWED if t == CONTROL_TABLE else
-            _STATE_COLS_ALLOWED   if t == STATE_TABLE   else
-            None
+            _CONTROL_COLS_ALLOWED
+            if t == CONTROL_TABLE
+            else _STATE_COLS_ALLOWED if t == STATE_TABLE else None
         )
         safe_d = {
-            k: v for k, v in d.items()
+            k: v
+            for k, v in d.items()
             if _PG_COL_SAFE.match(k) and (allowed is None or k in allowed)
         }
         if not safe_d:
@@ -672,11 +776,19 @@ class HetznerPgWriter:
             "cooldown_until = %s, block_count_today = %s, block_count_date = %s, "
             "updated_at = %s WHERE id = %s"
         )
-        result = self._exec(sql, (
-            True, reason[:500], now_dt.isoformat(),
-            cooldown_until, n, today,
-            now_dt.isoformat(), 1,
-        ))
+        result = self._exec(
+            sql,
+            (
+                True,
+                reason[:500],
+                now_dt.isoformat(),
+                cooldown_until,
+                n,
+                today,
+                now_dt.isoformat(),
+                1,
+            ),
+        )
         self._control_cache["ts"] = 0.0  # invalidate
 
         _notify_send(
@@ -685,6 +797,16 @@ class HetznerPgWriter:
             f"Cooldown: {minutes} min (blok #{n} dnes)\n"
             f"Obnovení: {cooldown_until}"
         )
+        return result is not None
+
+    def reset_killswitch_after_cooldown(self) -> bool:
+        """Auto-reset stop_flag po vypršení cooldownu. NE-resetuje emergency stop (cooldown_until=NULL)."""
+        result = self._exec(
+            f"UPDATE {CONTROL_TABLE} SET stop_flag = %s, stop_reason = %s, updated_at = %s "
+            f"WHERE id = %s AND stop_flag = true AND cooldown_until IS NOT NULL AND cooldown_until < now()",
+            (False, None, datetime.now(timezone.utc).isoformat(), 1),
+        )
+        self._control_cache["ts"] = 0.0  # invalidate cache povinně
         return result is not None
 
     def set_shared_delay(self, ms: int) -> None:
@@ -719,11 +841,11 @@ def _create_write_client(
         dsn_env = write_cfg.get("dsn_env", "SUGGEST_CRAWLER_WRITE_DATABASE_URL")
         dsn = os.environ.get(dsn_env, "")
         if not dsn:
-            raise RuntimeError(
-                f"HetznerPgWriter: env var {dsn_env!r} is not set"
-            )
+            raise RuntimeError(f"HetznerPgWriter: env var {dsn_env!r} is not set")
         return HetznerPgWriter(dsn)
-    raise RuntimeError(f"write_target_guard: unknown write_target={write_target!r} — hard fail")
+    raise RuntimeError(
+        f"write_target_guard: unknown write_target={write_target!r} — hard fail"
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -741,6 +863,7 @@ class GoogleAPI:
         s.db = db
         s._result_window: list[bool] = []
         s._soft_block_strikes = 0
+        s._last_conflict_ratio: float = 0.0
 
     def _check_soft_block(s, last_prefix: str):
         """Detekuje tichý soft-block: <15% non-empty v okně 30 fetchů, 3× za sebou."""
@@ -749,6 +872,15 @@ class GoogleAPI:
             return
         ratio = sum(s._result_window) / WINDOW
         if ratio < THRESHOLD:
+            MATURE_CONFLICT_THRESHOLD = 0.85
+            if getattr(s, "_last_conflict_ratio", 0.0) >= MATURE_CONFLICT_THRESHOLD:
+                print(
+                    f"  ℹ Mature duplicate-heavy, NO strike "
+                    f"(hit_ratio={ratio:.1%}, conflict_ratio={s._last_conflict_ratio:.2f}, "
+                    f"prefix='{last_prefix}')"
+                )
+                s._soft_block_strikes = 0
+                return
             s._soft_block_strikes += 1
             print(
                 f"  ⚠ Soft-block podezření: hit_ratio={ratio:.1%}, "
@@ -768,7 +900,9 @@ class GoogleAPI:
         if s.db is not None:
             ctrl = s.db.get_control()
             if ctrl:
-                effective_delay = max(s.delay, ctrl.get("shared_delay_ms", 300) / 1000.0)
+                effective_delay = max(
+                    s.delay, ctrl.get("shared_delay_ms", 300) / 1000.0
+                )
         el = time.time() - s.last
         if el < effective_delay:
             time.sleep(effective_delay - el)
@@ -837,47 +971,61 @@ def load_state(db: DB, gl: str, hl: str) -> dict | None:
     s = rows[0]
     # Zpětná kompatibilita: queue může být Python list (nový nativní JSONB)
     # nebo JSON string (starý double-serialized formát).
-    s["queue"] = s["queue"] if isinstance(s["queue"], list) else (
-        json.loads(s["queue"]) if s["queue"] else []
+    s["queue"] = (
+        s["queue"]
+        if isinstance(s["queue"], list)
+        else (json.loads(s["queue"]) if s["queue"] else [])
     )
-    s["next_queue"] = s["next_queue"] if isinstance(s["next_queue"], list) else (
-        json.loads(s["next_queue"]) if s["next_queue"] else []
+    s["next_queue"] = (
+        s["next_queue"]
+        if isinstance(s["next_queue"], list)
+        else (json.loads(s["next_queue"]) if s["next_queue"] else [])
     )
     return s
 
 
 def save_state(db: DB, gl: str, hl: str, state: dict) -> bool:
     """Plný zápis stavu (incl. queue jako nativní JSONB array). Vrací True = úspěch."""
-    return db.upsert_state(gl, hl, {
-        "current_depth":  state["current_depth"],
-        "current_prefix": state["current_prefix"],
-        "queue":          state["queue"],       # Python list → nativní JSONB array
-        "next_queue":     state["next_queue"],  # Python list → nativní JSONB array
-        "status":         state["status"],
-        "processed":      state["processed"],
-        "queries_total":  state["queries_total"],
-        "new_total":      state["new_total"],
-        "updated_at":     datetime.now(timezone.utc).isoformat(),
-    })
+    return db.upsert_state(
+        gl,
+        hl,
+        {
+            "current_depth": state["current_depth"],
+            "current_prefix": state["current_prefix"],
+            "queue": state["queue"],  # Python list → nativní JSONB array
+            "next_queue": state["next_queue"],  # Python list → nativní JSONB array
+            "status": state["status"],
+            "processed": state["processed"],
+            "queries_total": state["queries_total"],
+            "new_total": state["new_total"],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 def save_heartbeat(db: DB, gl: str, hl: str, state: dict) -> bool:
     """Lehký zápis bez queue — drží updated_at čerstvý. Vrací True = úspěch."""
-    return db.upsert_state(gl, hl, {
-        "current_depth":  state["current_depth"],
-        "current_prefix": state["current_prefix"],
-        "status":         state["status"],
-        "processed":      state["processed"],
-        "queries_total":  state["queries_total"],
-        "new_total":      state["new_total"],
-        "updated_at":     datetime.now(timezone.utc).isoformat(),
-    })
+    return db.upsert_state(
+        gl,
+        hl,
+        {
+            "current_depth": state["current_depth"],
+            "current_prefix": state["current_prefix"],
+            "status": state["status"],
+            "processed": state["processed"],
+            "queries_total": state["queries_total"],
+            "new_total": state["new_total"],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 # ─────────────────────────────────────────────────────────────
 # Emergency save — fallback řetězec při selhání DB
 # ─────────────────────────────────────────────────────────────
-def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: str = "") -> bool:
+def emergency_save(
+    db: DB, gl: str, hl: str, state: dict, run_id: str, reason: str = ""
+) -> bool:
     """
     1. Pokus o DB save (status=paused).
     2. Pokud selže: zapíše do souboru crawler_state_emergency_<run_id>.json
@@ -885,15 +1033,15 @@ def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: s
     Vrací True pokud alespoň jeden zápis uspěl.
     """
     payload = {
-        "current_depth":  state.get("current_depth", 0),
+        "current_depth": state.get("current_depth", 0),
         "current_prefix": state.get("current_prefix", ""),
-        "queue":          state.get("queue", []),
-        "next_queue":     state.get("next_queue", []),
-        "status":         "paused",
-        "processed":      state.get("processed", 0),
-        "queries_total":  state.get("queries_total", 0),
-        "new_total":      state.get("new_total", 0),
-        "updated_at":     datetime.now(timezone.utc).isoformat(),
+        "queue": state.get("queue", []),
+        "next_queue": state.get("next_queue", []),
+        "status": "paused",
+        "processed": state.get("processed", 0),
+        "queries_total": state.get("queries_total", 0),
+        "new_total": state.get("new_total", 0),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # 1. DB save
@@ -905,7 +1053,8 @@ def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: s
     # 2. Soubor
     snapshot = {
         **payload,
-        "gl": gl, "hl": hl,
+        "gl": gl,
+        "hl": hl,
         "run_id": run_id,
         "emergency_reason": reason,
         "emergency_at": datetime.now(timezone.utc).isoformat(),
@@ -923,7 +1072,7 @@ def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: s
         print(f"  ✗ Nepodařilo se zapsat emergency soubor: {write_err}")
 
     # 3. Log marker — atomicky pod zámkem, aby se výstup dvou threadů nemíchal.
-    q_len  = len(payload["queue"])
+    q_len = len(payload["queue"])
     nq_len = len(payload["next_queue"])
     with _emergency_lock:
         print("EMERGENCY_STATE_SNAPSHOT")
@@ -943,7 +1092,9 @@ def emergency_save(db: DB, gl: str, hl: str, state: dict, run_id: str, reason: s
                 print("  [JSON < 50 KB, vypisuji celý snapshot do logu]")
                 print(snapshot_json)
             else:
-                print(f"  [JSON {len(snapshot_json)//1024} KB — jen v souboru/artifactu]")
+                print(
+                    f"  [JSON {len(snapshot_json)//1024} KB — jen v souboru/artifactu]"
+                )
 
     return file_ok
 
@@ -983,11 +1134,15 @@ def load_emergency_state(path: str, gl: str, hl: str, db: DB) -> dict | None:
     else:
         print(f"  ↩ DB nedostupná nebo bez záznamu — resumuji ze souboru")
 
-    snap["queue"] = snap["queue"] if isinstance(snap["queue"], list) else (
-        json.loads(snap["queue"]) if snap["queue"] else []
+    snap["queue"] = (
+        snap["queue"]
+        if isinstance(snap["queue"], list)
+        else (json.loads(snap["queue"]) if snap["queue"] else [])
     )
-    snap["next_queue"] = snap["next_queue"] if isinstance(snap["next_queue"], list) else (
-        json.loads(snap["next_queue"]) if snap["next_queue"] else []
+    snap["next_queue"] = (
+        snap["next_queue"]
+        if isinstance(snap["next_queue"], list)
+        else (json.loads(snap["next_queue"]) if snap["next_queue"] else [])
     )
     return snap
 
@@ -1013,15 +1168,15 @@ def run_market(
     """
     gl = market["gl"]
     hl = market["hl"]
-    max_depth   = market.get("max_depth",              cfg["max_depth"])
-    max_runtime = market.get("max_runtime_minutes",    cfg["max_runtime_minutes"]) * 60
-    batch_size  = market.get("batch_size",             cfg["batch_size"])
-    delay_ms    = market.get("delay_between_requests_ms", cfg["delay_between_requests_ms"])
+    max_depth = market.get("max_depth", cfg["max_depth"])
+    max_runtime = market.get("max_runtime_minutes", cfg["max_runtime_minutes"]) * 60
+    batch_size = market.get("batch_size", cfg["batch_size"])
+    delay_ms = market.get("delay_between_requests_ms", cfg["delay_between_requests_ms"])
 
     expand_chars = get_alphabet(hl)
-    all_roots    = get_roots(hl)
-    label        = f"{gl}/{hl}"
-    api          = GoogleAPI(gl, hl, delay_ms, db=db)
+    all_roots = get_roots(hl)
+    label = f"{gl}/{hl}"
+    api = GoogleAPI(gl, hl, delay_ms, db=db)
 
     # ── Načtení stavu ──
     state = None
@@ -1044,34 +1199,42 @@ def run_market(
 
     if should_fresh:
         state = {
-            "current_depth":  0,
+            "current_depth": 0,
             "current_prefix": "",
-            "queue":          all_roots[:],
-            "next_queue":     [],
-            "status":         "running",
-            "processed":      0,
-            "queries_total":  0,
-            "new_total":      0,
+            "queue": all_roots[:],
+            "next_queue": [],
+            "status": "running",
+            "processed": 0,
+            "queries_total": 0,
+            "new_total": 0,
         }
         if not dry_run:
-            ok = db.upsert_state(gl, hl, {
-                **state,
-                "last_started_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at":      datetime.now(timezone.utc).isoformat(),
-            })
+            ok = db.upsert_state(
+                gl,
+                hl,
+                {
+                    **state,
+                    "last_started_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
             if not ok:
-                print(f"  ⚠ Nepodařilo se inicializovat stav pro {label} — pokračuji in-memory")
+                print(
+                    f"  ⚠ Nepodařilo se inicializovat stav pro {label} — pokračuji in-memory"
+                )
     else:
         src = "emergency souboru" if (resume_from and state) else "DB"
-        crash_note = " (crash remnant — resumuji)" if state.get("status") == "running" else ""
+        crash_note = (
+            " (crash remnant — resumuji)" if state.get("status") == "running" else ""
+        )
         print(f"  ↩ Navazuji ze {src} (status={state['status']}{crash_note})")
 
-    depth      = state["current_depth"]
-    queue      = list(state["queue"])
-    next_q     = list(state["next_queue"])
-    processed  = state["processed"]
-    queries    = state["queries_total"]
-    new_total  = state["new_total"]
+    depth = state["current_depth"]
+    queue = list(state["queue"])
+    next_q = list(state["next_queue"])
+    processed = state["processed"]
+    queries = state["queries_total"]
+    new_total = state["new_total"]
     total_in_q = len(queue) + processed
 
     db_count = db.count_market(gl, hl) if not dry_run else "—"
@@ -1093,11 +1256,15 @@ def run_market(
         next_q = []
         processed = 0
         total_in_q = len(queue)
-        state.update({
-            "current_depth": depth, "queue": queue,
-            "next_queue": next_q, "processed": processed,
-            "status": "paused",
-        })
+        state.update(
+            {
+                "current_depth": depth,
+                "queue": queue,
+                "next_queue": next_q,
+                "processed": processed,
+                "status": "paused",
+            }
+        )
         print(f"  ⬆ Navazuji na depth {depth} ({total_in_q} prefixů)")
         save_state(db, gl, hl, state)
 
@@ -1108,11 +1275,11 @@ def run_market(
         return "done"
 
     # ── Circuit breaker + write buffer ──
-    cb     = CircuitBreaker(CIRCUIT_BREAKER_THRESHOLD)
+    cb = CircuitBreaker(CIRCUIT_BREAKER_THRESHOLD)
     buffer: list[dict] = []
-    start           = time.time()
-    last_heartbeat  = time.time()
-    last_full_save  = time.time()
+    start = time.time()
+    last_heartbeat = time.time()
+    last_full_save = time.time()
 
     def flush_buffer() -> int:
         """
@@ -1125,21 +1292,29 @@ def run_market(
         nonlocal new_total
         if not buffer:
             return 0
+        api._last_conflict_ratio = (
+            0.0  # reset před flush — stale hodnota nesmí přetéct do příštího okna
+        )
 
         res = db.upsert_batch(buffer)
-        n   = len(buffer)
+        n = len(buffer)
 
         if res is None:
             if cb.record_failure():
-                print(f"  ✗ Circuit breaker tripped (failures={cb.failures}/{cb.threshold})")
+                print(
+                    f"  ✗ Circuit breaker tripped (failures={cb.failures}/{cb.threshold})"
+                )
                 return -999
-            print(f"  ✗ flush FAILED (consecutive failures: {cb.failures}/{cb.threshold})")
+            print(
+                f"  ✗ flush FAILED (consecutive failures: {cb.failures}/{cb.threshold})"
+            )
             return -1  # buffer se nemazá — zkusí se znovu při dalším flush
 
         cb.record_success()
-        inserted       = len(res)
+        inserted = len(res)
         conflict_ratio = round(1 - inserted / n, 2) if n else 0
-        new_total     += inserted
+        api._last_conflict_ratio = conflict_ratio
+        new_total += inserted
         state["new_total"] = new_total
         if n >= batch_size or inserted > 0:
             print(
@@ -1150,13 +1325,18 @@ def run_market(
         return inserted
 
     def _update_state_snapshot():
-        state.update({
-            "queue": queue, "next_queue": next_q,
-            "processed": processed, "queries_total": queries,
-            "new_total": new_total, "current_depth": depth,
-        })
+        state.update(
+            {
+                "queue": queue,
+                "next_queue": next_q,
+                "processed": processed,
+                "queries_total": queries,
+                "new_total": new_total,
+                "current_depth": depth,
+            }
+        )
 
-    now_iso       = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     result_status = "paused"
 
     try:
@@ -1165,6 +1345,27 @@ def run_market(
             if not dry_run:
                 ctrl = db.get_control()
                 if ctrl and ctrl.get("stop_flag"):
+                    cooldown = ctrl.get("cooldown_until")
+                    if cooldown:
+                        if isinstance(cooldown, datetime):
+                            cooldown_dt = cooldown
+                            if cooldown_dt.tzinfo is None:
+                                cooldown_dt = cooldown_dt.replace(tzinfo=timezone.utc)
+                        else:
+                            try:
+                                cooldown_dt = datetime.fromisoformat(str(cooldown))
+                                if cooldown_dt.tzinfo is None:
+                                    cooldown_dt = cooldown_dt.replace(
+                                        tzinfo=timezone.utc
+                                    )
+                            except (ValueError, TypeError):
+                                cooldown_dt = None
+                        if cooldown_dt and cooldown_dt <= datetime.now(timezone.utc):
+                            db.reset_killswitch_after_cooldown()
+                            print(
+                                f"  ✓ Cooldown vypršel ({cooldown}) — auto-reset stop_flag, pokračuji v {label}"
+                            )
+                            continue
                     print(f"  🛑 Kill-switch aktivní — ukončuji {label}")
                     fr = flush_buffer()
                     if fr == -999:
@@ -1180,7 +1381,9 @@ def run_market(
 
             # Safety margin před GH Actions timeoutem
             if elapsed > max_runtime - 60:
-                print(f"\n  ⏰ Blížím se max_runtime ({max_runtime//60} min). Ukládám stav...")
+                print(
+                    f"\n  ⏰ Blížím se max_runtime ({max_runtime//60} min). Ukládám stav..."
+                )
                 fr = flush_buffer()
                 if fr == -999:
                     raise RuntimeError("Circuit breaker tripped při max_runtime flush")
@@ -1197,7 +1400,9 @@ def run_market(
             suggs = api.fetch(prefix)
             queries += 1
 
-            if suggs is None:  # 403 BLOCKED — uložit jako paused (resumovatelné po cooldownu)
+            if (
+                suggs is None
+            ):  # 403 BLOCKED — uložit jako paused (resumovatelné po cooldownu)
                 flush_buffer()
                 _update_state_snapshot()
                 state["status"] = "paused"
@@ -1207,16 +1412,19 @@ def run_market(
 
             if suggs:
                 for phrase in suggs:
-                    buffer.append({
-                        "gl": gl, "hl": hl,
-                        "phrase":        phrase,
-                        "phrase_norm":   normalize(phrase),
-                        "depth":         depth,
-                        "parent_prefix": prefix,
-                        "first_seen_at": now_iso,
-                        "last_seen_at":  now_iso,
-                        "seen_count":    1,
-                    })
+                    buffer.append(
+                        {
+                            "gl": gl,
+                            "hl": hl,
+                            "phrase": phrase,
+                            "phrase_norm": normalize(phrase),
+                            "depth": depth,
+                            "parent_prefix": prefix,
+                            "first_seen_at": now_iso,
+                            "last_seen_at": now_iso,
+                            "seen_count": 1,
+                        }
+                    )
                 if len(buffer) >= batch_size:
                     fr = flush_buffer()
                     if fr == -999:
@@ -1230,7 +1438,7 @@ def run_market(
                 for c in expand_chars:
                     next_q.append(prefix + c)
 
-            pct     = round(processed / total_in_q * 100) if total_in_q else 0
+            pct = round(processed / total_in_q * 100) if total_in_q else 0
             elapsed = time.time() - start
             if processed % 20 == 0:
                 print(
@@ -1245,11 +1453,15 @@ def run_market(
                 if fr == -999:
                     _update_state_snapshot()
                     state["status"] = "paused"
-                    raise RuntimeError("Circuit breaker tripped při periodickém checkpointu")
+                    raise RuntimeError(
+                        "Circuit breaker tripped při periodickém checkpointu"
+                    )
                 _update_state_snapshot()
                 state["status"] = "paused"
                 if not save_state(db, gl, hl, state):
-                    print("  ⚠ Periodický checkpoint selhal — zkusím při dalším heartbeatu")
+                    print(
+                        "  ⚠ Periodický checkpoint selhal — zkusím při dalším heartbeatu"
+                    )
                 last_full_save = t_now
                 last_heartbeat = t_now
             elif t_now - last_heartbeat > 30:
@@ -1272,23 +1484,36 @@ def run_market(
             next_q = []
             processed = 0
             total_in_q = len(queue)
-            state.update({
-                "current_depth": depth, "queue": queue,
-                "next_queue": next_q, "processed": processed,
-                "queries_total": queries, "new_total": new_total,
-                "status": "paused",
-            })
-            print(f"  ⬆ Depth {depth} ({total_in_q} prefixů) — ukládám a navazuji v dalším runu")
+            state.update(
+                {
+                    "current_depth": depth,
+                    "queue": queue,
+                    "next_queue": next_q,
+                    "processed": processed,
+                    "queries_total": queries,
+                    "new_total": new_total,
+                    "status": "paused",
+                }
+            )
+            print(
+                f"  ⬆ Depth {depth} ({total_in_q} prefixů) — ukládám a navazuji v dalším runu"
+            )
             save_state(db, gl, hl, state)
             result_status = "paused"
         else:
             result_status = "done"
-            state.update({
-                "current_depth": depth, "queue": [], "next_queue": [],
-                "processed": processed, "queries_total": queries,
-                "new_total": new_total, "status": "done",
-                "last_finished_at": datetime.now(timezone.utc).isoformat(),
-            })
+            state.update(
+                {
+                    "current_depth": depth,
+                    "queue": [],
+                    "next_queue": [],
+                    "processed": processed,
+                    "queries_total": queries,
+                    "new_total": new_total,
+                    "status": "done",
+                    "last_finished_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             save_state(db, gl, hl, state)
 
     except Exception as e:
@@ -1305,12 +1530,14 @@ def run_market(
         print(f"  new_total: {new_total} | queries: {queries} | čas: {round(elapsed)}s")
         return "emergency"
 
-    elapsed     = time.time() - start
+    elapsed = time.time() - start
     final_count = db.count_market(gl, hl)
     print(f"\n{'═'*60}")
     print(f"  Market: {label}  |  {result_status.upper()}  |  run_id={run_id}")
     print(f"  Processed: {processed}  |  Queries: {queries}  |  New: +{new_total}")
-    print(f"  Errors: {api.errs}  |  Duration: {round(elapsed)}s ({round(elapsed/60, 1)} min)")
+    print(
+        f"  Errors: {api.errs}  |  Duration: {round(elapsed)}s ({round(elapsed/60, 1)} min)"
+    )
     print(f"  DB total ({label}): {final_count} frází")
     print(f"{'═'*60}")
     return result_status
@@ -1321,21 +1548,37 @@ def run_market(
 # ─────────────────────────────────────────────────────────────
 def parse_args():
     p = argparse.ArgumentParser(description="Unified Google Suggest Crawler v2")
-    p.add_argument("--dry-run",       default="true")
-    p.add_argument("--max-parallel",  type=int, default=1)
-    p.add_argument("--batch-limit",   type=int, default=5)
-    p.add_argument("--max-depth",     type=int, default=1)
+    p.add_argument("--dry-run", default="true")
+    p.add_argument("--max-parallel", type=int, default=1)
+    p.add_argument("--batch-limit", type=int, default=5)
+    p.add_argument("--max-depth", type=int, default=1)
     p.add_argument("--market-filter", default="")
-    p.add_argument("--run-id",        default="",
-                   help="Identifikátor běhu (auto: UUID8). Prochází logy a jménem emergency souboru.")
-    p.add_argument("--resume-from",   default="",
-                   help="Cesta k crawler_state_emergency_*.json pro explicitní resume.")
-    p.add_argument("--runtime-config", default=None,
-                   help="(Runtime mode) Cesta k runtime_config.json od subprocess_adapter.")
-    p.add_argument("--runtime-result", default=None,
-                   help="(Runtime mode) Cesta pro zápis runtime_result.json.")
-    p.add_argument("--preflight-write-target", action="store_true", default=False,
-                   help="(Preflight) Ověří write_target konfiguraci bez DB write. Vypíše stav a skončí.")
+    p.add_argument(
+        "--run-id",
+        default="",
+        help="Identifikátor běhu (auto: UUID8). Prochází logy a jménem emergency souboru.",
+    )
+    p.add_argument(
+        "--resume-from",
+        default="",
+        help="Cesta k crawler_state_emergency_*.json pro explicitní resume.",
+    )
+    p.add_argument(
+        "--runtime-config",
+        default=None,
+        help="(Runtime mode) Cesta k runtime_config.json od subprocess_adapter.",
+    )
+    p.add_argument(
+        "--runtime-result",
+        default=None,
+        help="(Runtime mode) Cesta pro zápis runtime_result.json.",
+    )
+    p.add_argument(
+        "--preflight-write-target",
+        action="store_true",
+        default=False,
+        help="(Preflight) Ověří write_target konfiguraci bez DB write. Vypíše stav a skončí.",
+    )
     return p.parse_args()
 
 
@@ -1343,42 +1586,83 @@ def parse_args():
 # Runtime mode — volán z runtime/subprocess_adapter.py
 # ─────────────────────────────────────────────────────────────
 
+
 def map_exception_to_runtime_error(exc: Exception) -> tuple[int, dict]:
     """Map exception to (exit_code, error_dict) dle spec sekce 6."""
     msg = str(exc).lower()
     etype = type(exc).__name__.lower()
 
     if "write_target_guard" in msg:
-        return 50, {"code": "write_target_guard", "message": str(exc),
-                    "retryable": False, "blocked": True}
+        return 50, {
+            "code": "write_target_guard",
+            "message": str(exc),
+            "retryable": False,
+            "blocked": True,
+        }
     if "geo_mismatch" in msg or "geo mismatch" in msg:
-        return 40, {"code": "geo_mismatch", "message": str(exc),
-                    "retryable": False, "blocked": True}
+        return 40, {
+            "code": "geo_mismatch",
+            "message": str(exc),
+            "retryable": False,
+            "blocked": True,
+        }
     if "integrity" in msg or ("psycopg" in etype and "unique" in msg):
-        return 51, {"code": "db_integrity", "message": str(exc),
-                    "retryable": False, "blocked": True}
-    if any(k in msg for k in ("psycopg", "postgres", "database", "db error", "connection refused")):
-        return 20, {"code": "db_transient", "message": str(exc),
-                    "retryable": True, "blocked": False}
+        return 51, {
+            "code": "db_integrity",
+            "message": str(exc),
+            "retryable": False,
+            "blocked": True,
+        }
+    if any(
+        k in msg
+        for k in ("psycopg", "postgres", "database", "db error", "connection refused")
+    ):
+        return 20, {
+            "code": "db_transient",
+            "message": str(exc),
+            "retryable": True,
+            "blocked": False,
+        }
     if "proxy" in msg and ("auth" in msg or "407" in msg or "credentials" in msg):
-        return 20, {"code": "proxy_auth", "message": str(exc),
-                    "retryable": True, "blocked": False}
+        return 20, {
+            "code": "proxy_auth",
+            "message": str(exc),
+            "retryable": True,
+            "blocked": False,
+        }
     if "proxy" in msg or ("connection" in msg and "timeout" in msg) or "socks" in msg:
-        return 20, {"code": "proxy_timeout", "message": str(exc),
-                    "retryable": True, "blocked": False}
+        return 20, {
+            "code": "proxy_timeout",
+            "message": str(exc),
+            "retryable": True,
+            "blocked": False,
+        }
     if "429" in msg or "rate limit" in msg or "suspicious" in msg or "captcha" in msg:
-        return 20, {"code": "google_429", "message": str(exc),
-                    "retryable": True, "blocked": False}
+        return 20, {
+            "code": "google_429",
+            "message": str(exc),
+            "retryable": True,
+            "blocked": False,
+        }
     if "timeout" in msg or "timed out" in msg:
-        return 90, {"code": "soft_timeout", "message": str(exc),
-                    "retryable": True, "blocked": False}
-    return 20, {"code": "app_exception", "message": str(exc),
-                "retryable": True, "blocked": False}
+        return 90, {
+            "code": "soft_timeout",
+            "message": str(exc),
+            "retryable": True,
+            "blocked": False,
+        }
+    return 20, {
+        "code": "app_exception",
+        "message": str(exc),
+        "retryable": True,
+        "blocked": False,
+    }
 
 
 def write_runtime_result_atomic(path: str, payload: dict) -> None:
     """Write payload to *path* atomically via .tmp → rename."""
     import tempfile
+
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(payload, f, indent=2)
@@ -1386,11 +1670,19 @@ def write_runtime_result_atomic(path: str, payload: dict) -> None:
 
 
 def _build_runtime_result(
-    pilot_id: str, queue_id: int, gl: str, hl: str,
-    expected_geo: str, actual_geo: str,
-    write_target: str, dry_run: bool, no_db: bool,
-    exit_code: int, status: str,
-    metrics: dict, artifact_dir: str,
+    pilot_id: str,
+    queue_id: int,
+    gl: str,
+    hl: str,
+    expected_geo: str,
+    actual_geo: str,
+    write_target: str,
+    dry_run: bool,
+    no_db: bool,
+    exit_code: int,
+    status: str,
+    metrics: dict,
+    artifact_dir: str,
     error: dict | None,
 ) -> dict:
     summary_path = os.path.join(artifact_dir, "phase-2b-pilot-summary.json")
@@ -1410,7 +1702,9 @@ def _build_runtime_result(
         "dry_run": dry_run,
         "no_db": no_db,
         "metrics": metrics,
-        "artifacts": {"summary_path": summary_path if os.path.exists(summary_path) else None},
+        "artifacts": {
+            "summary_path": summary_path if os.path.exists(summary_path) else None
+        },
         "error": error,
     }
 
@@ -1451,7 +1745,9 @@ def run_preflight_write_target(args) -> int:
 
     # Hard fail for unknown / forbidden targets (includes "hetzner_pg")
     if write_target not in ("supabase", "supabase_postgrest", "hetzner"):
-        print(f"preflight_error: unknown or forbidden write_target={write_target!r} — hard fail")
+        print(
+            f"preflight_error: unknown or forbidden write_target={write_target!r} — hard fail"
+        )
         return 1
 
     if write_target == "hetzner":
@@ -1491,38 +1787,51 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
     with open(config_path) as f:
         rc = json.load(f)
 
-    gl         = rc["gl"]
-    hl         = rc["hl"]
-    pilot_id   = str(rc.get("pilot_id", ""))
-    queue_id   = int(rc.get("queue_id", 0))
+    gl = rc["gl"]
+    hl = rc["hl"]
+    pilot_id = str(rc.get("pilot_id", ""))
+    queue_id = int(rc.get("queue_id", 0))
     artifact_dir = rc.get("artifact_dir", os.path.dirname(result_path))
-    no_db      = bool(rc.get("no_db", False))
-    dry_run    = bool(rc.get("dry_run", False)) or no_db  # no_db implies dry_run
-    caps       = rc.get("caps", {})
-    write_cfg  = rc.get("write", {})
-    proxy_cfg  = rc.get("proxy", {})
+    no_db = bool(rc.get("no_db", False))
+    dry_run = bool(rc.get("dry_run", False)) or no_db  # no_db implies dry_run
+    caps = rc.get("caps", {})
+    write_cfg = rc.get("write", {})
+    proxy_cfg = rc.get("proxy", {})
     expected_geo = rc.get("expected_geo_country", "")
 
     write_target = write_cfg.get("target", "supabase")
 
     # ── Write-target guard PŘED jakýmkoli zápisem ──
-    allow_hetzner = os.environ.get("SUGGEST_ALLOW_HETZNER_WRITE", "false").lower() == "true"
+    allow_hetzner = (
+        os.environ.get("SUGGEST_ALLOW_HETZNER_WRITE", "false").lower() == "true"
+    )
     require_s4_go = os.environ.get("SUGGEST_REQUIRE_S4_GO", "false").lower() == "true"
     if write_target == "hetzner" and not (allow_hetzner and require_s4_go):
         payload = _build_runtime_result(
-            pilot_id=pilot_id, queue_id=queue_id, gl=gl, hl=hl,
-            expected_geo=expected_geo, actual_geo="",
-            write_target=write_target, dry_run=dry_run, no_db=no_db,
-            exit_code=50, status="blocked",
-            metrics=_empty_metrics(0.0), artifact_dir=artifact_dir,
+            pilot_id=pilot_id,
+            queue_id=queue_id,
+            gl=gl,
+            hl=hl,
+            expected_geo=expected_geo,
+            actual_geo="",
+            write_target=write_target,
+            dry_run=dry_run,
+            no_db=no_db,
+            exit_code=50,
+            status="blocked",
+            metrics=_empty_metrics(0.0),
+            artifact_dir=artifact_dir,
             error={
                 "code": "write_target_guard",
                 "message": "Hetzner write blocked: SUGGEST_ALLOW_HETZNER_WRITE and/or SUGGEST_REQUIRE_S4_GO not set",
-                "retryable": False, "blocked": True,
+                "retryable": False,
+                "blocked": True,
             },
         )
         write_runtime_result_atomic(result_path, payload)
-        print("✗ write_target_guard: Hetzner write blocked — S4 flags not set. Exit 50.")
+        print(
+            "✗ write_target_guard: Hetzner write blocked — S4 flags not set. Exit 50."
+        )
         return 50
 
     # ── Proxy (informativní — opener je nastaven jako global při importu) ──
@@ -1534,15 +1843,24 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
         db = _create_write_client(write_target, write_cfg, no_db=no_db, dry_run=dry_run)
     except RuntimeError as exc:
         payload = _build_runtime_result(
-            pilot_id=pilot_id, queue_id=queue_id, gl=gl, hl=hl,
-            expected_geo=expected_geo, actual_geo="",
-            write_target=write_target, dry_run=dry_run, no_db=no_db,
-            exit_code=50, status="blocked",
-            metrics=_empty_metrics(0.0), artifact_dir=artifact_dir,
+            pilot_id=pilot_id,
+            queue_id=queue_id,
+            gl=gl,
+            hl=hl,
+            expected_geo=expected_geo,
+            actual_geo="",
+            write_target=write_target,
+            dry_run=dry_run,
+            no_db=no_db,
+            exit_code=50,
+            status="blocked",
+            metrics=_empty_metrics(0.0),
+            artifact_dir=artifact_dir,
             error={
                 "code": "write_target_guard",
                 "message": str(exc),
-                "retryable": False, "blocked": True,
+                "retryable": False,
+                "blocked": True,
             },
         )
         write_runtime_result_atomic(result_path, payload)
@@ -1554,15 +1872,15 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
         "gl": gl,
         "hl": hl,
         "enabled": True,
-        "max_depth":              caps.get("max_depth", 2),
-        "max_runtime_minutes":    caps.get("max_runtime_minutes", 28),
-        "batch_size":             caps.get("batch_size", 100),
+        "max_depth": caps.get("max_depth", 2),
+        "max_runtime_minutes": caps.get("max_runtime_minutes", 28),
+        "batch_size": caps.get("batch_size", 100),
         "delay_between_requests_ms": caps.get("delay_between_requests_ms", 150),
     }
     cfg_defaults = {
-        "max_depth":              caps.get("max_depth", 2),
-        "max_runtime_minutes":    caps.get("max_runtime_minutes", 28),
-        "batch_size":             caps.get("batch_size", 100),
+        "max_depth": caps.get("max_depth", 2),
+        "max_runtime_minutes": caps.get("max_runtime_minutes", 28),
+        "batch_size": caps.get("batch_size", 100),
         "delay_between_requests_ms": caps.get("delay_between_requests_ms", 150),
     }
 
@@ -1581,7 +1899,10 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
 
     try:
         crawl_status = run_market(
-            db, market, cfg_defaults, dry_run,
+            db,
+            market,
+            cfg_defaults,
+            dry_run,
             run_id=run_id,
             resume_from="",
         )
@@ -1590,12 +1911,20 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
             status, exit_code = "success", 0
         elif crawl_status == "blocked":
             status, exit_code = "blocked", 40
-            error = {"code": "geo_mismatch", "message": "Market blocked by run_market",
-                     "retryable": False, "blocked": True}
+            error = {
+                "code": "geo_mismatch",
+                "message": "Market blocked by run_market",
+                "retryable": False,
+                "blocked": True,
+            }
         else:  # "emergency"
             status, exit_code = "failed", 20
-            error = {"code": "app_exception", "message": f"run_market returned {crawl_status!r}",
-                     "retryable": True, "blocked": False}
+            error = {
+                "code": "app_exception",
+                "message": f"run_market returned {crawl_status!r}",
+                "retryable": True,
+                "blocked": False,
+            }
 
     except Exception as exc:
         exit_code, error = map_exception_to_runtime_error(exc)
@@ -1612,10 +1941,14 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
     summary_path = os.path.join(artifact_dir, "phase-2b-pilot-summary.json")
     try:
         summary = {
-            "pilot_id": pilot_id, "queue_id": queue_id,
-            "gl": gl, "hl": hl,
-            "status": status, "exit_code": exit_code,
-            "dry_run": dry_run, "no_db": no_db,
+            "pilot_id": pilot_id,
+            "queue_id": queue_id,
+            "gl": gl,
+            "hl": hl,
+            "status": status,
+            "exit_code": exit_code,
+            "dry_run": dry_run,
+            "no_db": no_db,
             "duration_seconds": round(duration, 2),
         }
         with open(summary_path, "w") as f:
@@ -1625,11 +1958,19 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
 
     # ── Zapsat runtime_result.json atomicky ──
     payload = _build_runtime_result(
-        pilot_id=pilot_id, queue_id=queue_id, gl=gl, hl=hl,
-        expected_geo=expected_geo, actual_geo="",
-        write_target=write_target, dry_run=dry_run, no_db=no_db,
-        exit_code=exit_code, status=status,
-        metrics=metrics, artifact_dir=artifact_dir,
+        pilot_id=pilot_id,
+        queue_id=queue_id,
+        gl=gl,
+        hl=hl,
+        expected_geo=expected_geo,
+        actual_geo="",
+        write_target=write_target,
+        dry_run=dry_run,
+        no_db=no_db,
+        exit_code=exit_code,
+        status=status,
+        metrics=metrics,
+        artifact_dir=artifact_dir,
         error=error,
     )
     write_runtime_result_atomic(result_path, payload)
@@ -1640,7 +1981,9 @@ def run_runtime_mode(config_path: str, result_path: str) -> int:
 
 
 def load_config(max_depth_override: int) -> tuple[dict, list]:
-    config_path = os.path.join(os.path.dirname(__file__), "config", "google_markets.yml")
+    config_path = os.path.join(
+        os.path.dirname(__file__), "config", "google_markets.yml"
+    )
     with open(config_path) as f:
         raw = yaml.safe_load(f)
     defaults = raw.get("defaults", {})
@@ -1660,7 +2003,7 @@ def main():
         sys.exit(run_runtime_mode(args.runtime_config, args.runtime_result))
 
     dry_run = args.dry_run.lower() in ("true", "1", "yes")
-    run_id  = args.run_id or uuid.uuid4().hex[:8]
+    run_id = args.run_id or uuid.uuid4().hex[:8]
 
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
@@ -1674,10 +2017,11 @@ def main():
     markets = [m for m in all_markets if m.get("enabled", False)]
     if args.market_filter:
         parts = args.market_filter.split("/")
-        gl_f  = parts[0] if len(parts) > 0 else ""
-        hl_f  = parts[1] if len(parts) > 1 else ""
+        gl_f = parts[0] if len(parts) > 0 else ""
+        hl_f = parts[1] if len(parts) > 1 else ""
         markets = [
-            m for m in markets
+            m
+            for m in markets
             if (not gl_f or m["gl"] == gl_f) and (not hl_f or m["hl"] == hl_f)
         ]
 
@@ -1686,8 +2030,8 @@ def main():
         rows = db.select(STATE_TABLE, "select=gl,hl,status&status=eq.done")
         for r in rows:
             done_set.add((r["gl"], r["hl"]))
-        pending  = [m for m in markets if (m["gl"], m["hl"]) not in done_set]
-        skipped  = len(markets) - len(pending)
+        pending = [m for m in markets if (m["gl"], m["hl"]) not in done_set]
+        skipped = len(markets) - len(pending)
         if skipped:
             print(f"  ↷ Přeskočeno {skipped} dokončených marketů.")
         markets = pending
@@ -1695,7 +2039,11 @@ def main():
     markets = markets[: args.batch_limit]
 
     if _PROXY_URL:
-        proxy_host = _PROXY_URL.split("@")[-1] if "@" in _PROXY_URL else _PROXY_URL.split("//")[-1]
+        proxy_host = (
+            _PROXY_URL.split("@")[-1]
+            if "@" in _PROXY_URL
+            else _PROXY_URL.split("//")[-1]
+        )
         print(f"  🌐 proxy: ENABLED ({proxy_host})")
     else:
         print("  🌐 proxy: DIRECT")
@@ -1719,7 +2067,10 @@ def main():
         for market in markets:
             label = f"{market['gl']}/{market['hl']}"
             status = run_market(
-                db, market, cfg, dry_run,
+                db,
+                market,
+                cfg,
+                dry_run,
                 run_id=run_id,
                 resume_from=args.resume_from,
             )
@@ -1730,13 +2081,18 @@ def main():
             thread_db = DB(url, key)
             label = f"{market['gl']}/{market['hl']}"
             status = run_market(
-                thread_db, market, cfg, dry_run,
+                thread_db,
+                market,
+                cfg,
+                dry_run,
                 run_id=run_id,
                 resume_from=args.resume_from,
             )
             return label, status
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_parallel) as pool:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=args.max_parallel
+        ) as pool:
             futures = {pool.submit(_run_one, m): m for m in markets}
             for future in concurrent.futures.as_completed(futures):
                 try:
