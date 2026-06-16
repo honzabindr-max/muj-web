@@ -24,6 +24,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Notify start
+        if: false  # per-run Telegram notifikace vypnuty
         run: python notify.py "🔴 Seznam crawler spuštěn"
         continue-on-error: true
       - name: Count before
@@ -40,5 +41,5 @@ jobs:
         run: |
           AFTER=$(python count_db.py suggestions)
           python save_count.py crawl_state count_after $AFTER
-          python notify_done.py seznam ${{ steps.before.outputs.count }} $AFTER
+          # python notify_done.py seznam ${{ steps.before.outputs.count }} $AFTER  # per-run Telegram notifikace vypnuty
         continue-on-error: true
