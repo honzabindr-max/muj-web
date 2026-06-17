@@ -1,6 +1,10 @@
-import os, sys, json, urllib.request
+import os, sys, json, urllib.request, urllib.error, time
 from datetime import datetime, timezone
 import notify  # znovupoužití existujícího Telegram odesílání (TELEGRAM_TOKEN/CHAT_ID)
+
+FETCH_TIMEOUT = int(os.environ.get("FETCH_TIMEOUT", "30"))
+FETCH_RETRIES = int(os.environ.get("FETCH_RETRIES", "3"))
+FETCH_BACKOFF = float(os.environ.get("FETCH_BACKOFF", "5"))
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -17,12 +21,27 @@ ENGINES = [
 
 def fetch_updated_at(table):
     h = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY}
-    req = urllib.request.Request(
-        SUPABASE_URL + "/rest/v1/" + table + "?id=eq.1&select=updated_at", headers=h
-    )
-    r = urllib.request.urlopen(req, timeout=15)
-    rows = json.loads(r.read().decode())
-    return rows[0].get("updated_at") if rows else None
+    url = SUPABASE_URL + "/rest/v1/" + table + "?id=eq.1&select=updated_at"
+    last_exc = None
+    for attempt in range(1, FETCH_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers=h)
+            r = urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
+            rows = json.loads(r.read().decode())
+            return rows[0].get("updated_at") if rows else None
+        except (urllib.error.URLError, OSError) as e:
+            last_exc = e
+            print(
+                "fetch_updated_at pokus "
+                + str(attempt)
+                + "/"
+                + str(FETCH_RETRIES)
+                + " selhal: "
+                + str(e)
+            )
+            if attempt < FETCH_RETRIES:
+                time.sleep(FETCH_BACKOFF * attempt)
+    raise last_exc
 
 
 def parse_ts(s):
