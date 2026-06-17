@@ -38,8 +38,16 @@ def main():
         gm = vget("/verify/geo-mismatch")
         gr = first_total(vget("/verify/growth?since=" + now.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")))
         scr = vget("/verify/suggestions-count")
-    except (urllib.error.URLError, urllib.error.HTTPError, KeyError) as e:
-        notify.send(f"🔴 *Hetzner watchdog FAIL*\nVerify endpoint nedostupný: `{type(e).__name__}`. Proxy/server down?")
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            notify.send(f"🔴 *Hetzner watchdog FAIL — 403 Forbidden*\nToken neplatný (SUGGEST_VERIFY_TOKEN v GHA ≠ token na serveru). Server BĚŽÍ — to není outage.")
+        elif e.code == 401:
+            notify.send(f"🔴 *Hetzner watchdog FAIL — 401 Unauthorized*\nAuthorization header chybí nebo špatný formát.")
+        else:
+            notify.send(f"🔴 *Hetzner watchdog FAIL — HTTP {e.code}*\nVerify endpoint vrátil chybu. Zkontroluj suggest-proxy logy na serveru.")
+        sys.exit(0)
+    except (urllib.error.URLError, KeyError) as e:
+        notify.send(f"🔴 *Hetzner watchdog FAIL — síť/connection*\nVerify endpoint nedostupný: `{type(e).__name__}`. Proxy/server down?")
         sys.exit(0)
 
     total = first_total(scr)
