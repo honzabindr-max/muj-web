@@ -81,6 +81,35 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/format-javascript-files.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/secret-scan.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/block-redundant-reads.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/secret-scan.py"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/evidence-completeness.py"
           }
         ]
       }

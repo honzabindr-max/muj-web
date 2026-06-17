@@ -54,3 +54,16 @@
 
 ### Na konci řekni co mám udělat
 Pravidlo: každý model končí explicitní instrukcí kam výstup předat — eliminuje rozhodování při kopírování mezi nástroji.
+
+## Stavový automat (subagent pilot)
+- Subagent: vyrabi evidence, NIKDY nerozhoduje PASS.
+- Claude Code (main): hlasi EVIDENCE_READY / BLOCKED; nikdy DONE bez kompletni raw evidence.
+- Opus (chat): PASS / FAIL / NEEDS_FIX; nikdy GO bez precteni raw evidence.
+- Honzik: GO / NO-GO pro rizikove kroky.
+
+## Pravidla Code behu
+1. Zacatek behu: precti HANDOFF, vypis 5-10 relevantnich invariantu + co NEBUDES menit. Az pak diagnostika.
+2. Po implementaci zavolej evidence-gate s TASK_TYPE; nehodnot zmenu sam.
+3. Kdyz povinny dukaz nejde vyrobit: STOP, vrat BLOCKED + seznam chybejicich dukazu. Nenahrazuj raw output shrnutim. Neoznacuj DONE.
+4. Zadne vyjimky ("jen mala zmena") bez explicitniho GO.
+5. Deterministicke kontroly (secret scan, lint, pytest, diff/format, redundant reads) resi hooky, ne subagent.
