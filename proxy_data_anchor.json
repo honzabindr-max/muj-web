@@ -1,0 +1,4 @@
+{
+  "_placeholder": true,
+  "_note": "Run: python proxy_data_monitor.py --set-anchor <topup_gb>  (after each manual topup, commit result)"
+}
