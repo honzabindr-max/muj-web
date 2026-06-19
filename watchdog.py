@@ -5,6 +5,8 @@ import notify  # znovupoužití existujícího Telegram odesílání (TELEGRAM_T
 FETCH_TIMEOUT = int(os.environ.get("FETCH_TIMEOUT", "30"))
 FETCH_RETRIES = int(os.environ.get("FETCH_RETRIES", "3"))
 FETCH_BACKOFF = float(os.environ.get("FETCH_BACKOFF", "5"))
+ALERT_AFTER = int(os.environ.get("WATCHDOG_ALERT_AFTER", "2"))
+WATCHDOG_STATE = os.environ.get("WATCHDOG_STATE_FILE", "/tmp/suggest_watchdog_state.json")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -13,22 +15,62 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 STALE_HOURS = float(os.environ.get("STALE_HOURS", "6"))
 STALE_SECONDS = STALE_HOURS * 3600
 
+# Cloudflare/gateway blip kódy — přechodné stavy, nespouštějí alert hned
+TRANSIENT_HTTP = {502, 503, 504, 520, 521, 522, 523, 524}
+
 # (zobrazované jméno, emoji, tabulka stavu)
 ENGINES = [
     ("Seznam", "\U0001f534", "crawl_state"),
 ]
 
 
+class TransientFetchError(Exception):
+    def __init__(self, code):
+        super().__init__("Transient HTTP " + str(code))
+        self.code = code
+
+
+def _read_state():
+    try:
+        with open(WATCHDOG_STATE) as f:
+            return json.load(f)
+    except Exception:
+        return {"consecutive_transient_fails": 0, "last_fail_code": None, "updated_at": None}
+
+
+def _write_state(data):
+    tmp = WATCHDOG_STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, WATCHDOG_STATE)
+
+
 def fetch_updated_at(table):
     h = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY}
     url = SUPABASE_URL + "/rest/v1/" + table + "?id=eq.1&select=updated_at"
     last_exc = None
+    last_transient_code = None
     for attempt in range(1, FETCH_RETRIES + 1):
         try:
             req = urllib.request.Request(url, headers=h)
             r = urllib.request.urlopen(req, timeout=FETCH_TIMEOUT)
             rows = json.loads(r.read().decode())
             return rows[0].get("updated_at") if rows else None
+        except urllib.error.HTTPError as e:
+            last_exc = e
+            print(
+                "fetch_updated_at pokus "
+                + str(attempt)
+                + "/"
+                + str(FETCH_RETRIES)
+                + " selhal: HTTP "
+                + str(e.code)
+            )
+            if e.code not in TRANSIENT_HTTP:
+                raise  # ne-transient (401, 403 …) → probublat okamžitě
+            last_transient_code = e.code
+            if attempt < FETCH_RETRIES:
+                time.sleep(FETCH_BACKOFF * attempt)
         except (urllib.error.URLError, OSError) as e:
             last_exc = e
             print(
@@ -41,6 +83,8 @@ def fetch_updated_at(table):
             )
             if attempt < FETCH_RETRIES:
                 time.sleep(FETCH_BACKOFF * attempt)
+    if last_transient_code is not None:
+        raise TransientFetchError(last_transient_code)
     raise last_exc
 
 
@@ -130,9 +174,54 @@ def main():
     print("Alert odeslan na Telegram (" + str(len(stale)) + " engine).")
 
 
-if __name__ == "__main__":
+def run():
+    """Entry point s 2-strike counter pro transient HTTP chyby."""
     try:
         main()
+        _write_state({
+            "consecutive_transient_fails": 0,
+            "last_fail_code": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return 0
+    except TransientFetchError as e:
+        state = _read_state()
+        n = state.get("consecutive_transient_fails", 0) + 1
+        _write_state({
+            "consecutive_transient_fails": n,
+            "last_fail_code": e.code,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        if n < ALERT_AFTER:
+            print(
+                "transient HTTP "
+                + str(e.code)
+                + ", strike "
+                + str(n)
+                + "/"
+                + str(ALERT_AFTER)
+                + ", mlčím"
+            )
+            return 0
+        try:
+            notify.send(
+                "⚠️ *Crawler watchdog* — origin nedostupný "
+                + str(n)
+                + "× po sobě (poslední HTTP "
+                + str(e.code)
+                + ") — možný výpadek nebo Cloudflare"
+            )
+        except Exception:
+            pass
+        print(
+            "watchdog alert (transient "
+            + str(n)
+            + "/"
+            + str(ALERT_AFTER)
+            + "): HTTP "
+            + str(e.code)
+        )
+        return 0
     except Exception as e:
         try:
             notify.send(
@@ -142,4 +231,8 @@ if __name__ == "__main__":
         except Exception:
             pass
         print("watchdog error: " + str(e))
-        sys.exit(1)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(run())

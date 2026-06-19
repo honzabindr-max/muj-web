@@ -9,6 +9,97 @@ BASE = "https://suggest.good-inventions.work"
 TOKEN = os.environ["SUGGEST_VERIFY_TOKEN"]
 SEED_H = 3  # seed 03:15 UTC; po 03:30 ma novy cyklus existovat
 
+_ISSUE_LABEL = {
+    "proxy_unreachable": ("🔴", "Proxy nedostupná (egress 000).\nZkontroluj IPRoyal balík (vyčerpaný traffic?) + auto top-up."),
+    "proxy_502":         ("🟠", "Proxy 502 (provider blip). Pokud >2 cykly: session rotation / provider."),
+    "proxy_timeout":     ("🟠", "Proxy timeout. Pool kvalita dané země / dočasné."),
+    "geo_check_failed":  ("🟠", "Geo check neproběhl (egress country nezjištěn) — NEgeo-mismatch, spíš proxy."),
+    "geo_mismatch":      ("🔴", "SKUTEČNÝ geo-mismatch: riziko kontaminace — STOP a prověř proxy_selector."),
+}
+_ISSUE_ORDER = ["proxy_unreachable", "geo_mismatch", "proxy_502", "proxy_timeout", "geo_check_failed"]
+
+
+def classify_gm_entry(entry):
+    """Klasifikuje jeden záznam z /verify/geo-mismatch.
+    Vrací (typ, actual_country, expected_country).
+    Bezpečný default: proxy_unreachable — nikdy nepředpokládáme geo_mismatch bez důkazu."""
+    if not isinstance(entry, dict):
+        return "proxy_unreachable", "", ""
+
+    http_code = 0
+    try:
+        http_code = int(entry.get("http_status") or entry.get("status_code") or 0)
+    except (ValueError, TypeError):
+        pass
+
+    actual = str(entry.get("actual_country") or entry.get("egress_country") or "").upper()
+    expected = str(entry.get("expected_country") or entry.get("target_country") or "").upper()
+    error_msg = str(entry.get("error") or entry.get("message") or "").lower()
+    ec = str(entry.get("error_type") or entry.get("classification") or "").lower()
+
+    # Explicitní klasifikace z API
+    if ec in ("proxy_unreachable", "egress_000", "connection_refused"):
+        return "proxy_unreachable", actual, expected
+    if ec == "proxy_502":
+        return "proxy_502", actual, expected
+    if ec in ("proxy_timeout", "timeout"):
+        return "proxy_timeout", actual, expected
+    if ec in ("geo_check_failed", "country_unknown"):
+        return "geo_check_failed", actual, expected
+    if ec == "geo_mismatch":
+        return "geo_mismatch", actual, expected
+
+    # Best-effort z HTTP statusu + dostupných polí
+    if "timeout" in error_msg or "timed out" in error_msg:
+        return "proxy_timeout", actual, expected
+    if "refused" in error_msg or "connection" in error_msg:
+        return "proxy_unreachable", actual, expected
+    if http_code == 502:
+        return "proxy_502", actual, expected
+    if http_code == 504:
+        return "proxy_timeout", actual, expected
+    if http_code == 200 and actual and expected and actual != expected:
+        return "geo_mismatch", actual, expected
+    if http_code == 200 and not actual:
+        return "geo_check_failed", actual, expected
+    # Fallback: egress selhání → proxy_unreachable, ne geo_mismatch
+    return "proxy_unreachable", actual, expected
+
+
+def _build_geo_alert(gm, total):
+    """Sestaví Telegram zprávu pro geo/proxy issues s rozlišením typů."""
+    if isinstance(gm, list):
+        counts = {}
+        geo_example = None
+        for entry in gm:
+            etype, actual, expected = classify_gm_entry(entry)
+            counts[etype] = counts.get(etype, 0) + 1
+            if etype == "geo_mismatch" and geo_example is None and actual and expected:
+                geo_example = (actual, expected)
+        total_issues = len(gm)
+    else:
+        n = int(gm.get("count", 0)) if isinstance(gm, dict) else 0
+        counts = {"proxy_unreachable": n}
+        geo_example = None
+        total_issues = n
+
+    lines = [f"*Hetzner: crawl issues* ({total_issues} záznamů)", ""]
+    for etype in _ISSUE_ORDER:
+        n = counts.get(etype, 0)
+        if not n:
+            continue
+        emoji, action = _ISSUE_LABEL[etype]
+        label = f"{emoji} *{etype.replace('_', ' ')}* — {n}×"
+        if etype == "geo_mismatch" and geo_example:
+            actual, expected = geo_example
+            label += f" (egress {actual} ≠ expected {expected})"
+        lines.append(label)
+        lines.append(f"   → {action}")
+        lines.append("")
+    lines.append(f"📂 {total} frází celkem")
+    return "\n".join(lines).strip()
+
+
 def vget(path):
     req = urllib.request.Request(f"{BASE}{path}", headers={"Authorization": f"Bearer {TOKEN}"})
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -60,9 +151,9 @@ def main():
     completed = qs.get("completed", 0)
     failed = qs.get("failed", 0)
 
-    # 1) geo-mismatch = poplach
+    # 1) geo/proxy issues → klasifikuj a alertuj
     if geo_n > 0:
-        notify.send(f"🔴 *Hetzner geo-mismatch: {geo_n}*\nZkontroluj proxy selector. 📂 {total} frází celkem")
+        notify.send(_build_geo_alert(gm, total))
         return
     # 2) fronta aktivni -> bezi
     if running > 0 or pending > 0:
