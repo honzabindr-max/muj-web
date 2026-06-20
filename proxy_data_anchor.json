@@ -1,4 +1,5 @@
 {
-  "_placeholder": true,
-  "_note": "Run: python proxy_data_monitor.py --set-anchor <topup_gb>  (after each manual topup, commit result)"
+  "baseline_total_phrases": 3724129,
+  "topup_gb": 12.32,
+  "anchor_timestamp": "2026-06-20T07:30:00+00:00"
 }
