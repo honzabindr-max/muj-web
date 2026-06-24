@@ -65,3 +65,7 @@ export function readDashboardState() {
 export function readNewPhrases24h() {
   return withFallback("/suggest/new-phrases-24h", "get_new_phrases_24h");
 }
+
+export function readNewPhrasesToday() {
+  return withFallback("/suggest/new-phrases-today", "get_new_phrases_today");
+}

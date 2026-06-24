@@ -2,19 +2,26 @@ name: Crawler Watchdog
 
 on:
   schedule:
+    # Každou hodinu — supervisor práh 300 s, growth práh 1800 s.
     - cron: '0 * * * *'
   workflow_dispatch:
+    inputs:
+      force_threshold:
+        description: 'QA: přepíše SUPERVISOR_STALE_SECONDS pro tento run (prázdné = default 300 s)'
+        required: false
+        default: ''
 
 jobs:
   watchdog:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      STALE_HOURS: '6'
+      # §2c: oba checky přes suggest-proxy Bearer — bez Supabase, bez SSH.
+      SUGGEST_PROXY_URL: 'https://suggest.good-inventions.work'
+      SUGGEST_PROXY_TOKEN: ${{ secrets.SUGGEST_VERIFY_TOKEN }}
+      SUPERVISOR_STALE_SECONDS: ${{ inputs.force_threshold || '300' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
