@@ -1,0 +1,12 @@
+[Unit]
+Description=Suggest crawler supervisor timer — každých 60s
+Documentation=https://github.com/honzabindr-max/muj-web/blob/main/docs/nonstop_samolecici_google_suggest_crawler.md
+
+[Timer]
+# §15.3: každých 60s, tolerance 10s, přetrvá přes reboot
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

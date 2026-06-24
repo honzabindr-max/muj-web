@@ -1,0 +1,38 @@
+[Unit]
+Description=Suggest crawler supervisor — Fáze 1 DRY-RUN
+Documentation=https://github.com/honzabindr-max/muj-web/blob/main/docs/nonstop_samolecici_google_suggest_crawler.md
+After=postgresql@17-main.service network.target
+Wants=postgresql@17-main.service
+
+[Service]
+Type=oneshot
+User=suggest
+Group=suggest
+
+# Env file sdílený se suggest-proxy (token, DSN atd.)
+EnvironmentFile=/etc/suggest-proxy/suggest-proxy.env
+# Supervisor-specific overrides (vytvořit na serveru: /etc/suggest-proxy/supervisor.env)
+EnvironmentFile=-/etc/suggest-proxy/supervisor.env
+
+# Fáze 1: vždy DRY_RUN, bezpečný default
+Environment=SUPERVISOR_DRY_RUN=1
+Environment=LOW_WATERMARK_READY=10
+Environment=TARGET_READY_BUFFER=60
+Environment=RUNNER_NO_CLAIM_MINUTES=5
+Environment=STALE_HEARTBEAT_MINUTES=20
+Environment=NO_GROWTH_WARN_MINUTES=30
+Environment=NO_GROWTH_CRIT_MINUTES=60
+
+ExecStart=/usr/bin/python3 /opt/suggest-crawler/runtime/crawler_supervisor.py
+
+# Bezpečnostní hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/suggest-crawler
+
+# Timeout: supervisor by měl skončit do 60s (DB query + audit write)
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target
