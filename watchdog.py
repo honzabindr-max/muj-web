@@ -1,4 +1,4 @@
-import os, sys, json, urllib.request
+import os, sys, json, urllib.request, urllib.error
 from datetime import datetime, timezone
 import notify  # znovupoužití existujícího Telegram odesílání (TELEGRAM_TOKEN/CHAT_ID)
 
@@ -8,6 +8,12 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 # Práh: engine je "stojí", když je updated_at starší než tolik hodin. Laditelné přes env.
 STALE_HOURS = float(os.environ.get("STALE_HOURS", "6"))
 STALE_SECONDS = STALE_HOURS * 3600
+
+# §2c Supervisor freshness check via suggest-proxy Bearer endpoint.
+# Práh: 300 s = 5 zmeškaných ticků (tick každých 60 s).
+SUPERVISOR_STALE_SECONDS = int(os.environ.get("SUPERVISOR_STALE_SECONDS", "300"))
+SUGGEST_PROXY_URL = os.environ.get("SUGGEST_PROXY_URL", "").rstrip("/")
+SUGGEST_PROXY_TOKEN = os.environ.get("SUGGEST_PROXY_TOKEN", "")
 
 # (zobrazované jméno, emoji, tabulka stavu)
 ENGINES = [
@@ -57,8 +63,45 @@ def fmt_age(sec):
     return str(m) + " min"
 
 
+def check_supervisor_freshness():
+    """§2c: supervisor-freshness — GET /ai/v1/supervisor přes suggest-proxy Bearer."""
+    if not SUGGEST_PROXY_URL or not SUGGEST_PROXY_TOKEN:
+        print("Supervisor: SUGGEST_PROXY_URL/TOKEN not configured — skip check")
+        return
+    try:
+        req = urllib.request.Request(
+            SUGGEST_PROXY_URL + "/ai/v1/supervisor",
+            headers={"Authorization": "Bearer " + SUGGEST_PROXY_TOKEN},
+        )
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read().decode())
+        age = data.get("supervisor_age_seconds")
+    except Exception as e:
+        print("Supervisor: endpoint unreachable (" + str(e) + ") — skip check")
+        return
+
+    if age is None:
+        print("Supervisor: age=null — skip check (no ticks recorded yet)")
+        return
+
+    verdict = "STALE" if age > SUPERVISOR_STALE_SECONDS else "OK"
+    print("Supervisor: tick_age=" + fmt_age(age) + " -> " + verdict)
+
+    if age > SUPERVISOR_STALE_SECONDS:
+        notify.send(
+            "⚠️ *Crawler Supervisor* — dead/stalled\n\n"
+            "Poslední tick supervisoru je starý *" + fmt_age(age) + "*.\n"
+            "Práh: " + str(SUPERVISOR_STALE_SECONDS) + " s (5 zmeškaných ticků).\n\n"
+            "`systemctl status suggest-crawler-supervisor.timer`"
+        )
+        print("Alert odeslan na Telegram (supervisor stale).")
+
+
 def main():
     now = datetime.now(timezone.utc)
+
+    check_supervisor_freshness()
+
     stale = []
 
     for name, emoji, table in ENGINES:
