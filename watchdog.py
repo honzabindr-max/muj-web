@@ -1,53 +1,13 @@
-import os, sys, json, urllib.request, urllib.error
-from datetime import datetime, timezone
-import notify  # znovupoužití existujícího Telegram odesílání (TELEGRAM_TOKEN/CHAT_ID)
+import os, sys, json, urllib.request
+import notify  # Telegram (TELEGRAM_TOKEN/CHAT_ID)
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-
-# Práh: engine je "stojí", když je updated_at starší než tolik hodin. Laditelné přes env.
-STALE_HOURS = float(os.environ.get("STALE_HOURS", "6"))
-STALE_SECONDS = STALE_HOURS * 3600
-
-# §2c Supervisor freshness check via suggest-proxy Bearer endpoint.
-# Práh: 300 s = 5 zmeškaných ticků (tick každých 60 s).
+# §2c: supervisor freshness — práh 300 s (5 zmeškaných ticků á 60 s)
 SUPERVISOR_STALE_SECONDS = int(os.environ.get("SUPERVISOR_STALE_SECONDS", "300"))
+# §2c: growth freshness — práh 1800 s (30 min bez nového záznamu)
+GROWTH_STALE_SECONDS = int(os.environ.get("GROWTH_STALE_SECONDS", "1800"))
+
 SUGGEST_PROXY_URL = os.environ.get("SUGGEST_PROXY_URL", "").rstrip("/")
 SUGGEST_PROXY_TOKEN = os.environ.get("SUGGEST_PROXY_TOKEN", "")
-
-# (zobrazované jméno, emoji, tabulka stavu)
-ENGINES = [
-    ("Seznam", "\U0001f534", "crawl_state"),
-    ("Google", "\U0001f535", "google_crawl_state"),
-    ("Google DE", "\U0001f1e9\U0001f1ea", "google_crawl_state_de"),
-    ("Google AT", "\U0001f1e6\U0001f1f9", "google_crawl_state_at"),
-]
-
-
-def fetch_updated_at(table):
-    h = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY}
-    req = urllib.request.Request(
-        SUPABASE_URL + "/rest/v1/" + table + "?id=eq.1&select=updated_at", headers=h
-    )
-    r = urllib.request.urlopen(req, timeout=15)
-    rows = json.loads(r.read().decode())
-    return rows[0].get("updated_at") if rows else None
-
-
-def parse_ts(s):
-    if not s:
-        return None
-    t = s.strip().replace(" ", "T")
-    # normalizace timezone "+00" -> "+00:00" (PostgREST někdy vrací zkrácený offset)
-    if len(t) >= 3 and t[-3] in "+-" and t[-2:].isdigit():
-        t = t + ":00"
-    try:
-        dt = datetime.fromisoformat(t)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 def fmt_age(sec):
@@ -63,19 +23,22 @@ def fmt_age(sec):
     return str(m) + " min"
 
 
+def _proxy_get(path):
+    """GET {SUGGEST_PROXY_URL}{path} s Bearer auth. Vrací dict nebo vyhodí výjimku."""
+    req = urllib.request.Request(
+        SUGGEST_PROXY_URL + path,
+        headers={"Authorization": "Bearer " + SUGGEST_PROXY_TOKEN},
+    )
+    return json.loads(urllib.request.urlopen(req, timeout=15).read().decode())
+
+
 def check_supervisor_freshness():
     """§2c: supervisor-freshness — GET /ai/v1/supervisor přes suggest-proxy Bearer."""
     if not SUGGEST_PROXY_URL or not SUGGEST_PROXY_TOKEN:
         print("Supervisor: SUGGEST_PROXY_URL/TOKEN not configured — skip check")
         return
     try:
-        req = urllib.request.Request(
-            SUGGEST_PROXY_URL + "/ai/v1/supervisor",
-            headers={"Authorization": "Bearer " + SUGGEST_PROXY_TOKEN},
-        )
-        resp = urllib.request.urlopen(req, timeout=15)
-        data = json.loads(resp.read().decode())
-        age = data.get("supervisor_age_seconds")
+        age = _proxy_get("/ai/v1/supervisor").get("supervisor_age_seconds")
     except Exception as e:
         print("Supervisor: endpoint unreachable (" + str(e) + ") — skip check")
         return
@@ -97,64 +60,37 @@ def check_supervisor_freshness():
         print("Alert odeslan na Telegram (supervisor stale).")
 
 
-def main():
-    now = datetime.now(timezone.utc)
-
-    check_supervisor_freshness()
-
-    stale = []
-
-    for name, emoji, table in ENGINES:
-        ts = fetch_updated_at(table)
-        dt = parse_ts(ts)
-        if dt is None:
-            print(
-                name + ": updated_at chybi/neparsovatelne (" + repr(ts) + ") -> STALE"
-            )
-            stale.append((name, emoji, None, None))
-            continue
-        age = (now - dt).total_seconds()
-        verdict = "STALE" if age > STALE_SECONDS else "OK"
-        print(
-            name
-            + ": updated_at="
-            + str(ts)
-            + " stari="
-            + fmt_age(age)
-            + " -> "
-            + verdict
-        )
-        if age > STALE_SECONDS:
-            stale.append((name, emoji, dt, age))
-
-    if not stale:
-        print(
-            "OK: oba enginy v poradku (prah "
-            + ("%g" % STALE_HOURS)
-            + " h). Nic neposilam."
-        )
+def check_growth_freshness():
+    """Engine check: poslední INSERT do google_suggestions_v2 — GET /ai/v1/growth-age Bearer."""
+    if not SUGGEST_PROXY_URL or not SUGGEST_PROXY_TOKEN:
+        print("Growth: SUGGEST_PROXY_URL/TOKEN not configured — skip check")
+        return
+    try:
+        age = _proxy_get("/ai/v1/growth-age").get("growth_age_seconds")
+    except Exception as e:
+        print("Growth: endpoint unreachable (" + str(e) + ") — skip check")
         return
 
-    lines = ["⚠️ *Crawler watchdog* — problém", ""]
-    lines.append(
-        "Práh: engine *stojí*, když je `updated_at` starší než "
-        + ("%g" % STALE_HOURS)
-        + " h."
-    )
-    lines.append("")
-    for name, emoji, dt, age in stale:
-        lines.append(emoji + " *" + name + "* stojí")
-        if dt is None:
-            lines.append("   • `updated_at` chybí nebo se nepodařilo načíst")
-        else:
-            lines.append(
-                "   • naposledy aktivní: " + dt.strftime("%Y-%m-%d %H:%M") + " UTC"
-            )
-            lines.append("   • stáří: před " + fmt_age(age))
-        lines.append("")
+    if age is None:
+        print("Growth: age=null — skip check (no data yet)")
+        return
 
-    notify.send("\n".join(lines).strip())
-    print("Alert odeslan na Telegram (" + str(len(stale)) + " engine).")
+    verdict = "STALE" if age > GROWTH_STALE_SECONDS else "OK"
+    print("Growth: last_insert_age=" + fmt_age(age) + " -> " + verdict)
+
+    if age > GROWTH_STALE_SECONDS:
+        notify.send(
+            "⚠️ *Crawler* — stopped / growth stale\n\n"
+            "Poslední nový záznam v `google_suggestions_v2` je starý *" + fmt_age(age) + "*.\n"
+            "Práh: " + str(GROWTH_STALE_SECONDS) + " s (30 min).\n\n"
+            "Zkontroluj GHA nebo supervisor."
+        )
+        print("Alert odeslan na Telegram (growth stale).")
+
+
+def main():
+    check_supervisor_freshness()
+    check_growth_freshness()
 
 
 if __name__ == "__main__":
