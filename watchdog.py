@@ -5,6 +5,8 @@ import notify  # Telegram (TELEGRAM_TOKEN/CHAT_ID)
 SUPERVISOR_STALE_SECONDS = int(os.environ.get("SUPERVISOR_STALE_SECONDS", "300"))
 # §2c: growth freshness — práh 1800 s (30 min bez nového záznamu)
 GROWTH_STALE_SECONDS = int(os.environ.get("GROWTH_STALE_SECONDS", "1800"))
+# §2c: disk space alert — práh 85 % využití
+DISK_ALERT_PCT = int(os.environ.get("DISK_ALERT_PCT", "85"))
 
 SUGGEST_PROXY_URL = os.environ.get("SUGGEST_PROXY_URL", "").rstrip("/")
 SUGGEST_PROXY_TOKEN = os.environ.get("SUGGEST_PROXY_TOKEN", "")
@@ -88,9 +90,40 @@ def check_growth_freshness():
         print("Alert odeslan na Telegram (growth stale).")
 
 
+def check_disk_space():
+    """Disk-space alert — GET /ai/v1/diskspace Bearer. Práh DISK_ALERT_PCT % (default 85)."""
+    if not SUGGEST_PROXY_URL or not SUGGEST_PROXY_TOKEN:
+        print("Disk: SUGGEST_PROXY_URL/TOKEN not configured — skip check")
+        return
+    try:
+        data = _proxy_get("/ai/v1/diskspace")
+        pct = data.get("disk_pct_used")
+        free_gb = data.get("disk_free_gb")
+    except Exception as e:
+        print("Disk: endpoint unreachable (" + str(e) + ") — skip check")
+        return
+
+    if pct is None:
+        print("Disk: pct=null — skip check")
+        return
+
+    verdict = "ALERT" if pct > DISK_ALERT_PCT else "OK"
+    print("Disk: " + str(pct) + "% used, " + str(free_gb) + " GB free -> " + verdict)
+
+    if pct > DISK_ALERT_PCT:
+        notify.send(
+            "⚠️ *Disk* — filling\n\n"
+            "Využití disku: *" + str(pct) + "%*, volně: *" + str(free_gb) + " GB*.\n"
+            "Práh: " + str(DISK_ALERT_PCT) + "%.\n\n"
+            "Server: hetzner-suggest-db-prod"
+        )
+        print("Alert odeslan na Telegram (disk " + str(pct) + "%).")
+
+
 def main():
     check_supervisor_freshness()
     check_growth_freshness()
+    check_disk_space()
 
 
 if __name__ == "__main__":
