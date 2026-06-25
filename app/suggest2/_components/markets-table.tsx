@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { DashboardRow } from "../../suggest/_lib/types";
 import { heartbeatColor } from "../../suggest/_lib/types";
-import { flagEmoji, formatNumber, formatRelativeTime } from "../../suggest/_lib/utils";
+import { countryName, flagEmoji, formatNumber, formatRelativeTime } from "../../suggest/_lib/utils";
 
 type ColKey =
   | "gl"
@@ -45,7 +45,7 @@ function sortVal(row: DashboardRow, col: ColKey): number | string {
 
 function StatusBadge({ row }: { row: DashboardRow }) {
   const hb = heartbeatColor(row.updated_at);
-  if (hb !== "gray" && row.status === "running") {
+  if (hb !== "gray") {
     const cls =
       hb === "green"
         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -166,8 +166,9 @@ export function MarketsTable({
                 <td className="px-4 py-2.5">
                   <span className="flex items-center gap-1.5">
                     <span>{flagEmoji(row.gl)}</span>
-                    <span className="font-mono text-xs font-medium">
-                      {row.gl}/{row.hl}
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-xs font-medium text-zinc-800">{countryName(row.gl)}</span>
+                      <span className="font-mono text-[10px] text-zinc-400">{row.gl}/{row.hl}</span>
                     </span>
                   </span>
                 </td>
