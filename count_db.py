@@ -1,13 +1,15 @@
-import json,os,sys,urllib.request
+import os, sys
+import psycopg
 
-url = os.environ.get("SUPABASE_URL","")
-key = os.environ.get("SUPABASE_KEY","")
-table = sys.argv[1] if len(sys.argv) > 1 else "suggestions"
-
-h = {"apikey": key, "Authorization": "Bearer " + key, "Range": "0-0", "Prefer": "count=exact"}
-r = urllib.request.urlopen(urllib.request.Request(
-    url + "/rest/v1/" + table + "?select=id",
-    headers=h), timeout=10)
-cr = r.headers.get("Content-Range", "")
-total = int(cr.split("/")[1]) if "/" in cr else 0
-print(total)
+dsn = os.environ.get("HETZNER_WRITE_DATABASE_URL", "")
+if not dsn:
+    print(0)
+    sys.exit(0)
+try:
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM suggestions")
+            row = cur.fetchone()
+            print(row[0] if row else 0)
+except Exception:
+    print(0)

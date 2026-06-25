@@ -6,6 +6,9 @@ Cron restarts it. Crawls depth 0, then 1, 2... until exhausted.
 import json, os, sys, time, urllib.request, urllib.parse
 from datetime import datetime, timezone
 
+import psycopg
+from psycopg.rows import dict_row
+
 SUGGEST_URL = "http://suggest.fulltext.seznam.cz/fulltext_ff"
 SUGGEST_LIMIT = 10
 MAX_RETRIES = 3
@@ -16,66 +19,61 @@ SAFE = '=&.,()!*:"'
 
 
 class DB:
-    def __init__(s, url, key):
-        s.base = url.rstrip("/") + "/rest/v1"
-        s.h = {
-            "apikey": key,
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-        }
+    """psycopg3 direct-write path to Hetzner suggest_db (role suggest_writer).
+    DSN is read from HETZNER_WRITE_DATABASE_URL — never logged."""
 
-    def _req(s, m, p, d=None, eh=None):
-        u = s.base + "/" + p
-        b = json.dumps(d).encode() if d else None
-        h = dict(s.h)
-        h.update(eh or {})
-        try:
-            r = urllib.request.urlopen(
-                urllib.request.Request(u, data=b, headers=h, method=m), timeout=30
+    def __init__(self, dsn: str):
+        self._dsn = dsn
+        self._conn = None
+
+    def open(self):
+        self._conn = psycopg.connect(self._dsn, row_factory=dict_row, autocommit=True)
+
+    def close(self):
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    def select(self, table, params=""):
+        # Always queries the singleton crawl_state row.
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT * FROM crawl_state WHERE id = 1")
+            return cur.fetchall()
+
+    def upsert(self, table, rows):
+        # Batch-insert phrases; ON CONFLICT DO NOTHING skips existing.
+        # Returns only newly inserted rows (used by caller for new_count).
+        if not rows:
+            return []
+        phrases = [r["phrase"] for r in rows]
+        ts = rows[0]["first_seen_at"]
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO suggestions (phrase, first_seen_at, last_seen_at, seen_count)"
+                " SELECT unnest(%s::text[]), %s::timestamptz, %s::timestamptz, 1"
+                " ON CONFLICT (phrase) DO NOTHING"
+                " RETURNING phrase",
+                (phrases, ts, ts),
             )
-            t = r.read().decode()
-            return json.loads(t) if t.strip() else None
-        except urllib.error.HTTPError as e:
-            code = e.code
-            err = e.read().decode()[:200]
-            if code != 409:
-                print("  ⚠ " + str(code) + ": " + err[:80])
-            return None
+            return cur.fetchall()
 
-    def select(s, t, p=""):
-        return s._req("GET", t + "?" + urllib.parse.quote(p, safe=SAFE)) or []
+    def update(self, table, filter_str, data):
+        # Column names come from internal constants only — f-string is safe here.
+        cols = ", ".join(f"{k} = %s" for k in data)
+        with self._conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE crawl_state SET {cols} WHERE id = 1",
+                list(data.values()),
+            )
 
-    def insert(s, t, d):
-        return s._req("POST", t, d, {"Prefer": "return=representation"})
-
-    def upsert(s, t, d):
-        return s._req(
-            "POST",
-            t + "?on_conflict=phrase",
-            d,
-            {"Prefer": "resolution=ignore-duplicates,return=representation"},
-        )
-
-    def update(s, t, p, d):
-        return s._req(
-            "PATCH",
-            t + "?" + urllib.parse.quote(p, safe=SAFE),
-            d,
-            {"Prefer": "return=minimal"},
-        )
-
-    def count(s, t):
-        req = urllib.request.Request(s.base + "/" + t + "?select=id")
-        req.add_header("apikey", s.h["apikey"])
-        req.add_header("Authorization", s.h["Authorization"])
-        req.add_header("Range", "0-0")
-        req.add_header("Prefer", "count=exact")
-        try:
-            r = urllib.request.urlopen(req, timeout=10)
-            cr = r.headers.get("Content-Range", "")
-            return int(cr.split("/")[1]) if "/" in cr else 0
-        except Exception:
-            return 0
+    def count(self, table):
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM suggestions")
+            row = cur.fetchone()
+            return row["n"] if row else 0
 
 
 class SuggestAPI:
@@ -362,18 +360,20 @@ def run(db, api):
     print("═" * 60)
 
 
-url = os.environ.get("SUPABASE_URL")
-key = os.environ.get("SUPABASE_KEY")
-if not url or not key:
-    print("✗ Set SUPABASE_URL and SUPABASE_KEY")
-    sys.exit(1)
-db = DB(url, key)
-api = SuggestAPI(0.12)
-print("🔍 Auto-depth Crawler")
-print("   Max runtime: 25 min")
-print("   DB: " + url)
-try:
-    run(db, api)
-except Exception as e:
-    print("FATAL: " + str(e))
-    save_state(db, state) if "state" in dir() else None
+if __name__ == "__main__":
+    dsn = os.environ.get("HETZNER_WRITE_DATABASE_URL", "")
+    if not dsn:
+        print("✗ Set HETZNER_WRITE_DATABASE_URL")
+        sys.exit(1)
+    db = DB(dsn)
+    db.open()
+    api = SuggestAPI(0.12)
+    print("🔍 Auto-depth Crawler")
+    print("   Max runtime: 25 min")
+    try:
+        run(db, api)
+    except Exception as e:
+        print("FATAL: " + str(e))
+        save_state(db, state) if "state" in dir() else None
+    finally:
+        db.close()
