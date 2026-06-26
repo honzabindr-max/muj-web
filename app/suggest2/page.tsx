@@ -11,6 +11,7 @@ import { FreshnessBar } from "./_components/freshness-bar";
 import { KpiStrip } from "./_components/kpi-strip";
 import { GrowthChart } from "./_components/growth-chart";
 import { MarketsTable } from "./_components/markets-table";
+import { SeznamPanel } from "./_components/seznam-panel";
 import { isHeartbeatAlive } from "../suggest/_lib/types";
 import { flagEmoji, countryName } from "../suggest/_lib/utils";
 
@@ -192,7 +193,10 @@ export default function Suggest2Page() {
           </div>
         )}
 
-        {/* ── 5) TABULKA TRHŮ ── */}
+        {/* ── 5) SEZNAM PANEL ── */}
+        <SeznamPanel className="mt-3" />
+
+        {/* ── 6) TABULKA TRHŮ ── */}
         <MarketsTable rows={filteredByGl} className="mt-3" />
 
         <footer className="mt-6 flex flex-col gap-2 border-t border-zinc-200/70 px-1 pt-5 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
