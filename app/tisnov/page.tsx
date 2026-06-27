@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { getPragueTime, getOpenState, formatTimeLeft } from "@/lib/tisnov-config";
 import { getVerdict } from "@/lib/tisnov-verdict";
+import { CausticsCanvas } from "./components/CausticsCanvas";
+import { TempCounter } from "./components/TempCounter";
 import { ShareButton } from "./ShareButton";
+import "./tisnov.css";
 
 export const metadata: Metadata = {
   title: "Koupák Tišnov dnes",
@@ -46,22 +49,68 @@ async function fetchWeather(): Promise<WeatherData | null> {
   }
 }
 
-function weatherEmoji(code: number): string {
-  if (code === 0) return "☀️";
-  if (code <= 2) return "🌤️";
-  if (code === 3) return "☁️";
-  if (code <= 48) return "🌫️";
-  if (code <= 65) return "🌧️";
-  if (code <= 82) return "🌦️";
-  if (code <= 86) return "🌨️";
-  return "⛈️";
-}
+// Caustic light colors + water base — keyed by verdict + time of day
+function getCausticsTheme(
+  color: "green" | "orange" | "gray",
+  hour: number,
+): { base: string; c1: string; c2: string; c3: string } {
+  const isGolden = (hour >= 6 && hour < 10) || (hour >= 17 && hour < 21);
+  const isNight = hour >= 22 || hour < 5;
 
-const BG: Record<"green" | "orange" | "gray", string> = {
-  green: "bg-emerald-500",
-  orange: "bg-amber-500",
-  gray: "bg-zinc-600",
-};
+  if (color === "green") {
+    if (isNight)
+      return {
+        base: "#010e1a",
+        c1: "rgba(0,140,200,0.65)",
+        c2: "rgba(30,170,180,0.45)",
+        c3: "rgba(60,160,220,0.50)",
+      };
+    if (isGolden)
+      return {
+        base: "#021a2c",
+        c1: "rgba(0,210,255,0.70)",
+        c2: "rgba(255,200,60,0.38)",
+        c3: "rgba(80,230,210,0.52)",
+      };
+    return {
+      base: "#021d30",
+      c1: "rgba(0,210,255,0.72)",
+      c2: "rgba(50,245,215,0.50)",
+      c3: "rgba(100,225,255,0.55)",
+    };
+  }
+
+  if (color === "orange") {
+    if (isNight)
+      return {
+        base: "#050e18",
+        c1: "rgba(0,110,170,0.60)",
+        c2: "rgba(20,140,160,0.42)",
+        c3: "rgba(30,130,190,0.48)",
+      };
+    if (isGolden)
+      return {
+        base: "#061520",
+        c1: "rgba(0,165,210,0.62)",
+        c2: "rgba(255,170,50,0.33)",
+        c3: "rgba(30,175,190,0.48)",
+      };
+    return {
+      base: "#051a28",
+      c1: "rgba(0,170,215,0.63)",
+      c2: "rgba(25,190,178,0.46)",
+      c3: "rgba(45,178,215,0.51)",
+    };
+  }
+
+  // gray (NE)
+  return {
+    base: isNight ? "#04090f" : "#080e17",
+    c1: "rgba(30,90,145,0.55)",
+    c2: "rgba(20,72,125,0.45)",
+    c3: "rgba(42,82,135,0.40)",
+  };
+}
 
 export default async function TisnovPage() {
   const weather = await fetchWeather();
@@ -80,148 +129,122 @@ export default async function TisnovPage() {
       : null,
   );
 
+  const theme = getCausticsTheme(verdict.color, t.hour);
   const updatedAt = `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}`;
 
   return (
-    <main
-      className={`${BG[verdict.color]} min-h-screen flex flex-col px-5 pt-10 pb-8 select-none`}
-    >
-      {/* Label */}
-      <p className="text-white/60 text-xs font-semibold tracking-widest uppercase">
-        Koupák Tišnov
-      </p>
+    <div className="t-page" style={{ background: theme.base } as React.CSSProperties}>
+      {/* Animated caustics background */}
+      <CausticsCanvas c1={theme.c1} c2={theme.c2} c3={theme.c3} />
 
-      {/* Verdict */}
-      <div className="mt-6 flex-1">
-        <div className="flex items-center gap-3">
-          {weather && (
-            <span className="text-5xl leading-none" aria-hidden>
-              {weatherEmoji(weather.weathercode)}
-            </span>
-          )}
-          <h1 className="text-white font-black text-6xl leading-none tracking-tight">
-            {verdict.label}
-          </h1>
+      {/* Content */}
+      <div className="t-content">
+        {/* Header */}
+        <div className="t-header">
+          <span className="t-label">Koupák Tišnov</span>
+          <span className="t-badge">
+            {openState.kind === "open" && (
+              <span className="t-badge-dot t-badge-dot--open" aria-hidden />
+            )}
+            {openState.kind === "closed" && (
+              <span className="t-badge-dot t-badge-dot--closed" aria-hidden />
+            )}
+            {openState.kind === "off_season" && (
+              <span className="t-badge-dot t-badge-dot--off" aria-hidden />
+            )}
+            {openState.kind === "open" && `Otevřeno do ${openState.closeHour}:00`}
+            {openState.kind === "closed" && "Dnes zavřeno"}
+            {openState.kind === "off_season" && "Mimo sezónu"}
+          </span>
         </div>
-        <p className="text-white/90 text-lg mt-3 leading-snug">
-          {verdict.reason}
-        </p>
-      </div>
 
-      {/* Open status */}
-      <div className="mt-5">
-        {openState.kind === "open" && (
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="bg-white/20 text-white text-sm font-semibold px-4 py-2 rounded-full">
-              Otevřeno do {openState.closeHour}:00
-            </span>
-            <span className="text-white/80 text-sm font-medium">
+        {/* Verdict */}
+        <div className="t-verdict-section">
+          <h1 className="t-verdict-label">{verdict.label}</h1>
+          <p className="t-verdict-reason">{verdict.reason}</p>
+        </div>
+
+        {/* Spacer — caustics show through */}
+        <div className="t-spacer" />
+
+        {/* Bottom section */}
+        <div className="t-bottom">
+          {/* Time remaining pill */}
+          {openState.kind === "open" && (
+            <div className="t-open-pill">
+              <span className="t-open-pill-dot" aria-hidden />
               {formatTimeLeft(openState.minutesLeft)}
-            </span>
-          </div>
-        )}
-        {openState.kind === "closed" && (
-          <span className="bg-white/20 text-white text-sm font-semibold px-4 py-2 rounded-full">
-            Dnes zavřeno
-          </span>
-        )}
-        {openState.kind === "off_season" && (
-          <span className="bg-white/20 text-white text-sm font-semibold px-4 py-2 rounded-full">
-            Mimo sezónu · otevírá v červnu
-          </span>
-        )}
-      </div>
-
-      {/* Weather card */}
-      <div className="mt-5">
-        {weather ? (
-          <div className="bg-white/15 rounded-2xl p-4">
-            <div className="grid grid-cols-5 gap-1 text-center">
-              <WeatherStat
-                icon="🌡️"
-                value={`${Math.round(weather.temperature)}°`}
-                label="teď"
-              />
-              <WeatherStat
-                icon="📈"
-                value={`${Math.round(weather.tempMax)}°`}
-                label="max"
-              />
-              <WeatherStat
-                icon="🌧️"
-                value={`${weather.rainProbability}%`}
-                label="déšť"
-              />
-              <WeatherStat
-                icon="💨"
-                value={`${Math.round(weather.windspeed)}`}
-                label="km/h"
-              />
-              <WeatherStat
-                icon="🔆"
-                value={`${Math.round(weather.uvIndex)}`}
-                label="UV"
-              />
             </div>
-          </div>
-        ) : (
-          <div className="bg-white/10 rounded-2xl p-3 text-center">
-            <p className="text-white/60 text-sm">
+          )}
+
+          {/* Weather chips */}
+          {weather ? (
+            <div className="t-chips">
+              <div className="t-chip">
+                <span className="t-chip-icon" aria-hidden>🌡️</span>
+                <span className="t-chip-value">
+                  <TempCounter target={Math.round(weather.temperature)} />°
+                </span>
+                <span className="t-chip-label">teď</span>
+              </div>
+              <div className="t-chip">
+                <span className="t-chip-icon" aria-hidden>📈</span>
+                <span className="t-chip-value">{Math.round(weather.tempMax)}°</span>
+                <span className="t-chip-label">max</span>
+              </div>
+              <div className="t-chip">
+                <span className="t-chip-icon" aria-hidden>🌧️</span>
+                <span className="t-chip-value">{weather.rainProbability}%</span>
+                <span className="t-chip-label">déšť</span>
+              </div>
+              <div className="t-chip">
+                <span className="t-chip-icon" aria-hidden>💨</span>
+                <span className="t-chip-value">{Math.round(weather.windspeed)}</span>
+                <span className="t-chip-label">km/h</span>
+              </div>
+              <div className="t-chip">
+                <span className="t-chip-icon" aria-hidden>🔆</span>
+                <span className="t-chip-value">{Math.round(weather.uvIndex)}</span>
+                <span className="t-chip-label">UV</span>
+              </div>
+            </div>
+          ) : (
+            <div className="t-stale">
               ⚠️ Data ze záznamu – počasí není k dispozici
-            </p>
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div className="t-actions">
+            <a
+              href="https://www.google.com/maps/dir/?api=1&destination=49.3487,16.4258"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="t-btn-nav"
+            >
+              Navigovat
+            </a>
+            <ShareButton
+              title="Koupák Tišnov dnes"
+              text={`${verdict.label} – ${verdict.reason}`}
+              url="https://good-inventions.work/tisnov"
+            />
           </div>
-        )}
-      </div>
 
-      {/* Action buttons */}
-      <div className="mt-5 flex gap-3">
-        <a
-          href="https://www.google.com/maps/dir/?api=1&destination=49.3487,16.4258"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 bg-white text-zinc-900 font-semibold py-4 rounded-2xl text-base text-center active:scale-95 transition-transform"
-        >
-          Navigovat
-        </a>
-        <ShareButton
-          title="Koupák Tišnov dnes"
-          text={`${verdict.label} – ${verdict.reason}`}
-          url="https://good-inventions.work/tisnov"
-        />
+          {/* Footer */}
+          <div className="t-footer">
+            <a
+              href="https://www.tisnov.cz/koupaliste"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="t-footer-camera"
+            >
+              📷 Mrknout na kameru
+            </a>
+            <span className="t-footer-time">Aktualizováno {updatedAt}</span>
+          </div>
+        </div>
       </div>
-
-      {/* Footer */}
-      <div className="mt-4 flex items-center justify-between">
-        <a
-          href="https://www.tisnov.cz/koupaliste"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-white/60 text-sm underline underline-offset-2"
-        >
-          📷 Mrknout na kameru
-        </a>
-        <span className="text-white/50 text-xs">Aktualizováno {updatedAt}</span>
-      </div>
-    </main>
-  );
-}
-
-function WeatherStat({
-  icon,
-  value,
-  label,
-}: {
-  icon: string;
-  value: string;
-  label: string;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-xl" aria-hidden>
-        {icon}
-      </span>
-      <span className="text-white font-bold text-base leading-tight">{value}</span>
-      <span className="text-white/50 text-xs">{label}</span>
     </div>
   );
 }

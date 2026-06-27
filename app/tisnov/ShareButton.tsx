@@ -20,10 +20,7 @@ export function ShareButton({ title, text, url }: Props) {
   };
 
   return (
-    <button
-      onClick={handleShare}
-      className="flex-1 bg-white/20 border border-white/30 text-white font-semibold py-4 rounded-2xl text-base active:scale-95 transition-transform"
-    >
+    <button onClick={handleShare} className="t-btn-share">
       Sdílet
     </button>
   );
