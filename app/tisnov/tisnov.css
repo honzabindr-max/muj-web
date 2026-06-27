@@ -1,0 +1,312 @@
+/* tisnov.css — visual layer only, HLADINA concept */
+
+/* ─── Page container ─── */
+.t-page {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: white;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Content overlay ─── */
+.t-content {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 1.75rem;
+  box-sizing: border-box;
+}
+
+/* ─── Header ─── */
+.t-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.t-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ─── Status badge ─── */
+.t-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 100px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  white-space: nowrap;
+}
+
+.t-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.t-badge-dot--open {
+  background: #4ade80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.8);
+  animation: t-dot-pulse 2.2s ease-in-out infinite;
+}
+
+.t-badge-dot--closed {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.t-badge-dot--off {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+@keyframes t-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+/* ─── Verdict ─── */
+.t-verdict-section {
+  padding-top: 1.5rem;
+  animation: t-entrance 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.t-verdict-label {
+  font-size: clamp(3rem, 18vw, 5.5rem);
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  text-shadow:
+    0 0 60px rgba(255, 255, 255, 0.25),
+    0 0 120px rgba(255, 255, 255, 0.1),
+    0 3px 8px rgba(0, 0, 0, 0.45);
+  margin: 0;
+}
+
+.t-verdict-reason {
+  margin-top: 0.7rem;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  max-width: 28ch;
+}
+
+@keyframes t-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Spacer (caustics show through) ─── */
+.t-spacer {
+  flex: 1;
+  min-height: 1rem;
+}
+
+/* ─── Bottom data section ─── */
+.t-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* ─── Open pill ─── */
+.t-open-pill {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 100px;
+  padding: 0.4rem 1rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.t-open-pill-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.9);
+  animation: t-dot-pulse 2.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* ─── Weather chips grid ─── */
+.t-chips {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.45rem;
+}
+
+.t-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.18rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1.1rem;
+  padding: 0.6rem 0.2rem 0.5rem;
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.t-chip-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.t-chip-value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: white;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.t-chip-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.48);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* ─── Stale warning ─── */
+.t-stale {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.85rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ─── Buttons ─── */
+.t-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.t-btn-nav {
+  flex: 1;
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  background: white;
+  color: #0a0f1a;
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 0.95rem 0;
+  border-radius: 1rem;
+  border: none;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+}
+
+.t-btn-nav:active {
+  transform: scale(0.96);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.t-btn-share {
+  flex: 1;
+  display: block;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-radius: 1rem;
+  padding: 0.95rem 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: white;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: transform 0.12s ease, background 0.12s ease;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  letter-spacing: -0.01em;
+}
+
+.t-btn-share:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ─── Footer ─── */
+.t-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.15rem;
+}
+
+.t-footer-camera {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(255, 255, 255, 0.2);
+}
+
+.t-footer-time {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .t-verdict-section { animation: none; }
+  .t-badge-dot--open { animation: none; }
+  .t-open-pill-dot  { animation: none; }
+}
