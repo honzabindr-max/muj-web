@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "fetch:routes": "node scripts/fetch-soci-routes.mjs"
+    "fetch:routes": "node scripts/fetch-soci-routes.mjs",
+    "fetch:photos": "node scripts/fetch-soci-photos.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.0",
