@@ -69,7 +69,7 @@ export function HeaderBar({
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6c716e" }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a" }} />
-          Běží · {runningCount} crawlerů
+          Běží · {runningCount} trhů
         </div>
         <div style={{ width: 1, height: 18, background: "#e4e6e4" }} />
         <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
