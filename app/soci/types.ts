@@ -1,33 +1,30 @@
-export type WaypointKind =
-  | 'context'
-  | 'travel'
-  | 'nature'
-  | 'pass'
-  | 'lodging'
-  | 'gorge'
-  | 'camp'
-  | 'rafting'
-  | 'waterfall';
+export type WaypointCategory = 'reka' | 'vodopad' | 'hory' | 'zaklad' | 'doprava';
 
 export interface Waypoint {
   id: string;
   name: string;
   lat: number;
   lng: number;
-  day: number | null;
-  role: string;
-  kind: WaypointKind;
+  category: WaypointCategory;
   description: string;
 }
 
-export interface DayData {
+export interface TransportVariant {
+  id: string;
+  icon: string;
+  label: string;
+  price: string;
+  duration: string;
+  steps: string[];
+  highlight?: string;
+}
+
+export interface DayPlan {
   day: number;
   title: string;
-  difficulty: number;
-  color: string;
-  highlights: string;
+  tags: string[];
   description: string;
-  planB: string;
+  tip?: string;
 }
 
 export interface BudgetRow {

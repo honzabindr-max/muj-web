@@ -1,12 +1,14 @@
 const LINKS = [
+  { href: '#cesta', label: 'Cesta' },
   { href: '#mapa', label: 'Mapa' },
-  { href: '#itinerar', label: 'Itinerář' },
-  { href: '#doprava', label: 'Doprava' },
-  { href: '#checklist', label: 'Rezervace' },
+  { href: '#plan', label: 'Plán 7 dní' },
   { href: '#rafting', label: 'Rafting' },
+  { href: '#vylety', label: 'Výlety' },
+  { href: '#ubytovani', label: 'Ubytování' },
   { href: '#rozpocet', label: 'Rozpočet' },
-  { href: '#rizika', label: 'Rizika' },
+  { href: '#checklist', label: 'Rezervace' },
   { href: '#vybava', label: 'Výbava' },
+  { href: '#kontakty', label: 'Kontakty' },
 ];
 
 export function AnchorNav() {

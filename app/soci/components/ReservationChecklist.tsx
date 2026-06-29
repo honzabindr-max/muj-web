@@ -21,7 +21,7 @@ export function ReservationChecklist() {
           <div className="h-2 w-32 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-              style={{ width: `${(doneCount / total) * 100}%` }}
+              style={{ width: `${total > 0 ? (doneCount / total) * 100 : 0}%` }}
             />
           </div>
         </div>
@@ -33,7 +33,7 @@ export function ReservationChecklist() {
                   type="checkbox"
                   checked={!!checked[item.id]}
                   onChange={() => toggle(item.id)}
-                  className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-slate-300 text-emerald-600 accent-emerald-600"
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-slate-300 accent-emerald-600"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
