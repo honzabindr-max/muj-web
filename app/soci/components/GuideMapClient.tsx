@@ -6,6 +6,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, Marker, Popup, Polyline, TileLayer } from 'react-leaflet';
 import { DAY_COLORS, TRANSPORT_LINE, WAYPOINTS } from '../data';
 
+// Days that have real BRouter GeoJSON routes in /public/soci/
+const REAL_ROUTE_DAYS = new Set([3, 4]);
+
 function createDayIcon(day: number | null, color: string, isContext: boolean) {
   const size = isContext ? 20 : 28;
   const label = day !== null ? String(day) : '·';
@@ -27,15 +30,44 @@ function createDayIcon(day: number | null, color: string, isContext: boolean) {
   });
 }
 
+// Fetch GeoJSON and extract [lat, lng][] for Leaflet Polyline.
+// Returns null on any error — caller falls back to schematic line.
+async function fetchRouteCoords(day: number): Promise<[number, number][] | null> {
+  try {
+    const res = await fetch(`/soci/den${day}.geojson`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const coords: [number, number][] | undefined = json?.features?.[0]?.geometry?.coordinates;
+    if (!coords || coords.length < 10) return null;
+    // BRouter returns [lon, lat, ele] → Leaflet wants [lat, lon]
+    return coords.map(([lon, lat]) => [lat, lon]);
+  } catch {
+    return null;
+  }
+}
+
 const CONTEXT_COLOR = '#94a3b8';
 
 export default function GuideMapClient() {
   const [activeDay, setActiveDay] = useState<number | null>(null);
+  const [realRoutes, setRealRoutes] = useState<Record<number, [number, number][] | null>>({});
 
   // Suppress leaflet missing icon warning
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (L.Icon.Default.prototype as any)._getIconUrl;
+  }, []);
+
+  // Load real routes on mount
+  useEffect(() => {
+    Promise.all(
+      [...REAL_ROUTE_DAYS].map(async (day) => {
+        const coords = await fetchRouteCoords(day);
+        return [day, coords] as [number, [number, number][] | null];
+      }),
+    ).then((results) => {
+      setRealRoutes(Object.fromEntries(results));
+    });
   }, []);
 
   const days = useMemo(
@@ -48,8 +80,8 @@ export default function GuideMapClient() {
     return WAYPOINTS.filter((w) => w.day === null || w.day === activeDay);
   }, [activeDay]);
 
-  // Group waypoints by day for polylines
-  const dayPolylines = useMemo(() => {
+  // Schematic fallback: waypoints grouped by day
+  const schematicPolylines = useMemo(() => {
     const grouped: Record<number, [number, number][]> = {};
     WAYPOINTS.filter((w) => w.day !== null).forEach((w) => {
       const d = w.day as number;
@@ -58,6 +90,10 @@ export default function GuideMapClient() {
     });
     return grouped;
   }, []);
+
+  const hasSchematicOnly = days.some(
+    (d) => !REAL_ROUTE_DAYS.has(d) && (schematicPolylines[d]?.length ?? 0) >= 2,
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -101,7 +137,7 @@ export default function GuideMapClient() {
           className="md:!h-[560px]"
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> přispěvatelé, routing <a href="https://brouter.de" target="_blank" rel="noreferrer">BRouter</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
@@ -111,21 +147,43 @@ export default function GuideMapClient() {
             pathOptions={{ color: '#94a3b8', weight: 1.5, dashArray: '6 4', opacity: 0.6 }}
           />
 
-          {/* Trek polylines per day — schematické (čárkované), TODO: nahradit reálným GPX */}
-          {Object.entries(dayPolylines).map(([dayStr, positions]) => {
-            const d = Number(dayStr);
+          {/* Trek polylines — real BRouter routes for days 3 & 4, schematic fallback for others */}
+          {days.map((d) => {
             if (activeDay !== null && activeDay !== d) return null;
-            if (positions.length < 2) return null;
+            const real = realRoutes[d];
+            const schematic = schematicPolylines[d];
+
+            if (REAL_ROUTE_DAYS.has(d)) {
+              // Real route available (or still loading — real will be null until loaded)
+              if (real && real.length >= 2) {
+                return (
+                  <Polyline
+                    key={`route-${d}`}
+                    positions={real}
+                    pathOptions={{ color: DAY_COLORS[d], weight: 3, opacity: 0.85 }}
+                  />
+                );
+              }
+              // Fallback while loading or if fetch failed
+              if (schematic && schematic.length >= 2) {
+                return (
+                  <Polyline
+                    key={`fallback-${d}`}
+                    positions={schematic}
+                    pathOptions={{ color: DAY_COLORS[d], weight: 2.5, dashArray: '8 5', opacity: 0.6 }}
+                  />
+                );
+              }
+              return null;
+            }
+
+            // Other days — schematic dashed
+            if (!schematic || schematic.length < 2) return null;
             return (
               <Polyline
                 key={`trek-${d}`}
-                positions={positions}
-                pathOptions={{
-                  color: DAY_COLORS[d],
-                  weight: 2.5,
-                  dashArray: '8 5', // TODO: nahradit reálným GPX
-                  opacity: 0.75,
-                }}
+                positions={schematic}
+                pathOptions={{ color: DAY_COLORS[d], weight: 2.5, dashArray: '8 5', opacity: 0.75 }}
               />
             );
           })}
@@ -176,6 +234,9 @@ export default function GuideMapClient() {
                 style={{ backgroundColor: DAY_COLORS[d] }}
               />
               Den {d}
+              {REAL_ROUTE_DAYS.has(d) && (
+                <span className="text-slate-400">(BRouter)</span>
+              )}
             </span>
           ))}
           <span className="flex items-center gap-1.5">
@@ -183,11 +244,15 @@ export default function GuideMapClient() {
             Kontext (Brno/Ljubljana)
           </span>
         </div>
-        <div className="mt-2 text-slate-400">
-          Trekové stopy — schematická trasa{' '}
-          <span className="italic">(čárkovaně; GPX soubory přidají přesnou trasu)</span>
-        </div>
+        {hasSchematicOnly && (
+          <div className="mt-2 text-slate-400">
+            Ostatní dny — schematická trasa (čárkovaně)
+          </div>
+        )}
         <div className="text-slate-400">Dopravní vrstva — šedá čára Brno→Ljubljana→KG</div>
+        <div className="mt-1 text-slate-400">
+          Trasy © OpenStreetMap přispěvatelé, routing BRouter
+        </div>
       </div>
     </div>
   );
