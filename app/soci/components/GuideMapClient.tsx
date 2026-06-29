@@ -3,7 +3,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, Marker, Popup, Polyline, TileLayer } from 'react-leaflet';
+import { MapContainer, Marker, Popup, Polyline, TileLayer, useMap } from 'react-leaflet';
 import { DAY_COLORS, TRANSPORT_LINE, WAYPOINTS } from '../data';
 
 // Days that have real BRouter GeoJSON routes in /public/soci/
@@ -30,6 +30,31 @@ function createDayIcon(day: number | null, color: string, isContext: boolean) {
   });
 }
 
+// Mapy.com logo control — povinná atribuce dle podmínek Mapy.com
+function MapyCzLogoControl() {
+  const map = useMap();
+
+  useEffect(() => {
+    const LogoControl = L.Control.extend({
+      onAdd() {
+        const div = L.DomUtil.create('div', 'mapy-cz-logo');
+        div.style.cssText = 'background:rgba(255,255,255,0.85);padding:3px 5px;border-radius:4px;line-height:0;';
+        div.innerHTML = `<a href="https://mapy.com/" target="_blank" rel="noreferrer" title="Mapy.com">
+          <img src="https://api.mapy.com/img/api/logo.svg" alt="Mapy.com" style="height:30px;display:block;" />
+        </a>`;
+        return div;
+      },
+    });
+    const control = new LogoControl({ position: 'bottomleft' });
+    control.addTo(map);
+    return () => {
+      control.remove();
+    };
+  }, [map]);
+
+  return null;
+}
+
 // Fetch GeoJSON and extract [lat, lng][] for Leaflet Polyline.
 // Returns null on any error — caller falls back to schematic line.
 async function fetchRouteCoords(day: number): Promise<[number, number][] | null> {
@@ -47,6 +72,8 @@ async function fetchRouteCoords(day: number): Promise<[number, number][] | null>
 }
 
 const CONTEXT_COLOR = '#94a3b8';
+
+const MAPY_API_KEY = process.env.NEXT_PUBLIC_MAPY_API_KEY;
 
 export default function GuideMapClient() {
   const [activeDay, setActiveDay] = useState<number | null>(null);
@@ -95,6 +122,12 @@ export default function GuideMapClient() {
     (d) => !REAL_ROUTE_DAYS.has(d) && (schematicPolylines[d]?.length ?? 0) >= 2,
   );
 
+  const tileUrl = MAPY_API_KEY && MAPY_API_KEY !== '__DOPLNIM__'
+    ? `https://api.mapy.com/v1/maptiles/outdoor/256/{z}/{x}/{y}?apikey=${MAPY_API_KEY}`
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+  const useMapyCz = !!(MAPY_API_KEY && MAPY_API_KEY !== '__DOPLNIM__');
+
   return (
     <div className="flex flex-col gap-3">
       {/* Day filter chips */}
@@ -137,9 +170,16 @@ export default function GuideMapClient() {
           className="md:!h-[560px]"
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> přispěvatelé, routing <a href="https://brouter.de" target="_blank" rel="noreferrer">BRouter</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            url={tileUrl}
+            attribution={
+              useMapyCz
+                ? '<a href="https://api.mapy.com/copyright" target="_blank" rel="noreferrer">&copy; Seznam.cz a.s. a další</a> | &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> přispěvatelé, routing <a href="https://brouter.de" target="_blank" rel="noreferrer">BRouter</a>'
+                : '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> přispěvatelé, routing <a href="https://brouter.de" target="_blank" rel="noreferrer">BRouter</a>'
+            }
           />
+
+          {/* Mapy.com logo — povinná atribuce, zobrazit jen pokud je aktivní Mapy.com klíč */}
+          {useMapyCz && <MapyCzLogoControl />}
 
           {/* Transport layer — šedá čárkovaná, oddělená od trekové */}
           <Polyline
@@ -154,7 +194,6 @@ export default function GuideMapClient() {
             const schematic = schematicPolylines[d];
 
             if (REAL_ROUTE_DAYS.has(d)) {
-              // Real route available (or still loading — real will be null until loaded)
               if (real && real.length >= 2) {
                 return (
                   <Polyline
@@ -164,7 +203,6 @@ export default function GuideMapClient() {
                   />
                 );
               }
-              // Fallback while loading or if fetch failed
               if (schematic && schematic.length >= 2) {
                 return (
                   <Polyline
@@ -177,7 +215,6 @@ export default function GuideMapClient() {
               return null;
             }
 
-            // Other days — schematic dashed
             if (!schematic || schematic.length < 2) return null;
             return (
               <Polyline
@@ -252,6 +289,7 @@ export default function GuideMapClient() {
         <div className="text-slate-400">Dopravní vrstva — šedá čára Brno→Ljubljana→KG</div>
         <div className="mt-1 text-slate-400">
           Trasy © OpenStreetMap přispěvatelé, routing BRouter
+          {useMapyCz && ' | Podkladová mapa © Seznam.cz a.s. a další'}
         </div>
       </div>
     </div>
