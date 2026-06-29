@@ -1,62 +1,108 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RESERVATION_CHECKLIST } from '../data';
-import { Section } from './Section';
+
+const STORAGE_KEY = 'soci-checklist';
 
 export function ReservationChecklist() {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [mounted, setMounted] = useState(false);
 
-  const toggle = (id: string) => setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) setChecked(JSON.parse(saved));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const toggle = (id: string) => {
+    setChecked((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   const doneCount = Object.values(checked).filter(Boolean).length;
   const total = RESERVATION_CHECKLIST.length;
+  const pct = total > 0 ? (doneCount / total) * 100 : 0;
 
   return (
-    <Section id="checklist" title="Rezervační checklist">
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <span className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">{doneCount}/{total}</span> hotovo
+    <section id="rezervace" className="atlas-section">
+      <div className="atlas-section-head">
+        <div className="atlas-kicker" style={{ marginBottom: 6 }}>Akce · Před odjezdem</div>
+        <h2 className="atlas-h2">Rezervační checklist</h2>
+      </div>
+
+      <div className="atlas-panel">
+        {/* Progress header */}
+        <div
+          className="atlas-panel-inner"
+          style={{
+            padding: '14px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            borderBottom: '1px solid var(--hairline)',
+          }}
+        >
+          <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+            <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
+              {mounted ? doneCount : 0}/{total}
+            </span>{' '}
+            hotovo
           </span>
-          <div className="h-2 w-32 overflow-hidden rounded-full bg-slate-100">
+          <div className="atlas-progress" style={{ flex: 1 }}>
             <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-              style={{ width: `${total > 0 ? (doneCount / total) * 100 : 0}%` }}
+              className="atlas-progress-fill"
+              style={{ width: `${mounted ? pct : 0}%` }}
             />
           </div>
         </div>
-        <ul className="divide-y divide-slate-100">
-          {RESERVATION_CHECKLIST.map((item) => (
-            <li key={item.id} className="px-5 py-3">
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={!!checked[item.id]}
-                  onChange={() => toggle(item.id)}
-                  className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-slate-300 accent-emerald-600"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`text-sm font-medium ${checked[item.id] ? 'text-slate-400 line-through' : 'text-slate-800'}`}
-                    >
-                      {item.label}
-                    </span>
-                    {item.critical && !checked[item.id] && (
-                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                        kritické
+
+        <div className="atlas-panel-inner" style={{ padding: '6px 20px 16px' }}>
+          <ul className="atlas-checklist">
+            {RESERVATION_CHECKLIST.map((item) => {
+              const isDone = mounted ? !!checked[item.id] : false;
+              return (
+                <li key={item.id} className="atlas-check-item">
+                  <button
+                    type="button"
+                    onClick={() => toggle(item.id)}
+                    className={`atlas-checkbox${isDone ? ' atlas-checkbox--checked' : ''}`}
+                    aria-label={isDone ? `Odznačit: ${item.label}` : `Označit: ${item.label}`}
+                  >
+                    {isDone && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 6l3 3 5-5" />
+                      </svg>
+                    )}
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
+                      <span className={`atlas-check-label${isDone ? ' atlas-check-label--done' : ''}`}>
+                        {item.label}
                       </span>
+                      {item.critical && !isDone && (
+                        <span className="atlas-pill atlas-pill--amber" style={{ flexShrink: 0, marginTop: 1 }}>
+                          nutné
+                        </span>
+                      )}
+                    </div>
+                    {item.note && (
+                      <div className="atlas-check-note">{item.note}</div>
                     )}
                   </div>
-                  {item.note && (
-                    <p className="mt-0.5 text-xs text-slate-500">{item.note}</p>
-                  )}
-                </div>
-              </label>
-            </li>
-          ))}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
-    </Section>
+    </section>
   );
 }

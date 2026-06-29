@@ -13,7 +13,7 @@ import { RaftingSection } from './components/RaftingSection';
 import { ReservationChecklist } from './components/ReservationChecklist';
 import { SafetyExtrasSection } from './components/SafetyExtrasSection';
 import { Section } from './components/Section';
-import { SectionPhoto } from './components/SectionPhoto';
+import { PhotoStrip, SectionPhoto } from './components/SectionPhoto';
 import { TransportSection } from './components/TransportSection';
 
 export const metadata = {
@@ -31,8 +31,7 @@ const PHOTOS = {
     alt: 'Smaragdová řeka Soča v Julských Alpách',
     author: 'Lars Plougmann',
     license: 'CC BY-SA 2.0',
-    commonsUrl:
-      'https://commons.wikimedia.org/wiki/File:So%C4%8Da,_the_emerald_river_(185851175).jpg',
+    commonsUrl: 'https://commons.wikimedia.org/wiki/File:So%C4%8Da,_the_emerald_river_(185851175).jpg',
   },
   rafting: {
     src: '/soci/photos/rafting-soca.jpg',
@@ -53,8 +52,7 @@ const PHOTOS = {
     alt: 'Vodopád Boka — nejvodnatější vodopád Slovinska (~106 m)',
     author: 'Leon Yaakov',
     license: 'CC BY 2.0',
-    commonsUrl:
-      'https://commons.wikimedia.org/wiki/File:Boka_Waterfall,_Slovenia_(15996635505).jpg',
+    commonsUrl: 'https://commons.wikimedia.org/wiki/File:Boka_Waterfall,_Slovenia_(15996635505).jpg',
   },
   virje: {
     src: '/soci/photos/virje-vodopad.jpg',
@@ -68,32 +66,28 @@ const PHOTOS = {
     alt: 'Průsmyk Vršič (1611 m) — výhledy na Julské Alpy',
     author: 'Krzysztof Golik',
     license: 'CC BY-SA 4.0',
-    commonsUrl:
-      'https://commons.wikimedia.org/wiki/File:Julian_Alps_from_Vrsic_Pass_(3).jpg',
+    commonsUrl: 'https://commons.wikimedia.org/wiki/File:Julian_Alps_from_Vrsic_Pass_(3).jpg',
   },
   pramen: {
     src: '/soci/photos/pramen-soce.jpg',
     alt: 'Pramen Soče (Izvir Soče) — horská tůň u ferráty',
     author: 'Igor Pečovnik',
     license: 'CC BY 2.0',
-    commonsUrl:
-      'https://commons.wikimedia.org/wiki/File:Izvir_So%C4%8De_(5958629406).jpg',
+    commonsUrl: 'https://commons.wikimedia.org/wiki/File:Izvir_So%C4%8De_(5958629406).jpg',
   },
   ruskaKaple: {
     src: '/soci/photos/ruska-kaple.jpg',
     alt: 'Ruská kaple na Vršiči — dřevěná kaple z roku 1917',
     author: 'Dage – Looking For Europe',
     license: 'CC BY 2.0',
-    commonsUrl:
-      'https://commons.wikimedia.org/wiki/File:Ruska_Cesta_-_Ruska_Kapelica_-_Ruska_Kapela_(41627950121).jpg',
+    commonsUrl: 'https://commons.wikimedia.org/wiki/File:Ruska_Cesta_-_Ruska_Kapelica_-_Ruska_Kapela_(41627950121).jpg',
   },
   kluzhe: {
     src: '/soci/photos/kluzhe.jpg',
     alt: 'Pevnost Kluže — austro-uherská pevnost v soutěsce Učja',
     author: 'Johann Jaritz',
     license: 'CC BY-SA 4.0',
-    commonsUrl:
-      'https://commons.wikimedia.org/wiki/File:Bovec_Klu%C5%BEe_Flitscher_Klause_West-Seite_10032015_0609.jpg',
+    commonsUrl: 'https://commons.wikimedia.org/wiki/File:Bovec_Klu%C5%BEe_Flitscher_Klause_West-Seite_10032015_0609.jpg',
   },
   bovec: {
     src: '/soci/photos/bovec.jpg',
@@ -106,69 +100,72 @@ const PHOTOS = {
 
 export default function SociPage() {
   return (
-    <div className="min-h-screen bg-slate-50" style={{ scrollBehavior: 'smooth' }}>
-      <div className="mx-auto max-w-3xl px-4 pb-24 pt-6 sm:px-6">
-        <Hero />
+    <>
+      {/* Hero — full-bleed, bez atlas-column */}
+      <Hero />
 
-        {/* Hero foto — smaragdová Soča */}
-        <SectionPhoto {...PHOTOS.soca} className="mt-4" />
+      {/* Sticky nav */}
+      <AnchorNav />
 
-        <AnchorNav />
+      {/* Hlavní čtecí sloupec */}
+      <div className="atlas-column" style={{ paddingTop: 32, paddingBottom: 64 }}>
 
-        <div className="mt-8 space-y-12">
+        {/* Foto Soča hned pod navem */}
+        <SectionPhoto {...PHOTOS.soca} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 48, marginTop: 40 }}>
+
           <TransportSection />
           <HowItWorksSection />
 
-          {/* Bovec panorama — atmosféra základny */}
-          <SectionPhoto {...PHOTOS.bovec} className="-mt-6" />
+          {/* Bovec panorama */}
+          <SectionPhoto {...PHOTOS.bovec} />
 
-          <Section id="mapa" title="Mapa — Bovec a okolí">
+          {/* Mapa */}
+          <Section id="mapa" title="Mapa — Bovec a okolí" kicker="GPS · Všechny body výpravy">
             <GuideMapDynamic />
           </Section>
 
           <BasecampPlanSection />
 
-          {/* Vršič + pramen + Ruská kaple — pro den 6 */}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <SectionPhoto {...PHOTOS.vrsic} className="sm:col-span-2" />
-            <div className="flex flex-col gap-3">
-              <SectionPhoto {...PHOTOS.pramen} />
-              <SectionPhoto {...PHOTOS.ruskaKaple} />
-            </div>
-          </div>
+          {/* Vršič galerie */}
+          <PhotoStrip
+            photos={[
+              { src: PHOTOS.vrsic.src, alt: PHOTOS.vrsic.alt, title: 'Vršič 1611 m', sub: 'Julské Alpy' },
+              { src: PHOTOS.pramen.src, alt: PHOTOS.pramen.alt, title: 'Pramen Soče', sub: 'Ferrata A/B' },
+              { src: PHOTOS.ruskaKaple.src, alt: PHOTOS.ruskaKaple.alt, title: 'Ruská kaple', sub: '1917' },
+              { src: PHOTOS.kluzhe.src, alt: PHOTOS.kluzhe.alt, title: 'Pevnost Kluže', sub: 'WW1 Isonzo' },
+            ]}
+          />
 
           <RaftingSection />
 
-          {/* Rafting foto — pod sekcí */}
-          <SectionPhoto {...PHOTOS.rafting} className="-mt-6" />
-
           <DayTripsSection />
 
-          {/* Fotky výletů: Vodopády + Korita */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <SectionPhoto {...PHOTOS.boka} />
-            <SectionPhoto {...PHOTOS.virje} />
-          </div>
-          <SectionPhoto {...PHOTOS.velikaKorita} />
+          {/* Vodopády galerie */}
+          <PhotoStrip
+            photos={[
+              { src: PHOTOS.boka.src, alt: PHOTOS.boka.alt, title: 'Slap Boka', sub: '~106 m' },
+              { src: PHOTOS.virje.src, alt: PHOTOS.virje.alt, title: 'Slap Virje', sub: 'Laguna' },
+              { src: PHOTOS.velikaKorita.src, alt: PHOTOS.velikaKorita.alt, title: 'Velika korita', sub: 'Soča Trail' },
+              { src: PHOTOS.rafting.src, alt: PHOTOS.rafting.alt, title: 'Rafting Soča', sub: 'WW II–III' },
+            ]}
+          />
 
           <AccommodationSection />
           <BudgetSection />
           <LogisticsSection />
           <ReservationChecklist />
           <GearChecklist />
-
           <SafetyExtrasSection />
-
-          {/* Kluže — pod sekcí Tipy */}
-          <SectionPhoto {...PHOTOS.kluzhe} className="-mt-6" />
-
           <ContactsSection />
+
         </div>
 
-        <footer className="mt-16 border-t border-slate-200 pt-6 text-center text-xs text-slate-400">
+        <footer className="atlas-footer">
           OPERATION SOČA · Bovec basecamp · 4.–11. 7. 2026 · good-inventions.work
         </footer>
       </div>
-    </div>
+    </>
   );
 }

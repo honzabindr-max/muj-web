@@ -1,104 +1,92 @@
 import { TRANSPORT_VARIANTS } from '../data';
-import { Callout } from './Callout';
-import { Section } from './Section';
 
 export function TransportSection() {
   return (
-    <Section id="cesta" title="Cesta tam a zpět">
-      <Callout variant="danger" className="mb-5">
-        <strong>Arriva letní linka Ljubljana → Bovec jede jen Po–So (neděle NEJEDE!)</strong> a pouze do
-        konce srpna. Ověřit návaznost a aktuální jízdní řád:{' '}
-        <a href="https://www.ap-ljubljana.si" target="_blank" rel="noreferrer" className="underline">
-          ap-ljubljana.si
-        </a>{' '}
-        /{' '}
-        <a href="https://www.arriva.si" target="_blank" rel="noreferrer" className="underline">
-          arriva.si
-        </a>
-        . Neděle = Nomago jako záloha.
-      </Callout>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        {TRANSPORT_VARIANTS.map((v) => (
-          <div
-            key={v.id}
-            className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div className="mb-3 flex items-start justify-between gap-2">
-              <div>
-                <span className="mr-2 text-xl">{v.icon}</span>
-                <span className="font-semibold text-slate-900">{v.label}</span>
-              </div>
-              <div className="text-right text-xs text-slate-500">
-                <div className="font-semibold text-slate-800">{v.price}</div>
-                <div>{v.duration}</div>
-              </div>
-            </div>
-            {v.highlight && (
-              <div className="mb-3 rounded-md bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-                {v.highlight}
-              </div>
-            )}
-            <ol className="flex-1 space-y-1.5 text-sm text-slate-700">
-              {v.steps.map((step, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="mt-0.5 h-4 w-4 flex-shrink-0 rounded-full bg-slate-100 text-center text-xs leading-4 font-medium text-slate-500">
-                    {i + 1}
-                  </span>
-                  {step}
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))}
+    <section id="cesta" className="atlas-section">
+      <div className="atlas-section-head">
+        <div className="atlas-kicker" style={{ marginBottom: 6 }}>Brno → Bovec · bez auta</div>
+        <h2 className="atlas-h2">Cesta tam a zpět</h2>
       </div>
 
-      <div className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="mb-3 font-semibold text-slate-800">Etapa Ljubljana → Bovec (vždy bus)</h3>
-        <div className="grid gap-3 sm:grid-cols-2 text-sm">
-          <div>
-            <div className="mb-1 font-medium text-slate-700">
-              Arriva ⭐ (letní sezónní linka, doporučeno)
+      <div className="atlas-panel">
+        {/* Texture panel + route pins */}
+        <div className="atlas-panel-inner atlas-texture" style={{ paddingBottom: 16 }}>
+          <div className="atlas-route">
+            <div className="atlas-route-pin">
+              <div className="atlas-route-pin-dot" />
+              <div className="atlas-route-pin-label">Brno</div>
             </div>
-            <p className="text-slate-600">
-              Ljubljana 07:30 → Bovec 11:18 · Zpět: Bovec 14:45 → Ljubljana 18:17. Přes Lago del
-              Predil, scenic. <strong>Jen Po–So, do 31.8.</strong>
-            </p>
+            <div className="atlas-route-line" />
+            <div className="atlas-route-pin">
+              <div className="atlas-route-pin-dot" />
+              <div className="atlas-route-pin-label">Ljubljana</div>
+            </div>
+            <div className="atlas-route-line" />
+            <div className="atlas-route-pin">
+              <div className="atlas-route-pin-dot atlas-route-pin-dot--full" />
+              <div className="atlas-route-pin-label" style={{ color: 'var(--emerald)' }}>Bovec</div>
+            </div>
           </div>
-          <div>
-            <div className="mb-1 font-medium text-slate-700">Nomago (záloha + neděle)</div>
-            <p className="text-slate-600">
-              Ljubljana AP → Bovec, ~2–2,5 h, ~15–25 €. Jede i v neděli. Rezervovat předem:{' '}
-              <a
-                href="https://www.nomago.si"
-                target="_blank"
-                rel="noreferrer"
-                className="text-sky-600 underline"
-              >
-                nomago.si
-              </a>
-            </p>
+          <div className="atlas-mono">
+            Bus/vlak → přestup Ljubljana → Arriva/Nomago → Bovec (~11–12 h celkem)
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          {[
-            ['FlixBus', 'https://www.flixbus.cz'],
-            ['RegioJet', 'https://www.regiojet.cz'],
-            ['ÖBB', 'https://www.oebb.at'],
-            ['ap-ljubljana.si', 'https://www.ap-ljubljana.si'],
-          ].map(([label, url]) => (
-            <a
-              key={label}
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sky-600 underline hover:text-sky-800"
+
+        <div className="atlas-divider" />
+
+        {/* Varianty */}
+        <div style={{ padding: '4px 20px 16px' }}>
+          {TRANSPORT_VARIANTS.map((v, idx) => (
+            <div
+              key={v.id}
+              style={{
+                padding: '14px 0',
+                borderTop: idx === 0 ? 'none' : '1px solid var(--hairline)',
+              }}
             >
-              {label}
-            </a>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 16 }}>{v.icon}</span>
+                    <span style={{ fontFamily: 'var(--f-body)', fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
+                      {v.label}
+                    </span>
+                    {v.highlight && (
+                      <span className="atlas-pill atlas-pill--emerald">{v.highlight}</span>
+                    )}
+                  </div>
+                  <div className="atlas-mono">{v.duration}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <span className="atlas-price" style={{ fontSize: 20 }}>{v.price}</span>
+                </div>
+              </div>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {v.steps.map((step, i) => (
+                  <li
+                    key={i}
+                    style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}
+                  >
+                    <span style={{ color: 'var(--emerald)', flexShrink: 0 }}>→</span>
+                    {step}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </div>
+
+        <div style={{ padding: '0 20px 20px' }}>
+          <div className="atlas-amber-block">
+            <div className="atlas-amber-block-title">⚠️ Arriva — NEDĚLE NEJEDE!</div>
+            <p style={{ fontSize: 13, color: 'var(--amber)', lineHeight: 1.5, margin: 0 }}>
+              Linka Arriva Ljubljana↔Bovec jede jen pondělí–sobota (do 31.8.).
+              Neplánuj příjezd ani odjezd přes Arrivu v neděli — Nomago jako záloha.
+              V Lublani nech <strong>90+ min</strong> na přípoj.
+            </p>
+          </div>
+        </div>
       </div>
-    </Section>
+    </section>
   );
 }

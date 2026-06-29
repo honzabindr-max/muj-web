@@ -15,14 +15,10 @@ const LINKS = [
 
 export function AnchorNav() {
   return (
-    <nav className="sticky top-0 z-30 -mx-4 overflow-x-auto bg-white/90 px-4 py-2 shadow-sm backdrop-blur-sm sm:-mx-6 sm:px-6">
-      <div className="flex gap-1 text-sm">
+    <nav className="atlas-nav" aria-label="Sekce průvodce">
+      <div className="atlas-nav-inner">
         {LINKS.map((link) => (
-          <a
-            key={link.href}
-            href={link.href}
-            className="flex-shrink-0 rounded-md px-3 py-1.5 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-          >
+          <a key={link.href} href={link.href} className="atlas-nav-link">
             {link.label}
           </a>
         ))}

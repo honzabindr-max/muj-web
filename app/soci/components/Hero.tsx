@@ -1,55 +1,129 @@
 import { MISSION } from '../data';
-import { Badge } from './Badge';
 
 export function Hero() {
   return (
-    <div
-      className="relative overflow-hidden rounded-2xl px-6 py-12 text-white sm:px-12 sm:py-16"
-      style={{ background: 'linear-gradient(135deg, #0c1a2e 0%, #0c4a6e 50%, #0369a1 100%)' }}
-    >
+    <div className="relative overflow-hidden" style={{ minHeight: '82vh' }}>
+      {/* Full-bleed hero image */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/soci/photos/soca-reka.jpg"
+        alt="Smaragdová řeka Soča"
+        className="absolute inset-0 w-full h-full object-cover object-center"
+        style={{ zIndex: 0 }}
+      />
+      {/* Gradient overlay — dark bottom */}
       <div
-        className="absolute inset-0 opacity-15"
+        className="absolute inset-0"
         style={{
-          backgroundImage:
-            'radial-gradient(circle at 75% 30%, #10b981 0%, transparent 45%), radial-gradient(circle at 15% 80%, #8b5cf6 0%, transparent 40%)',
+          zIndex: 1,
+          background:
+            'linear-gradient(180deg, rgba(8,18,15,0.30) 0%, rgba(8,18,15,0.08) 35%, rgba(8,18,15,0.82) 75%, rgba(8,18,15,0.95) 100%)',
         }}
       />
-      <div className="relative">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Badge variant="warning">Podmíněné GO</Badge>
-          <span className="text-sm text-sky-200">Potvrdit: Camp Bovec + rafting firma</span>
+
+      {/* Content */}
+      <div className="relative flex flex-col justify-between h-full" style={{ zIndex: 2, minHeight: '82vh', padding: '32px 0 36px' }}>
+        {/* Top — kicker + coords */}
+        <div className="atlas-column">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span className="atlas-kicker">CLASSIFIED · BOVEC 2026</span>
+            <span
+              style={{
+                fontFamily: 'var(--f-mono)',
+                fontSize: 10,
+                color: 'rgba(255,255,255,0.35)',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              46°20′N · 13°33′E
+            </span>
+          </div>
         </div>
 
-        <div className="mb-1 font-mono text-xs font-semibold tracking-[0.25em] text-sky-400 uppercase">
-          classified · bovec 2026
-        </div>
-        <h1 className="mb-1 text-4xl font-extrabold tracking-tight sm:text-5xl">
-          {MISSION.codename}
-        </h1>
-        <p className="mb-3 text-xl font-semibold text-sky-200">
-          táta + Sam (20) + Denny (16)
-        </p>
-        <p className="mb-6 max-w-xl text-lg text-sky-100">
-          Jedna základna. Denní výlety nalehko. Smaragdová řeka, vodopády, Vršič a rafting —
-          bez batohu na zádech.
-        </p>
-        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-sky-200">
-          {[
-            ['4.–11. 7. 2026', '#7dd3fc'],
-            ['7 dní', '#6ee7b7'],
-            ['bez auta', '#fde68a'],
-            ['rafting + canyoning', '#c4b5fd'],
-            ['Bovec basecamp', '#94a3b8'],
-          ].map(([label, color]) => (
-            <span key={label} className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
-              {label}
+        {/* Bottom — poster title */}
+        <div className="atlas-column">
+          {/* GO badge */}
+          <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className="atlas-pill atlas-pill--go">Podmíněné GO</span>
+            <span
+              style={{
+                fontFamily: 'var(--f-mono)',
+                fontSize: 10,
+                color: 'rgba(255,255,255,0.45)',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Potvrdit: Camp Bovec + rafting firma
             </span>
-          ))}
+          </div>
+
+          {/* Poster title */}
+          <h1 className="atlas-h1" style={{ marginBottom: 8 }}>
+            {MISSION.codename}
+          </h1>
+
+          {/* Crew */}
+          <p
+            style={{
+              fontFamily: 'var(--f-mono)',
+              fontSize: 14,
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.14em',
+              color: 'rgba(255,255,255,0.70)',
+              marginBottom: 20,
+            }}
+          >
+            TÁTA · SAM 20 · DENNY 16
+          </p>
+
+          {/* Meta chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {[
+              '4.–11. 7. 2026',
+              '7 dní',
+              'bez auta',
+              'rafting + canyoning',
+              'Bovec basecamp',
+            ].map((label) => (
+              <span
+                key={label}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  height: 24,
+                  padding: '0 10px',
+                  borderRadius: 99,
+                  border: '1px solid rgba(255,255,255,0.22)',
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 10,
+                  fontWeight: 500,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: 'rgba(255,255,255,0.65)',
+                }}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+
+          {/* Rafting Slovinsko note */}
+          <p
+            style={{
+              marginTop: 16,
+              fontFamily: 'var(--f-mono)',
+              fontSize: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              color: 'var(--emerald-br)',
+            }}
+          >
+            Rafting Slovinsko (Rupa 14) · Czech-speaking · permit v ceně
+          </p>
         </div>
-        <p className="mt-4 text-sm text-sky-400">
-          Rafting Slovinsko (Rupa 14) · Czech-speaking · permit v ceně
-        </p>
       </div>
     </div>
   );

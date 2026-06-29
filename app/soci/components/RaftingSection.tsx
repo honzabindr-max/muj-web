@@ -4,197 +4,152 @@ import { Section } from './Section';
 const ACTIVITIES = [
   {
     name: 'Rafting Standard',
-    desc: 'Boka/Srpenica→Trnovo, WW II–III, ~1,5 h, odjezd 8:45',
-    priceOs: '75 €',
-    priceSkupina: '225 €',
+    sub: 'Boka/Srpenica→Trnovo, WW II–III, ~1,5 h, odjezd 8:45',
+    price: '75',
+    priceTotal: '225',
     note: 'Permit v ceně!',
-    highlight: true,
+    featured: true,
   },
   {
     name: 'Rafting Extended',
-    desc: 'Delší úsek, více divoké vody',
-    priceOs: '81 €',
-    priceSkupina: '243 €',
+    sub: 'Delší úsek, více divoké vody',
+    price: '81',
+    priceTotal: '243',
     note: 'Permit v ceně!',
-    highlight: false,
+    featured: false,
   },
   {
     name: 'Canyoning Sušec',
-    desc: 'Začátečnické, skoky 4–7 m, tobogán 12 m, ~2–3 h, odjezd 8:30',
-    priceOs: '55 €',
-    priceSkupina: '165 €',
+    sub: 'Skoky 4–7 m, tobogán 12 m, ~2–3 h, odjezd 8:30',
+    price: '55',
+    priceTotal: '165',
     note: 'Denny (16) OK',
-    highlight: false,
+    featured: false,
   },
   {
     name: 'Zipline Kanin',
-    desc: 'Lanovka Kanin + zipline, výhledy na Julské Alpy',
-    priceOs: '79 €',
-    priceSkupina: '237 €',
+    sub: 'Lanovka Kanin + zipline, výhledy na Julské Alpy',
+    price: '79',
+    priceTotal: '237',
     note: 'Volitelné',
-    highlight: false,
+    featured: false,
   },
   {
     name: 'Ferrata set půjčení',
-    desc: 'Helma + via ferrata set + sedák (den)',
-    priceOs: '15 €',
-    priceSkupina: '45 €',
+    sub: 'Helma + via ferrata set + sedák (1 den)',
+    price: '15',
+    priceTotal: '45',
     note: 'Jen na pramen Soče',
-    highlight: false,
+    featured: false,
   },
 ];
 
 export function RaftingSection() {
   return (
-    <Section id="rafting" title="Rafting & aktivity — Rafting Slovinsko">
-      <div className="space-y-4">
-        <Callout variant="tip">
-          <strong>Rafting Slovinsko (raftingslovinsko.cz)</strong> — česky mluvící průvodci,
-          sídlí přímo v Camp Bovec (Rupa 14). <strong>Permit v ceně raftingu</strong> — neřešíš
-          gosoca.si portál ani TIC. Záloha −10 % při kombinaci rafting + canyoning.
-        </Callout>
-
-        {/* Tabulka aktivit */}
-        <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-          <div className="hidden sm:block">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Aktivita</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Popis</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-700">€/os</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-700">3 os.</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Poznámka</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {ACTIVITIES.map((a) => (
-                  <tr
-                    key={a.name}
-                    className={a.highlight ? 'bg-emerald-50' : 'hover:bg-slate-50/50'}
-                  >
-                    <td className="px-4 py-2.5 font-medium text-slate-900">
-                      {a.name}
-                      {a.highlight && (
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
-                          doporučeno
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-600">{a.desc}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-sky-700">
-                      {a.priceOs}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-slate-700">{a.priceSkupina}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-500">{a.note}</td>
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-emerald-200 bg-emerald-50 font-semibold">
-                  <td colSpan={2} className="px-4 py-3 text-slate-900">
-                    Rafting + Canyoning (se slevou −10 %)
-                  </td>
-                  <td className="px-4 py-3 text-right text-emerald-700">~117 €</td>
-                  <td className="px-4 py-3 text-right text-emerald-700">~351 €</td>
-                  <td className="px-4 py-3 text-xs text-slate-600">Permit v ceně raftingu</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobil */}
-          <div className="divide-y divide-slate-100 sm:hidden">
-            {ACTIVITIES.map((a) => (
-              <div
-                key={a.name}
-                className={`p-4 ${a.highlight ? 'bg-emerald-50' : 'bg-white'}`}
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="font-semibold text-slate-900">{a.name}</span>
-                  {a.highlight && (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
-                      doporučeno
-                    </span>
-                  )}
-                </div>
-                <p className="mb-2 text-xs text-slate-600">{a.desc}</p>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-bold text-sky-700">{a.priceOs}/os</span>
-                  <span className="text-slate-600">{a.priceSkupina} za 3 os.</span>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">{a.note}</p>
-              </div>
-            ))}
-            <div className="bg-emerald-50 p-4">
-              <div className="font-semibold text-emerald-800">Rafting + Canyoning (−10 %)</div>
-              <div className="text-sm text-emerald-700">~117 €/os · ~351 € za 3 os.</div>
-            </div>
+    <Section id="rafting" title="Rafting & aktivity" kicker="Rafting Slovinsko · Rupa 14">
+      {/* Feature card — Rafting Standard */}
+      <div className="atlas-feature-card">
+        <div className="atlas-feature-card-photo">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/soci/photos/rafting-soca.jpg" alt="Rafting na smaragdové Soče — WW II–III" loading="lazy" decoding="async" />
+          <div className="atlas-feature-card-photo-overlay" />
+          <div style={{ position: 'absolute', bottom: 12, left: 14, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span className="atlas-pill atlas-pill--solid-emerald">Permit v ceně</span>
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              foto: malenki, CC BY-SA 3.0, Wikimedia Commons
+            </span>
           </div>
         </div>
-
-        <Callout variant="warning">
-          <strong>Rezervuj 1–2 týdny předem.</strong> Písemně potvrdit:{' '}
-          <em>
-            „Confirm that the river permit for all 3 persons is included in the price of rafting."
-          </em>{' '}
-          Zpráva na{' '}
-          <a
-            href="https://www.raftingslovinsko.cz"
-            target="_blank"
-            rel="noreferrer"
-            className="underline font-medium"
-          >
-            raftingslovinsko.cz
-          </a>
-          .
-        </Callout>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 font-semibold text-slate-800">Co čekat na raftingu</h3>
-            <ul className="space-y-1.5 text-sm text-slate-700">
-              {[
-                'WW II–III, vhodné pro začátečníky i rodiny',
-                'Neopren, plovací vesta, helma — vše v ceně',
-                'Sam (20) i Denny (16) bez omezení',
-                'Smaragdová barva vody — celodenní zážitek',
-                'Průvodce v ceně, česky mluvící tým',
-                'Odjezd 8:45 — dopolední slot (odpoledne bouřky)',
-              ].map((item) => (
-                <li key={item} className="flex gap-2">
-                  <span className="text-sky-500 flex-shrink-0">~</span>
-                  {item}
-                </li>
-              ))}
-            </ul>
+        <div className="atlas-feature-card-body">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+            <div>
+              <div style={{ fontFamily: 'var(--f-body)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>
+                Rafting Standard — doporučeno
+              </div>
+              <div className="atlas-mono" style={{ marginTop: 3 }}>
+                Boka/Srpenica→Trnovo · WW II–III · ~1,5 h · odjezd 8:45
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span className="atlas-price" style={{ fontSize: 26 }}>75 €</span>
+              <div className="atlas-activity-price-unit">/ os</div>
+            </div>
           </div>
+          <Callout variant="tip" className="mt-3">
+            <strong>Rafting Slovinsko (raftingslovinsko.cz)</strong> — česky, permit v ceně,
+            sídlí přímo v Camp Bovec (Rupa 14). Rezervuj 1–2 týdny předem.
+          </Callout>
+        </div>
+      </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 font-semibold text-slate-800">Záloha — jiné firmy</h3>
-            <p className="mb-3 text-xs text-slate-500">
-              Pokud Rafting Slovinsko nestíhá / je plný. Permit 21 €/os extra (gosoca.si portál).
-            </p>
-            <ul className="space-y-1.5 text-sm">
-              {[
-                ['Hydromania', 'https://www.hydromania.si', '~55–60 €'],
-                ['Bovec Rafting Team', 'https://www.bovec-rafting-team.com', '~55–81 €'],
-                ['Soča Splash', 'https://www.socasplash.com', '~65–69 €'],
-              ].map(([name, url, price]) => (
-                <li key={name} className="flex items-center justify-between gap-2">
-                  <a
-                    href={url as string}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sky-600 underline hover:text-sky-800"
-                  >
-                    {name}
-                  </a>
-                  <span className="text-xs text-slate-500">{price}</span>
-                </li>
-              ))}
-            </ul>
+      {/* Ostatní aktivity */}
+      <div style={{ marginTop: 8 }}>
+        {ACTIVITIES.filter((a) => !a.featured).map((a) => (
+          <div key={a.name} className="atlas-activity-row">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="atlas-activity-name">{a.name}</div>
+              <div className="atlas-activity-sub">{a.sub}</div>
+              <div style={{ marginTop: 4 }}>
+                <span className="atlas-pill">{a.note}</span>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <span className="atlas-activity-price">{a.price} €</span>
+              <div className="atlas-activity-price-unit">/ os</div>
+              <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--faint)', marginTop: 2 }}>
+                {a.priceTotal} € · 3 os.
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* Combo sleva */}
+        <div
+          className="atlas-activity-row"
+          style={{ background: 'rgba(14,140,120,0.06)', borderRadius: 10, padding: '10px 12px', marginTop: 8, borderTop: 'none' }}
+        >
+          <div style={{ flex: 1 }}>
+            <div className="atlas-activity-name">Rafting + Canyoning</div>
+            <div className="atlas-activity-sub">Multi-sleva −10 % · permit v ceně raftingu</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <span className="atlas-activity-price">~117 €</span>
+            <div className="atlas-activity-price-unit">/ os</div>
           </div>
         </div>
       </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Callout variant="warning">
+          <strong>Rezervuj 1–2 týdny předem.</strong> Písemně potvrdit:{' '}
+          <em>„Confirm that the river permit for all 3 persons is included in the price."</em>{' '}
+          →{' '}
+          <a href="https://www.raftingslovinsko.cz" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', fontWeight: 600 }}>
+            raftingslovinsko.cz
+          </a>
+        </Callout>
+      </div>
+
+      {/* Záloha */}
+      <details style={{ marginTop: 14 }}>
+        <summary style={{ cursor: 'pointer', listStyle: 'none', userSelect: 'none' }}>
+          <span className="atlas-kicker" style={{ cursor: 'pointer' }}>▸ Záloha — jiné firmy (permit 21 €/os extra)</span>
+        </summary>
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {[
+            ['Hydromania', 'https://www.hydromania.si', '~55–60 €'],
+            ['Bovec Rafting Team', 'https://www.bovec-rafting-team.com', '~55–81 €'],
+            ['Soča Splash', 'https://www.socasplash.com', '~65–69 €'],
+          ].map(([name, url, price]) => (
+            <div key={name} className="atlas-activity-row" style={{ padding: '8px 0' }}>
+              <a href={url} target="_blank" rel="noreferrer" style={{ color: 'var(--emerald)', textDecoration: 'underline', fontSize: 13 }}>
+                {name}
+              </a>
+              <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--muted)', fontSize: 14 }}>{price}</span>
+            </div>
+          ))}
+        </div>
+      </details>
     </Section>
   );
 }
