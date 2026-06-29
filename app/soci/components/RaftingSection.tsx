@@ -1,77 +1,187 @@
 import { Callout } from './Callout';
 import { Section } from './Section';
 
+const ACTIVITIES = [
+  {
+    name: 'Rafting Standard',
+    desc: 'Boka/Srpenica→Trnovo, WW II–III, ~1,5 h, odjezd 8:45',
+    priceOs: '75 €',
+    priceSkupina: '225 €',
+    note: 'Permit v ceně!',
+    highlight: true,
+  },
+  {
+    name: 'Rafting Extended',
+    desc: 'Delší úsek, více divoké vody',
+    priceOs: '81 €',
+    priceSkupina: '243 €',
+    note: 'Permit v ceně!',
+    highlight: false,
+  },
+  {
+    name: 'Canyoning Sušec',
+    desc: 'Začátečnické, skoky 4–7 m, tobogán 12 m, ~2–3 h, odjezd 8:30',
+    priceOs: '55 €',
+    priceSkupina: '165 €',
+    note: 'Denny (16) OK',
+    highlight: false,
+  },
+  {
+    name: 'Zipline Kanin',
+    desc: 'Lanovka Kanin + zipline, výhledy na Julské Alpy',
+    priceOs: '79 €',
+    priceSkupina: '237 €',
+    note: 'Volitelné',
+    highlight: false,
+  },
+  {
+    name: 'Ferrata set půjčení',
+    desc: 'Helma + via ferrata set + sedák (den)',
+    priceOs: '15 €',
+    priceSkupina: '45 €',
+    note: 'Jen na pramen Soče',
+    highlight: false,
+  },
+];
+
 export function RaftingSection() {
   return (
-    <Section id="rafting" title="Rafting na Soče">
+    <Section id="rafting" title="Rafting & aktivity — Rafting Slovinsko">
       <div className="space-y-4">
-        <Callout variant="danger">
-          <strong>Permit 2026 — systém v přechodu.</strong> Aktuální cena{' '}
-          <strong>21 €/os</strong> (Bovec 6 € + Kobarid 15 €). Oba synové (16 i 20) platí{' '}
-          <strong>plnou cenu</strong> — sleva jen do ~14–15 let. Nakupuj max. 24 h předem
-          (nevratné). Portál:{' '}
+        <Callout variant="tip">
+          <strong>Rafting Slovinsko (raftingslovinsko.cz)</strong> — česky mluvící průvodci,
+          sídlí přímo v Camp Bovec (Rupa 14). <strong>Permit v ceně raftingu</strong> — neřešíš
+          gosoca.si portál ani TIC. Záloha −10 % při kombinaci rafting + canyoning.
+        </Callout>
+
+        {/* Tabulka aktivit */}
+        <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+          <div className="hidden sm:block">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Aktivita</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Popis</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700">€/os</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700">3 os.</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Poznámka</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {ACTIVITIES.map((a) => (
+                  <tr
+                    key={a.name}
+                    className={a.highlight ? 'bg-emerald-50' : 'hover:bg-slate-50/50'}
+                  >
+                    <td className="px-4 py-2.5 font-medium text-slate-900">
+                      {a.name}
+                      {a.highlight && (
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                          doporučeno
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600">{a.desc}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-sky-700">
+                      {a.priceOs}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-slate-700">{a.priceSkupina}</td>
+                    <td className="px-4 py-2.5 text-xs text-slate-500">{a.note}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-emerald-200 bg-emerald-50 font-semibold">
+                  <td colSpan={2} className="px-4 py-3 text-slate-900">
+                    Rafting + Canyoning (se slevou −10 %)
+                  </td>
+                  <td className="px-4 py-3 text-right text-emerald-700">~117 €</td>
+                  <td className="px-4 py-3 text-right text-emerald-700">~351 €</td>
+                  <td className="px-4 py-3 text-xs text-slate-600">Permit v ceně raftingu</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobil */}
+          <div className="divide-y divide-slate-100 sm:hidden">
+            {ACTIVITIES.map((a) => (
+              <div
+                key={a.name}
+                className={`p-4 ${a.highlight ? 'bg-emerald-50' : 'bg-white'}`}
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="font-semibold text-slate-900">{a.name}</span>
+                  {a.highlight && (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                      doporučeno
+                    </span>
+                  )}
+                </div>
+                <p className="mb-2 text-xs text-slate-600">{a.desc}</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-bold text-sky-700">{a.priceOs}/os</span>
+                  <span className="text-slate-600">{a.priceSkupina} za 3 os.</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{a.note}</p>
+              </div>
+            ))}
+            <div className="bg-emerald-50 p-4">
+              <div className="font-semibold text-emerald-800">Rafting + Canyoning (−10 %)</div>
+              <div className="text-sm text-emerald-700">~117 €/os · ~351 € za 3 os.</div>
+            </div>
+          </div>
+        </div>
+
+        <Callout variant="warning">
+          <strong>Rezervuj 1–2 týdny předem.</strong> Písemně potvrdit:{' '}
+          <em>
+            „Confirm that the river permit for all 3 persons is included in the price of rafting."
+          </em>{' '}
+          Zpráva na{' '}
           <a
-            href="https://gosoca.si/portal"
+            href="https://www.raftingslovinsko.cz"
             target="_blank"
             rel="noreferrer"
             className="underline font-medium"
           >
-            gosoca.si/portal
-          </a>{' '}
-          nebo TIC Bovec. Systém se 2026 mohl změnit na ~15 €/den — potvrdit na TIC.
-        </Callout>
-
-        <Callout variant="warning">
-          <strong>Rezervuj 1–2 týdny předem.</strong> Firmy se rychle zaplní v hlavní sezóně.
-          Nejlepší dotaz:{' '}
-          <em>„Is the river permit included, or do we buy it separately? Total final price for 3 persons
-          including permits, equipment and transfer?"</em>
+            raftingslovinsko.cz
+          </a>
+          .
         </Callout>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 font-semibold text-slate-800">Co čekat</h3>
+            <h3 className="mb-3 font-semibold text-slate-800">Co čekat na raftingu</h3>
             <ul className="space-y-1.5 text-sm text-slate-700">
-              <li className="flex gap-2">
-                <span className="text-sky-500">~</span>
-                WW II–III, vhodné pro začátečníky/rodiny
-              </li>
-              <li className="flex gap-2">
-                <span className="text-sky-500">~</span>
-                Firma dodá neopren, plovací vestu, helmu
-              </li>
-              <li className="flex gap-2">
-                <span className="text-sky-500">~</span>
-                Odjezdy typicky 8:45 / 12:45 / 16:00
-              </li>
-              <li className="flex gap-2">
-                <span className="text-sky-500">~</span>
-                16letý vhodný bez omezení (standardní úsek)
-              </li>
-              <li className="flex gap-2">
-                <span className="text-sky-500">~</span>
-                Smaragdová barva vody — celodenní zážitek
-              </li>
+              {[
+                'WW II–III, vhodné pro začátečníky i rodiny',
+                'Neopren, plovací vesta, helma — vše v ceně',
+                'Sam (20) i Denny (16) bez omezení',
+                'Smaragdová barva vody — celodenní zážitek',
+                'Průvodce v ceně, česky mluvící tým',
+                'Odjezd 8:45 — dopolední slot (odpoledne bouřky)',
+              ].map((item) => (
+                <li key={item} className="flex gap-2">
+                  <span className="text-sky-500 flex-shrink-0">~</span>
+                  {item}
+                </li>
+              ))}
             </ul>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 font-semibold text-slate-800">Firmy a orientační ceny</h3>
+            <h3 className="mb-3 font-semibold text-slate-800">Záloha — jiné firmy</h3>
             <p className="mb-3 text-xs text-slate-500">
-              Ceny orientační (rešerše si protiřečí o 15–20 €) — vždy ověřit finál na webu firmy.
-              Permit 21 €/os většinou extra.
+              Pokud Rafting Slovinsko nestíhá / je plný. Permit 21 €/os extra (gosoca.si portál).
             </p>
             <ul className="space-y-1.5 text-sm">
               {[
                 ['Hydromania', 'https://www.hydromania.si', '~55–60 €'],
                 ['Bovec Rafting Team', 'https://www.bovec-rafting-team.com', '~55–81 €'],
                 ['Soča Splash', 'https://www.socasplash.com', '~65–69 €'],
-                ['Alpi Center (CZ)', 'https://www.alpicenter.cz', '~60 €'],
-                ['Rafting Slovinsko (CZ)', 'https://www.raftingslovinsko.cz', '~60–75 €'],
               ].map(([name, url, price]) => (
                 <li key={name} className="flex items-center justify-between gap-2">
                   <a
-                    href={url}
+                    href={url as string}
                     target="_blank"
                     rel="noreferrer"
                     className="text-sky-600 underline hover:text-sky-800"
@@ -83,13 +193,6 @@ export function RaftingSection() {
               ))}
             </ul>
           </div>
-        </div>
-
-        <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="font-semibold mb-1">Canyoning jako alternativa nebo doplněk</div>
-          Canyoning Sušec (Srpenica) — ~60–65 €/os, začátečnické, 16letý OK.
-          Balíček rafting + canyoning ~110 €/os — zeptej se firmy.
-          Permit na canyoning <strong>není potřeba</strong>.
         </div>
       </div>
     </Section>

@@ -23,6 +23,8 @@ export interface DayPlan {
   day: number;
   title: string;
   tags: string[];
+  transport: string;
+  lastBus: string;
   description: string;
   tip?: string;
 }

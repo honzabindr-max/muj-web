@@ -1,13 +1,15 @@
 const LINKS = [
   { href: '#cesta', label: 'Cesta' },
   { href: '#mapa', label: 'Mapa' },
-  { href: '#plan', label: 'Plán 7 dní' },
+  { href: '#plan', label: 'Plán' },
   { href: '#rafting', label: 'Rafting' },
   { href: '#vylety', label: 'Výlety' },
   { href: '#ubytovani', label: 'Ubytování' },
   { href: '#rozpocet', label: 'Rozpočet' },
+  { href: '#logistika', label: 'Logistika' },
   { href: '#checklist', label: 'Rezervace' },
   { href: '#vybava', label: 'Výbava' },
+  { href: '#tipy', label: 'Tipy' },
   { href: '#kontakty', label: 'Kontakty' },
 ];
 
