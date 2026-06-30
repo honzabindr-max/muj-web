@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
 
 const POLL_MS = 5_000;
 const ACTIVE_THRESHOLD_S = 300; // 5 minut bez heartbeatu = idle
@@ -27,17 +26,30 @@ export function useSeznamCrawlState() {
   const [state, setState] = useState<SeznamCrawlState | null>(null);
 
   useEffect(() => {
-    async function fetch() {
-      const { data } = await supabase
-        .from("crawl_state")
-        .select("status, processed, queue_size, current_prefix, new_total, count_before, count_after, updated_at")
-        .eq("id", 1)
-        .single();
-      if (data) setState(data as SeznamCrawlState);
+    async function fetchState() {
+      try {
+        const res = await fetch("/api/suggest/seznam-status", { cache: "no-store" });
+        if (!res.ok) return;
+        const d = await res.json();
+        setState({
+          status: d.status ?? null,
+          processed: d.processed ?? 0,
+          queue_size: d.queue_size ?? 0,
+          // proxy doesn't return current_prefix yet — renders as hidden badge
+          current_prefix: d.current_prefix ?? null,
+          new_total: d.new_total ?? 0,
+          // proxy doesn't return count_before — default to count_after so delta shows "—"
+          count_before: d.count_before ?? d.count_after ?? 0,
+          count_after: d.count_after ?? 0,
+          updated_at: d.updated_at ?? null,
+        });
+      } catch {
+        // silent — retries on next poll
+      }
     }
 
-    fetch();
-    const id = setInterval(fetch, POLL_MS);
+    fetchState();
+    const id = setInterval(fetchState, POLL_MS);
     return () => clearInterval(id);
   }, []);
 

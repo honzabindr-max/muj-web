@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import type {
   DashboardRow,
   DashboardSummary,
@@ -153,23 +152,7 @@ export function useDashboardData() {
     }
   }, [updateRows]);
 
-  // Realtime: push-based updates when google_crawler_state changes
-  useEffect(() => {
-    const debounceRef = { timer: null as ReturnType<typeof setTimeout> | null };
-    const channel = supabase
-      .channel("crawler-state")
-      .on("postgres_changes", { event: "*", schema: "public", table: "google_crawler_state" }, () => {
-        if (debounceRef.timer) clearTimeout(debounceRef.timer);
-        debounceRef.timer = setTimeout(fetchAndMergeState, 200);
-      })
-      .subscribe();
-    return () => {
-      if (debounceRef.timer) clearTimeout(debounceRef.timer);
-      supabase.removeChannel(channel);
-    };
-  }, [fetchAndMergeState]);
-
-  // Fast poll fallback: catches Realtime gaps (3s)
+  // Fast poll: state updates (3s)
   useEffect(() => {
     const id = setInterval(fetchAndMergeState, FAST_POLL_MS);
     return () => clearInterval(id);

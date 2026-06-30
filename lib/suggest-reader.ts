@@ -1,22 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-
 const PROXY_BASE = "https://suggest.good-inventions.work";
 const FETCH_TIMEOUT_MS = 8_000;
-
-type ReadMode = "supabase" | "hetzner_proxy";
-
-function readMode(): ReadMode {
-  return process.env.SUGGEST_READ_SOURCE === "hetzner_proxy"
-    ? "hetzner_proxy"
-    : "supabase";
-}
-
-function supabaseServer() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
-}
 
 async function proxyFetch(path: string): Promise<unknown[]> {
   const token = process.env.SUGGEST_PROXY_TOKEN;
@@ -35,37 +18,18 @@ async function proxyFetch(path: string): Promise<unknown[]> {
   }
 }
 
-async function supabaseRpc<T>(rpc: string): Promise<T[]> {
-  const { data, error } = await supabaseServer().rpc(rpc);
-  if (error || !data) throw new Error(`supabase rpc ${rpc}: ${error?.message}`);
-  return data as T[];
-}
-
-async function withFallback<T>(proxyPath: string, rpc: string): Promise<T[]> {
-  if (readMode() === "supabase") return supabaseRpc<T>(rpc);
-
-  try {
-    return (await proxyFetch(proxyPath)) as T[];
-  } catch (err) {
-    // Fallback active — remove after S3 PASS + 7 days (see infra/evidence/read_cutover_report.md)
-    const msg = err instanceof Error ? err.message : "unknown";
-    console.warn(`[suggest-reader] proxy error, falling back to supabase: ${msg}`);
-    return supabaseRpc<T>(rpc);
-  }
-}
-
 export function readDashboardRows() {
-  return withFallback("/suggest/dashboard-rows", "get_dashboard_rows");
+  return proxyFetch("/suggest/dashboard-rows");
 }
 
 export function readDashboardState() {
-  return withFallback("/suggest/dashboard-state", "get_dashboard_state");
+  return proxyFetch("/suggest/dashboard-state");
 }
 
 export function readNewPhrases24h() {
-  return withFallback("/suggest/new-phrases-24h", "get_new_phrases_24h");
+  return proxyFetch("/suggest/new-phrases-24h");
 }
 
 export function readNewPhrasesToday() {
-  return withFallback("/suggest/new-phrases-today", "get_new_phrases_today");
+  return proxyFetch("/suggest/new-phrases-today");
 }

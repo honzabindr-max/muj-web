@@ -10,7 +10,6 @@
     "fetch:photos": "node scripts/fetch-soci-photos.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.100.0",
     "@tanstack/react-virtual": "^3.14.2",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
