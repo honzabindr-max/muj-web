@@ -137,7 +137,7 @@
     <div class="metrow">
       <span class="meta">👥 2 dospělí</span>
       <span class="meta">💶 kurz 25 Kč/€</span>
-      <span class="meta">🛏️ hotel 7 nocí, se snídaní/polopenzí, 8,0+</span>
+      <span class="meta">🛏️ hotel přesně na termín letu, se snídaní, 8,0+</span>
       <span class="meta">✈️ přímé i přes Bergamo (BGY)</span>
       <span class="meta">📡 živá data Kiwi.com + Booking.com</span>
     </div>
@@ -155,7 +155,7 @@
       <span><i class="dot fl"></i> podíl letenky</span>
       <span><i class="dot ho"></i> podíl ubytování</span>
     </div>
-    <p><b>Metodika:</b> ceny za 2 dospělé přímo z Kiwi.com (lety) a Booking.com (ubytování), přepočet kurzem 25 Kč/€, uváděno <b>za 1 osobu</b>. Hotely jsou zatím naceněny na jednotné okno <b>20.–27. 7. (7 nocí)</b> pro férové srovnání; <b>přesný termín ubytování na míru letu (přílet → odlet) najdeš v „Detailu letu" u každé karty</b> — přecenění hotelů přesně na tato data právě probíhá. Celková cena = nejrozumnější letenka + nejlevnější hotel 8,0+ se snídaní/polopenzí. Vlastní koupelna je u všech uvedených standard.</p>
+    <p><b>Metodika:</b> ceny za 2 dospělé přímo z Kiwi.com (lety) a Booking.com (ubytování), přepočet kurzem 25 Kč/€, uváděno <b>za 1 osobu</b>. Každý hotel je <b>naceněný přesně na termín svého letu (přílet → odlet)</b> — počet nocí se proto mezi destinacemi liší (5–9). U <b>řeckých ostrovů</b> je základ přímý charter Smartwings (aby datumy letu i hotelu seděly); levnější, ale rizikovější varianta přes Bergamo je uvedená jako alternativa. Celková cena = letenka + nejlevnější hotel 8,0+ se snídaní na daný termín. Vlastní koupelna je u všech uvedených standard.</p>
     <p><b>Rizika u letenek</b> jsou vyznačena odznaky: <i>self‑transfer</i> (samostatné jízdenky, nechráněná návaznost), <i>změna letišť Milán</i> (přesun Bergamo↔Malpensa), <i>noční přílet/odlet</i>, <i>přenocování na letišti</i>. Přímé lety z Brna jezdí jen jako charter Smartwings na řecké ostrovy.</p>
     <p><b>Upozornění:</b> letenkové i hotelové ceny jsou dynamické a mění se v čase — před nákupem vždy ověř aktuální cenu, zda jde o jednu rezervaci nebo self‑transfer, konkrétní sazbu se stravou a storno podmínky na odkazu. Auto se na všech ostrovech i v Puglii/na Sicílii/Sardinii vyplatí — cena půjčovny není v balíčku.</p>
     <p id="stamp"></p>
@@ -164,130 +164,129 @@
 
 <script>
 const RATE = 12.5; // per person CZK = totalEUR(2 pax) * 12.5
+// Hotely naceněny PŘESNĚ na termín letu (přílet → odlet). U řeckých ostrovů je základ přímý let Smartwings (aby seděly datumy), levnější přes-hub varianta je uvedená jako alternativa.
 const DATA = [
   { id:'cta', dest:'Catania', region:'Sicílie – východ (Etna, Taormina, Syrakusy)', country:'Itálie', flag:'🇮🇹',
-    flightEUR:364, hotelEUR:629.24, nights:8, term:'21.→30. 7.', flightMin:0, direct:false,
+    flightEUR:364, hotelEUR:715.13, nights:8, term:'22.→30. 7.', flightMin:0, direct:false,
     via:'přes Bergamo + Vídeň', flightSummary:'BRQ→BGY→VIE→CTA tam · CTA→MXP→BGY→BRQ zpět (Ryanair/Wizz).',
     flightUrl:'https://kiwi.com/u/xkbrt8f',
     risks:[['přes BGY','warn'],['2 přestupy tam','warn'],['změna letišť Milán','bad'],['self-transfer','warn']],
-    hotel:'RossoCorallo B&B', hRating:8.1, hStars:4, hMeal:'snídaně', hLoc:'centrum Catanie', hUrl:'https://www.booking.com/hotel/it/rossocorallo-b.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:null, note:'Nejnižší celková cena. Hotel je ve městě (ne na pláži) — auto nutné k plážím i Etně.' },
+    hotel:'RossoCorallo B&B', hRating:8.1, hStars:4, hMeal:'snídaně', hLoc:'centrum Catanie', hUrl:'https://www.booking.com/hotel/it/rossocorallo-b.html?aid=8132308&checkin=2026-07-22&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Nejnižší celková cena. Hotel na 8 nocí (přílet 22.7. ráno). Ve městě — auto nutné k plážím i Etně.' },
 
   { id:'her', dest:'Kréta', region:'Heraklion (východ ostrova)', country:'Řecko', flag:'🇬🇷',
-    flightEUR:634, hotelEUR:497, nights:6, term:'19.→25. 7.', flightMin:150, direct:true, directEUR:715, directTerm:'23.→30. 7. (7 nocí)', directUrl:'https://kiwi.com/u/d2nq6q',
-    directSummary:'Přímý Smartwings QS1400/QS1401, denní časy (11:20 / 15:40), 2h30 — bez rizika.',
-    via:'nejlevněji přes Bergamo', flightSummary:'Nejlevněji: BRQ→BGY + self-transfer MXP→HER (easyJet), zpět HER→BRQ přímo QS. 634 €.',
-    flightUrl:'https://kiwi.com/u/srpnn5',
-    risks:[['přes BGY (nejlevněji)','warn'],['self-transfer','warn'],['změna letišť Milán','bad'],['noční přílet','warn']],
-    hotel:'ARTEMIS beach studios', hRating:8.5, hStars:3, hMeal:'snídaně', hLoc:'Kalamaki u Heraklionu', hUrl:'https://www.booking.com/hotel/gr/babis-studios.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:694.26, note:'Nejlepší volba pro klid: přímý let ve dne (za 715 €) + levné ubytování. Skvělé na auto.' },
+    flightEUR:715, hotelEUR:462, nights:7, term:'23.→30. 7.', flightMin:150, direct:true,
+    via:'přímý Smartwings', flightSummary:'Přímý Smartwings QS1400/QS1401, denní časy (11:20 / 15:40), 2h30 — jedna rezervace, bez rizika.',
+    flightUrl:'https://kiwi.com/u/d2nq6q',
+    risks:[['přímý ✅','ok'],['jedna rezervace','ok'],['denní časy','ok']],
+    altNote:'Levněji přes Bergamo od 634 €/2 os (self-transfer MXP, změna letišť Milán, noční přílet, 6 nocí 19.–25. 7.). <a href="https://kiwi.com/u/srpnn5" target="_blank" rel="noopener">otevřít&nbsp;↗</a>',
+    hotel:'ARTEMIS beach studios', hRating:8.5, hStars:3, hMeal:'snídaně', hLoc:'Kalamaki u Heraklionu', hUrl:'https://www.booking.com/hotel/gr/babis-studios.html?aid=8132308&checkin=2026-07-23&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Nejlepší klid/cena: přímý let ve dne + nejlevnější hotel v katalogu. Skvělé na auto.' },
 
   { id:'cag', dest:'Cagliari', region:'jižní Sardinie (Villasimius, Chia, Pula)', country:'Itálie', flag:'🇮🇹',
-    flightEUR:415, hotelEUR:790.76, nights:6, term:'21.→28. 7.', flightMin:150, direct:false,
+    flightEUR:415, hotelEUR:787.32, nights:6, term:'22.→28. 7.', flightMin:150, direct:false,
     via:'přes Bergamo', flightSummary:'BRQ→BGY→CAG a zpět, jen přes Bergamo (žádná změna letišť), denní přílety.',
     flightUrl:'https://kiwi.com/u/n2yt2z',
     risks:[['přes BGY','warn'],['self-transfer','warn'],['bez nočního letu','ok'],['bez změny letišť','ok']],
-    hotel:'Note Sulla Piazza', hRating:8.4, hStars:3, hMeal:'snídaně', hLoc:'centrum Cagliari', hUrl:'https://www.booking.com/hotel/it/note-sulla-piazza.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
+    hotel:'Eva Luxury Bastione', hRating:8.2, hStars:4, hMeal:'snídaně', hLoc:'centrum Cagliari (Bastione)', hUrl:'https://www.booking.com/hotel/it/myrtus-guest-house-cagliari-cagliari.html?aid=8132308&checkin=2026-07-22&checkout=2026-07-28&no_rooms=1&group_adults=2&selected_currency=EUR',
     hbEUR:null, note:'Nejlepší poměr cena/logistika bez nočních letů. Jižní Sardinie = špičkové pláže, auto ideální.' },
 
   { id:'pmo', dest:'Palermo', region:'západní Sicílie (Cefalù, Mondello, San Vito)', country:'Itálie', flag:'🇮🇹',
-    flightEUR:547, hotelEUR:707, nights:6, term:'23.→30. 7.', flightMin:150, direct:false,
+    flightEUR:547, hotelEUR:676.10, nights:6, term:'24.→30. 7.', flightMin:150, direct:false,
     via:'přes Bergamo', flightSummary:'BRQ→BGY→PMO a zpět, jen přes Bergamo (žádná změna letišť).',
     flightUrl:'https://kiwi.com/u/m92x5h',
     risks:[['přes BGY','warn'],['noční čekání ~7h v BGY','warn'],['noční přílet','warn'],['bez změny letišť','ok']],
-    hotel:'BB 10 Serpotta – Palazzo Riolo', hRating:8.4, hStars:4, hMeal:'snídaně', hLoc:'centrum Palerma', hUrl:'https://www.booking.com/hotel/it/bb-10-serpotta.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1057, note:'Levné centrum + pláže v okolí (Mondello, Cefalù). Auto se hodí na výlety po pobřeží.' },
+    hotel:'La terrazza del Sole B&B', hRating:9.1, hStars:4, hMeal:'snídaně', hLoc:'centrum Palerma (Borgo Vecchio)', hUrl:'https://www.booking.com/hotel/it/la-terrazza-del-sole-b-amp-b.html?aid=8132308&checkin=2026-07-24&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Skvěle hodnocený levný hotel (9,1) v centru. Pláže v okolí (Mondello, Cefalù) — auto na výlety.' },
 
   { id:'cfu', dest:'Korfu', region:'Iónský ostrov (Paleokastritsa, sever i jih)', country:'Řecko', flag:'🇬🇷',
-    flightEUR:530, hotelEUR:824.81, nights:7, term:'23.→30. 7.', flightMin:115, direct:true, directEUR:749, directTerm:'23.→30. 7. (7 nocí)', directUrl:'https://kiwi.com/u/rjpqwu',
-    directSummary:'Přímý Smartwings QS1416/QS1417, jen ~2h, jedna rezervace — nejnižší riziko.',
-    via:'přímo tam, přes Milán zpět', flightSummary:'Nejlevněji: tam přímo QS, zpět přes Milán (self-transfer). 530 €. Nejlevnější vůbec 370 € (obojí přes Milán, rizikové).',
-    flightUrl:'https://kiwi.com/u/uysvp6w',
-    risks:[['tam přímo','ok'],['zpět přes Milán','warn'],['změna letišť Milán','bad'],['noční přílet','warn']],
-    hotel:'Hotel Perama', hRating:8.3, hStars:2, hMeal:'snídaně', hLoc:'Perama, jižně od Korfu města', hUrl:'https://www.booking.com/hotel/gr/perama-hotel.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1082.82, note:'Existuje přímý let (za 749 €) — komfortní. Zelený ostrov ideální na auto.' },
+    flightEUR:749, hotelEUR:915, nights:7, term:'23.→30. 7.', flightMin:115, direct:true,
+    via:'přímý Smartwings', flightSummary:'Přímý Smartwings QS1416/QS1417, jen ~2h, jedna rezervace — nejnižší riziko. Večerní přílet (22:10).',
+    flightUrl:'https://kiwi.com/u/rjpqwu',
+    risks:[['přímý ✅','ok'],['jedna rezervace','ok'],['večerní přílet 22:10','warn']],
+    altNote:'Zpáteční přes Milán od 530 €/2 os (změna letišť MXP↔BGY, ~11,5 h čekání). <a href="https://kiwi.com/u/uysvp6w" target="_blank" rel="noopener">otevřít&nbsp;↗</a>',
+    hotel:'BOHOTEL Eleonas', hRating:8.7, hStars:4, hMeal:'snídaně', hLoc:'Boukari, jih Korfu', hUrl:'https://www.booking.com/hotel/gr/eleonas-bohotel-lefkimmi.html?aid=8132308&checkin=2026-07-23&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Přímý let (2h) + dobře hodnocený hotel (8,7). Zelený ostrov ideální na auto.' },
 
   { id:'bri', dest:'Bari / Puglie', region:'pata italské boty (Polignano, Alberobello)', country:'Itálie', flag:'🇮🇹',
-    flightEUR:541, hotelEUR:798, nights:6, term:'23.→30. 7.', flightMin:150, direct:false,
+    flightEUR:541, hotelEUR:684, nights:6, term:'24.→30. 7.', flightMin:150, direct:false,
     via:'přes Bergamo', flightSummary:'BRQ→BGY→BRI a zpět, oba přestupy Ryanair přes Bergamo (nižší riziko).',
     flightUrl:'https://kiwi.com/u/8ryzs5',
     risks:[['přes BGY','warn'],['stejný dopravce','ok'],['noční přílet','warn'],['bez změny letišť','ok']],
-    hotel:'Maison Tabou', hRating:9.2, hStars:3, hMeal:'snídaně', hLoc:'Bari, ~1,5 km od moře', hUrl:'https://www.booking.com/hotel/it/maison-tabou.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:null, note:'Skvěle hodnocený levný hotel (9,2). Puglie = trulli, bílá městečka, pobřeží — auto povinnost.' },
-
-  { id:'zth', dest:'Zakynthos', region:'Iónský ostrov (Navagio, Modré jeskyně)', country:'Řecko', flag:'🇬🇷',
-    flightEUR:619, hotelEUR:777.9, nights:6, term:'23.→30. 7.', flightMin:135, direct:true, directEUR:825, directTerm:'17.→24. 7. (7 nocí)', directUrl:'https://kiwi.com/u/9pg2sj',
-    directSummary:'Přímý Smartwings QS1420/QS1421 (brzy ráno 04:00 / 08:05), jen ve vybrané dny.',
-    via:'přes Bergamo', flightSummary:'Nejlevněji: tam BRQ→BGY→ZTH, zpět ZTH→Bari→BGY→BRQ (jen přes Bergamo). 619 €.',
-    flightUrl:'https://kiwi.com/u/drrrq8',
-    risks:[['přes BGY','warn'],['self-transfer','warn'],['2 přestupy zpět','warn'],['noční přílet','warn']],
-    hotel:'Hotel Tassia', hRating:9.1, hStars:4, hMeal:'polopenze', hLoc:'Laganas (Agrilia)', hUrl:'https://www.booking.com/hotel/gr/tassia-studios.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:777.9, note:'Hotel rovnou s POLOPENZÍ (9,1) za skvělou cenu. Přímý let existuje (825 €).' },
-
-  { id:'rho', dest:'Rhodos', region:'Dodekanéský ostrov (Lindos, staré město)', country:'Řecko', flag:'🇬🇷',
-    flightEUR:493, hotelEUR:1050, nights:6, term:'17.→23. 7.', flightMin:155, direct:true, directEUR:749, directTerm:'19.→26. 7. (7 nocí)', directUrl:'https://kiwi.com/u/rhyg2g',
-    directSummary:'Přímý Smartwings QS1414/QS1415 (~2h35), návrat v noci (přílet Brno 01:35).',
-    via:'Londýn tam / Bergamo zpět', flightSummary:'Nejlevněji: BRQ→STN→RHO tam, RHO→BGY→BRQ zpět (Ryanair). 493 €. Krátký přestup STN 2h25.',
-    flightUrl:'https://kiwi.com/u/9gsgpv',
-    risks:[['přes Londýn/BGY','warn'],['self-transfer','warn'],['krátký přestup STN','bad'],['noční přílet','warn']],
-    hotel:'Ayit Hotel', hRating:8.1, hStars:4, hMeal:'snídaně', hLoc:'Theologos (u letiště)', hUrl:'https://www.booking.com/hotel/gr/ayit.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1750, note:'Rhodos má dražší hotely. Alternativa přímo na pláži: Zoes Hotel Faliraki (8,9) ~1255 €.' },
-
-  { id:'kgs', dest:'Kos', region:'Dodekanéský ostrov (Kefalos, Mastichari)', country:'Řecko', flag:'🇬🇷',
-    flightEUR:622, hotelEUR:945, nights:7, term:'17.→24. 7.', flightMin:145, direct:true, directEUR:622, directTerm:'17.→24. 7. (7 nocí)', directUrl:'https://kiwi.com/u/f7gw2c4',
-    directSummary:'Přímý Smartwings QS1424/QS1425 — jediné riziko noční přílet do Brna 23:50. Jinak čisté.',
-    via:'přímý', flightSummary:'Přímý Smartwings oběma směry, jedna rezervace, žádný přestup.',
-    flightUrl:'https://kiwi.com/u/f7gw2c4',
-    risks:[['přímý ✅','ok'],['jedna rezervace','ok'],['noční přílet','warn']],
-    hotel:'Stella Maris', hRating:8.2, hStars:3, hMeal:'snídaně', hLoc:'Marmari, Kos', hUrl:'https://www.booking.com/hotel/gr/stella-maris-kos.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1050, note:'Nejčistší přímý let z celého katalogu (0 přestupů). Hezčí: Mastichari Bay (8,9) ~1155 €.' },
-
-  { id:'ibz', dest:'Ibiza', region:'Baleáry (pláže, západy slunce)', country:'Španělsko', flag:'🇪🇸',
-    flightEUR:329, hotelEUR:1360.23, nights:6, term:'24.→30. 7.', flightMin:0, direct:false,
-    via:'Londýn tam / Bergamo zpět', flightSummary:'BRQ→STN→IBZ tam, IBZ→BGY→BRQ zpět. 329 €. Levná letenka.',
-    flightUrl:'https://kiwi.com/u/xsqqm6',
-    risks:[['přes Londýn/BGY','warn'],['self-transfer','warn'],['noční přílet','warn']],
-    hotel:'BLUESEA Salina', hRating:8.0, hStars:4, hMeal:'snídaně', hLoc:'Es Caná, Ibiza', hUrl:'https://www.booking.com/hotel/es/bluesea-salina-ex-md-atlantic.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1847.8, note:'Levná letenka, ale hotely v sezóně drahé → celek nahoře. Party destinace.' },
-
-  { id:'nap', dest:'Neapol / Sorrento', region:'Amalfi, Vesuv, Capri, Pompeje', country:'Itálie', flag:'🇮🇹',
-    flightEUR:367, hotelEUR:1577, nights:6, term:'24.→30. 7.', flightMin:0, direct:false,
-    via:'přes Bergamo', flightSummary:'BRQ→BGY→NAP a zpět, jen přes Bergamo. 367 €. Levná letenka.',
-    flightUrl:'https://kiwi.com/u/55t7ssg',
-    risks:[['přes BGY','warn'],['self-transfer','warn'],['noční přílet/odlet','warn']],
-    hotel:'Johanna Park Hotel', hRating:8.3, hStars:4, hMeal:'snídaně', hLoc:'Sorrento', hUrl:'https://www.booking.com/hotel/it/johannaparkhotelsorrento.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:2016, note:'Ne ostrov, ale slavné pobřeží. Hotely na Amalfi drahé. Auto na Amalfi = úzké silnice, spíš loď/bus.' },
+    hotel:'Maison Tabou', hRating:9.2, hStars:3, hMeal:'snídaně', hLoc:'Bari, ~1,5 km od moře', hUrl:'https://www.booking.com/hotel/it/maison-tabou.html?aid=8132308&checkin=2026-07-24&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Nejlépe hodnocený levný hotel katalogu (9,2). Puglie = trulli, bílá městečka — auto povinnost.' },
 
   { id:'olb', dest:'Olbia', region:'severní Sardinie / Costa Smeralda', country:'Itálie', flag:'🇮🇹',
-    flightEUR:440, hotelEUR:1676.28, nights:5, term:'18.→23. 7.', flightMin:0, direct:false,
+    flightEUR:440, hotelEUR:805, nights:5, term:'18.→23. 7.', flightMin:0, direct:false,
     via:'přes Bergamo', flightSummary:'BRQ→BGY→OLB a zpět, oba přestupy na stejném letišti BGY.',
     flightUrl:'https://kiwi.com/u/y35mz8',
     risks:[['přes BGY','warn'],['self-transfer','warn'],['bez změny letišť','ok'],['noční přílet','warn']],
-    hotel:'Hotiday Olbia Porto', hRating:8.8, hStars:4, hMeal:'snídaně', hLoc:'centrum Olbie', hUrl:'https://www.booking.com/hotel/it/hotiday-olbia.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:2359, note:'Costa Smeralda je v sezóně prémiová → hotely drahé. Krásné pláže, ale za peníze.' },
+    hotel:'Guest House Li Minnanni', hRating:8.4, hStars:3, hMeal:'snídaně', hLoc:'centrum Olbie', hUrl:'https://www.booking.com/hotel/it/b-amp-b-li-minnanni.html?aid=8132308&checkin=2026-07-18&checkout=2026-07-23&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Costa Smeralda je v sezóně prémiová — tady jen 5 nocí (18.–23. 7.) sráží celek. Krásné pláže.' },
 
-  { id:'pmi', dest:'Mallorca', region:'Baleáry (Tramuntana, Palma, zátoky)', country:'Španělsko', flag:'🇪🇸',
-    flightEUR:245, hotelEUR:1887.6, nights:9, term:'21.→30. 7.', flightMin:0, direct:false,
-    via:'přes Bergamo', flightSummary:'BRQ→BGY→PMI a zpět, stejný dopravce Ryanair, žádná změna letišť. 245 € (nejlevnější letenka!).',
-    flightUrl:'https://kiwi.com/u/bqk6x5',
-    risks:[['přes BGY','warn'],['stejný dopravce','ok'],['bez změny letišť','ok'],['noční přílet','warn']],
-    hotel:'BQ Belvedere Hotel', hRating:8.4, hStars:4, hMeal:'polopenze', hLoc:'San Agustín, Palma', hUrl:'https://www.booking.com/hotel/es/belvedere.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1887.6, note:'Ukázka pointy: nejlevnější letenka (245 €), ale nejdražší hotely → celkově dole. Největší ostrov na auto.' },
+  { id:'nap', dest:'Neapol / Sorrento', region:'Amalfi, Vesuv, Capri, Pompeje', country:'Itálie', flag:'🇮🇹',
+    flightEUR:367, hotelEUR:1056, nights:6, term:'24.→30. 7.', flightMin:0, direct:false,
+    via:'přes Bergamo', flightSummary:'BRQ→BGY→NAP a zpět, jen přes Bergamo. 367 €. Levná letenka.',
+    flightUrl:'https://kiwi.com/u/55t7ssg',
+    risks:[['přes BGY','warn'],['self-transfer','warn'],['noční přílet/odlet','warn']],
+    hotel:'B&B Degli Aranci', hRating:8.1, hStars:4, hMeal:'snídaně', hLoc:'centrum Sorrenta', hUrl:'https://www.booking.com/hotel/it/beb-degli-aranci-sorrento.html?aid=8132308&checkin=2026-07-24&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Ne ostrov, ale slavné pobřeží. Hotel přímo v centru Sorrenta. Na Amalfi spíš loď/bus než auto.' },
+
+  { id:'kgs', dest:'Kos', region:'Dodekanéský ostrov (Kefalos, Mastichari)', country:'Řecko', flag:'🇬🇷',
+    flightEUR:622, hotelEUR:1140, nights:7, term:'17.→24. 7.', flightMin:145, direct:true,
+    via:'přímý Smartwings', flightSummary:'Přímý Smartwings QS1424/QS1425 oběma směry, jedna rezervace, žádný přestup — nejčistší let v katalogu.',
+    flightUrl:'https://kiwi.com/u/f7gw2c4',
+    risks:[['přímý ✅','ok'],['jedna rezervace','ok'],['noční přílet do Brna 23:50','warn']],
+    hotel:'Mastichari Bay Hotel', hRating:8.9, hStars:4, hMeal:'snídaně', hLoc:'Mastichari, Kos', hUrl:'https://www.booking.com/hotel/gr/mastichari-bay.html?aid=8132308&checkin=2026-07-17&checkout=2026-07-24&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Nejčistší přímý let z celého katalogu (0 přestupů) + kvalitní hotel (8,9) přímo v Mastichari.' },
+
+  { id:'zth', dest:'Zakynthos', region:'Iónský ostrov (Navagio, Modré jeskyně)', country:'Řecko', flag:'🇬🇷',
+    flightEUR:825, hotelEUR:1027.82, nights:7, term:'17.→24. 7.', flightMin:135, direct:true,
+    via:'přímý Smartwings', flightSummary:'Přímý Smartwings QS1420/QS1421, jedna rezervace, brzy ráno (odlet 04:00 / přílet zpět 09:25).',
+    flightUrl:'https://kiwi.com/u/9pg2sj',
+    risks:[['přímý ✅','ok'],['jedna rezervace','ok'],['brzký ranní odlet 04:00','warn']],
+    altNote:'Levněji přes Bergamo od 619 €/2 os (2 přestupy zpět, 6 nocí 23.–30. 7.). <a href="https://kiwi.com/u/drrrq8" target="_blank" rel="noopener">otevřít&nbsp;↗</a>',
+    hotel:'Esperia Hotel', hRating:8.5, hStars:3, hMeal:'snídaně', hLoc:'Laganas (Kipseli)', hUrl:'https://www.booking.com/hotel/gr/esperia-laganas.html?aid=8132308&checkin=2026-07-17&checkout=2026-07-24&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Přímý let bez přestupů + solidní hotel (8,5) v Laganas. Dražší letenka žene celek nahoru.' },
+
+  { id:'ibz', dest:'Ibiza', region:'Baleáry (pláže, západy slunce)', country:'Španělsko', flag:'🇪🇸',
+    flightEUR:329, hotelEUR:1621.62, nights:6, term:'24.→30. 7.', flightMin:0, direct:false,
+    via:'Londýn tam / Bergamo zpět', flightSummary:'BRQ→STN→IBZ tam, IBZ→BGY→BRQ zpět. 329 €. Levná letenka.',
+    flightUrl:'https://kiwi.com/u/xsqqm6',
+    risks:[['přes Londýn/BGY','warn'],['self-transfer','warn'],['noční přílet','warn']],
+    hotel:'Hotel Tres Torres', hRating:8.9, hStars:4, hMeal:'snídaně', hLoc:'Ibiza', hUrl:'https://www.booking.com/hotel/es/ecohotelestrestorres.html?aid=8132308&checkin=2026-07-24&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Levná letenka, ale hotely v sezóně drahé → celek nahoře. Party destinace.' },
 
   { id:'mah', dest:'Menorca', region:'Baleáry (klidnější, tyrkysové zátoky)', country:'Španělsko', flag:'🇪🇸',
-    flightEUR:387, hotelEUR:1812.2, nights:6, term:'21.→28. 7.', flightMin:0, direct:false,
+    flightEUR:387, hotelEUR:1576.02, nights:6, term:'22.→28. 7.', flightMin:0, direct:false,
     via:'Londýn tam / Bergamo zpět', flightSummary:'BRQ→STN (přenocování na letišti) →MAH tam, MAH→BGY→BRQ zpět.',
     flightUrl:'https://kiwi.com/u/2zkzmj',
     risks:[['přes Londýn/BGY','warn'],['přenocování na letišti STN','bad'],['self-transfer','warn']],
-    hotel:'Alua Illa de Menorca', hRating:8.6, hStars:4, hMeal:'polopenze', hLoc:"S'Algar (JV pobřeží)", hUrl:'https://www.booking.com/hotel/es/san-luis.html?aid=8132308&checkin=2026-07-20&checkout=2026-07-27&group_adults=2&selected_currency=EUR',
-    hbEUR:1812.2, note:'Nejklidnější Baleár, ale drahé hotely + přenocování na letišti tam. Celkově nejdráž.' },
+    hotel:'Valentin Son Bou', hRating:8.7, hStars:4, hMeal:'snídaně', hLoc:'Son Bou (JV pobřeží)', hUrl:'https://www.booking.com/hotel/es/valentin-son-bou.html?aid=8132308&checkin=2026-07-22&checkout=2026-07-28&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Nejklidnější Baleár, ale drahé hotely + přenocování na letišti tam. Resort přímo u pláže Son Bou.' },
+
+  { id:'rho', dest:'Rhodos', region:'Dodekanéský ostrov (Lindos, staré město)', country:'Řecko', flag:'🇬🇷',
+    flightEUR:749, hotelEUR:1309.84, nights:7, term:'19.→26. 7.', flightMin:155, direct:true,
+    via:'přímý Smartwings', flightSummary:'Přímý Smartwings QS1414/QS1415 (~2h35), jedna rezervace. Návrat v noci (přílet Brno 01:35).',
+    flightUrl:'https://kiwi.com/u/rhyg2g',
+    risks:[['přímý ✅','ok'],['jedna rezervace','ok'],['noční návrat (Brno 01:35)','warn']],
+    altNote:'Levněji přes Londýn/Bergamo od 493 €/2 os (krátký přestup STN 2h25, 6 nocí 17.–23. 7.). <a href="https://kiwi.com/u/9gsgpv" target="_blank" rel="noopener">otevřít&nbsp;↗</a>',
+    hotel:'Rhodos Horizon Marina – Adults Only', hRating:8.3, hStars:4, hMeal:'snídaně', hLoc:'Faliraki', hUrl:'https://www.booking.com/hotel/gr/rhodos-horizon-marina.html?aid=8132308&checkin=2026-07-19&checkout=2026-07-26&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Přímý let + hotel jen pro dospělé ve Faliraki. Rhodos má obecně dražší hotely → celek vysoko.' },
+
+  { id:'pmi', dest:'Mallorca', region:'Baleáry (Tramuntana, Palma, zátoky)', country:'Španělsko', flag:'🇪🇸',
+    flightEUR:245, hotelEUR:2147.65, nights:9, term:'21.→30. 7.', flightMin:0, direct:false,
+    via:'přes Bergamo', flightSummary:'BRQ→BGY→PMI a zpět, stejný dopravce Ryanair, žádná změna letišť. 245 € (nejlevnější letenka!).',
+    flightUrl:'https://kiwi.com/u/bqk6x5',
+    risks:[['přes BGY','warn'],['stejný dopravce','ok'],['bez změny letišť','ok'],['noční přílet','warn']],
+    hotel:'Apuntadores 8', hRating:8.5, hStars:4, hMeal:'snídaně', hLoc:'centrum Palma de Mallorca', hUrl:'https://www.booking.com/hotel/es/hostal-apuntadores.html?aid=8132308&checkin=2026-07-21&checkout=2026-07-30&no_rooms=1&group_adults=2&selected_currency=EUR',
+    hbEUR:null, note:'Ukázka pointy: nejlevnější letenka (245 €), ale 9 nocí drahého hotelu → celkově dole. Největší ostrov na auto.' },
 ];
 
 DATA.forEach(d=>{
   d.flightPP = Math.round(d.flightEUR*RATE);
   d.hotelPP  = Math.round(d.hotelEUR*RATE);
   d.totalPP  = d.flightPP + d.hotelPP;
-  d.directTotalPP = d.direct ? Math.round(d.directEUR*RATE)+d.hotelPP : null;
 });
 
 // Přesné časy letů (segment po segmentu) + hotelový termín na míru letu
@@ -333,16 +332,16 @@ const starStr = n => '★'.repeat(n);
 function card(d,i){
   const flPct = Math.round(100*d.flightPP/d.totalPP);
   const badges = d.risks.map(r=>`<span class="b ${r[1]}">${r[0]}</span>`).join('');
-  const directLine = d.direct
-    ? `<div class="alt">✈️ <b>Přímý let z Brna</b> existuje: <b>${fmt(d.directTotalPP)} Kč/os</b> celkem (letenka ${fmt(Math.round(d.directEUR*RATE))} Kč/os, ${d.directTerm}). ${d.directSummary} <a href="${d.directUrl}" target="_blank" rel="noopener">otevřít&nbsp;↗</a></div>`
+  const altLine = d.altNote
+    ? `<div class="alt">💡 <b>Levnější alternativa:</b> ${d.altNote}</div>`
     : '';
   const rankcls = i===0?'top1':i===1?'top2':i===2?'top3':'';
   const det = DETAIL[d.id]||{};
   const legRows = a => (a||[]).map(l=>`<div class="fd-l">${l}</div>`).join('');
   const detailHtml = det.hotelWin ? `<details class="fdetail"><summary>🔍 Detail letu — přesné časy a mezipřistání</summary>
       <div class="fd-win">🛏️ Hotel přesně na let: <b>${det.hotelWin}</b></div>
-      ${det.direct?`<div class="fd-h">Přímý · letenka ${fmt(Math.round(d.directEUR*RATE))} Kč/os</div>${legRows(det.direct)}`:''}
-      ${det.best?`<div class="fd-h">${d.direct?'Nejlevnější varianta':'Doporučeno'} · letenka ${fmt(d.flightPP)} Kč/os</div>${legRows(det.best)}`:''}
+      ${d.direct&&det.direct?`<div class="fd-h">Přímý Smartwings · letenka ${fmt(d.flightPP)} Kč/os</div>${legRows(det.direct)}`:''}
+      ${det.best?`<div class="fd-h">${d.direct?'Levnější přes hub · jiný termín':'Doporučeno · letenka '+fmt(d.flightPP)+' Kč/os'}</div>${legRows(det.best)}`:''}
     </details>` : '';
   return `<article class="card ${rankcls}" data-country="${d.country}" data-direct="${d.direct}">
     <div class="top">
@@ -360,18 +359,18 @@ function card(d,i){
       <span><i class="dot ho"></i>Hotel <b>${fmt(d.hotelPP)} Kč/os</b></span>
     </div>
     <div class="block">
-      <h3>Let · ${d.term} · ${d.direct?'přímý k dispozici':d.via}</h3>
+      <h3>Let · ${d.term} · ${d.direct?'přímý ✅':d.via}</h3>
       <div class="line">${d.flightSummary}</div>
       <div class="badges">${badges}</div>
     </div>
     <div class="block">
-      <h3>Ubytování · 7 nocí</h3>
+      <h3>Ubytování · ${d.nights} nocí · ${d.term}</h3>
       <div class="line"><span class="hl">${d.hotel}</span> <span class="stars">${starStr(d.hStars)}</span><br>
         <span class="rating"><span class="sc">${d.hRating.toFixed(1)}</span></span>
         · ${d.hMeal} · ${d.hLoc}${d.hbEUR?` · <span style="color:var(--muted)">polopenze od ${fmt(Math.round(d.hbEUR*RATE))} Kč/os</span>`:''}
       </div>
     </div>
-    ${directLine}
+    ${altLine}
     ${detailHtml}
     <div class="block" style="border-top:1px solid var(--line)"><div class="line" style="color:var(--muted)">📝 ${d.note}</div></div>
     <div class="actions">
