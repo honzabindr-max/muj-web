@@ -83,6 +83,15 @@
   .rating .sc{background:var(--accent);color:#fff;border-radius:6px;padding:1px 7px;font-size:12.5px}
   .alt{font-size:12.5px;color:var(--muted);padding:0 16px 10px}
   .alt b{color:var(--ink)}
+  .fdetail{margin:0 16px 12px;border:1px solid var(--line);border-radius:10px;padding:0 12px 8px;background:var(--chip)}
+  .fdetail summary{cursor:pointer;font-size:12.5px;font-weight:700;padding:10px 0;color:var(--chipink);list-style:none}
+  .fdetail summary::-webkit-details-marker{display:none}
+  .fdetail summary:before{content:'▸ '}
+  .fdetail[open] summary:before{content:'▾ '}
+  .fd-win{font-size:12.5px;padding:0 0 8px;color:var(--ink);border-bottom:1px dashed var(--line);margin-bottom:6px}
+  .fd-h{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:9px 0 3px;font-weight:700}
+  .fd-l{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.65;color:var(--ink);white-space:pre-wrap}
+  .fd-x{color:var(--badge-warn);font-style:italic}
   .actions{margin-top:auto;display:flex;gap:9px;padding:12px 16px 16px}
   .btn{flex:1;text-align:center;text-decoration:none;font-weight:700;font-size:13.5px;padding:11px 10px;border-radius:11px;transition:.15s;border:1px solid transparent}
   .btn.fl{background:color-mix(in srgb,var(--flight) 14%,transparent);color:var(--flight)}
@@ -146,7 +155,7 @@
       <span><i class="dot fl"></i> podíl letenky</span>
       <span><i class="dot ho"></i> podíl ubytování</span>
     </div>
-    <p><b>Metodika:</b> ceny za 2 dospělé přímo z Kiwi.com (lety) a Booking.com (ubytování), přepočet kurzem 25 Kč/€, uváděno <b>za 1 osobu</b>. Hotely nacením na jednotné okno <b>20.–27. 7. (7 nocí)</b> pro férové srovnání; termíny letů se u jednotlivých destinací liší (viz karta). Celková cena = nejrozumnější letenka + nejlevnější hotel 8,0+ se snídaní/polopenzí. Vlastní koupelna je u všech uvedených standard.</p>
+    <p><b>Metodika:</b> ceny za 2 dospělé přímo z Kiwi.com (lety) a Booking.com (ubytování), přepočet kurzem 25 Kč/€, uváděno <b>za 1 osobu</b>. Hotely jsou zatím naceněny na jednotné okno <b>20.–27. 7. (7 nocí)</b> pro férové srovnání; <b>přesný termín ubytování na míru letu (přílet → odlet) najdeš v „Detailu letu" u každé karty</b> — přecenění hotelů přesně na tato data právě probíhá. Celková cena = nejrozumnější letenka + nejlevnější hotel 8,0+ se snídaní/polopenzí. Vlastní koupelna je u všech uvedených standard.</p>
     <p><b>Rizika u letenek</b> jsou vyznačena odznaky: <i>self‑transfer</i> (samostatné jízdenky, nechráněná návaznost), <i>změna letišť Milán</i> (přesun Bergamo↔Malpensa), <i>noční přílet/odlet</i>, <i>přenocování na letišti</i>. Přímé lety z Brna jezdí jen jako charter Smartwings na řecké ostrovy.</p>
     <p><b>Upozornění:</b> letenkové i hotelové ceny jsou dynamické a mění se v čase — před nákupem vždy ověř aktuální cenu, zda jde o jednu rezervaci nebo self‑transfer, konkrétní sazbu se stravou a storno podmínky na odkazu. Auto se na všech ostrovech i v Puglii/na Sicílii/Sardinii vyplatí — cena půjčovny není v balíčku.</p>
     <p id="stamp"></p>
@@ -281,6 +290,43 @@ DATA.forEach(d=>{
   d.directTotalPP = d.direct ? Math.round(d.directEUR*RATE)+d.hotelPP : null;
 });
 
+// Přesné časy letů (segment po segmentu) + hotelový termín na míru letu
+const X = t => '<span class="fd-x">'+t+'</span>'; // přesun mezi letišti
+const DETAIL = {
+  her:{ hotelWin:'23.7. → 30.7. · 7 nocí (přímý let)',
+    direct:['Tam 23.7.: BRQ 11:20 → HER 14:50 · QS1400 (2h30)','Zpět 30.7.: HER 15:40 → BRQ 17:25 · QS1401 (2h45)'],
+    best:['Tam 18.7.: BRQ 14:20 → BGY 15:45 · Ryanair FR9373', X('⇄ přesun Bergamo → Malpensa (MXP)'),'          MXP 20:35 → HER 00:20+1 · easyJet U23685','Zpět 25.7.: HER 09:05 → BRQ 10:50 · QS1405 (přímý)'] },
+  rho:{ hotelWin:'19.7. → 26.7. · 7 nocí (přímý let)',
+    direct:['Tam 19.7.: BRQ 19:30 → RHO 23:05 · QS1414 (2h35)','Zpět 26.7.: RHO 23:50 → BRQ 01:35+1 · QS1415 (2h45)'],
+    best:['Tam 17.7.: BRQ 09:25 → STN 10:30 · Ryanair','          STN 12:55 → RHO 18:55 · Ryanair (přestup STN 2h25)','Zpět 23.7.: RHO 15:05 → BGY 17:05 · Ryanair','          BGY 22:05 → BRQ 23:30 · FR9372 (přestup BGY ~5h)'] },
+  cfu:{ hotelWin:'23.7. → 30.7. · 7 nocí (přímý let)',
+    direct:['Tam 23.7.: BRQ 19:15 → CFU 22:10 · QS1416 (1h55)','Zpět 30.7.: CFU 22:55 → BRQ 23:55 · QS1417 (2h00)'],
+    best:['Tam 23.7.: BRQ 19:15 → CFU 22:10 · QS1416 (přímý)','Zpět 30.7.: CFU 09:35 → MXP 10:30 · Wizz W46432', X('⇄ přesun Malpensa (MXP) → Bergamo'),'          BGY 22:05 → BRQ 23:30 · FR9372 (~11,5h v Miláně)'] },
+  kgs:{ hotelWin:'17.7. → 24.7. · 7 nocí (přímý let)',
+    direct:['Tam 17.7.: BRQ 18:00 → KGS 21:25 · QS1424 (2h25)','Zpět 24.7.: KGS 22:10 → BRQ 23:50 · QS1425 (2h40)'] },
+  zth:{ hotelWin:'17.7. → 24.7. · 7 nocí (přímý let)',
+    direct:['Tam 17.7.: BRQ 04:00 → ZTH 07:15 · QS1420 (2h15)','Zpět 24.7.: ZTH 08:05 → BRQ 09:25 · QS1421 (2h20)'],
+    best:['Tam 23.7.: BRQ → BGY → ZTH · přes Bergamo (1 přestup)','Zpět 30.7.: ZTH → Bari → BGY → BRQ · přes Bergamo (2 přestupy)'] },
+  cta:{ hotelWin:'22.7. → 30.7. · 8 nocí',
+    best:['Tam 21.7.: BRQ 19:05 → BGY 20:30 · FR9373','          BGY 22:55 → VIE · Ryanair FR7361','          VIE → CTA 07:55+1 · Ryanair FR1565','Zpět 30.7.: CTA 12:35 → MXP 14:40 · Wizz W46464', X('⇄ přesun Malpensa (MXP) → Bergamo'),'          BGY 22:05 → BRQ 23:30 · FR9372'] },
+  cag:{ hotelWin:'22.7. → 28.7. · 6 nocí',
+    best:['Tam 21.7.: BRQ 19:05 → BGY 20:30 · FR9373','          BGY 05:55 → CAG 07:25 · FR3200 (22.7.)','Zpět 28.7.: CAG 13:35 → BGY 15:05 · FR3481','          BGY 17:15 → BRQ 18:40 · FR9372'] },
+  pmo:{ hotelWin:'24.7. → 30.7. · 6 nocí',
+    best:['Tam 23.7.: BRQ 23:55 → BGY 01:15 · FR9373 (noční čekání ~7h)','          BGY → PMO 09:50 · FR6149 (24.7.)','Zpět 30.7.: PMO 18:45 → BGY 20:25 · FR6148','          BGY 22:05 → BRQ 23:30 · FR9372'] },
+  bri:{ hotelWin:'24.7. → 30.7. · 6 nocí',
+    best:['Tam 23.7.: BRQ → BGY · FR9373','          BGY → BRI · Ryanair FR3653','Zpět 30.7.: BRI → BGY · Ryanair FR4668','          BGY → BRQ · FR9372'] },
+  nap:{ hotelWin:'24.7. → 30.7. · 6 nocí',
+    best:['Tam 23.7.: BRQ 23:55 → BGY · FR9373','          BGY → NAP 07:10+1 · Ryanair FR2285','Zpět 30.7.: NAP 17:40 → BGY · Ryanair FR3562','          BGY → BRQ 23:30 · FR9372'] },
+  olb:{ hotelWin:'18.7. → 23.7. · 5 nocí',
+    best:['Tam 18.7.: BRQ 14:20 → BGY 15:45 · FR9373','          BGY 19:55 → OLB 21:15 · Volotea V71316','Zpět 23.7.: OLB 17:40 → BGY 18:55 · Volotea V71317','          BGY 22:05 → BRQ 23:30 · FR9372'] },
+  pmi:{ hotelWin:'21.7. → 30.7. · 9 nocí',
+    best:['Tam 21.7.: BRQ 19:05 → BGY 20:30 · FR9373','          BGY 22:05 → PMI 23:50 · Ryanair FR5655','Zpět 30.7.: PMI 08:15 → BGY 10:00 · FR5656','          BGY 22:05 → BRQ 23:30 · FR9372'] },
+  ibz:{ hotelWin:'24.7. → 30.7. · 6 nocí',
+    best:['Tam 24.7.: BRQ → STN · Ryanair FR2473','          STN → IBZ · Jet2 LS3893','Zpět 30.7.: IBZ → BGY · Ryanair FR8335','          BGY → BRQ · FR9372'] },
+  mah:{ hotelWin:'22.7. → 28.7. · 6 nocí',
+    best:['Tam 21.7.: BRQ 17:10 → STN 18:15 · FR2473', X('◑ přenocování na letišti Stansted'),'          STN 06:15 → MAH 09:45 · Jet2 LS1513 (22.7.)','Zpět 28.7.: MAH → BGY · Ryanair FR1177','          BGY → BRQ · FR9372'] },
+};
+
 const fmt = n => n.toLocaleString('cs-CZ').replace(/ /g,' ');
 const starStr = n => '★'.repeat(n);
 
@@ -291,6 +337,13 @@ function card(d,i){
     ? `<div class="alt">✈️ <b>Přímý let z Brna</b> existuje: <b>${fmt(d.directTotalPP)} Kč/os</b> celkem (letenka ${fmt(Math.round(d.directEUR*RATE))} Kč/os, ${d.directTerm}). ${d.directSummary} <a href="${d.directUrl}" target="_blank" rel="noopener">otevřít&nbsp;↗</a></div>`
     : '';
   const rankcls = i===0?'top1':i===1?'top2':i===2?'top3':'';
+  const det = DETAIL[d.id]||{};
+  const legRows = a => (a||[]).map(l=>`<div class="fd-l">${l}</div>`).join('');
+  const detailHtml = det.hotelWin ? `<details class="fdetail"><summary>🔍 Detail letu — přesné časy a mezipřistání</summary>
+      <div class="fd-win">🛏️ Hotel přesně na let: <b>${det.hotelWin}</b></div>
+      ${det.direct?`<div class="fd-h">Přímý · letenka ${fmt(Math.round(d.directEUR*RATE))} Kč/os</div>${legRows(det.direct)}`:''}
+      ${det.best?`<div class="fd-h">${d.direct?'Nejlevnější varianta':'Doporučeno'} · letenka ${fmt(d.flightPP)} Kč/os</div>${legRows(det.best)}`:''}
+    </details>` : '';
   return `<article class="card ${rankcls}" data-country="${d.country}" data-direct="${d.direct}">
     <div class="top">
       <div class="rank">${i+1}</div>
@@ -319,6 +372,7 @@ function card(d,i){
       </div>
     </div>
     ${directLine}
+    ${detailHtml}
     <div class="block" style="border-top:1px solid var(--line)"><div class="line" style="color:var(--muted)">📝 ${d.note}</div></div>
     <div class="actions">
       <a class="btn fl" href="${d.flightUrl}" target="_blank" rel="noopener">✈️ Letenka&nbsp;↗</a>
