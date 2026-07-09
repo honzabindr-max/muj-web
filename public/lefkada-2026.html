@@ -32,6 +32,53 @@ h1{font-size:clamp(26px,5vw,40px);margin:.24em 0 .1em;letter-spacing:-.02em;line
 .sub{color:var(--muted);max-width:70ch;margin:.2em 0 0}
 .factrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .fact{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ink)}
+/* ---- SEA HERO ---- */
+.seahero{position:relative;overflow:hidden;isolation:isolate;padding:0;margin-bottom:-2px}
+.seahero .sea-bg{position:absolute;inset:0;z-index:-2;
+  background:
+    radial-gradient(120% 90% at 82% -10%, rgba(255,245,210,.55), rgba(255,245,210,0) 45%),
+    linear-gradient(180deg,#8fe0ee 0%,#33c1dd 26%,#12a5d0 46%,#0d81be 66%,#0a5f9c 100%);}
+.seahero .sea-shine{position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(60% 40% at 20% 78%, rgba(255,255,255,.16), transparent 60%),
+    repeating-linear-gradient(100deg, rgba(255,255,255,.05) 0 2px, transparent 2px 26px);}
+.seahero-inner{display:flex;gap:26px;align-items:center;padding:40px 18px 66px;position:relative;z-index:1}
+.portrait{flex:none;background:#fff;padding:10px 10px 14px;border-radius:16px;
+  box-shadow:0 10px 34px rgba(6,40,70,.34),0 2px 6px rgba(6,40,70,.2);transform:rotate(-2.4deg);
+  transition:transform .3s ease}
+.portrait:hover{transform:rotate(0deg) scale(1.02)}
+.portrait img{display:block;width:210px;height:200px;object-fit:cover;object-position:center 32%;
+  border-radius:9px}
+.portrait figcaption{text-align:center;font-size:12px;color:#5a6b74;margin-top:8px;font-weight:600;letter-spacing:.02em}
+.seahero-text{color:#fff;text-shadow:0 1px 14px rgba(6,40,70,.35)}
+.seahero-text .kicker{color:#eafcff}
+.seahero-text h1{color:#fff;margin:.1em 0 .04em;font-size:clamp(30px,6.4vw,54px);text-shadow:0 2px 20px rgba(6,40,70,.4)}
+.seahero-text .tagline{margin:.1em 0 .5em;font-size:clamp(15px,2.4vw,19px);font-weight:600;color:#f2fbff;opacity:.95}
+.seahero-text .sub{color:#eefaff;opacity:.96;text-shadow:0 1px 10px rgba(6,40,70,.4)}
+.seahero-text .fact{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.28);color:#fff;
+  backdrop-filter:blur(3px)}
+.wave{position:absolute;left:0;right:0;bottom:-1px;width:100%;height:64px;z-index:0;display:block}
+.wave path{fill:var(--bg)}
+@media(max-width:640px){
+  .seahero-inner{flex-direction:column;text-align:center;gap:18px;padding:30px 18px 60px}
+  .seahero-text .factrow{justify-content:center}
+  .portrait img{width:180px;height:172px}
+}
+/* ---- ODLETY ---- */
+.flights{margin:22px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.flights{grid-template-columns:1fr}}
+.flight{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:16px;box-shadow:var(--shadow)}
+.flight .dir{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc2)}
+.flight .rt{display:flex;align-items:center;gap:10px;margin:8px 0 6px}
+.flight .ap{font-size:22px;font-weight:800;letter-spacing:-.01em}
+.flight .arrow{flex:1;height:0;border-top:2px dashed var(--line);position:relative}
+.flight .arrow::after{content:"✈";position:absolute;right:-2px;top:-11px;font-size:14px;color:var(--acc2)}
+.flight .tm{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted)}
+.flight .tm b{color:var(--ink)}
+.flight .ln{font-size:13px;color:var(--muted);margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.flnote{grid-column:1/-1;font-size:13px;color:var(--muted);background:var(--chip);border:1px solid var(--line);
+  border-radius:12px;padding:11px 14px}
+.sectionhdr{font-size:20px;margin:24px 0 4px;display:flex;align-items:center;gap:8px}
 .eric{margin:18px 0 4px;background:linear-gradient(90deg,var(--chip),transparent);border-left:3px solid var(--sun);
   border-radius:10px;padding:12px 14px;font-size:14.5px}
 .eric b{color:var(--sun)}
@@ -82,28 +129,59 @@ footer p{margin:.5em 0}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="hero">
-    <div class="kicker">Osobní katalog · Good Inventions</div>
-    <h1>Lefkada 2026 — co všechno se dá dělat</h1>
-    <p class="sub">Katalog aktivit, výletů a zážitků ze základny <b>Vassiliki</b> (jižní cíp Lefkady), <b>23.–30. 7. 2026</b>, pro <b>2 osoby s autem</b>. Skládej program modulárně podle počasí a energie. Ceny jsou orientační — před rezervací ověř u provozovatele.</p>
-    <div class="factrow">
-      <span class="fact">🏨 Hotel Apollo★★★, Vassiliki</span>
-      <span class="fact">✈️ přímý charter Brno → Preveza</span>
-      <span class="fact">🍽️ polopenze · 7 nocí</span>
-      <span class="fact">🚗 auto (mimo balíček)</span>
-      <span class="fact">🤿 OWD · 🏄 windsurf poprvé</span>
+<header class="seahero">
+  <div class="sea-bg"></div>
+  <div class="sea-shine"></div>
+  <div class="wrap seahero-inner">
+    <figure class="portrait">
+      <img src="/lefkada-hero.jpg" alt="Honzík a Markéta" loading="eager">
+      <figcaption>Honzík &amp; Markéta 💙</figcaption>
+    </figure>
+    <div class="seahero-text">
+      <div class="kicker">Osobní katalog · Good Inventions</div>
+      <h1>Lefkada 2026</h1>
+      <p class="tagline">Naše léto u Iónského moře 🌊</p>
+      <p class="sub">Katalog aktivit, výletů a zážitků ze základny <b>Vassiliki</b> (jižní cíp Lefkady), <b>23.–30. 7. 2026</b>, pro 2 osoby s autem. Skládej program modulárně podle počasí a energie.</p>
+      <div class="factrow">
+        <span class="fact">🏨 Apollo★★★, Vassiliki</span>
+        <span class="fact">✈️ Brno → Preveza</span>
+        <span class="fact">🍽️ polopenze · 7 nocí</span>
+        <span class="fact">🚗 auto</span>
+      </div>
     </div>
-    <div class="eric">🌬️ <b>Klíč k celému týdnu — vítr „Eric":</b> ráno (do ~11 h) je klid → ideální na windsurf-začátky, SUP, člun a koupání. <b>Odpoledne (14–18 h) silně fouká</b> (4–7 Bf) → skvělé pro pokročilý windsurf; jinak zajeď autem do závětrných pláží nebo na výlet. Plánuj den podle toho.</div>
-  </header>
+  </div>
+  <svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0,32 C240,64 480,64 720,40 C960,16 1200,16 1440,40 L1440,64 L0,64 Z"></path></svg>
+</header>
+
+<div class="wrap">
+  <section aria-label="Odlety">
+    <h2 class="sectionhdr">✈️ Odlety</h2>
+    <div class="flights">
+      <div class="flight">
+        <div class="dir">Tam · čtvrtek 23. 7. 2026</div>
+        <div class="rt"><span class="ap">BRQ</span><span class="arrow"></span><span class="ap">PVK</span></div>
+        <div class="tm"><span>Brno <b>10:00</b></span><span>3 h 55 m</span><span>Preveza <b>14:55</b></span></div>
+        <div class="ln">Smartwings · Economy · <b>mezipřistání Ostrava</b> (letadlo neměníte)</div>
+      </div>
+      <div class="flight">
+        <div class="dir">Zpět · čtvrtek 30. 7. 2026</div>
+        <div class="rt"><span class="ap">PVK</span><span class="arrow"></span><span class="ap">BRQ</span></div>
+        <div class="tm"><span>Preveza <b>08:10</b></span><span>2 h 05 m</span><span>Brno <b>09:15</b></span></div>
+        <div class="ln">Smartwings · Economy · <b>přímý</b></div>
+      </div>
+      <div class="flnote">🧳 Zavazadla: <b>1 velký kufr (23 kg) + 1 příruční</b> na osobu (váhy se nesčítají). 🚌 <b>Transfer</b> letiště ↔ hotel je v ceně (~65 km, 60–75 min). ⏱ Časy jsou orientační — přesné najdeš v „Pokynech na cestu" ~7 dní před odletem. 🅿️ Odlet ze smlouvy je <b>10:00</b> (na webu CK bylo chybně 13:00).</div>
+    </div>
+  </section>
+
+  <div class="eric">🌬️ <b>Klíč k celému týdnu — vítr „Eric":</b> ráno (do ~11 h) je klid → ideální na windsurf-začátky, SUP, člun a koupání. <b>Odpoledne (14–18 h) silně fouká</b> (4–7 Bf) → skvělé pro pokročilý windsurf; jinak zajeď autem do závětrných pláží nebo na výlet.</div>
 </div>
 
 <div class="toolbar">
   <div class="wrap">
     <div class="chips" id="filters">
       <button class="chip" data-f="all" aria-pressed="true">Vše</button>
-      <button class="chip" data-f="dive">🤿 Potápění</button>
       <button class="chip" data-f="wind">🏄 Windsurf</button>
+      <button class="chip" data-f="dive">🤿 Potápění</button>
       <button class="chip" data-f="water">🌊 Vodní sporty</button>
       <button class="chip" data-f="boat">⛵ Lodě</button>
       <button class="chip" data-f="beach">🏖️ Pláže</button>
@@ -239,7 +317,7 @@ function render(){
   const grid = document.getElementById('grid');
   if(filter==='all'){
     // group by category with section titles
-    const order=['dive','wind','water','boat','beach','nature','culture','extra','car'];
+    const order=['wind','dive','water','boat','beach','nature','culture','extra','car'];
     let html='';
     order.forEach(c=>{
       const items=DATA.filter(d=>d.cat===c);
