@@ -105,6 +105,13 @@ main{padding:18px 0 10px}
 .pill{background:var(--chip);border-radius:7px;padding:2px 8px}
 .pill.price{color:var(--acc);font-weight:700}
 .note{font-size:13.5px;color:var(--muted)}
+.cdetail{margin-top:2px;border-top:1px solid var(--line);padding-top:8px}
+.cdetail summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--acc2);list-style:none;outline:none}
+.cdetail summary::-webkit-details-marker{display:none}
+.cdetail summary::before{content:"▸ "}
+.cdetail[open] summary::before{content:"▾ "}
+.cdetail-body{font-size:13px;color:var(--muted);line-height:1.6;margin-top:8px}
+.cdetail-body b{color:var(--ink)}
 .card .go{margin-top:auto;padding-top:4px}
 .btn{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:9px;
   padding:7px 11px;font-size:13px;font-weight:700;color:var(--ink);background:var(--chip)}
@@ -258,7 +265,8 @@ const DATA = [
   { cat:'boat', name:'Celodenní plavba: Meganisi · Skorpios · Madouri', loc:'z Nidri', dist:'~20 km', price:'~25–40 €/os', dur:'8 h', note:'Klasika: Onassisův ostrov Skorpios, Madouri, jeskyně Meganisi, koupání v zátokách.', url:'https://www.getyourguide.com/lefkada-l89339/' },
   { cat:'boat', name:'Mořské jeskyně Papanikolis + ostrovy', loc:'z Nidri', dist:'~20 km', price:'~30–50 €/os', dur:'6–8 h', note:'Slavná jeskyně na Meganisi + zastávky na koupání a šnorchl.', url:'https://www.getyourguide.com/lefkada-l89339/' },
   { cat:'boat', name:'Sunset cruise', loc:'Vassiliki / Sivota', dist:'0–10 km', price:'~20–35 €/os', dur:'3–4 h', note:'Západ slunce na moři podél jižního pobřeží.', url:'' },
-  { cat:'boat', name:'Trajekt na Kefalonii / Ithaku', loc:'přístav Vassiliki', dist:'v obci', price:'~30–50 €/os + výlet', dur:'celý den', note:'Vassiliki je přístav — přeplavba na Kefalonii (Fiskardo) jako celodenní výlet.', url:'https://www.google.com/search?q=ferry+Vassiliki+Fiskardo+Kefalonia' },
+  { cat:'boat', star:true, name:'Denní výlet lodí: Vassiliki → Fiskardo (Kefalonie)', loc:'přístav Vassiliki', dist:'plavba ~1 h', price:'11 €/os (jedna cesta) · auto ≤4,25 m 40 €', dur:'celý den', note:'Nejsnadnější celodenní výlet — trajekt F/B Captain Aristides (West Ferry / Dioni Travel) přímo z přístavu Vassiliki. Fiskardo je jediná vesnice Kefalonie, co přežila zemětřesení 1953 → původní benátské barevné domky u přístavu. Auto ber jen když chceš objíždět Kefalonii (Myrtos, Assos); na samotné Fiskardo stačí pěšky.', url:'https://westferry.gr',
+    detail:'<b>🕘 Jízdní řád (23.–31. 7.)</b><br>Vassiliki → Fiskardo: <b>09:30 · 12:30 · 15:30 · 19:00</b><br>Fiskardo → Vassiliki: <b>11:30 · 15:00 · 18:00</b> · plavba ~1 h<br><br><b>💶 Ceny (jedna cesta)</b><br>Dospělý 11 € · dítě 5–10 let 5,50 € · do 4 let zdarma<br>Auto ≤4,25 m 40 € · nad 4,25 m 47 € · motorka 11–17 €<br><b>Celkem 2 os tam i zpět: 44 € (bez auta) / 124 € (s autem)</b><br><br><b>🗺️ Program bez auta:</b> 09:30 odjezd → 10:30 Fiskardo → procházka přístavem, „Cat Square", pláž <b>Emplisi</b> (20 min pěšky, šnorchl) → oběd v taverně (místní víno robola) → 15:00 zpět (16:00 na hotelu). Delší varianta: zpět v 18:00 (doma 19:00). Ve Fiskardu i potápění (Fiskardo Divers), kajak, půjčení člunku bez licence.<br><br><b>🎟️ Rezervace:</b> <a href="https://westferry.gr" target="_blank" rel="noopener">westferry.gr</a> · tel +30 2645 093182 · dionitravel@gmail.com · nebo kiosek v přístavu ~1 h před odjezdem. V červenci <b>rezervovat předem</b>, zvlášť s autem.<br><br>ℹ️ Ze stejného přístavu jezdí i trajekt na <b>Ithaku (Frikes)</b> — klidnější a autentičtější, ale menší frekvence (ověř na westferry.gr).' },
 
   // ---- PLÁŽE ----
   { cat:'beach', star:true, name:'Agiofili', loc:'jih, u Vassiliki', dist:'~3 km · 10 min (+pěšky/lodí)', price:'zdarma · lehátka v sezóně', dur:'—', note:'Tyrkysová oblázková zátoka, TOP na šnorchlování. Malé parkoviště, choď dopoledne.', url:'https://nikana.gr/en/tourist-guide/lefkada/beaches/2512/agiofili-beach' },
@@ -304,11 +312,13 @@ function card(d){
     d.dur && d.dur!=='—' ? `<span class="pill">⏱ ${d.dur}</span>` : ''
   ].filter(Boolean).join('');
   const go = d.url ? `<div class="go"><a class="btn" href="${d.url}" target="_blank" rel="noopener">Otevřít&nbsp;↗</a></div>` : '';
+  const det = d.detail ? `<details class="cdetail"><summary>Jízdní řád, ceny a program</summary><div class="cdetail-body">${d.detail}</div></details>` : '';
   return `<article class="card ${d.star?'star':''}">
     <span class="tag">${CATLABEL[d.cat]}</span>
     <h3>${d.name}</h3>
     <div class="meta">${meta}</div>
     <div class="note">${d.note}</div>
+    ${det}
     ${go}
   </article>`;
 }
