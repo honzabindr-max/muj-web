@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lefkada 2026 — katalog aktivit</title>
+<meta name="description" content="Osobní katalog aktivit a výletů na Lefkadě (základna Vassiliki), 23.–30. 7. 2026, 2 osoby s autem. Potápění, windsurfing, lodě, pláže, výlety.">
+<style>
+:root{
+  --bg:#f6f7f5; --card:#ffffff; --ink:#1a2420; --muted:#63706a; --line:#e4e8e4;
+  --acc:#0e7c66; --acc2:#1189b6; --sun:#e08a2b; --warn:#b7791f; --bad:#c0483a; --ok:#2f8f5b;
+  --chip:#eef1ee; --shadow:0 1px 2px rgba(20,40,30,.05),0 6px 20px rgba(20,40,30,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#0f1512; --card:#161d19; --ink:#e8efe9; --muted:#95a49c; --line:#232c27;
+    --acc:#3fb79b; --acc2:#4fb6d9; --sun:#e8a24e; --chip:#1c2521; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35);}
+}
+:root[data-theme="dark"]{ --bg:#0f1512; --card:#161d19; --ink:#e8efe9; --muted:#95a49c; --line:#232c27;
+  --acc:#3fb79b; --acc2:#4fb6d9; --sun:#e8a24e; --chip:#1c2521; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35);}
+:root[data-theme="light"]{ --bg:#f6f7f5; --card:#ffffff; --ink:#1a2420; --muted:#63706a; --line:#e4e8e4;
+  --acc:#0e7c66; --acc2:#1189b6; --sun:#e08a2b; --chip:#eef1ee; --shadow:0 1px 2px rgba(20,40,30,.05),0 6px 20px rgba(20,40,30,.06);}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+a{color:var(--acc2);text-decoration:none}
+a:hover{text-decoration:underline}
+.hero{padding:38px 0 14px}
+.kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);font-weight:700}
+h1{font-size:clamp(26px,5vw,40px);margin:.24em 0 .1em;letter-spacing:-.02em;line-height:1.08}
+.sub{color:var(--muted);max-width:70ch;margin:.2em 0 0}
+.factrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.fact{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ink)}
+.eric{margin:18px 0 4px;background:linear-gradient(90deg,var(--chip),transparent);border-left:3px solid var(--sun);
+  border-radius:10px;padding:12px 14px;font-size:14.5px}
+.eric b{color:var(--sun)}
+.toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:saturate(1.4) blur(8px);padding:12px 0 10px;margin-top:14px;border-bottom:1px solid var(--line)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:999px;padding:6px 13px;font-size:13.5px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.count{color:var(--muted);font-size:13px;margin-left:auto;align-self:center}
+#theme{margin-left:8px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:999px;width:34px;height:32px;font-size:15px}
+main{padding:18px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:16px 16px 14px;
+  box-shadow:var(--shadow);display:flex;flex-direction:column;gap:9px;position:relative;overflow:hidden}
+.card.star::after{content:"⭐ tvá priorita";position:absolute;top:11px;right:-30px;transform:rotate(38deg);
+  background:var(--sun);color:#fff;font-size:10px;font-weight:800;letter-spacing:.04em;padding:3px 34px}
+.tag{align-self:flex-start;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--acc);background:var(--chip);border-radius:6px;padding:3px 8px}
+.card h3{margin:0;font-size:18px;letter-spacing:-.01em;line-height:1.2;max-width:88%}
+.meta{display:flex;flex-wrap:wrap;gap:6px 10px;font-size:13px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:700}
+.pill{background:var(--chip);border-radius:7px;padding:2px 8px}
+.pill.price{color:var(--acc);font-weight:700}
+.note{font-size:13.5px;color:var(--muted)}
+.card .go{margin-top:auto;padding-top:4px}
+.btn{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:9px;
+  padding:7px 11px;font-size:13px;font-weight:700;color:var(--ink);background:var(--chip)}
+.btn:hover{text-decoration:none;border-color:var(--acc)}
+.secttl{grid-column:1/-1;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  font-weight:800;margin:8px 2px 0}
+.checklist{margin:26px 0;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:18px;box-shadow:var(--shadow)}
+.checklist h2{margin:0 0 12px;font-size:19px}
+.checklist ul{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+.checklist li{display:flex;gap:10px;font-size:14.5px;align-items:flex-start}
+.checklist li span.b{flex:none;width:20px;height:20px;border-radius:6px;background:var(--chip);border:1px solid var(--line);
+  display:inline-flex;align-items:center;justify-content:center;font-size:12px;margin-top:1px}
+.checklist li.warn span.b{background:color-mix(in srgb,var(--warn) 22%,transparent);border-color:var(--warn)}
+.checklist li.ok span.b{background:color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok)}
+footer{border-top:1px solid var(--line);margin-top:20px;padding:22px 0 60px;color:var(--muted);font-size:12.5px}
+footer p{margin:.5em 0}
+.rhythm{margin:20px 0;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:18px;box-shadow:var(--shadow)}
+.rhythm h2{margin:0 0 6px;font-size:19px}
+.rhythm .row{display:flex;gap:12px;padding:8px 0;border-top:1px dashed var(--line);font-size:14px}
+.rhythm .row:first-of-type{border-top:none}
+.rhythm .t{flex:none;width:118px;font-weight:700;color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="kicker">Osobní katalog · Good Inventions</div>
+    <h1>Lefkada 2026 — co všechno se dá dělat</h1>
+    <p class="sub">Katalog aktivit, výletů a zážitků ze základny <b>Vassiliki</b> (jižní cíp Lefkady), <b>23.–30. 7. 2026</b>, pro <b>2 osoby s autem</b>. Skládej program modulárně podle počasí a energie. Ceny jsou orientační — před rezervací ověř u provozovatele.</p>
+    <div class="factrow">
+      <span class="fact">🏨 Hotel Apollo★★★, Vassiliki</span>
+      <span class="fact">✈️ přímý charter Brno → Preveza</span>
+      <span class="fact">🍽️ polopenze · 7 nocí</span>
+      <span class="fact">🚗 auto (mimo balíček)</span>
+      <span class="fact">🤿 OWD · 🏄 windsurf poprvé</span>
+    </div>
+    <div class="eric">🌬️ <b>Klíč k celému týdnu — vítr „Eric":</b> ráno (do ~11 h) je klid → ideální na windsurf-začátky, SUP, člun a koupání. <b>Odpoledne (14–18 h) silně fouká</b> (4–7 Bf) → skvělé pro pokročilý windsurf; jinak zajeď autem do závětrných pláží nebo na výlet. Plánuj den podle toho.</div>
+  </header>
+</div>
+
+<div class="toolbar">
+  <div class="wrap">
+    <div class="chips" id="filters">
+      <button class="chip" data-f="all" aria-pressed="true">Vše</button>
+      <button class="chip" data-f="dive">🤿 Potápění</button>
+      <button class="chip" data-f="wind">🏄 Windsurf</button>
+      <button class="chip" data-f="water">🌊 Vodní sporty</button>
+      <button class="chip" data-f="boat">⛵ Lodě</button>
+      <button class="chip" data-f="beach">🏖️ Pláže</button>
+      <button class="chip" data-f="nature">🥾 Příroda</button>
+      <button class="chip" data-f="culture">🏘️ Kultura</button>
+      <button class="chip" data-f="extra">✨ Zážitky</button>
+      <button class="chip" data-f="car">🚗 Auto</button>
+      <span class="count" id="count"></span>
+      <button id="theme" title="Přepnout světlý/tmavý">◐</button>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="wrap">
+  <section class="rhythm">
+    <h2>🗓️ Návrh rytmu dne (ať využiješ vítr)</h2>
+    <div class="row"><div class="t">Dopoledne</div><div>Voda ve Vassiliki, dokud je klid — windsurf lekce / potápění / SUP / půjčený člun / ranní koupání.</div></div>
+    <div class="row"><div class="t">Poledne</div><div>Oběd v tavernách u přístavu, stín, siesta.</div></div>
+    <div class="row"><div class="t">Odpoledne</div><div>Až se zvedne Eric → auto na závětrné pláže (Agiofili, Porto Katsiki, Egremni) nebo výlet (vodopády, vesnice).</div></div>
+    <div class="row"><div class="t">Večer</div><div>Taverny — Vassiliki, Sivota (přístav nad mořem), nebo Lefkada Town. Sunset cruise jako bonus.</div></div>
+    <div class="row"><div class="t">Týden</div><div>Cíl: 1–2 potápěčské dny · 1–2 windsurf dopoledne · 2–3 výletní dny autem · 1 lodní den · zbytek pláže a klid.</div></div>
+  </section>
+
+  <section class="checklist">
+    <h2>✅ Než odletíte — nedořešené body</h2>
+    <ul>
+      <li class="warn"><span class="b">!</span><div><b>Sleva 2 500 Kč</b> — ve smlouvě NENÍ promítnutá (cena 37 980 Kč). Ověř u EXIM (255 787 000), jestli na ni máš nárok, před platbou.</div></li>
+      <li class="warn"><span class="b">!</span><div><b>Cestovní + storno pojištění</b> — v ceně zájezdu není. Ověř u RB Gold karty: je zahrnuté <i>storno</i> a je krytá i <i>Markéta</i> (partnerka ve společné domácnosti)? Léčebné výlohy karta nejspíš kryje.</div></li>
+      <li class="warn"><span class="b">!</span><div><b>Doplatek 37 980 Kč do 10. 7. 2026</b> — VS 192749477, na účet DER Touristik CZ a.s. Zkontroluj správný VS/účet.</div></li>
+      <li class="ok"><span class="b">✓</span><div><b>Požadavek na pokoj</b> (Superior / horní / č. 34/50/11) už je ve smlouvě zanesený.</div></li>
+      <li class="ok"><span class="b">✓</span><div><b>Zavazadla:</b> 1 velký kufr (23 kg) + 1 příruční na osobu. Váhy se mezi vámi nesčítají.</div></li>
+      <li class="warn"><span class="b">!</span><div><b>Rezervuj auto</b> (Preveza letiště / Vassiliki) — plné pojištění; sklo, pneu a podvozek nekryje ani plné pojištění, u cest k plážím pozor.</div></li>
+      <li class=""><span class="b">i</span><div><b>Na místě:</b> klimatická taxa (pobytová daň) se platí na recepci hotelu, není v ceně.</div></li>
+    </ul>
+  </section>
+</div>
+
+<div class="wrap">
+  <footer>
+    <p><b>Metodika:</b> katalog je poskládaný z vlastní rešerše (Kiwi, Booking, web) a doplněné rešerše přes Perplexity. <b>Ceny jsou orientační</b> a v hlavní sezóně se mění — vždy ověř aktuální cenu, dostupnost a rezervaci přímo u provozovatele na odkazu. Vzdálenosti jsou orientační časy autem z Vassiliki.</p>
+    <p><b>Řecko — půjčení člunu:</b> motorový člun do ~30 HP smíš řídit bez kapitánského průkazu. <b>Auto:</b> plné pojištění nekryje sklo/pneu/podvozek — na kamenitých cestách k plážím pozor; tankuj před jihem a západem (málo pump).</p>
+    <p id="stamp"></p>
+  </footer>
+</div>
+
+<script>
+const DATA = [
+  // ---- POTÁPĚNÍ ----
+  { cat:'dive', star:true, name:'Lefkas Diving Center', loc:'Nidri', dist:'~20 km · 25–30 min', price:'1 ponor ~50–70 € · 2 ponory ~90–120 €', dur:'ráno 9:00–13:00', note:'Fun dives pro OWD (max 18 m), jeskyně/útesy/wreck. Výstroj v ceně. I kurz Advanced (~350–450 €) a Nitrox.', url:'https://www.lefkadivingcenter.com' },
+  { cat:'dive', star:true, name:'Papalukas Diving Center', loc:'Nidri', dist:'~20 km', price:'balíčky 4–6 ponorů ~250–350 €', dur:'půlden', note:'Boat dives kolem Meganisi a Skorpiosu. OWD, Discover Scuba, AOWD.', url:'https://papalukas-diving.com' },
+  { cat:'dive', name:'Blue Dive / dive centrum Lefkada', loc:'Lefkada Town', dist:'~38 km · 45–55 min', price:'1 ponor ~60–80 € · AOWD ~350–450 €', dur:'půlden', note:'Shore i boat dives, kurzy PADI. Vhodné když jedeš i za městem.', url:'https://www.google.com/search?q=diving+center+Lefkada+town' },
+  { cat:'dive', name:'Dive sites: Meganisi · Skorpios · Poros', loc:'lodí z Nidri', dist:'—', price:'v ceně ponorů', dur:'—', note:'Stěny a jeskyně u Meganisi (10–18 m), útesy u Skorpiosu/Madouri, jeskyně u Poros/Mikros Gialos, drobné wrecky u města. Viditelnost v červenci 15–25 m, voda 24–26 °C (chobotnice, murény, hejna).', url:'' },
+
+  // ---- WINDSURF ----
+  { cat:'wind', star:true, name:'Club Vass — beginner intro', loc:'severní strana zálivu', dist:'~1,5 km · 5 min', price:'2h lekce ~50–70 € · týden ~250–350 €', dur:'ráno 9–11 h', note:'Legendární windsurf klub od 1987. Skupinové i privátní lekce pro úplné začátečníky, prkno + plachta + trenér. Jde vzít i jednorázová lekce.', url:'https://clubvass.com' },
+  { cat:'wind', star:true, name:'Cobra’s / Nautic Club', loc:'pláž Vassiliki', dist:'~0,5–0,8 km', price:'1h individuál ~40–60 € · půjčovné ~15–25 €/h', dur:'ráno', note:'Půjčovna prken + začátečnické kurzy ráno, v sezóně i výuka v češtině. Nejblíž hotelu.', url:'https://www.google.com/search?q=Cobra%27s+Vassiliki+windsurfing' },
+  { cat:'wind', name:'Windsurf Vassiliki (Grand Nefeli)', loc:'Vassiliki', dist:'v obci', price:'lekce + půjčovna na dotaz', dur:'ráno', note:'Škola i půjčovna, kompletní vybavení pro všechny úrovně.', url:'https://windsurfvassiliki.com' },
+  { cat:'wind', name:'Wildwind', loc:'severní záliv', dist:'~1,5 km', price:'lekce ~60–80 €', dur:'týdenní balíčky i lekce', note:'Kombinace windsurf + plachtění, týdenní pobyty, ale i samostatné lekce.', url:'https://wildwind.co.uk' },
+
+  // ---- OSTATNÍ VODNÍ SPORTY ----
+  { cat:'water', name:'SUP (paddleboard)', loc:'Vassiliki beach', dist:'0–0,5 km', price:'~10–20 €/h · 30–50 €/den', dur:'dle chuti', note:'Ráno na klidné hladině Vassiliki nebo v zátoce Agiofili. Půjčovny u surf škol.', url:'' },
+  { cat:'water', name:'Mořský kajak', loc:'Vassiliki / Nidri', dist:'0–20 km', price:'~15–25 €/h · celodenní ~50–70 €', dur:'2–6 h', note:'Půjčení i vedené túry. Půlden na Meganisi (jeskyně, šnorchl, oběd) ~70 €/os.', url:'https://reflipteam.com/en/kayak/meganisi/' },
+  { cat:'water', name:'Kitesurf / wingfoil', loc:'Agios Ioannis (sever)', dist:'~40 km · 50–60 min', price:'půjčení ~60–80 €/den · kurz ~250–400 €', dur:'1–3 dny', note:'Spot u větrných mlýnů. Pro pokročilé i kurzy.', url:'https://surfschoolvasiliki.gr' },
+  { cat:'water', name:'Plachtění (jachta)', loc:'Nidri / Lefkada Town', dist:'20–38 km', price:'den ~250–500 € (bez skippera) · se skipperem ~400–700 €', dur:'1 den', note:'Pronájem plachetnice na den, s kapitánem bez starostí.', url:'https://www.google.com/search?q=sailing+Lefkada+day+charter' },
+  { cat:'water', name:'Wakeboard / vodní lyže', loc:'Nidri', dist:'~20 km', price:'~30–50 € / 10–15 min', dur:'0,5–1 h', note:'Vodní centra na pláži Nidri.', url:'' },
+  { cat:'water', name:'Parasailing', loc:'Nidri', dist:'~20 km', price:'~50–80 €/os', dur:'0,5 h', note:'Let nad zálivem, 10–15 min ve vzduchu.', url:'' },
+
+  // ---- LODĚ ----
+  { cat:'boat', star:true, name:'Půjčení člunu bez licence (≤30 HP)', loc:'Vassiliki / Nidri', dist:'0–20 km', price:'~70–160 €/den + palivo', dur:'celý den', note:'Vlastní loďka bez kapitánského průkazu — plujte si sami k Agiofili a okolním zátokám. Rezervovat předem.', url:'https://www.google.com/search?q=boat+rental+Vassiliki+no+license' },
+  { cat:'boat', name:'Celodenní plavba: Meganisi · Skorpios · Madouri', loc:'z Nidri', dist:'~20 km', price:'~25–40 €/os', dur:'8 h', note:'Klasika: Onassisův ostrov Skorpios, Madouri, jeskyně Meganisi, koupání v zátokách.', url:'https://www.getyourguide.com/lefkada-l89339/' },
+  { cat:'boat', name:'Mořské jeskyně Papanikolis + ostrovy', loc:'z Nidri', dist:'~20 km', price:'~30–50 €/os', dur:'6–8 h', note:'Slavná jeskyně na Meganisi + zastávky na koupání a šnorchl.', url:'https://www.getyourguide.com/lefkada-l89339/' },
+  { cat:'boat', name:'Sunset cruise', loc:'Vassiliki / Sivota', dist:'0–10 km', price:'~20–35 €/os', dur:'3–4 h', note:'Západ slunce na moři podél jižního pobřeží.', url:'' },
+  { cat:'boat', name:'Trajekt na Kefalonii / Ithaku', loc:'přístav Vassiliki', dist:'v obci', price:'~30–50 €/os + výlet', dur:'celý den', note:'Vassiliki je přístav — přeplavba na Kefalonii (Fiskardo) jako celodenní výlet.', url:'https://www.google.com/search?q=ferry+Vassiliki+Fiskardo+Kefalonia' },
+
+  // ---- PLÁŽE ----
+  { cat:'beach', star:true, name:'Agiofili', loc:'jih, u Vassiliki', dist:'~3 km · 10 min (+pěšky/lodí)', price:'zdarma · lehátka v sezóně', dur:'—', note:'Tyrkysová oblázková zátoka, TOP na šnorchlování. Malé parkoviště, choď dopoledne.', url:'https://nikana.gr/en/tourist-guide/lefkada/beaches/2512/agiofili-beach' },
+  { cat:'beach', name:'Porto Katsiki', loc:'západní pobřeží', dist:'~15 km · 30 min', price:'parkovné · lehátka', dur:'—', note:'Světová ikona s dramatickými útesy. Nová silnice z Vassiliki, schody dolů.', url:'https://nikana.gr/en/tourist-guide/lefkada/beaches/2511/porto-katsiki-beach' },
+  { cat:'beach', name:'Egremni', loc:'západní pobřeží', dist:'~16 km · 35 min', price:'parkovné', dur:'—', note:'2 km dlouhá oblázková pláž, tyrkysová voda. Přístup po schodech, méně služeb.', url:'https://visitvasiliki.com/beaches/' },
+  { cat:'beach', name:'Mikros Gialos (Poros)', loc:'jihovýchod', dist:'~20 km · 30 min', price:'zdarma · taverny', dur:'—', note:'Klidná chráněná zátoka, dobré na šnorchl, taverny u vody.', url:'https://nikana.gr/en/tourist-guide/lefkada/beaches/3512/vasiliki-beaches%20nearby' },
+  { cat:'beach', name:'Kathisma', loc:'západní pobřeží', dist:'~26–40 km · 45–65 min', price:'beach bary · lehátka', dur:'—', note:'Velká organizovaná pláž, „beach club" vibe, spousta služeb.', url:'https://visitvasiliki.com/beaches/' },
+  { cat:'beach', name:'Kavalikefta / Megali Petra', loc:'západní pobřeží', dist:'~30 km · 45 min', price:'zdarma · omezené', dur:'—', note:'Divoké oblázkové pláže s dramatickými útesy, méně lidí.', url:'https://visitvasiliki.com/beaches/' },
+  { cat:'beach', name:'Mylos (od Agios Nikitas)', loc:'severozápad', dist:'~45 km · 60–70 min', price:'zdarma', dur:'—', note:'Odlehlá, přístup lodičkou nebo pěšky z Agios Nikitas. Klid, foto.', url:'' },
+
+  // ---- PŘÍRODA / PĚŠÍ ----
+  { cat:'nature', name:'Vodopády Dimosari', loc:'u Nidri', dist:'~20 km · 20–25 min', price:'zdarma (malé parkovné)', dur:'půlden', note:'Auto do Nidri + lehká 10–45 min procházka roklí. Koupání v tůni (voda ledová).', url:'https://traveling-greece.com/dimosari-waterfall-lefkada' },
+  { cat:'nature', name:'Vyhlídky nad Porto Katsiki', loc:'nad pláží', dist:'~15 km · 30 min', price:'zdarma', dur:'10–20 min', note:'Fotospoty na útesy a tyrkysové moře, nejlepší světlo ráno/před západem.', url:'' },
+  { cat:'nature', name:'Horská vesnice Karya + treky', loc:'vnitrozemí', dist:'~30 km', price:'zdarma', dur:'2–5 h', note:'Tradiční vesnice, chladnější klima, borové lesy, okruhy různé délky.', url:'' },
+  { cat:'nature', name:'Sfakiotes (Lazarata, Asprogerakata)', loc:'severní vnitrozemí', dist:'~35 km', price:'zdarma', dur:'krátké vycházky', note:'Staré kamenné domy, tradiční architektura, klid.', url:'' },
+
+  // ---- KULTURA / VESNICE / JÍDLO ----
+  { cat:'culture', name:'Lefkada Town', loc:'sever ostrova', dist:'~38 km · 45–55 min', price:'zdarma', dur:'půlden', note:'Benátská pevnost Agia Mavra, laguna, promenáda, rybí taverny na nábřeží.', url:'' },
+  { cat:'culture', name:'Sivota', loc:'jihovýchod', dist:'~10 km · 15–20 min', price:'zdarma', dur:'večer', note:'Malebný přístav s tavernami přímo nad mořem — ideální na romantickou večeři.', url:'' },
+  { cat:'culture', name:'Nydri', loc:'východní pobřeží', dist:'~20 km · 20–25 min', price:'zdarma', dur:'—', note:'Živý přístav, výchozí bod lodních výletů, nábřeží s tavernami a bary.', url:'' },
+  { cat:'culture', name:'Agios Nikitas', loc:'severozápad', dist:'~45 km · 60 min', price:'zdarma', dur:'půlden', note:'Nejhezčí rybářská vesnička Lefkady, úzké uličky, taverny, přístup na Mylos.', url:'' },
+  { cat:'culture', name:'Jídlo & speciality', loc:'celý ostrov', dist:'—', price:'—', dur:'—', note:'Savoro (marinovaná ryba), grilovaná chobotnice, saganaki, sladké mandolato/pasteli, místní víno z Karyi.', url:'' },
+
+  // ---- ZÁŽITKY NAVÍC ----
+  { cat:'extra', name:'Paragliding (tandem)', loc:'Kathisma / sever', dist:'45–65 min', price:'~80–120 €/os', dur:'1–2 h', note:'Tandemové lety nad plážemi. Nutná rezervace.', url:'https://www.google.com/search?q=paragliding+Lefkada+tandem' },
+  { cat:'extra', name:'Jízda na koni', loc:'okolí Lefkada Town', dist:'~40–50 km', price:'~30–50 € / 2 h', dur:'1–2 h', note:'Vyjížďky po horských stezkách.', url:'https://www.google.com/search?q=horse+riding+Lefkada' },
+  { cat:'extra', name:'Olivové / vinné farmy', loc:'Karya, Sfakiotes', dist:'~30–35 km', price:'degustace ~10–20 €/os', dur:'2–3 h', note:'Rodinná hospodářství, ochutnávka oleje a vína, nákup přímo od výrobce.', url:'' },
+
+  // ---- AUTO ----
+  { cat:'car', star:false, name:'Auto — letiště Preveza (PVK)', loc:'PBG, Avis, Hertz, Lefkada Rental Center', dist:'vyzvednutí po příletu', price:'od ~320 € / 7 dní (~8 000 Kč)', dur:'7 dní', note:'Nejlevnější a největší výběr, pohodlné hned po příletu. Automat rezervovat dřív.', url:'https://www.pbgrentacar.gr/' },
+  { cat:'car', name:'Auto — Vassiliki / Nidri', loc:'Travel Family, místní', dist:'na místě', price:'~303–384 € / 7 dní (kat. A–C)', dur:'7 dní', note:'Dovoz zdarma po ostrově. Pozor na limit km/den (~130) a depozit (~50 €).', url:'https://www.travelfamilylefkada.com/copy-of-pron%C3%A1jem-vozidel' },
+  { cat:'car', name:'⚠️ Pojištění auta — na co pozor', loc:'—', dist:'—', price:'FDW ~10–20 €/den', dur:'—', note:'Vezmi plné pojištění (zero excess). Spoluúčast bez FDW 350–1000 €. Sklo, pneu a podvozek NEkryje ani plné — na cestách k plážím pozor. Palivo full-to-full. Kauce na kreditku.', url:'https://www.cestujlevne.com/pruvodce/recko/lefkada/pujceni-auta' },
+  { cat:'car', name:'Dojezdy z Vassiliki', loc:'—', dist:'—', price:'—', dur:'—', note:'Agiofili 10 min · Porto Katsiki/Egremni 30–35 min · Nydri + vodopády 20–25 min · Lefkada Town 45–55 min · Agios Nikitas/Kathisma 60–70 min.', url:'' },
+];
+
+const CATLABEL = {dive:'🤿 Potápění',wind:'🏄 Windsurf',water:'🌊 Vodní sporty',boat:'⛵ Lodě',beach:'🏖️ Pláže',nature:'🥾 Příroda',culture:'🏘️ Kultura',extra:'✨ Zážitky',car:'🚗 Auto'};
+
+let filter='all';
+function card(d){
+  const meta = [
+    d.dist ? `<span class="pill">📍 ${d.loc} · ${d.dist}</span>` : (d.loc?`<span class="pill">📍 ${d.loc}</span>`:''),
+    d.price ? `<span class="pill price">${d.price}</span>` : '',
+    d.dur && d.dur!=='—' ? `<span class="pill">⏱ ${d.dur}</span>` : ''
+  ].filter(Boolean).join('');
+  const go = d.url ? `<div class="go"><a class="btn" href="${d.url}" target="_blank" rel="noopener">Otevřít&nbsp;↗</a></div>` : '';
+  return `<article class="card ${d.star?'star':''}">
+    <span class="tag">${CATLABEL[d.cat]}</span>
+    <h3>${d.name}</h3>
+    <div class="meta">${meta}</div>
+    <div class="note">${d.note}</div>
+    ${go}
+  </article>`;
+}
+function render(){
+  const arr = DATA.filter(d=> filter==='all' ? true : d.cat===filter);
+  const grid = document.getElementById('grid');
+  if(filter==='all'){
+    // group by category with section titles
+    const order=['dive','wind','water','boat','beach','nature','culture','extra','car'];
+    let html='';
+    order.forEach(c=>{
+      const items=DATA.filter(d=>d.cat===c);
+      if(!items.length) return;
+      html += `<div class="secttl">${CATLABEL[c]}</div>` + items.map(card).join('');
+    });
+    grid.innerHTML=html;
+  } else {
+    grid.innerHTML = arr.map(card).join('');
+  }
+  document.getElementById('count').textContent = arr.length+' aktivit';
+}
+document.querySelectorAll('#filters button[data-f]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#filters button[data-f]').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    filter=b.dataset.f; render();
+  });
+});
+const root=document.documentElement;
+document.getElementById('theme').addEventListener('click',()=>{
+  const cur=root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  root.setAttribute('data-theme', cur==='dark'?'light':'dark');
+});
+document.getElementById('stamp').textContent='Katalog sestaven 9. 7. 2026 · ceny orientační, ověřuj u provozovatele.';
+render();
+</script>
+</body>
+</html>
