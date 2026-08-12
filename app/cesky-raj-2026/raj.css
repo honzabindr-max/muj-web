@@ -368,6 +368,16 @@
   border: 1.5px solid var(--forest);
 }
 
+.raj-morelink {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .raj-map-btn {
   display: inline-flex;
   align-items: center;

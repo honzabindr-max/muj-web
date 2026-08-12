@@ -45,6 +45,16 @@ export function Carousel({ points }: { points: SubPoint[] }) {
               <div className="raj-carousel__textcard-inner">
                 <div className="raj-carousel__textcard-title">{point.name}</div>
                 {point.note && <div className="raj-carousel__textcard-desc">{point.note}</div>}
+                {point.moreUrl && (
+                  <a
+                    className="raj-morelink"
+                    href={point.moreUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Více o místě ↗
+                  </a>
+                )}
               </div>
             </div>
           )

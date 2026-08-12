@@ -54,6 +54,12 @@ export function StepRow({
       {!step.subPoints && step.type === 'highlight' && (
         <HighlightCard photo={step.photo} name={step.place} note={step.instruction} />
       )}
+
+      {step.moreUrl && (
+        <a className="raj-morelink" href={step.moreUrl} target="_blank" rel="noreferrer">
+          Více o místě ↗
+        </a>
+      )}
     </div>
   );
 }

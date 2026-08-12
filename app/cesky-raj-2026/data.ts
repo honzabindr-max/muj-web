@@ -339,6 +339,7 @@ const den2: DayPlan = {
       place: 'Věžický rybník',
       instruction: 'Hlavní highlight dne, delší pauza. NEŠKRTAT.',
       mapUrl: mapyUrl('Věžický rybník'),
+      moreUrl: 'https://www.kudyznudy.cz/aktivity/vezicke-udoli-s-rybnikem-vezak',
       photo: PHOTOS.vezickyRybnik,
     },
     {
@@ -347,6 +348,8 @@ const den2: DayPlan = {
       type: 'highlight',
       place: 'Nebákov',
       instruction: 'VOLITELNÝ MODUL — první na škrt při vedru.',
+      moreUrl:
+        'https://medium.seznam.cz/clanek/newroads-cz-skryta-cesta-na-nebakov-z-kingdom-come-deliverance-ii-turiste-ji-mijeji-271444',
       photo: PHOTOS.nebakov,
     },
     {
@@ -492,6 +495,8 @@ const den3: DayPlan = {
       instruction:
         'Vstup → Vyhlídka Českého ráje → Prachovská jehla → Všetečkova vyhlídka → Šikmá věž → Hlaholská vyhlídka → severní promenáda → vstup. Se zastávkami 2:45–3:15 h.',
       mapUrl: mapyUrl('Prachovské skály'),
+      moreUrl:
+        'https://www.idnes.cz/cestovani/po-cesku/cesky-raj-prachovske-skaly-piskovcove-skalni-mesto-tipy-na-vylet-turismus.A210526_095846_po-cesku_hig',
       photo: PHOTOS.prachovskeSkaly,
       subPoints: [
         { name: 'Vyhlídka Českého ráje', photo: PHOTOS.vyhlidkaCeskehoRaje },
@@ -503,6 +508,8 @@ const den3: DayPlan = {
         {
           name: 'Všetečkova vyhlídka',
           note: 'Jedna z vyhlídek na okruhu Prachovskými skalami.',
+          moreUrl:
+            'https://www.interregion.cz/turistika/vyhlidky_rozhledny/prachov_vseteckova/prachov_vseteckova.html',
         },
         {
           name: 'Šikmá věž',

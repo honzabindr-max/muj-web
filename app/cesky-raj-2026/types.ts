@@ -29,6 +29,7 @@ export interface SubPoint {
   name: string;
   photo?: Photo;
   note?: string;
+  moreUrl?: string;
 }
 
 export interface Step {
@@ -38,6 +39,7 @@ export interface Step {
   place: string;
   instruction: string;
   mapUrl?: string;
+  moreUrl?: string;
   transferBadge?: TransferBadge;
   photo?: Photo;
   subPoints?: SubPoint[];
