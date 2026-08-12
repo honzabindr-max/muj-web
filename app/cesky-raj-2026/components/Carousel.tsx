@@ -3,7 +3,6 @@
 import { useRef, useState } from 'react';
 import type { SubPoint } from '../types';
 import { useLightbox } from './LightboxProvider';
-import { gradientFor } from '../gradient';
 
 export function Carousel({ points }: { points: SubPoint[] }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -21,20 +20,16 @@ export function Carousel({ points }: { points: SubPoint[] }) {
   return (
     <>
       <div className="raj-carousel" ref={trackRef} onScroll={onScroll}>
-        {points.map((point) => (
-          <button
-            type="button"
-            key={point.name}
-            className="raj-carousel__card"
-            style={!point.photo ? { background: gradientFor(point.name) } : undefined}
-            onClick={() => {
-              if (!point.photo) return;
-              open(photos, photos.indexOf(point.photo));
-            }}
-            aria-label={point.photo ? `Zobrazit fotku: ${point.name}` : point.name}
-          >
-            {point.photo && (
-              // eslint-disable-next-line @next/next/no-img-element
+        {points.map((point) =>
+          point.photo ? (
+            <button
+              type="button"
+              key={point.name}
+              className="raj-carousel__card"
+              onClick={() => open(photos, photos.indexOf(point.photo!))}
+              aria-label={`Zobrazit fotku: ${point.name}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 className="raj-carousel__img"
                 src={point.photo.src}
@@ -42,11 +37,18 @@ export function Carousel({ points }: { points: SubPoint[] }) {
                 loading="lazy"
                 decoding="async"
               />
-            )}
-            <div className="raj-carousel__scrim" />
-            <div className="raj-carousel__label">{point.name}</div>
-          </button>
-        ))}
+              <div className="raj-carousel__scrim" />
+              <div className="raj-carousel__label">{point.name}</div>
+            </button>
+          ) : (
+            <div className="raj-carousel__textcard" key={point.name}>
+              <div className="raj-carousel__textcard-inner">
+                <div className="raj-carousel__textcard-title">{point.name}</div>
+                {point.note && <div className="raj-carousel__textcard-desc">{point.note}</div>}
+              </div>
+            </div>
+          )
+        )}
       </div>
       <div className="raj-carousel__counter">
         {Math.min(index + 1, points.length)} / {points.length}

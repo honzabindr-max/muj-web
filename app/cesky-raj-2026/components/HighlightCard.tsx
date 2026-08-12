@@ -2,29 +2,42 @@
 
 import type { Photo } from '../types';
 import { useLightbox } from './LightboxProvider';
-import { gradientFor } from '../gradient';
 
-export function HighlightCard({ photo, name }: { photo?: Photo; name: string }) {
+export function HighlightCard({
+  photo,
+  name,
+  note,
+}: {
+  photo?: Photo;
+  name: string;
+  note?: string;
+}) {
   const { open } = useLightbox();
+
+  if (!photo) {
+    return (
+      <div className="raj-highlight-textcard">
+        <div className="raj-highlight-textcard__title">{name}</div>
+        {note && <div className="raj-highlight-textcard__desc">{note}</div>}
+      </div>
+    );
+  }
 
   return (
     <button
       type="button"
       className="raj-highlight-card"
-      style={!photo ? { background: gradientFor(name) } : undefined}
-      onClick={() => photo && open([photo], 0)}
-      aria-label={photo ? `Zobrazit fotku: ${photo.alt}` : name}
+      onClick={() => open([photo], 0)}
+      aria-label={`Zobrazit fotku: ${photo.alt}`}
     >
-      {photo && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          className="raj-highlight-card__img"
-          src={photo.src}
-          alt={photo.alt}
-          loading="lazy"
-          decoding="async"
-        />
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="raj-highlight-card__img"
+        src={photo.src}
+        alt={photo.alt}
+        loading="lazy"
+        decoding="async"
+      />
       <div className="raj-highlight-card__scrim" />
       <div className="raj-highlight-card__label">{name}</div>
     </button>

@@ -52,7 +52,7 @@ export function StepRow({
       {step.subPoints && step.subPoints.length > 0 && <Carousel points={step.subPoints} />}
 
       {!step.subPoints && step.type === 'highlight' && (
-        <HighlightCard photo={step.photo} name={step.place} />
+        <HighlightCard photo={step.photo} name={step.place} note={step.instruction} />
       )}
     </div>
   );

@@ -21,6 +21,7 @@ export function OpeningHero({
   return (
     <button
       type="button"
+      id="masthead"
       className="raj-masthead"
       onClick={() => photo && open([photo], 0)}
       aria-label={photo ? `Zobrazit fotku: ${photo.alt}` : title}
@@ -43,8 +44,8 @@ export function OpeningHero({
           {dates} · {summary}
         </div>
         <div className="raj-masthead__route">{route}</div>
-        <div className="raj-masthead__scroll">↓ SCROLLUJ DOLŮ</div>
       </div>
+      <div className="raj-masthead__scroll">↓ SCROLLUJ DOLŮ</div>
     </button>
   );
 }

@@ -28,6 +28,7 @@ export interface Photo {
 export interface SubPoint {
   name: string;
   photo?: Photo;
+  note?: string;
 }
 
 export interface Step {

@@ -3,6 +3,7 @@ import { EmergencySection } from './components/EmergencySection';
 import { ShoppingList } from './components/ShoppingList';
 import { PhotoCredits } from './components/PhotoCredits';
 import { OpeningHero } from './components/OpeningHero';
+import { StickyHeader } from './components/StickyHeader';
 import { WifiBanner } from './components/WifiBanner';
 import { ServiceWorkerRegister } from './components/ServiceWorkerRegister';
 import { LightboxProvider } from './components/LightboxProvider';
@@ -29,12 +30,7 @@ export default function CeskyRaj2026Page() {
         route={MISSION.route}
       />
 
-      <header className="raj-header">
-        <div className="raj-header__title">
-          {MISSION.title} · {MISSION.dates} · {MISSION.summary}
-        </div>
-        <div className="raj-header__route">{MISSION.route}</div>
-      </header>
+      <StickyHeader title={MISSION.title} dates={MISSION.dates} />
 
       <DayApp />
 

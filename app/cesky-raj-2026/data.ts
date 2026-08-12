@@ -12,10 +12,10 @@ export const MISSION = {
 export const PHOTOS: Record<string, Photo | undefined> = {
   masthead: {
     src: '/cesky-raj-2026/photos/masthead.webp',
-    alt: 'Hruboskalské skalní věže, zámek Hrubá Skála a siluetu hradu Trosky na obzoru',
-    author: 'Magda.pp',
-    license: 'CC BY-SA 3.0',
-    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Hruba_skala,_z%C3%A1mek.jpg',
+    alt: 'Skalní věže přírodní rezervace Hruboskalsko',
+    author: 'ChJn',
+    license: 'CC BY-SA 4.0',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Nature_reservat_Hruboskalsko.jpg',
   },
   hruboskalaZamek: {
     src: '/cesky-raj-2026/photos/hruboskala-zamek.webp',
@@ -99,8 +99,24 @@ export const PHOTOS: Record<string, Photo | undefined> = {
     sourceUrl:
       'https://commons.wikimedia.org/wiki/File:Vyhl%C3%ADdka_%C4%8Cesk%C3%A9ho_r%C3%A1je_3.jpg',
   },
-  // Prachovská jehla a Šikmá věž: na Wikimedia Commons neexistuje volně licencovaná
-  // fotka v dostatečném rozlišení — fallback na gradient s názvem (viz gradient.ts).
+  adamovoLoze: {
+    src: '/cesky-raj-2026/photos/adamovo-loze.webp',
+    alt: 'Adamovo lože — vytesané kamenné lůžko pod skalním převisem, Hruboskalsko',
+    author: 'ŠJů',
+    license: 'CC BY-SA 3.0',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Adamovo_lo%C5%BEe.jpg',
+  },
+  prachovskaJehla: {
+    src: '/cesky-raj-2026/photos/prachovska-jehla.webp',
+    alt: 'Prachovská jehla — pohled z vyhlídky Míru, Prachovské skály',
+    author: 'Aktron',
+    license: 'CC BY-SA 4.0',
+    sourceUrl:
+      'https://commons.wikimedia.org/wiki/File:Prachov,_v%C3%BDhled_z_vyhl%C3%ADdky_M%C3%ADru_07.jpg',
+  },
+  // Všetečkova vyhlídka, Šikmá věž a Hlaholská vyhlídka: na Wikimedia Commons
+  // neexistuje volně licencovaná fotka v dostatečném rozlišení — fallback na
+  // textovou kartu bez fotky (viz Carousel.tsx / HighlightCard.tsx).
 };
 
 function mapyUrl(query: string): string {
@@ -182,7 +198,11 @@ const den1: DayPlan = {
       instruction: 'Adamovo lože → Mariánská vyhlídka → Na Kapelu → U Lvíčka.',
       mapUrl: mapyUrl('Mariánská vyhlídka Hrubá Skála'),
       subPoints: [
-        { name: 'Adamovo lože' },
+        {
+          name: 'Adamovo lože',
+          photo: PHOTOS.adamovoLoze,
+          note: 'Odpočinkový bod na hruboskalské vyhlídkové trase.',
+        },
         { name: 'Mariánská vyhlídka', photo: PHOTOS.marianskaVyhlidka },
         { name: 'Na Kapelu', photo: PHOTOS.naKapelu },
         { name: 'U Lvíčka', photo: PHOTOS.uLvicka },
@@ -475,10 +495,21 @@ const den3: DayPlan = {
       photo: PHOTOS.prachovskeSkaly,
       subPoints: [
         { name: 'Vyhlídka Českého ráje', photo: PHOTOS.vyhlidkaCeskehoRaje },
-        { name: 'Prachovská jehla', photo: PHOTOS.prachovskaJehla },
-        { name: 'Všetečkova vyhlídka' },
-        { name: 'Šikmá věž', photo: PHOTOS.sikmaVez },
-        { name: 'Hlaholská vyhlídka' },
+        {
+          name: 'Prachovská jehla',
+          photo: PHOTOS.prachovskaJehla,
+          note: 'Štíhlá skalní jehla v srdci Prachovských skal.',
+        },
+        {
+          name: 'Všetečkova vyhlídka',
+          note: 'Jedna z vyhlídek na okruhu Prachovskými skalami.',
+        },
+        {
+          name: 'Šikmá věž',
+          photo: PHOTOS.sikmaVez,
+          note: 'Nakloněný skalní suk v Prachovských skalách.',
+        },
+        { name: 'Hlaholská vyhlídka', note: 'Vyhlídka na severní promenádě Prachovských skal.' },
       ],
     },
     {
