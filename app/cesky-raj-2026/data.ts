@@ -10,6 +10,13 @@ export const MISSION = {
 // Fotky s atribucí — výhradně Wikimedia Commons, volné licence (CC0 / PD / CC-BY / CC-BY-SA).
 // Klíč beze zdroje = pro dané místo neexistuje volná fotka → v UI padá na barevný gradient s názvem.
 export const PHOTOS: Record<string, Photo | undefined> = {
+  masthead: {
+    src: '/cesky-raj-2026/photos/masthead.webp',
+    alt: 'Hruboskalské skalní věže, zámek Hrubá Skála a siluetu hradu Trosky na obzoru',
+    author: 'Magda.pp',
+    license: 'CC BY-SA 3.0',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Hruba_skala,_z%C3%A1mek.jpg',
+  },
   hruboskalaZamek: {
     src: '/cesky-raj-2026/photos/hruboskala-zamek.webp',
     alt: 'Zámek Hrubá Skála',
@@ -34,25 +41,26 @@ export const PHOTOS: Record<string, Photo | undefined> = {
   },
   uLvicka: {
     src: '/cesky-raj-2026/photos/u-lvicka.webp',
-    alt: 'Vyhlídka U Lvíčka, Hruboskalsko',
+    alt: 'Rozhled z vyhlídky U Lvíčka, Hruboskalsko',
     author: 'ŠJů',
     license: 'CC BY-SA 3.0',
-    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Vyhl%C3%ADdka_U_Lv%C3%AD%C4%8Dka.jpg',
+    sourceUrl:
+      'https://commons.wikimedia.org/wiki/File:Rozhled_z_vyhl%C3%ADdky_U_Lv%C3%AD%C4%8Dka_(11).jpg',
   },
   valdstejn: {
     src: '/cesky-raj-2026/photos/valdstejn.webp',
-    alt: 'Hrad Valdštejn',
-    author: 'Jerzy Strzelecki',
+    alt: 'Hrad Valdštejn, letecký snímek za zlaté hodiny',
+    author: 'Zdeněk Fiedler',
     license: 'CC BY-SA 3.0',
-    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Castle_Vald%C5%A1tejn_01(js).jpg',
+    sourceUrl:
+      'https://commons.wikimedia.org/wiki/File:Hrad_Vald%C5%A1tejn,_leteck%C3%BD_sn%C3%ADmek.jpg',
   },
   trosky: {
     src: '/cesky-raj-2026/photos/trosky.webp',
-    alt: 'Hrad Trosky — věže Baba a Panna',
-    author: 'Me116',
-    license: 'CC BY-SA 4.0',
-    sourceUrl:
-      'https://commons.wikimedia.org/wiki/File:V%C4%9B%C5%BEe_hradu_Trosky_Baba_a_Panna.JPG',
+    alt: 'Hrad Trosky — věže Baba a Panna, letecký snímek za zlaté hodiny',
+    author: 'Zdeněk Fiedler',
+    license: 'CC BY-SA 3.0',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Hrad_Trosky,_leteck%C3%BD_sn%C3%ADmek.jpg',
   },
   vidlak: {
     src: '/cesky-raj-2026/photos/vidlak.webp',
@@ -63,36 +71,36 @@ export const PHOTOS: Record<string, Photo | undefined> = {
   },
   vezickyRybnik: {
     src: '/cesky-raj-2026/photos/vezicky-rybnik.webp',
-    alt: 'Věžický rybník v Českém ráji',
-    author: 'Vladkazi1',
-    license: 'CC BY-SA 4.0',
-    sourceUrl:
-      'https://commons.wikimedia.org/wiki/File:V%C4%9B%C5%BEeck%C3%BD_rybn%C3%ADk_v_%C4%8Cesk%C3%A9m_r%C3%A1ji.jpg',
+    alt: 'Věžický rybník v Českém ráji, zimní nálada',
+    author: 'Huhulenik',
+    license: 'CC BY 3.0',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Vezicky_rybnik_Cesky_raj.jpg',
   },
   nebakov: {
     src: '/cesky-raj-2026/photos/nebakov.webp',
-    alt: 'Podtrosecká údolí (přírodní rezervace) u Nebákova',
-    author: 'Jiří Sedláček (Frettie)',
+    alt: 'Podtrosecká údolí — podzimní krajina přírodní rezervace',
+    author: 'Jiří Sedláček',
     license: 'CC BY-SA 4.0',
     sourceUrl:
-      'https://commons.wikimedia.org/wiki/File:Meadow_in_nature_reserve_Podtroseck%C3%A1_%C3%BAdol%C3%AD,_Semily_District.JPG',
+      'https://commons.wikimedia.org/wiki/File:Coastline_in_nature_reserve_Podtroseck%C3%A1_%C3%BAdol%C3%AD,_Semily_District.JPG',
   },
   prachovskeSkaly: {
     src: '/cesky-raj-2026/photos/prachovske-skaly.webp',
-    alt: 'Prachovské skály',
-    author: 'Dcpeets',
+    alt: 'Prachovské skály — pohled z vyhlídky do skalního města',
+    author: 'RainbowDash',
     license: 'CC BY-SA 4.0',
-    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Cesky_Raj_Prachov_Rocks_1.jpg',
+    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Prachovsk%C3%A1_vyhl%C3%ADdka.jpg',
   },
   vyhlidkaCeskehoRaje: {
     src: '/cesky-raj-2026/photos/vyhlidka-ceskeho-raje.webp',
-    alt: 'Vyhlídka Českého ráje, Prachovské skály',
+    alt: 'Vyhlídka Českého ráje, Prachovské skály — zimní pohled',
     author: 'Chmee2',
     license: 'CC BY-SA 4.0',
-    sourceUrl: 'https://commons.wikimedia.org/wiki/File:Vyhl%C3%ADdka_%C4%8Cesk%C3%A9ho_r%C3%A1je.jpg',
+    sourceUrl:
+      'https://commons.wikimedia.org/wiki/File:Vyhl%C3%ADdka_%C4%8Cesk%C3%A9ho_r%C3%A1je_3.jpg',
   },
   // Prachovská jehla a Šikmá věž: na Wikimedia Commons neexistuje volně licencovaná
-  // fotka v dostatečném rozlišení — fallback na gradient s názvem (viz PhotoBox.tsx).
+  // fotka v dostatečném rozlišení — fallback na gradient s názvem (viz gradient.ts).
 };
 
 function mapyUrl(query: string): string {

@@ -35,7 +35,108 @@
   margin: 0 auto;
 }
 
-/* -- Hlavička (permanentní) -------------------------------------- */
+/* -- Wifi banner (dismissible) ------------------------------------ */
+.raj-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--forest);
+  color: #fff;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.raj-banner__close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  background: transparent;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* -- Masthead (úvodní full-viewport hero) -------------------------- */
+.raj-masthead {
+  position: relative;
+  width: 100%;
+  min-height: 100svh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(160deg, #14532D 0%, #0b3a1f 100%);
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  display: block;
+  text-align: left;
+}
+.raj-masthead__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+}
+.raj-masthead__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 15, 11, 0.55) 0%,
+    rgba(8, 15, 11, 0.1) 32%,
+    rgba(8, 15, 11, 0.2) 55%,
+    rgba(8, 15, 11, 0.92) 100%
+  );
+}
+.raj-masthead__content {
+  position: relative;
+  z-index: 1;
+  min-height: 100svh;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 24px 20px 28px;
+  color: #fff;
+}
+.raj-masthead__title {
+  font-size: clamp(44px, 15vw, 64px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.raj-masthead__meta {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.5;
+}
+.raj-masthead__route {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  line-height: 1.5;
+}
+.raj-masthead__scroll {
+  margin-top: 22px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* -- Hlavička (kompaktní, permanentní) ------------------------------ */
 .raj-header {
   background: var(--border-strong);
   color: #fff;
@@ -98,58 +199,79 @@
   color: var(--forest);
 }
 
-/* -- Karta dne — hlavička ------------------------------------------ */
-.raj-day-head {
-  padding: 18px 16px 14px;
-}
-.raj-day-head__title {
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1.15;
-  margin: 0 0 6px;
-}
-.raj-day-head__meta {
-  font-family: var(--f-mono);
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-.raj-day-head__badge {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 3px 10px;
-  border-radius: 99px;
-  background: var(--forest);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.raj-hero {
+/* -- Day hero — full-bleed, edge-to-edge, 4:5 na mobilu ------------- */
+.raj-dayhero {
+  position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 5;
   overflow: hidden;
   background: linear-gradient(135deg, var(--forest) 0%, #0b3a1f 100%);
-  position: relative;
+  border: none;
+  padding: 0;
+  display: block;
+  cursor: pointer;
+  text-align: left;
 }
-.raj-hero img {
+.raj-dayhero__img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.raj-hero__fallback {
+.raj-dayhero__scrim {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: flex-end;
-  padding: 16px;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 15, 11, 0) 45%,
+    rgba(8, 15, 11, 0.78) 100%
+  );
+}
+.raj-dayhero__overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  padding: 18px 16px 20px;
   color: #fff;
-  font-size: 20px;
-  font-weight: 800;
+}
+.raj-dayhero__badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.raj-dayhero__title {
+  font-size: clamp(26px, 8vw, 34px);
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0 0 4px;
+}
+.raj-dayhero__stats {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+.raj-dayhero__fallback-label {
+  position: absolute;
+  left: 16px;
+  bottom: 96px;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* -- Timeline -------------------------------------------------------- */
@@ -157,15 +279,17 @@
   padding: 4px 16px 8px;
 }
 .raj-step {
-  display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 12px;
   padding: 14px 0;
   border-bottom: 1px solid var(--border);
   scroll-margin-top: 120px;
 }
 .raj-step:last-child {
   border-bottom: none;
+}
+.raj-step__row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 12px;
 }
 .raj-step__time {
   font-family: var(--f-mono);
@@ -202,12 +326,11 @@
   line-height: 1.5;
   color: var(--muted);
 }
-.raj-step[data-next="true"] {
+.raj-step[data-next="true"] .raj-step__row {
   background: var(--ok-bg);
   margin: 0 -16px;
   padding: 14px 16px;
   border-radius: 12px;
-  border-bottom: none;
 }
 
 .raj-badge {
@@ -254,41 +377,157 @@
   text-decoration: none;
 }
 
-.raj-thumb-row {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+/* -- Highlight card — full-bleed 3:2, fotka je hlavní prvek --------- */
+.raj-highlight-card {
+  position: relative;
+  width: calc(100% + 32px);
+  margin: 12px -16px 0;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--forest) 0%, #0b3a1f 100%);
+  border: none;
+  padding: 0;
+  display: block;
+  cursor: pointer;
+  text-align: left;
 }
-.raj-thumb {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 64px;
-}
-.raj-thumb__img {
-  width: 64px;
-  height: 64px;
-  border-radius: 8px;
+.raj-highlight-card__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border: 1px solid var(--border);
+  display: block;
 }
-.raj-thumb__fallback {
-  width: 64px;
-  height: 64px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+.raj-highlight-card__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 15, 11, 0) 50%, rgba(8, 15, 11, 0.85) 100%);
 }
-.raj-thumb__label {
-  font-size: 10px;
-  text-align: center;
+.raj-highlight-card__label {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  z-index: 1;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 800;
   line-height: 1.2;
+}
+
+/* -- Carousel (skupina vyhlídek — subPoints) ------------------------- */
+.raj-carousel {
+  width: calc(100% + 32px);
+  margin: 12px -16px 0;
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.raj-carousel::-webkit-scrollbar {
+  display: none;
+}
+.raj-carousel__card {
+  position: relative;
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--forest) 0%, #0b3a1f 100%);
+  border: none;
+  padding: 0;
+  display: block;
+  cursor: pointer;
+  text-align: left;
+}
+.raj-carousel__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.raj-carousel__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 15, 11, 0) 50%, rgba(8, 15, 11, 0.85) 100%);
+}
+.raj-carousel__label {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  z-index: 1;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.raj-carousel__counter {
+  padding: 8px 0 0;
+  text-align: center;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 700;
   color: var(--muted);
 }
 
-/* -- Sticky next step lišta ------------------------------------------ */
+/* -- Lightbox (fullscreen, swipe, tap zavře) ------------------------- */
+.raj-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
+}
+.raj-lightbox__stage {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+.raj-lightbox__img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.raj-lightbox__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border-radius: 99px;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.raj-lightbox__caption {
+  padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.raj-lightbox__counter {
+  font-family: var(--f-mono);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+/* -- Sticky next step lišta (vždy nad fotkami) ------------------------ */
 .raj-sticky {
   position: fixed;
   left: 0;

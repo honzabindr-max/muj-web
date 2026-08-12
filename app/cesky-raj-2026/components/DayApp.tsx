@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DAYS } from '../data';
 import type { DayPlan } from '../types';
 import { StepRow } from './StepRow';
-import { HeroBox } from './PhotoBox';
+import { DayHero } from './DayHero';
 
 function parseStepMinutes(time: string): number | null {
   const match = time.match(/(\d{1,2}):(\d{2})/);
@@ -107,13 +107,7 @@ export function DayApp() {
         ))}
       </nav>
 
-      <div className="raj-day-head">
-        <h1 className="raj-day-head__title">{day.title}</h1>
-        <div className="raj-day-head__meta">{day.stats}</div>
-        <span className="raj-day-head__badge">{day.difficulty}</span>
-      </div>
-
-      <HeroBox photo={day.heroPhoto} name={day.title} eager={isToday} />
+      <DayHero day={day} eager />
 
       <a className="raj-quicklink" href="#kdyz-se-neco-pokazi">
         🚨 Když se něco pokazí
