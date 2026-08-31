@@ -49,8 +49,9 @@ export function MarketkaSection() {
         <ScrollReveal delay={300}>
           <div className="h2-prose h2-prose--dark">
             <p>
-              A moje část práce je: naučit se to slyšet, aniž bych ti nejdřív dvacet minut
-              vysvětloval, proč se vlastně mýlíš.
+              A moje část práce je naučit se to slyšet —
+              <br />
+              aniž bych ti nejdřív dvacet minut vysvětloval, proč se vlastně mýlíš.
             </p>
           </div>
         </ScrollReveal>
@@ -72,10 +73,14 @@ export function MarketkaSection() {
           <div className="h2-prose h2-prose--dark h2-feature-closing">
             <p>Protože jeden z důvodů, proč tohle celé dělám, jsme my dva.</p>
             <p>Nechci, aby moje hlava a práce zabíraly víc prostoru, než si zaslouží.</p>
+            <p>Chci, aby nám zůstalo dost místa na to, kvůli čemu spolu vlastně chceme být.</p>
+            <p>Na blízkost.</p>
+            <p>Na smích.</p>
+            <p>Na sex.</p>
+            <p>Na výlety a spontánní kraviny.</p>
+            <p>Na dobrodružství.</p>
             <p className="h2-feature-final-line">
-              Chci, aby nám zůstalo dost místa na věci, kvůli kterým spolu vlastně chceme být: na
-              blízkost, smích, spontánnost, sex, výlety, kraviny, dobrodružství a obyčejné chvíle,
-              kdy nám spolu prostě dobře je.
+              A taky na úplně obyčejné chvíle, kdy nám spolu prostě dobře je.
             </p>
           </div>
         </ScrollReveal>

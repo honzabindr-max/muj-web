@@ -34,7 +34,7 @@ export default function Honzik2Page() {
             A protože mě znáš opravdu zblízka, chtěl jsem ti ukázat, proč jsem si Honzík 2.0 vůbec
             vymyslel.
             <br />
-            A proč si myslím, že z něj můžeme něco mít i my dva.
+            A proč to podle mě není jen o mně, ale trochu i o nás.
           </p>
           <ScrollHint />
         </header>
@@ -53,8 +53,8 @@ export default function Honzik2Page() {
                   možnosti, varianty, další kroky — a ideálně už přemýšlím, kam by se to celé
                   dalo dostat.
                 </p>
-                <p>To je na mně asi jedna z věcí, které mám rád.</p>
-                <p>A myslím, že ty zároveň velmi dobře znáš i pokračování.</p>
+                <p>A tuhle část sebe bych vlastně měnit nechtěl.</p>
+                <p>Jen myslím, že ty velmi dobře znáš i pokračování.</p>
                 <p>Někdy je těch možností deset.</p>
                 <p>Něco nového mě začne lákat víc než to, co už běží.</p>
                 <p>Nebo o něčem přemýšlím tak dlouho, až bych už dávno mohl prostě rozhodnout.</p>
@@ -119,7 +119,7 @@ export default function Honzik2Page() {
               <p className="h2-section-lead">
                 Rozdíl někdy není v tom, co dělám.
                 <br />
-                Ale kolik toho právě je.
+                Ale v tom, jak moc se to právě rozjede.
               </p>
             </ScrollReveal>
             <ScrollReveal delay={100}>
@@ -129,15 +129,49 @@ export default function Honzik2Page() {
               <p className="h2-sliders-note">
                 A to je vlastně dobrá zpráva.
                 <br />
-                Nemusím ty vlastnosti odstranit.
+                Nemusím tyhle části sebe odstranit.
                 <br />
-                Potřebuju se naučit poznat hranici.
+                Potřebuju se jen naučit poznat hranici.
               </p>
             </ScrollReveal>
           </div>
         </section>
 
-        {/* 05 — Čtyři stránky mě */}
+        {/* 05 — Co nechci ztratit */}
+        <section className="h2-section" aria-labelledby="co-nechci-ztratit">
+          <div className="h2-inner">
+            <ScrollReveal>
+              <p className="h2-section-eyebrow">Co se měnit nemá</p>
+              <h2 className="h2-section-title" id="co-nechci-ztratit">
+                Honzík 2.0 nemá udělat můj život menší.
+              </h2>
+            </ScrollReveal>
+            <ScrollReveal delay={100}>
+              <div className="h2-signals">
+                <p className="h2-signal">Nechci být rozumnější tak, že budu nudnější.</p>
+                <p className="h2-signal">Nechci přestat mít velké nápady.</p>
+                <p className="h2-signal">Nechci plánovat každý víkend.</p>
+                <p className="h2-signal">Nechci přestat dělat spontánní blbosti.</p>
+                <p className="h2-signal">Nechci se naučit „správně žít".</p>
+                <p className="h2-signal">A už vůbec nechci ze vztahu udělat další projekt.</p>
+              </div>
+              <p className="h2-signal-final">
+                Chci jen, aby věci, které na mně fungují dobře, měly menší daň.
+              </p>
+            </ScrollReveal>
+            <ScrollReveal delay={150}>
+              <div className="h2-prose">
+                <p>A není to jen o práci nebo projektech.</p>
+                <p>
+                  Jedna z věcí, které tím chci chránit, je místo v hlavě pro lidi, které mám rád.
+                </p>
+                <p>A samozřejmě i pro nás.</p>
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
+        {/* 06 — Čtyři stránky mě */}
         <section className="h2-section" aria-labelledby="ctyri-stranky">
           <div className="h2-inner-wide">
             <ScrollReveal>
@@ -162,7 +196,7 @@ export default function Honzik2Page() {
           </div>
         </section>
 
-        {/* 06 — Aby se to nezvrhlo */}
+        {/* 07 — Aby se to nezvrhlo */}
         <section className="h2-section" aria-labelledby="nezvrhnout">
           <div className="h2-inner">
             <ScrollReveal>
@@ -192,7 +226,7 @@ export default function Honzik2Page() {
           </div>
         </section>
 
-        {/* 07 — Jak to bude probíhat */}
+        {/* 08 — Jak to bude probíhat */}
         <section className="h2-section" aria-labelledby="jak-to-bude-probihat">
           <div className="h2-inner">
             <ScrollReveal>
@@ -221,60 +255,21 @@ export default function Honzik2Page() {
                   Dřív: „Tohle může být obrovský." → začnu ho rozpracovávat.
                 </p>
                 <p>
-                  Nově: „Možná." → zapíšu ho. → vrátím se k němu v rozhodovacím okně. → musí
-                  porazit věci, kterým už jsem řekl ano.
+                  Nově: „Možná." → zapíšu ho. → vrátím se k němu později, až budu opravdu
+                  rozhodovat, čemu dát čas. → musí být důležitější než věci, kterým už jsem řekl
+                  ano.
                 </p>
                 <p className="h2-example-caption">
                   Ne zákaz nápadů.
                   <br />
-                  Filtr mezi nápadem a životem.
+                  Jen filtr mezi nápadem a životem.
                 </p>
               </div>
             </ScrollReveal>
           </div>
         </section>
 
-        {/* 08 — Detaily schovat */}
-        <section className="h2-section h2-details-section" aria-labelledby="detaily">
-          <div className="h2-inner-wide">
-            <ScrollReveal>
-              <p className="h2-section-eyebrow">Pro zvídavé</p>
-              <h2 className="h2-section-title" id="detaily">
-                Pokud tě fakt zajímá, jak moc jsem se v tom vyřádil…
-              </h2>
-            </ScrollReveal>
-            <ScrollReveal delay={100}>
-              <DetailsAccordion />
-            </ScrollReveal>
-          </div>
-        </section>
-
-        {/* 09 — Co nechci ztratit */}
-        <section className="h2-section" aria-labelledby="co-nechci-ztratit">
-          <div className="h2-inner">
-            <ScrollReveal>
-              <p className="h2-section-eyebrow">Co se měnit nemá</p>
-              <h2 className="h2-section-title" id="co-nechci-ztratit">
-                Honzík 2.0 nemá udělat můj život menší.
-              </h2>
-            </ScrollReveal>
-            <ScrollReveal delay={100}>
-              <div className="h2-signals">
-                <p className="h2-signal">Nechci být rozumnější tak, že budu nudnější.</p>
-                <p className="h2-signal">Nechci přestat mít velké nápady.</p>
-                <p className="h2-signal">Nechci plánovat každý víkend.</p>
-                <p className="h2-signal">Nechci přestat dělat spontánní blbosti.</p>
-                <p className="h2-signal">Nechci se naučit „správně žít".</p>
-                <p className="h2-signal">A už vůbec nechci ze vztahu udělat další projekt.</p>
-              </div>
-              <p className="h2-signal-final">
-                Chci jen, aby věci, které na mně fungují dobře, měly menší daň.
-              </p>
-            </ScrollReveal>
-          </div>
-        </section>
-
-        {/* 10 — Co chci, aby bylo vidět v životě */}
+        {/* 09 — Co chci, aby bylo vidět v životě */}
         <section className="h2-section" aria-labelledby="co-chci-videt">
           <div className="h2-inner">
             <ScrollReveal>
@@ -302,10 +297,10 @@ export default function Honzik2Page() {
           </div>
         </section>
 
-        {/* 11 — Markétka / emocionální vrchol */}
+        {/* 10 — Markétka / emocionální vrchol */}
         <MarketkaSection />
 
-        {/* 12 — Finále */}
+        {/* 11 — Finále */}
         <section className="h2-section" aria-labelledby="finale">
           <div className="h2-inner">
             <ScrollReveal>
@@ -314,6 +309,26 @@ export default function Honzik2Page() {
               </h2>
             </ScrollReveal>
             <ClosingLines />
+          </div>
+        </section>
+
+        {/* 12 — Detaily schovat (přesunuto až za finále) */}
+        <section className="h2-section h2-details-section" aria-labelledby="detaily">
+          <div className="h2-inner-wide">
+            <ScrollReveal>
+              <p className="h2-section-eyebrow">Pokud tě to ještě zajímá</p>
+              <h2 className="h2-section-title" id="detaily">
+                Co je pod kapotou.
+              </h2>
+              <p className="h2-section-lead">
+                Tady už je ta část, kde jsem se v tom vyřádil trochu víc.
+                <br />
+                Nemusíš ji číst, aby dával Honzík 2.0 smysl.
+              </p>
+            </ScrollReveal>
+            <ScrollReveal delay={100}>
+              <DetailsAccordion />
+            </ScrollReveal>
           </div>
         </section>
       </main>

@@ -64,8 +64,8 @@ export const VOICES: VoiceData[] = [
     motto: 'Pochopím systém.',
     quote:
       'Když něco vidím, první otázka často není co s tím — ale proč to vlastně funguje právě takhle.',
-    gift: 'Vidět souvislosti a nové cesty.',
-    whenTooMuch: 'Vidět jich najednou příliš mnoho.',
+    gift: 'Vidím souvislosti a nové cesty.',
+    whenTooMuch: 'Vidím jich najednou příliš mnoho.',
   },
   {
     id: 'beran',
@@ -73,8 +73,8 @@ export const VOICES: VoiceData[] = [
     sign: 'Beraní start',
     motto: 'Tak pojďme.',
     quote: 'Když mi něco dává smysl, moje přirozená reakce není dlouho čekat.',
-    gift: 'Rozhýbat věci.',
-    whenTooMuch: 'Začít dřív, než jsem si vybral.',
+    gift: 'Umím věci rozhýbat.',
+    whenTooMuch: 'Začnu dřív, než jsem si opravdu vybral.',
   },
   {
     id: 'ryby',
@@ -83,8 +83,8 @@ export const VOICES: VoiceData[] = [
     motto: 'Cítím to víc, než je někdy vidět.',
     quote:
       'Navenek umím být rychlý a rozhodný. Uvnitř ale vztahy a atmosféru často prožívám mnohem víc.',
-    gift: 'Blízkost, empatie, intuice.',
-    whenTooMuch: 'Přetížení nebo pozdě nastavená hranice.',
+    gift: 'Blízkost, empatie a intuice.',
+    whenTooMuch: 'Přetížím se nebo nastavím hranici až příliš pozdě.',
   },
   {
     id: 'strelec',
@@ -92,7 +92,7 @@ export const VOICES: VoiceData[] = [
     sign: 'Střelecký horizont',
     motto: 'Kam až by to mohlo dojít?',
     quote: 'Máloco mě nabije tolik jako pocit, že se přede mnou otevírá něco většího.',
-    gift: 'Růst, optimismus, dobrodružství.',
+    gift: 'Růst, optimismus a dobrodružství.',
     whenTooMuch: 'Každý nový horizont začne vypadat důležitě.',
     closingNote: 'A možná právě tuhle část na sobě navzájem docela dobře poznáváme.',
   },
@@ -109,9 +109,12 @@ export type RuleData = {
 export const RULES: RuleData[] = [
   { id: '01', body: 'Realita vyhrává nad teorií.' },
   { id: '02', body: 'Jedna skutečná změna je víc než deset nových nápadů, jak se změnit.' },
-  { id: '03', body: 'Když je systém složitější než problém, ruším systém.' },
+  { id: '03', body: 'Když je způsob složitější než problém, který má řešit, ruším ho.' },
   { id: '04', body: 'Neříkám „jsem takový". Říkám „takhle reaguju v těchto podmínkách".' },
-  { id: '05', body: 'Nejde o perfektní sérii. Jde o to poznat výpadek dřív a rychleji se vrátit.' },
+  {
+    id: '05',
+    body: 'Nejde o to být perfektní. Jde o to poznat dřív, že jsem sjel z cesty, a rychleji se vrátit.',
+  },
 ];
 
 export type ProcessPhase = {
@@ -124,17 +127,17 @@ export const PROCESS_PHASES: ProcessPhase[] = [
   {
     id: '01',
     title: 'Co se opravdu stalo?',
-    body: 'Konkrétní situace. Ne moje pozdější teorie o ní.',
+    body: 'Konkrétní situace. Ne moje pozdější vysvětlení toho, proč se stala.',
   },
   {
     id: '02',
     title: 'Opakuje se to?',
-    body: 'Hledám víc situací. A taky případy, kdy ten vzorec neplatí.',
+    body: 'Podívám se na víc podobných situací. A taky na chvíle, kdy to bylo jinak.',
   },
   {
     id: '03',
     title: 'Co zkusím jinak?',
-    body: 'Jednu malou změnu. Na 14–30 dní. Žádnou revoluci osobnosti.',
+    body: 'Jednu malou změnu. Na pár týdnů. Žádnou revoluci osobnosti.',
   },
   {
     id: '04',
@@ -149,12 +152,12 @@ export type FlowStepData = {
 };
 
 export const ARCHITECTURE_FLOW: FlowStepData[] = [
-  { label: 'Hypotéza', body: 'Možné vysvětlení.' },
-  { label: 'Pozorování', body: 'Konkrétní příklady.' },
-  { label: 'Vzorec', body: 'Opakuje se napříč situacemi.' },
-  { label: 'Experiment', body: 'Zkusím malou změnu.' },
-  { label: 'Mechanismus', body: 'Vím, co mi pomáhá.' },
-  { label: 'Living OS', body: 'Teprve teď se z toho stává můj default.' },
+  { label: 'Napadne mě vysvětlení', body: 'Možná to funguje právě takhle.' },
+  { label: 'Všímám si toho v životě', body: 'Hledám konkrétní situace.' },
+  { label: 'Ověřím, jestli se to opakuje', body: 'A taky hledám případy, kdy to neplatí.' },
+  { label: 'Zkusím něco malého jinak', body: 'Bez velkých předsevzetí.' },
+  { label: 'Podívám se, jestli to pomohlo', body: 'Ne podle pocitu, ale podle života.' },
+  { label: 'Když to funguje, nechám si to', body: 'A postupně se z toho stane můj běžný způsob.' },
 ];
 
 export type AreaData = {

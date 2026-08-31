@@ -67,7 +67,7 @@ export function DetailsAccordion() {
       <AccordionItem
         id="living-os"
         num="02"
-        title="Jak se hypotéza dostane do mého „Living OS“"
+        title="Jak poznám, že mi něco opravdu funguje"
         isOpen={open === 'living-os'}
         onToggle={() => toggle('living-os')}
       >
@@ -80,19 +80,28 @@ export function DetailsAccordion() {
       <AccordionItem
         id="priorita"
         num="03"
-        title="Co budeme řešit jako první"
+        title="Čím začnu"
         isOpen={open === 'priorita'}
         onToggle={() => toggle('priorita')}
       >
+        <p className="h2-accordion-lead">Jako první chci řešit výběr a rozhodování.</p>
         <p className="h2-accordion-lead">
-          <strong>05 — Výběr, rozhodování a overthinking.</strong> Jeden dobrý filtr na výběr
-          může současně ovlivnit práci, projekty, čas, stres i náš společný prostor.
+          Protože když dokážu líp poznat, čemu dát ano a čemu ne, může to současně pomoct práci,
+          času, hlavě i našemu společnému prostoru.
         </p>
-        <p className="h2-accordion-lead">Další pravděpodobné oblasti: dotahování, přetížení a
-          recovery, hranice a komunikace, energie.</p>
+        <p className="h2-accordion-lead">
+          Potom pravděpodobně přijdou:
+          <br />
+          dotahování,
+          <br />
+          přetížení a návrat do pohody,
+          <br />
+          hranice a komunikace,
+          <br />
+          energie.
+        </p>
         <p className="h2-accordion-caption">
-          Priorita není to, co je nejzajímavější analyzovat. Priorita = dopad × ovlivnitelnost ×
-          aktuálnost.
+          Nejdřív chci řešit věci, které mají největší dopad na normální život.
         </p>
       </AccordionItem>
     </div>
