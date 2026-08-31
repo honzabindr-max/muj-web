@@ -22,12 +22,11 @@ export function VoiceFormula() {
   return (
     <div className="h2-formula">
       <ScrollReveal delay={0}>
+        <p className="h2-formula-caption">Můj přirozený reflex:</p>
         <FormulaRow words={VOICE_FORMULA_REFLEX} variant="reflex" />
       </ScrollReveal>
       <ScrollReveal delay={150}>
-        <p className="h2-formula-caption">Honzík 2.0 přidává protiváhu:</p>
-      </ScrollReveal>
-      <ScrollReveal delay={300}>
+        <p className="h2-formula-caption">A Honzík 2.0 k tomu přidává:</p>
         <FormulaRow words={VOICE_FORMULA_BALANCE} variant="balance" />
       </ScrollReveal>
     </div>
