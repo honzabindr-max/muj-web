@@ -28,11 +28,13 @@ export default function Honzik2Page() {
           <p className="h2-hero-sentence">
             Nechci být někdo jiný.
             <br />
-            Chci se naučit líp žít s tím, kým už jsem.
+            Chci být víc sám sebou — jen s menším chaosem kolem toho.
           </p>
           <p className="h2-hero-subsentence">
-            A protože jsi člověk, který mě zná opravdu zblízka, chtěl jsem ti ukázat, co tím
-            vlastně myslím.
+            A protože mě znáš opravdu zblízka, chtěl jsem ti ukázat, proč jsem si Honzík 2.0 vůbec
+            vymyslel.
+            <br />
+            A proč si myslím, že z něj můžeme něco mít i my dva.
           </p>
           <ScrollHint />
         </header>
@@ -47,19 +49,24 @@ export default function Honzik2Page() {
               <div className="h2-prose">
                 <p>Možná mě znáš přesně takhle.</p>
                 <p>
-                  Když mě něco chytne, dokážu se pro to nadchnout naplno. Vidím možnosti,
-                  souvislosti, další krok — někdy deset kroků dopředu.
+                  Když mě něco chytne, umím se pro to nadchnout úplně naplno. Za chvíli vidím
+                  možnosti, varianty, další kroky — a ideálně už přemýšlím, kam by se to celé
+                  dalo dostat.
                 </p>
-                <p>A právě tahle část mě dostala k většině věcí, na které jsem v životě pyšný.</p>
-                <p>Jenže asi taky dobře víš, že ten samý motor umí občas přetočit otáčky.</p>
-                <p>
-                  Pak mám deset směrů místo jednoho. Přemýšlím i ve chvíli, kdy už bych měl
-                  rozhodnout. Nebo mám hlavu někde úplně jinde, i když fyzicky sedím vedle tebe.
-                </p>
+                <p>To je na mně asi jedna z věcí, které mám rád.</p>
+                <p>A myslím, že ty zároveň velmi dobře znáš i pokračování.</p>
+                <p>Někdy je těch možností deset.</p>
+                <p>Něco nového mě začne lákat víc než to, co už běží.</p>
+                <p>Nebo o něčem přemýšlím tak dlouho, až bych už dávno mohl prostě rozhodnout.</p>
+                <p>A někdy sedím vedle tebe, ale moje hlava má právě vlastní pracovní poradu.</p>
               </div>
             </ScrollReveal>
             <ScrollReveal delay={100}>
-              <p className="h2-emphasis">A právě tohle chci pochopit líp.</p>
+              <p className="h2-emphasis">
+                Nechci tenhle motor vypnout.
+                <br />
+                Chci se jen naučit poznat, kdy už jede moc rychle.
+              </p>
             </ScrollReveal>
           </div>
         </section>
@@ -78,22 +85,22 @@ export default function Honzik2Page() {
               <div>
                 <ScrollReveal delay={80}>
                   <div className="h2-prose">
-                    <p>
-                      Dřív mě hodně zajímalo: „Co ještě dokážu?"
-                    </p>
+                    <p>Dřív mě hodně zajímalo: „Co ještě dokážu?"</p>
                     <p>Teď mě začíná víc zajímat: „Jak chci se svými schopnostmi vlastně žít?"</p>
+                    <p>Nechci se zbavit velkých cílů.</p>
+                    <p>Ani spontánnosti.</p>
+                    <p>Ani nápadů, dobrodružství, intenzity nebo svobody.</p>
                     <p>
-                      Nechci se zbavit velkých cílů, spontánnosti, nápadů, dobrodružství,
-                      intenzity, svobody.
+                      Chci jen líp poznat okamžik, kdy mi tyhle věci pomáhají — a kdy už začínají
+                      řídit ony mě.
                     </p>
-                    <p>Chci jen líp poznat, kdy mi pomáhají a kdy už začínají řídit ony mě.</p>
                   </div>
                 </ScrollReveal>
                 <ScrollReveal delay={160}>
                   <p className="h2-quote">
-                    „Nechci menší motor.
+                    „Nechci se brzdit.
                     <br />
-                    Chci lepší cit pro volant."
+                    Jen nechci pokaždé zjistit až v zatáčce, že jsem jel moc rychle."
                   </p>
                 </ScrollReveal>
               </div>
@@ -107,17 +114,25 @@ export default function Honzik2Page() {
             <ScrollReveal>
               <p className="h2-section-eyebrow">Síla a hrana</p>
               <h2 className="h2-section-title" id="sila-a-hrana">
-                Moje slabiny možná nejsou jiné vlastnosti.
-                <br />
-                Možná jsou to moje silné stránky přetažené příliš daleko.
+                To nejlepší na mně a to, co mi občas komplikuje život, může být úplně stejná věc.
               </h2>
               <p className="h2-section-lead">
-                A to je vlastně dobrá zpráva. Nemusím je odstranit. Potřebuju se naučit poznat
-                hranici.
+                Rozdíl někdy není v tom, co dělám.
+                <br />
+                Ale kolik toho právě je.
               </p>
             </ScrollReveal>
             <ScrollReveal delay={100}>
               <PowerSliders />
+            </ScrollReveal>
+            <ScrollReveal delay={150}>
+              <p className="h2-sliders-note">
+                A to je vlastně dobrá zpráva.
+                <br />
+                Nemusím ty vlastnosti odstranit.
+                <br />
+                Potřebuju se naučit poznat hranici.
+              </p>
             </ScrollReveal>
           </div>
         </section>
@@ -131,8 +146,13 @@ export default function Honzik2Page() {
                 Čtyři části mě, které v sobě docela poznávám.
               </h2>
               <p className="h2-section-lead">
-                Astrologii neberu jako návod k životu. Ale překvapilo mě, jak dobře mi některé
-                věci pomohla pojmenovat. Takže ji používám jako otázku. Ne jako odpověď.
+                Astrologii neberu jako návod k životu.
+                <br />
+                Ale překvapilo mě, jak dobře mi některé věci pomohla pojmenovat.
+                <br />
+                Takže ji používám jako otázku.
+                <br />
+                Ne jako odpověď.
               </p>
             </ScrollReveal>
             <ScrollReveal delay={100}>
@@ -176,26 +196,39 @@ export default function Honzik2Page() {
         <section className="h2-section" aria-labelledby="jak-to-bude-probihat">
           <div className="h2-inner">
             <ScrollReveal>
-              <p className="h2-section-eyebrow">Metoda</p>
+              <p className="h2-section-eyebrow">Jak to bude fakt fungovat</p>
               <h2 className="h2-section-title" id="jak-to-bude-probihat">
-                Jak to bude probíhat.
+                Nejdřív život.
+                <br />
+                Pak teorie.
               </h2>
             </ScrollReveal>
             <ScrollReveal delay={100}>
               <ProcessTimeline />
             </ScrollReveal>
-            <ScrollReveal delay={150}>
+            <ScrollReveal delay={140}>
+              <p className="h2-section-lead">
+                Žádné velké předsevzetí.
+                <br />
+                Žádná revoluce života.
+              </p>
+            </ScrollReveal>
+            <ScrollReveal delay={180}>
               <div className="h2-example">
                 <p className="h2-example-label">Příklad</p>
                 <p>Napadne mě nový projekt.</p>
                 <p className="h2-example-before">
-                  Dřív: „Tohle může být obrovský!" → začnu rozpracovávat.
+                  Dřív: „Tohle může být obrovský." → začnu ho rozpracovávat.
                 </p>
                 <p>
-                  Nově: „Možná." → zapíšu. → vrátím se k němu v rozhodovacím okně. → musí porazit
-                  věci, kterým už jsem řekl ano.
+                  Nově: „Možná." → zapíšu ho. → vrátím se k němu v rozhodovacím okně. → musí
+                  porazit věci, kterým už jsem řekl ano.
                 </p>
-                <p className="h2-example-caption">Ne zákaz nápadů. Filtr mezi nápadem a životem.</p>
+                <p className="h2-example-caption">
+                  Ne zákaz nápadů.
+                  <br />
+                  Filtr mezi nápadem a životem.
+                </p>
               </div>
             </ScrollReveal>
           </div>
@@ -207,7 +240,7 @@ export default function Honzik2Page() {
             <ScrollReveal>
               <p className="h2-section-eyebrow">Pro zvídavé</p>
               <h2 className="h2-section-title" id="detaily">
-                Jestli tě zajímá, jak hluboko jsem to promyslel…
+                Pokud tě fakt zajímá, jak moc jsem se v tom vyřádil…
               </h2>
             </ScrollReveal>
             <ScrollReveal delay={100}>
@@ -216,7 +249,32 @@ export default function Honzik2Page() {
           </div>
         </section>
 
-        {/* 09 — Co chci, aby bylo vidět v životě */}
+        {/* 09 — Co nechci ztratit */}
+        <section className="h2-section" aria-labelledby="co-nechci-ztratit">
+          <div className="h2-inner">
+            <ScrollReveal>
+              <p className="h2-section-eyebrow">Co se měnit nemá</p>
+              <h2 className="h2-section-title" id="co-nechci-ztratit">
+                Honzík 2.0 nemá udělat můj život menší.
+              </h2>
+            </ScrollReveal>
+            <ScrollReveal delay={100}>
+              <div className="h2-signals">
+                <p className="h2-signal">Nechci být rozumnější tak, že budu nudnější.</p>
+                <p className="h2-signal">Nechci přestat mít velké nápady.</p>
+                <p className="h2-signal">Nechci plánovat každý víkend.</p>
+                <p className="h2-signal">Nechci přestat dělat spontánní blbosti.</p>
+                <p className="h2-signal">Nechci se naučit „správně žít".</p>
+                <p className="h2-signal">A už vůbec nechci ze vztahu udělat další projekt.</p>
+              </div>
+              <p className="h2-signal-final">
+                Chci jen, aby věci, které na mně fungují dobře, měly menší daň.
+              </p>
+            </ScrollReveal>
+          </div>
+        </section>
+
+        {/* 10 — Co chci, aby bylo vidět v životě */}
         <section className="h2-section" aria-labelledby="co-chci-videt">
           <div className="h2-inner">
             <ScrollReveal>
@@ -236,16 +294,18 @@ export default function Honzik2Page() {
                 <p className="h2-signal">Dřív řeknu malou nepříjemnou věc.</p>
               </div>
               <p className="h2-signal-final">
-                A když jsem s tebou, budu častěji opravdu s tebou.
+                A hlavně: když jsme spolu, chci být častěji opravdu tam — s tebou.
+                <br />
+                Ne jen tělem vedle tebe a hlavou někde v projektu.
               </p>
             </ScrollReveal>
           </div>
         </section>
 
-        {/* 10 — Markétka / emocionální vrchol */}
+        {/* 11 — Markétka / emocionální vrchol */}
         <MarketkaSection />
 
-        {/* 11 — Finále */}
+        {/* 12 — Finále */}
         <section className="h2-section" aria-labelledby="finale">
           <div className="h2-inner">
             <ScrollReveal>

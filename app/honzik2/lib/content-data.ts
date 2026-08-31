@@ -53,6 +53,7 @@ export type VoiceData = {
   quote: string;
   gift: string;
   whenTooMuch: string;
+  closingNote?: string;
 };
 
 export const VOICES: VoiceData[] = [
@@ -93,6 +94,7 @@ export const VOICES: VoiceData[] = [
     quote: 'Máloco mě nabije tolik jako pocit, že se přede mnou otevírá něco většího.',
     gift: 'Růst, optimismus, dobrodružství.',
     whenTooMuch: 'Každý nový horizont začne vypadat důležitě.',
+    closingNote: 'A možná právě tuhle část na sobě navzájem docela dobře poznáváme.',
   },
 ];
 
@@ -106,10 +108,10 @@ export type RuleData = {
 
 export const RULES: RuleData[] = [
   { id: '01', body: 'Realita vyhrává nad teorií.' },
-  { id: '02', body: 'Jedna skutečná změna je víc než deset nových frameworků.' },
+  { id: '02', body: 'Jedna skutečná změna je víc než deset nových nápadů, jak se změnit.' },
   { id: '03', body: 'Když je systém složitější než problém, ruším systém.' },
   { id: '04', body: 'Neříkám „jsem takový". Říkám „takhle reaguju v těchto podmínkách".' },
-  { id: '05', body: 'Nejde o perfektní sérii. Jde o rychlejší návrat, když něco ujede.' },
+  { id: '05', body: 'Nejde o perfektní sérii. Jde o to poznat výpadek dřív a rychleji se vrátit.' },
 ];
 
 export type ProcessPhase = {
@@ -126,13 +128,13 @@ export const PROCESS_PHASES: ProcessPhase[] = [
   },
   {
     id: '02',
-    title: 'Co se opakuje?',
-    body: 'Hledám několik situací. A taky případy, kdy vzorec neplatí.',
+    title: 'Opakuje se to?',
+    body: 'Hledám víc situací. A taky případy, kdy ten vzorec neplatí.',
   },
   {
     id: '03',
     title: 'Co zkusím jinak?',
-    body: 'Jedna malá změna. 14–30 dní. Žádná revoluce života.',
+    body: 'Jednu malou změnu. Na 14–30 dní. Žádnou revoluci osobnosti.',
   },
   {
     id: '04',

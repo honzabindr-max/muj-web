@@ -2,10 +2,12 @@ import { ScrollReveal } from './ScrollReveal';
 
 const WANT_LINES = [
   'Pořád chci nové nápady.',
-  'Pořád chci riskovat.',
+  'Pořád chci občas udělat něco, o čem ostatní řeknou, že je to trochu šílené.',
+  'Pořád chci cestovat.',
+  'Pořád chci spontánnost.',
   'Pořád chci dobrodružství.',
   'Pořád chci svobodu.',
-  'Pořád chci být já.',
+  'A pořád chci nás.',
 ];
 
 export function ClosingLines() {
@@ -21,7 +23,11 @@ export function ClosingLines() {
 
       <ScrollReveal delay={WANT_LINES.length * 90}>
         <p className="h2-quote h2-finale-statement">
-          „Jen bych rád líp věděl, čemu říct ano a čemu už ne."
+          „Jen bych rád líp věděl, čemu říct ano —
+          <br />
+          abych měl víc času a hlavy na věci,
+          <br />
+          kterým už jsem ano řekl."
         </p>
       </ScrollReveal>
 
@@ -34,7 +40,9 @@ export function ClosingLines() {
         <p className="h2-finale-signature">
           Nechci žít méně.
           <br />
-          Chci žít víc toho, co opravdu stojí za to.
+          Chci mít víc prostoru na život,
+          <br />
+          který jsem si vybral.
         </p>
       </ScrollReveal>
     </div>

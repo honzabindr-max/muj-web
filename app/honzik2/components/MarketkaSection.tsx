@@ -9,37 +9,53 @@ export function MarketkaSection() {
           <h2 className="h2-feature-title" id="marketka">
             Markétko,
             <br />
-            nechci, abys mě opravovala.
+            chci tě u toho mít vedle sebe.
           </h2>
         </ScrollReveal>
 
         <ScrollReveal delay={80}>
           <div className="h2-prose h2-prose--dark">
-            <p>Ani hlídala. Ani řídila. Ani rozhodovala, jestli Honzík 2.0 funguje.</p>
-            <p>Tohle je moje odpovědnost.</p>
+            <p>Ne proto, abys mě hlídala.</p>
+            <p>Ne proto, abys rozhodovala, jestli Honzík 2.0 funguje.</p>
+            <p>A už vůbec ne proto, abys za mě něco opravovala.</p>
+            <p>
+              <strong>Tohle je moje odpovědnost.</strong>
+            </p>
           </div>
         </ScrollReveal>
 
         <ScrollReveal delay={160}>
           <div className="h2-prose h2-prose--dark">
-            <p>Ale jsi člověk, který mě vidí z místa, ze kterého se já nikdy neuvidím.</p>
-            <p>Poznáš někdy dřív než já, že jedu přes limit.</p>
+            <p>Ale ty mě vidíš z místa, ze kterého se já nikdy neuvidím.</p>
+            <p>Někdy poznáš dřív než já, že už jedu přes limit.</p>
             <p>Poznáš, kdy jsem opravdu ve svém živlu.</p>
-            <p>A někdy vidíš i to, co já ještě půl hodiny dokonale analyzuju.</p>
+            <p>
+              A občas vidíš úplně jasně něco, co já ještě dalších třicet minut analyzuju ze všech
+              stran.
+            </p>
           </div>
         </ScrollReveal>
 
         <ScrollReveal delay={240}>
           <p className="h2-feature-statement">
-            Takže od tebe vlastně nechci práci.
+            Takže po tobě nechci práci.
             <br />
-            Chci jen, abys mi občas řekla, co vidíš.
+            Chci něco mnohem jednoduššího.
             <br />
-            A abych se já učil to opravdu slyšet.
+            Abys mi občas řekla, co vidíš.
           </p>
         </ScrollReveal>
 
-        <ScrollReveal delay={320}>
+        <ScrollReveal delay={300}>
+          <div className="h2-prose h2-prose--dark">
+            <p>
+              A moje část práce je: naučit se to slyšet, aniž bych ti nejdřív dvacet minut
+              vysvětloval, proč se vlastně mýlíš.
+            </p>
+          </div>
+        </ScrollReveal>
+
+        <ScrollReveal delay={360}>
           <div className="h2-feature-vision">
             <p className="h2-feature-vision-line">Svoboda bez odcizení.</p>
             <p className="h2-feature-vision-line">Blízkost bez vlastnictví.</p>
@@ -52,12 +68,14 @@ export function MarketkaSection() {
           </div>
         </ScrollReveal>
 
-        <ScrollReveal delay={380}>
+        <ScrollReveal delay={420}>
           <div className="h2-prose h2-prose--dark h2-feature-closing">
             <p>Protože jeden z důvodů, proč tohle celé dělám, jsme my dva.</p>
+            <p>Nechci, aby moje hlava a práce zabíraly víc prostoru, než si zaslouží.</p>
             <p className="h2-feature-final-line">
-              Nechci, aby mi hlava, práce nebo vlastní chaos braly člověka a život, na kterých mi
-              ve skutečnosti záleží nejvíc.
+              Chci, aby nám zůstalo dost místa na věci, kvůli kterým spolu vlastně chceme být: na
+              blízkost, smích, spontánnost, sex, výlety, kraviny, dobrodružství a obyčejné chvíle,
+              kdy nám spolu prostě dobře je.
             </p>
           </div>
         </ScrollReveal>

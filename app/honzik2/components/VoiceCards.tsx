@@ -15,6 +15,7 @@ export function VoiceCards() {
           <p className="h2-voice-detail">
             <strong>Přetažení:</strong> {voice.whenTooMuch}
           </p>
+          {voice.closingNote && <p className="h2-voice-detail">{voice.closingNote}</p>}
         </div>
       ))}
     </div>
