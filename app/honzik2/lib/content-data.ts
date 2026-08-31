@@ -1,87 +1,112 @@
+export type SliderBand = 'healthy' | 'edge' | 'shadow';
+
 export type SliderData = {
   id: string;
   label: string;
-  useful: string;
-  overstretched: string;
+  healthy: string;
+  edge: string;
+  shadow: string;
 };
 
 export const SLIDERS: SliderData[] = [
   {
     id: 'originalita',
     label: 'Originalita',
-    useful: 'Nové pohledy, které jinde nikdo nevidí.',
-    overstretched: 'Roztříštěnost — příliš mnoho směrů najednou.',
+    healthy: 'Vidím řešení, které ostatní přehlédnou.',
+    edge: 'Otevírám další a další varianty.',
+    shadow: 'Roztříštěnost. Nic nedostane plnou pozornost.',
   },
   {
     id: 'iniciativa',
     label: 'Iniciativa',
-    useful: 'Rychlý start, schopnost rozhýbat věci.',
-    overstretched: 'Impulzivita — start dřív, než je jasný cíl.',
-  },
-  {
-    id: 'empatie',
-    label: 'Empatie',
-    useful: 'Hluboké vztahové a emoční vnímání.',
-    overstretched: 'Slabší hranice — přebírání cizí atmosféry za svou.',
+    healthy: 'Umím věc rozhýbat.',
+    edge: 'Začínám dřív, než mám jasno.',
+    shadow: 'Impulzivita. Energie předbíhá úsudek.',
   },
   {
     id: 'vize',
     label: 'Velká vize',
-    useful: 'Ambice, schopnost vidět velký potenciál.',
-    overstretched: 'Příliš mnoho otevřených směrů naráz.',
+    healthy: 'Vidím potenciál a větší horizont.',
+    edge: 'Každá možnost začíná vypadat zásadně.',
+    shadow: 'Deset budoucností soupeří o jeden život.',
+  },
+  {
+    id: 'analyza',
+    label: 'Analýza',
+    healthy: 'Umím jít pod povrch a vidět systém.',
+    edge: 'Hledám ještě jeden argument.',
+    shadow: 'Přemýšlení už nezlepšuje rozhodnutí. Jen ho odkládá.',
+  },
+  {
+    id: 'citlivost',
+    label: 'Citlivost',
+    healthy: 'Vnímám lidi, atmosféru a vztah do hloubky.',
+    edge: 'Nesouhlas nebo napětí si beru příliš dovnitř.',
+    shadow: 'Přetížení, stažení nebo pozdě nastavené hranice.',
+  },
+  {
+    id: 'svoboda',
+    label: 'Svoboda',
+    healthy: 'Potřebuju autonomii, abych fungoval naplno.',
+    edge: 'Struktura začíná působit jako omezení.',
+    shadow: 'Odmítám i strukturu, která by mi ve skutečnosti pomohla.',
   },
   {
     id: 'novost',
     label: 'Novost',
-    useful: 'Kreativita a energie z něčeho nového.',
-    overstretched: 'Odchod od věci ve chvíli, kdy přestane být nová.',
-  },
-  {
-    id: 'rychlost',
-    label: 'Rychlost',
-    useful: 'Schopnost rozhýbat zaseknutou situaci.',
-    overstretched: 'Netrpělivost — odpor k čekání.',
+    healthy: 'Nové věci mě nabíjejí kreativitou.',
+    edge: 'Nové začíná být přitažlivější než důležité.',
+    shadow: 'Další start se stává únikem od dokončení.',
   },
 ];
+
+export function sliderBand(value: number): SliderBand {
+  if (value < 40) return 'healthy';
+  if (value < 70) return 'edge';
+  return 'shadow';
+}
 
 export type VoiceData = {
   id: string;
   sign: string;
-  line: string;
-  strength: string;
-  risk: string;
+  motto: string;
+  gift: string;
+  whenTooMuch: string;
 };
 
 export const VOICES: VoiceData[] = [
   {
     id: 'vodnar',
-    sign: 'Vodnář',
-    line: 'Pochopím systém.',
-    strength: 'Schopnost vidět systém a nové možnosti.',
-    risk: 'Příliš mnoho možností, abstrakce a přemýšlení, které nikam nevede.',
+    sign: 'Vodnářská hlava',
+    motto: 'Pochopím systém.',
+    gift: 'Originalita, spojování souvislostí, hledání cesty, kterou ostatní ještě nevidí.',
+    whenTooMuch: 'Možností je tolik, že samotný výběr začne být problém.',
   },
   {
     id: 'beran',
-    sign: 'Beran',
-    line: 'Začnu.',
-    strength: 'Schopnost rozhýbat věci, která jinak stojí na místě.',
-    risk: 'Impulzivita, netrpělivost a frustrace, když se musí čekat.',
+    sign: 'Beraní start',
+    motto: 'Tak pojďme.',
+    gift: 'Iniciativa, rychlost, odvaha, schopnost rozhýbat stojící věci.',
+    whenTooMuch: 'Impuls má náskok před reflexí.',
   },
   {
     id: 'ryby',
-    sign: 'Ryby',
-    line: 'Cítím hloubku.',
-    strength: 'Schopnost hlubokého vztahového a emočního prožitku.',
-    risk: 'Idealizace, přebírání atmosféry a pozdní nastavování hranic.',
+    sign: 'Rybí srdce',
+    motto: 'Cítím to víc, než je vidět.',
+    gift: 'Empatie, intuice, romantika, hluboké vztahové prožívání.',
+    whenTooMuch: 'Atmosféra a vztahové napětí snadno spotřebují příliš mnoho kapacity.',
   },
   {
     id: 'strelec',
-    sign: 'Střelec',
-    line: 'Kam až to můžeme dostat?',
-    strength: 'Schopnost vidět velký potenciál.',
-    risk: 'Vidět ten potenciál příliš často a na příliš mnoha místech naráz.',
+    sign: 'Střelecký horizont',
+    motto: 'Kam až se s tím dá dojít?',
+    gift: 'Expanze, optimismus, dobrodružství a velké cíle.',
+    whenTooMuch: 'Potenciál začnu vidět téměř všude.',
   },
 ];
+
+export const VOICE_FORMULA_REFLEX = ['Pochopím', 'Začnu', 'Zvětším', 'Udělám to jinak'];
+export const VOICE_FORMULA_BALANCE = ['Vyberu', 'Omezím', 'Dotáhnu', 'Znovu vyhodnotím'];
 
 export type AreaData = {
   id: string;
@@ -385,18 +410,68 @@ export type StepData = {
 };
 
 export const STEPS: StepData[] = [
-  { title: 'Situace / spouštěč', question: 'Co se stalo?' },
-  { title: 'Automatická reakce', question: 'Co udělám bez vědomého rozhodnutí?' },
+  { title: 'Konkrétní situace', question: 'Co se opravdu stalo?' },
   {
-    title: 'Skutečná potřeba',
-    question: 'Co se tím snažím získat? Nebo čemu se snažím vyhnout?',
+    title: 'Automatická reakce',
+    question: 'Co jsem udělal dřív, než jsem začal situaci vysvětlovat?',
   },
-  { title: 'Pracovní hypotéza', question: 'Proč tento mechanismus vzniká?' },
-  { title: 'Malý experiment', question: 'Jaká jednoduchá změna by mohla pomoct?' },
-  { title: 'Pozorování', question: 'Co se skutečně změnilo?' },
+  { title: 'Potřeba', question: 'Co jsem se snažil získat nebo chránit?' },
+  { title: 'Alternativy', question: 'Jaká další vysvětlení připadají v úvahu?' },
+  { title: 'Vzorec', question: 'Opakuje se to i jinde, nebo jde o jednorázovou situaci?' },
+  { title: 'Malý experiment', question: 'Jaká nejmenší změna může něco ukázat?' },
+  { title: 'Realita', question: 'Co se po 14–30 dnech skutečně změnilo?' },
   { title: 'Verdikt', question: 'Ponechat. Upravit. Nebo zahodit.' },
+];
+
+export type GuardrailData = {
+  id: string;
+  title: string;
+  body: string;
+};
+
+export const GUARDRAILS: GuardrailData[] = [
   {
-    title: 'Osobní mechanismus',
-    question: 'Úspěšný experiment se stává součástí osobního operačního systému.',
+    id: '01',
+    title: 'Realita > teorie',
+    body: 'Hezké vysvětlení, které nesedí životu, se zahazuje.',
   },
+  {
+    id: '02',
+    title: 'Jedna změna najednou',
+    body: 'Maximálně jeden až dva významné experimenty současně.',
+  },
+  {
+    id: '03',
+    title: 'Mechanismus > motivace',
+    body: 'Nespoléhat každý den na vůli, pokud lze správné rozhodnutí navrhnout předem.',
+  },
+  {
+    id: '04',
+    title: 'Jednoduchost > sofistikovanost',
+    body: 'Pokud správa systému stojí víc energie než problém, který řeší, systém končí.',
+  },
+  {
+    id: '05',
+    title: 'Experiment > identita',
+    body: 'Ne „jsem takový". Ale „v těchto podmínkách mám tendenci dělat tohle — pojďme to otestovat".',
+  },
+  {
+    id: '06',
+    title: 'Recovery > dokonalost',
+    body: 'Cílem není nikdy neselhat. Cílem je poznat to dřív a umět se rychle vrátit.',
+  },
+];
+
+export type FlowStepData = {
+  label: string;
+  body: string;
+};
+
+export const ARCHITECTURE_FLOW: FlowStepData[] = [
+  { label: 'Hypotéza', body: 'Možné vysvětlení.' },
+  { label: 'Pozorování', body: 'Konkrétní příklady.' },
+  { label: 'Vzorec', body: 'Opakuje se napříč situacemi.' },
+  { label: 'Experiment', body: 'Zkusím malou změnu.' },
+  { label: 'Mechanismus', body: 'Vím, co mi pomáhá.' },
+  { label: 'Living OS', body: 'Teprve teď se z toho stává můj default.' },
 ];

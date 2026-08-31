@@ -1,13 +1,10 @@
 import { ScrollReveal } from './ScrollReveal';
 
 const PAIRS = [
-  { no: 'Nechci život bez rizika.', yes: 'Chci lépe rozumět riziku.' },
-  { no: 'Nechci život bez intenzity.', yes: 'Chci intenzitu, která mě neničí.' },
-  {
-    no: 'Nechci život bez velkých plánů.',
-    yes: 'Chci vědět, které plány stojí za můj čas.',
-  },
-  { no: 'Nechci život bez svobody.', yes: 'Chci svobodu, která nepotřebuje chaos.' },
+  { no: 'Ne menší cíle.', yes: 'Lepší výběr cílů.' },
+  { no: 'Ne méně svobody.', yes: 'Svoboda, která nepotřebuje chaos.' },
+  { no: 'Ne méně intenzity.', yes: 'Lepší práce s intenzitou.' },
+  { no: 'Ne jiný Honzík.', yes: 'Vědomější Honzík.' },
 ];
 
 export function ClosingLines() {
@@ -20,11 +17,13 @@ export function ClosingLines() {
         </ScrollReveal>
       ))}
       <ScrollReveal className="h2-closing-final" delay={PAIRS.length * 80}>
-        <p className="h2-closing-no">Nechci méně života.</p>
         <p className="h2-closing-headline">
-          Chci žít víc toho,
+          Stejný motor.
           <br />
-          co opravdu stojí za to.
+          Lepší řízení.
+        </p>
+        <p className="h2-closing-signature">
+          „Nechci žít méně. Chci žít víc toho, co opravdu stojí za to."
         </p>
       </ScrollReveal>
     </div>

@@ -20,14 +20,14 @@ export function VoiceCards() {
             aria-expanded={isOpen}
           >
             <span className="h2-voice-sign">{voice.sign}</span>
-            <span className="h2-voice-line">„{voice.line}"</span>
+            <span className="h2-voice-line">„{voice.motto}"</span>
             <div className="h2-voice-detail" data-open={isOpen} aria-hidden={!isOpen}>
               <div className="h2-voice-detail-inner">
                 <p>
-                  <strong>Silná stránka:</strong> {voice.strength}
+                  <strong>Dar:</strong> {voice.gift}
                 </p>
                 <p>
-                  <strong>Riziko:</strong> {voice.risk}
+                  <strong>Když je toho moc:</strong> {voice.whenTooMuch}
                 </p>
               </div>
             </div>

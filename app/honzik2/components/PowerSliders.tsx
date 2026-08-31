@@ -1,22 +1,32 @@
 'use client';
 
 import { useState } from 'react';
-import { SLIDERS } from '../lib/content-data';
+import { SLIDERS, sliderBand } from '../lib/content-data';
+
+const BAND_LABEL = {
+  healthy: 'zdravá poloha',
+  edge: 'hrana',
+  shadow: 'přetažení',
+} as const;
 
 export function PowerSliders() {
   const [values, setValues] = useState<Record<string, number>>(() =>
-    Object.fromEntries(SLIDERS.map((s) => [s.id, 30]))
+    Object.fromEntries(SLIDERS.map((s) => [s.id, 20]))
   );
 
   return (
     <div className="h2-sliders">
       {SLIDERS.map((slider) => {
         const value = values[slider.id];
-        const isPulled = value > 55;
+        const band = sliderBand(value);
+        const text = slider[band];
         return (
           <div className="h2-slider-row" key={slider.id}>
             <div className="h2-slider-head">
               <span className="h2-slider-label">{slider.label}</span>
+              <span className="h2-slider-band" data-band={band}>
+                {BAND_LABEL[band]}
+              </span>
             </div>
             <input
               type="range"
@@ -28,10 +38,10 @@ export function PowerSliders() {
               onChange={(e) =>
                 setValues((prev) => ({ ...prev, [slider.id]: Number(e.target.value) }))
               }
-              aria-label={`${slider.label}: ${isPulled ? 'přetažená podoba' : 'užitečná poloha'}`}
+              aria-label={`${slider.label}: ${BAND_LABEL[band]}`}
             />
-            <p className="h2-slider-text" data-pulled={isPulled}>
-              {isPulled ? slider.overstretched : slider.useful}
+            <p className="h2-slider-text" data-band={band}>
+              {text}
             </p>
           </div>
         );
