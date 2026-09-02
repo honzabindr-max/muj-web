@@ -1,9 +1,9 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-02 — Neon data layer (schema/migrace/testy AT GREEN, Neon provisioning čeká na Honzíkovo GO — viz poznámka níže). BUILD-01 [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED do `main`.
-**Poslední deployment:** žádný (před M1 — první produkční deployment ještě neproběhl)
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 AT GREEN
-**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001, DEC-002 vyřešeny, viz [DECISIONS.md](./DECISIONS.md))
+**Aktuální slice:** BUILD-03 — Crypto & privacy foundation, AT GREEN. BUILD-01 (PR #11) a BUILD-02 (PR #12, vč. plného Neon provisioningu — production i preview ověřeny) jsou hotové; podrobné provisioning evidence a KROK 0-5 historie je v `build/h2-migration-tooling` (PR #13), který čeká na Honzíkovo GO k mergi — tato branch z něj ještě nevychází, takže se sem propíše až po mergi.
+**Poslední deployment:** žádný H2-specifický (BUILD-01–03 negenerují uživatelsky viditelnou funkčnost); merge #11/#12 vyvolaly běžný Vercel auto-deploy z existující GitHub integrace.
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03 AT GREEN
+**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (viz [DECISIONS.md](./DECISIONS.md); DEC-003/DEC-004 z `build/h2-migration-tooling` se sem propíší po mergi PR #13)
 
 ## Zdroje pravdy
 
@@ -49,6 +49,17 @@ vložit connection stringy do Vercelu. Přesný seznam proměnných a kam patř�
 je připravený a čeká na GO — Code se zastavil přesně před tímto krokem a
 nezaložil žádný Neon projekt ani nepřidal žádný Vercel secret.
 
+## BUILD-03 — Crypto & privacy foundation (AT GREEN)
+
+- `h2/crypto/envelope.ts` — AES-256-GCM encrypt/decrypt, formát `[12B IV][16B auth tag][ciphertext]`, `encryption_key_version` se drží v DB sloupci (už existuje z BUILD-02), ne uvnitř envelope.
+- `h2/crypto/keys.ts` — key registry z `H2_ENCRYPTION_KEY_V{n}` (base64, 32 B) + `H2_ENCRYPTION_ACTIVE_KEY_VERSION`, fail-closed přes stejný `requireEnv` vzor jako BUILD-01.
+- `h2/crypto/rotation.ts` — resumable batch re-encryption (§24 flow). Idempotentní: každá dávka cílí `WHERE key_version = fromVersion`, takže crash uprostřed neztrácí stav — příští spuštění pokračuje na zbývajících řádcích. Ověřeno proti reálné Postgres (AT-41 mixed v1/v2 čitelnost, AT-42 resumability po simulovaném crashi).
+- `h2/crypto/hmac.ts` — HMAC helper pro Deletion Ledger selector/hash chain, samostatný `H2_LEDGER_HMAC_KEY`.
+- `h2/privacy/retention.ts` — čisté cutoff funkce podle §31.8 pro kategorie, které H2 sám aktivně maže (voice audio quarantined, provider debug response, platform logs, server-side export). **Scoping poznámka:** samotný plánovač (kdy job spustit) je BUILD-23 (Scheduler, jobs, health) — bez schedulera nedává smysl stavět běžící cron job teď. Tento modul odpovídá na "co je expirované", BUILD-23 na "kdy to spustit".
+- Sanitizace logů: crypto modul nic nikam neloguje (žádný `console.log`/`logH2Event` volání v `h2/crypto/*`), takže se spoléhá na už existující kontrakt `h2/logging/logger.ts` z BUILD-01 (typově nemá pole pro payload, runtime guard na délku) — nebylo potřeba nic nového přidávat.
+
+DoD splněn: mixed key-version data čitelná během rotace (AT-41, testováno), žádný plaintext payload nejde do platform logs (crypto modul neloguje vůbec).
+
 ## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
@@ -56,8 +67,8 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
 | BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 21/21 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED, branch `build/h2-build-01-foundation-config`, KROK 0 (lazy config, žádný dopad na existující stránky bez H2 env) ověřen + zamčen regresními testy |
-| BUILD-02 | Neon data layer | AT GREEN (schema část); provisioning BLOCKED na GO | — (21/21 DB testů zelených proti lokální Postgres 17) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), branch `build/h2-build-02-neon-data-layer` |
-| BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
+| BUILD-02 | Neon data layer | AT GREEN — DOKONČENO vč. provisioningu (viz PR #13 pro plnou evidenci) | — (21/21 DB testů + role/RLS ověřeno proti reálnému Neon) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) MERGED |
+| BUILD-03 | Crypto & privacy foundation | AT GREEN | AT-41, AT-42 (24/24 testů zelených, viz evidence block) | branch `build/h2-build-03-crypto-privacy` |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
 | BUILD-04 | Unified ingestion | TODO | AT-01, AT-02, AT-48, AT-61 | — |
 | BUILD-05 | Queue, lease, fencing, quarantine | TODO | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | — |
