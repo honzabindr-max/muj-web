@@ -23,13 +23,15 @@ async function checkRole(role: string, connectionString: string | undefined) {
   const client = new Client({ connectionString });
   try {
     await client.connect();
-    const result = await client.query<{ current_user: string; table_count: string }>(
-      "select current_user, (select count(*) from pg_tables where schemaname = 'public')::text as table_count",
+    const result = await client.query<{ current_user: string; session_user: string; table_count: string }>(
+      "select current_user, session_user, (select count(*) from pg_tables where schemaname = 'public')::text as table_count",
     );
     return {
       role,
       ok: true,
       connectedAsExpected: result.rows[0].current_user === role,
+      actualCurrentUser: result.rows[0].current_user,
+      actualSessionUser: result.rows[0].session_user,
       tableCount: Number(result.rows[0].table_count),
     };
   } catch (error) {
