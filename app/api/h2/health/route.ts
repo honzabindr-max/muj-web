@@ -7,7 +7,7 @@ import { logH2Event } from "@/h2/logging/logger";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const isOwner = isAuthenticatedOwnerRequest(request);
+  const isOwner = await isAuthenticatedOwnerRequest(request);
 
   try {
     const config = getH2Config();

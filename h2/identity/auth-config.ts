@@ -5,19 +5,20 @@ import { z } from "zod";
 import { requireEnv } from "@/h2/config/schema";
 
 /**
- * §31.1: Auth.js + Google OAuth. Credentials se čtou líně (requireEnv) —
- * import tohoto souboru sám o sobě nikdy nevyžaduje H2_GOOGLE_CLIENT_ID/
- * SECRET, jen samotné VOLÁNÍ getGoogleOAuthCredentials()/buildAuthConfig()
- * ano. Stejný lazy kontrakt jako h2/config (KROK 0, BUILD-01) — chybějící
- * H2 env proměnné nesmí ovlivnit existující stránky.
+ * §31.1: Auth.js + Google OAuth.
  *
- * Tento soubor je připravený scaffold. Skutečná `NextAuth(buildAuthConfig())`
- * instance a `app/api/auth/[...nextauth]/route.ts` handler se přidají, až
- * budou existovat reálné H2_GOOGLE_CLIENT_ID / H2_GOOGLE_CLIENT_SECRET —
- * volání NextAuth() by muselo proběhnout na module scope, a Next.js build
- * moduly route handlerů natahuje i bez requestu (route collection), takže
- * dřívější instanciace by mohla shodit `next build` bez H2 env přesně tím,
- * čemu se KROK 0 snažil zabránit.
+ * getGoogleOAuthCredentials() je PŘÍSNÁ (fail-closed přes requireEnv) —
+ * pro testy a případné budoucí startup/health kontroly, kde je chybějící
+ * konfigurace skutečná chyba, kterou chceme nahlas.
+ *
+ * buildAuthConfig() je záměrně NEHÁZEJÍCÍ. `auth.ts` volá NextAuth(config)
+ * na module scope a Next.js `next build` route collection fáze modul
+ * naimportuje i bez requestu (např. v CI, kde H2_GOOGLE_CLIENT_ID
+ * neexistuje) — kdyby buildAuthConfig() házel, spadl by celý build přesně
+ * tím, čemu KROK 0 (BUILD-01) zabraňoval. Bez konfigurace vrátí prázdné
+ * providers pole; NextAuth v takovém stavu nikoho nepřihlásí (degradovaný,
+ * ne rozbitý stav) — skutečná chyba se projeví až při pokusu o přihlášení,
+ * ne při buildu.
  */
 export function getGoogleOAuthCredentials(source: Record<string, string | undefined> = process.env) {
   return requireEnv(
@@ -31,15 +32,16 @@ export function getGoogleOAuthCredentials(source: Record<string, string | undefi
 }
 
 export function buildAuthConfig(source: Record<string, string | undefined> = process.env): NextAuthConfig {
-  const { H2_GOOGLE_CLIENT_ID, H2_GOOGLE_CLIENT_SECRET, H2_AUTH_SECRET } = getGoogleOAuthCredentials(source);
+  const clientId = source.H2_GOOGLE_CLIENT_ID;
+  const clientSecret = source.H2_GOOGLE_CLIENT_SECRET;
+  const authSecret = source.H2_AUTH_SECRET;
+
+  const providers =
+    clientId && clientSecret ? [Google({ clientId, clientSecret })] : [];
+
   return {
-    secret: H2_AUTH_SECRET,
-    providers: [
-      Google({
-        clientId: H2_GOOGLE_CLIENT_ID,
-        clientSecret: H2_GOOGLE_CLIENT_SECRET,
-      }),
-    ],
+    secret: authSecret,
+    providers,
     session: {
       strategy: "jwt",
     },

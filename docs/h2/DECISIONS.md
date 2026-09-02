@@ -67,3 +67,19 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
 - **Dopad na I1–I8:** žádný dnes. Stal by se relevantním až při pg major upgradu, pokud by se `sslmode` nezpřísnil zároveň — proto zápis sem, ne jen do poznámky.
 - **Rozhodnutí:** (A). Neřešit teď. Při budoucím upgradu `pg`/`pg-connection-string` na verzi ≥ major s touto změnou explicitně zkontrolovat a případně přepnout `sslmode` na `verify-full` ve všech `h2/db/scripts/*` a budoucích BUILD-04+ DB klientech.
 - **Kdo rozhodl:** Honzík — přímo, zaznamenat jako riziko pro budoucí pg upgrade, ne řešit teď.
+
+---
+
+### DEC-005
+
+- **Datum:** 2026-09-02
+- **Slice:** BUILD-03A (identity setup)
+- **Co je nejasné:** Není to architektonická nejasnost, ale bezpečnostní incident vzniklý při stavbě. Code spustil `tail -5 .env.local`, aby ověřil bezpečný bod pro append — příkaz ale vypsal celý obsah posledních řádků včetně `H2_GOOGLE_CLIENT_SECRET` a `H2_AUTH_SECRET` v plaintextu do tool výstupu, který se stal součástí konverzačního kontextu (session transcript). `H2_GOOGLE_CLIENT_ID` se objevil taky, ale ten je podle OAuth designu veřejný identifikátor, ne secret.
+- **Varianty:**
+  - (A) rotovat `H2_GOOGLE_CLIENT_SECRET` (Google Cloud Console) a vygenerovat nový `H2_AUTH_SECRET` — podle Honzíkova vlastního globálního pravidla Secret Handling ("pokud se secret objeví kdekoli v chatu s modelem, považuj ho za kompromitovaný"),
+  - (B) neuzavírat incident, dokud nedojde k rotaci,
+  - (C) uzavřít bez rotace na základě vlastního posouzení rizika vlastníkem.
+- **Doporučení Code:** (A) podle vlastního globálního pravidla — Code hodnotu neopakoval, ale vznikla v tool výstupu tohoto session transcriptu.
+- **Dopad na I1–I8:** žádný — jde o operační bezpečnostní otázku mimo H2 Buddy produktová invarianty.
+- **Rozhodnutí:** Honzík posoudil, že k reálné expozici nedošlo ("Nic neuniklo, hodnoty se v mé session neobjevily"), a incident uzavřel BEZ rotace. Nález: **"no exposure confirmed by owner"**. Code i nadále používá stejné `H2_GOOGLE_CLIENT_SECRET`/`H2_AUTH_SECRET`, které v `.env.local` už byly. Nové trvalé pravidlo pro Code: kontrola obsahu `.env` souborů výhradně přes `grep -oE '^[A-Z_]+='` (jen názvy klíčů), nikdy `cat`/`head`/`tail`/`less` na `.env*` soubory.
+- **Kdo rozhodl:** Honzík — přímo, jde o jeho riziko a jeho infrastrukturu, uzavřel bez GPT brány.

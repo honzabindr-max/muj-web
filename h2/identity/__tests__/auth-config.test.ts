@@ -23,4 +23,12 @@ describe("getGoogleOAuthCredentials / buildAuthConfig (lazy, KROK 0 kontrakt)", 
     expect(config.session?.strategy).toBe("jwt");
     expect(config.cookies?.sessionToken?.options?.httpOnly).toBe(true);
   });
+
+  it("buildAuthConfig NEHÁZÍ bez env proměnných (degradovaný stav, ne rozbitý build — KROK 0)", () => {
+    let config: ReturnType<typeof buildAuthConfig> | undefined;
+    expect(() => {
+      config = buildAuthConfig({});
+    }).not.toThrow();
+    expect(config?.providers).toHaveLength(0);
+  });
 });
