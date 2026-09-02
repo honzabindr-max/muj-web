@@ -1,8 +1,9 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-03A — Identity, sessions & recent re-auth, AT GREEN. Živě ověřeno reálným Google přihlášením (viz níže). BUILD-01 (PR #11), BUILD-02 (PR #12+#13) a BUILD-03 (PR #14) jsou MERGED; BUILD-03A čeká na PR + Honzíkovo GO k merge.
-**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13) a [PR #14](https://github.com/honzabindr-max/muj-web/pull/14) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Toto NENÍ H2 Buddy M1 produkční deployment (BUILD-01–03A negenerují uživatelsky viditelnou funkčnost).
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A AT GREEN
+**Aktuální slice:** BUILD-01 až BUILD-03A jsou všechny MERGED a nasazené na produkci ([PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [#12](https://github.com/honzabindr-max/muj-web/pull/12), [#13](https://github.com/honzabindr-max/muj-web/pull/13), [#14](https://github.com/honzabindr-max/muj-web/pull/14), [#15](https://github.com/honzabindr-max/muj-web/pull/15)). Google OAuth wiring ověřený na produkci (health 200, OAuth redirect korektní) — jeden nalezený akční bod pro Honzíka: chybějící `www.` redirect URI v Google Cloud Console (viz sekce BUILD-03A níže).
+**Další krok: BUILD-04 — Unified ingestion.** Code se u něj zastaví, jakmile bude potřebovat **Telegram bot token** (a webhook secret) — stejný vzor jako Google OAuth credentials u BUILD-03A. Session byla tímto ukončena na explicitní pokyn Honzíka; BUILD-04 se nezahajuje automaticky.
+**Poslední deployment:** [PR #15](https://github.com/honzabindr-max/muj-web/pull/15) mergnuto do `main`, Vercel produkční deployment `dpl_CcgohwnK8GR6mDC9tq5cskSwjm6o` proběhl a je live. Toto je první H2-specifický produkční deployment s reálně funkční (byť ještě needitovanou) částí produktu — Google přihlášení.
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 4 / 11 bloků BUILD-01–BUILD-11 hotové (BUILD-01, 02, 03, 03A), zbývá BUILD-04 až BUILD-11.
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-005 vyřešeny; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
@@ -92,7 +93,15 @@ DoD splněn: mixed key-version data čitelná během rotace (AT-41, testováno),
 
 **AT ownership CI kontrola (Build Spec §6):** dřív existovala jen jako text v této tabulce, ne jako spustitelný kód. Teď: `h2/build-governance/at-ownership.ts` (strojový zrcadlový obraz matice) + test, který ověří žádnou duplicitu/mezeru v AT-01..AT-72 a že dokončené bloky mají skutečné test pokrytí svých AT. Potvrzeno: AT-41 i AT-42 patří výhradně BUILD-03. Nový `.github/workflows/h2-tests.yml` (dřív žádný CI test běh neexistoval) tuto kontrolu spouští na každém PR do `main` — ověřeno živým GHA během (run 33674346107): **68/68 testů zelených v CI**, vč. DB-závislých testů proti postgres:17 service containeru.
 
-## BUILD-03A — Identity, sessions & recent re-auth (AT GREEN)
+## BUILD-03A — Identity, sessions & recent re-auth (AT GREEN — MERGED, DEPLOYED)
+
+PR #15 mergnuto (commit `5da0399a1cf846e00187d90f9a7b62763b00fff6`), Vercel produkční deployment proběhl (`dpl_CcgohwnK8GR6mDC9tq5cskSwjm6o`, target production). Honzík doplnil `H2_GOOGLE_CLIENT_ID`, `H2_GOOGLE_CLIENT_SECRET`, `H2_AUTH_SECRET` do Vercel (production + preview zvlášť, jiná hodnota `H2_AUTH_SECRET` per prostředí) — potvrzeno `vercel env ls`, 14 H2 proměnných.
+
+**Ověřeno po produkčním deploymentu:**
+- `https://good-inventions.work/api/h2/health` → `200 {"status":"ok"}`.
+- OAuth redirect wiring: `POST /api/auth/signin/google` na produkci správně přesměruje na `accounts.google.com/o/oauth2/v2/auth` se správným `client_id` (odpovídá Honzíkovu OAuth klientu).
+
+**⚠️ Nalezený reálný problém, nutná akce v Google Cloud Console:** `good-inventions.work` na Vercelu 307 přesměrovává na `www.good-inventions.work` (kanonická doména). Skutečný `redirect_uri`, který NextAuth generuje a pošle Google, je proto `https://www.good-inventions.work/api/auth/callback/google` — ale Honzík v Google Cloud Console zaregistroval jen variantu **bez** `www`. Skutečné přihlášení na produkci by dnes spadlo na `redirect_uri_mismatch`. **Akce pro Honzíka:** v Google Cloud Console → OAuth client "H2 Buddy" → Authorized redirect URIs → přidat `https://www.good-inventions.work/api/auth/callback/google` (ponechat i variantu bez www pro jistotu). Živé dokončení přihlašovacího flow na produkci nebylo možné ověřit Code (vyžaduje Honzíkovo Google heslo) — lokální flow (localhost:3000, KROK z předchozí zprávy) byl živě ověřený end-to-end včetně DB zápisu.
 
 - `h2/identity/owner-enrollment.ts` — první přihlášení enrolluje ownera, další přihlášení stejným Google sub projde, jiný sub je odmítnut. "Přesně jeden povolený owner" (§31.1) je vynucený na úrovni web auth enrollmentu, ne jako DB-wide constraint na `owners` — ta tabulka musí zůstat schopná nést víc řádků (testovací fixtures napříč BUILD-02/03 testy na tom stavějí). Race-safe přes `pg_advisory_xact_lock`, testováno souběžným enrollmentem dvou různých účtů (vyhraje přesně jeden).
 - `h2/identity/session.ts` — `requireOwnerSession()` a `requireRecentReauth(maxAge=5m)`, přesně ty typed helpery, které Build Spec u BUILD-03A výslovně vyžaduje jako jedinou cestu k ověření identity (AT-64 testováno: re-auth do 5 min projde, po 5 min selže, po obnovení re-auth pokračuje).
@@ -118,8 +127,8 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 21/21 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED, branch `build/h2-build-01-foundation-config`, KROK 0 (lazy config, žádný dopad na existující stránky bez H2 env) ověřen + zamčen regresními testy |
 | BUILD-02 | Neon data layer | AT GREEN — DOKONČENO vč. provisioningu (production + preview ověřeny) | — (21/21 DB testů zelených proti lokální Postgres 17 + role/RLS ověřeno proti reálnému Neon oběma prostředími) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) MERGED, [PR #13](https://github.com/honzabindr-max/muj-web/pull/13) MERGED (tooling); DEC-003 (Free plán do M1), DEC-004 (pg SSL warning, budoucí upgrade) |
 | BUILD-03 | Crypto & privacy foundation | AT GREEN | AT-41, AT-42 (24/24 testů zelených, viz evidence block) | [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), branch `build/h2-build-03-crypto-privacy`, čeká na Honzíkovo GO k merge |
-| BUILD-03A | Identity, sessions & recent re-auth | AT GREEN | AT-64 (90/90 testů v repu zelených) | [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), branch `build/h2-build-03a-identity-sessions`, ověřeno živým Google OAuth přihlášením lokálně, čeká na Honzíkovo GO k merge |
-| BUILD-04 | Unified ingestion | TODO | AT-01, AT-02, AT-48, AT-61 | — |
+| BUILD-03A | Identity, sessions & recent re-auth | AT GREEN — MERGED, DEPLOYED | AT-64 (90/90 testů v repu zelených) | [PR #15](https://github.com/honzabindr-max/muj-web/pull/15) MERGED, ověřeno živě lokálně (přihlášení) i na produkci (health + OAuth redirect); akční bod: `www.` redirect URI v Google Console |
+| BUILD-04 | Unified ingestion | TODO — další v pořadí | AT-01, AT-02, AT-48, AT-61 | Code se zastaví, jakmile bude potřebovat Telegram bot token + webhook secret (stejný vzor jako Google OAuth u BUILD-03A) |
 | BUILD-05 | Queue, lease, fencing, quarantine | TODO | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | — |
 | BUILD-06 | Voice transcription | TODO | AT-04, AT-05 | — |
 | BUILD-07 | Prompt Registry & model adapter | TODO | AT-33, AT-34, AT-35, AT-36, AT-63 | — |
@@ -152,3 +161,5 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 |---|---|---|---|---|
 | 2026-09-02 | BUILD-01 | `e6368d0` (merge #11) | Vercel auto-deploy (produkce muj-web) | Config/logger/health foundation, žádná nová uživatelsky viditelná funkčnost. |
 | 2026-09-02 | BUILD-02 | merge #12 | Vercel auto-deploy (produkce muj-web) | DB schema/migrace, žádná Neon infrastruktura ani runtime dopad (nic H2 se zatím k DB nepřipojuje). |
+| 2026-09-02 | BUILD-03 | merge #14 | Vercel auto-deploy (produkce muj-web) | Crypto/privacy primitiva, žádná uživatelsky viditelná funkčnost. |
+| 2026-09-02 | BUILD-03A | `5da0399` (merge #15) | `dpl_CcgohwnK8GR6mDC9tq5cskSwjm6o`, https://good-inventions.work/api/h2/health → 200 | **První H2-specifický deployment se skutečnou funkčností** — Google OAuth přihlášení živé na produkci. Ověřeno health + OAuth redirect (client_id/redirect_uri sedí). Nalezen akční bod: chybějící `www.` redirect URI v Google Cloud Console. |
