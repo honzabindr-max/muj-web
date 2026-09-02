@@ -42,7 +42,10 @@ create index deletion_ledger_deletion_id_idx on deletion_ledger (deletion_id);
 create index deletion_ledger_owner_idx on deletion_ledger (owner_id);
 
 -- Viz komentář v h2-runtime 0011_roles_and_rls.sql: role jsou cluster-wide,
--- DO blok dělá vytvoření idempotentním napříč lokálními testovacími DB.
+-- advisory lock serializuje souběžné migrace napříč paralelně běžícími
+-- test soubory (race na pg_authid), DO blok je druhá vrstva obrany.
+select pg_advisory_xact_lock(hashtext('h2_role_creation'));
+
 do $$
 begin
   create role h2_control_migrator noinherit bypassrls;
