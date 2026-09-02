@@ -1,7 +1,7 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-02 — Neon data layer (schema/migrace/testy AT GREEN, Neon provisioning čeká na Honzíkovo GO — viz poznámka níže). BUILD-01 [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED do `main`.
-**Poslední deployment:** žádný (před M1 — první produkční deployment ještě neproběhl)
+**Aktuální slice:** BUILD-02 — Neon data layer (schema/migrace/testy AT GREEN a MERGED, Neon provisioning čeká na Honzíkovo GO — viz poznámka níže).
+**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) a [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) mergnuty do `main` (2026-09-02), Vercel auto-deploy proběhl přes existující GitHub integraci. Toto NENÍ H2 Buddy M1 produkční deployment (BUILD-01/02 negenerují uživatelsky viditelnou funkčnost) — jde jen o merge do main, který repo standardně auto-deployuje.
 **Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 AT GREEN
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001, DEC-002 vyřešeny, viz [DECISIONS.md](./DECISIONS.md))
 
@@ -42,12 +42,15 @@ Obě položky jsou zahrnuty v **M1 deploy gate** checklistu níže.
 
 ## BUILD-02 — čeká na GO: Neon provisioning
 
-Schema/migrace/RLS/role jsou hotové a otestované proti lokální Postgres 17
-(`h2/db/migrations/`, 21/21 testů zelených). Zbývá jediný krok, který je
+Schema/migrace/RLS/role jsou hotové, otestované proti lokální Postgres 17
+(21/21 testů zelených) a mergnuté do `main`. Zbývá jediný krok, který je
 Honzíkova brána (nové secrets/integrace): založit reálné Neon projekty a
-vložit connection stringy do Vercelu. Přesný seznam proměnných a kam patří
-je připravený a čeká na GO — Code se zastavil přesně před tímto krokem a
-nezaložil žádný Neon projekt ani nepřidal žádný Vercel secret.
+vložit connection stringy do Vercelu.
+
+Migrační tooling pro tento krok (`db:migrate:neon:runtime`,
+`db:migrate:neon:control`, `.env.migrate` přes `write-migrate-env.sh`) je
+připravený — viz `h2/db/scripts/`. `.env.migrate` je pokryté `.env*` v
+`.gitignore` a nikdy neobsahuje hodnoty procházející chatem s modelem.
 
 ## Bloky BUILD-01 — BUILD-28
 
@@ -90,4 +93,5 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 
 | Datum | Slice | Commit | URL | Poznámka |
 |---|---|---|---|---|
-| — | — | — | — | Zatím žádný deployment. |
+| 2026-09-02 | BUILD-01 | `e6368d0` (merge #11) | Vercel auto-deploy (produkce muj-web) | Config/logger/health foundation, žádná nová uživatelsky viditelná funkčnost. |
+| 2026-09-02 | BUILD-02 | merge #12 | Vercel auto-deploy (produkce muj-web) | DB schema/migrace, žádná Neon infrastruktura ani runtime dopad (nic H2 se zatím k DB nepřipojuje). |

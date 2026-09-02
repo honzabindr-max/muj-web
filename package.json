@@ -8,6 +8,9 @@
     "start": "next start",
     "test": "vitest run",
     "db:migrate:dev": "tsx h2/db/scripts/migrate-dev.ts",
+    "db:migrate:control": "tsx h2/db/scripts/migrate-control-dev.ts",
+    "db:migrate:neon:runtime": "tsx h2/db/scripts/migrate-neon-runtime.ts",
+    "db:migrate:neon:control": "tsx h2/db/scripts/migrate-neon-control.ts",
     "fetch:routes": "node scripts/fetch-soci-routes.mjs",
     "fetch:photos": "node scripts/fetch-soci-photos.mjs"
   },
