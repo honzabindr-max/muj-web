@@ -1,16 +1,15 @@
 import { Client } from "pg";
 
-import { logH2Event } from "@/h2/logging/logger";
-
-export const dynamic = "force-dynamic";
-
 /**
- * DOČASNÝ diagnostický endpoint pro KROK 5 (ověření connectivity + reálné
- * RLS enforcement 4 rolí po Neon provisioningu). Neexpozuje credentials,
- * jen role/flags/table count. Read-only s jednou záměrnou UPDATE zkouškou
- * na h2_control, která se OČEKÁVANĚ odmítne (permission denied) — Postgres
- * ji zamítne před jakoukoli zápisovou operací, takže nemění žádná data i
- * proti produkci. Smazat po ověření — není to trvalá součást product surface.
+ * KROK 5 — lokální ověření DB/role/RLS stavu proti reálnému Neon, bez
+ * jakéhokoli Vercel deploymentu. Čte connection stringy ze .env.rolecheck
+ * (přes write-rolecheck-env.sh), spouští se z terminálu, ne přes Code.
+ *
+ * Ověřuje pro každou roli: current_user odpovídá očekávané roli, role NEMÁ
+ * bypassrls, RLS je na raw_events enabled+forced (pro runtime role), a pro
+ * h2_control že append-only drží (záměrně odmítnutý UPDATE — Postgres ho
+ * zamítne dřív, než by se čehokoli dotkl, takže je to read-safe i proti
+ * produkci).
  */
 const RUNTIME_ROLE_VARS = [
   { role: "h2_runtime", envVar: "H2_RUNTIME_DATABASE_URL" },
@@ -62,8 +61,7 @@ async function checkRuntimeRole(role: string, connectionString: string | undefin
   }
 }
 
-async function checkControlRole() {
-  const connectionString = process.env.H2_CONTROL_DATABASE_URL;
+async function checkControlRole(connectionString: string | undefined) {
   if (!connectionString) {
     return { role: "h2_control", ok: false, error: "ENV_VAR_MISSING" };
   }
@@ -82,9 +80,6 @@ async function checkControlRole() {
       "select count(*)::text as n from pg_tables where schemaname = 'public'",
     );
 
-    // Záměrně odmítnutý UPDATE — append-only se vynucuje na úrovni GRANT
-    // (žádný UPDATE/DELETE grant), takže Postgres zápis odmítne dřív, než
-    // by se čehokoli dotkl. Žádná data se touto zkouškou nemění.
     let appendOnlyEnforced = false;
     try {
       await client.query("update deletion_ledger set hmac_key_version = hmac_key_version where false");
@@ -110,19 +105,23 @@ async function checkControlRole() {
   }
 }
 
-export async function GET() {
+async function main() {
+  const envFile = ".env.rolecheck";
+  try {
+    process.loadEnvFile(envFile);
+  } catch {
+    throw new Error(`${envFile} neexistuje. Spusť nejdřív: bash h2/db/scripts/write-rolecheck-env.sh`);
+  }
+
   const [runtimeResults, controlResult] = await Promise.all([
     Promise.all(RUNTIME_ROLE_VARS.map(({ role, envVar }) => checkRuntimeRole(role, process.env[envVar]))),
-    checkControlRole(),
+    checkControlRole(process.env.H2_CONTROL_DATABASE_URL),
   ]);
-  const results = [...runtimeResults, controlResult];
-  for (const result of results) {
-    logH2Event({
-      purpose: "config",
-      status: result.ok ? "ok" : "error",
-      errorCode: result.ok ? undefined : "H2_DB_CHECK_FAILED",
-    });
-  }
-  const environment = process.env.VERCEL_ENV ?? "unknown";
-  return Response.json({ environment, results });
+
+  console.log(JSON.stringify({ results: [...runtimeResults, controlResult] }, null, 2));
 }
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
