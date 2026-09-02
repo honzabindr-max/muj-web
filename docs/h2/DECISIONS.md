@@ -83,3 +83,19 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
 - **Dopad na I1–I8:** žádný — jde o operační bezpečnostní otázku mimo H2 Buddy produktová invarianty.
 - **Rozhodnutí:** Honzík posoudil, že k reálné expozici nedošlo ("Nic neuniklo, hodnoty se v mé session neobjevily"), a incident uzavřel BEZ rotace. Nález: **"no exposure confirmed by owner"**. Code i nadále používá stejné `H2_GOOGLE_CLIENT_SECRET`/`H2_AUTH_SECRET`, které v `.env.local` už byly. Nové trvalé pravidlo pro Code: kontrola obsahu `.env` souborů výhradně přes `grep -oE '^[A-Z_]+='` (jen názvy klíčů), nikdy `cat`/`head`/`tail`/`less` na `.env*` soubory.
 - **Kdo rozhodl:** Honzík — přímo, jde o jeho riziko a jeho infrastrukturu, uzavřel bez GPT brány.
+
+---
+
+### DEC-006
+
+- **Datum:** 2026-09-02
+- **Slice:** hotfix po BUILD-03A (PR #17) — zjištěno při ověřování `.env.migrate` v rámci produkční migrace 0012+0013
+- **Co je nejasné:** Schéma (BUILD-02, migrace 0011) definuje roli `h2_migrator` jako určenou migrátorskou roli s `bypassrls`, oddělenou od `h2_runtime`/`h2_job`/`h2_blind_reader` podle principu nejmenších oprávnění. Té roli ale nikdy nebylo nastaveno heslo — `.env.migrate` (`H2_RUNTIME_MIGRATOR_DATABASE_URL`, `H2_CONTROL_MIGRATOR_DATABASE_URL`) proto od KROK 3 (BUILD-02 provisioning) reálně obsahuje connection stringy role `neondb_owner` (Neon výchozí superuser role obou projektů), ne `h2_migrator`. Všechny migrace včetně produkčního hotfixu 0012+0013 dosud běžely přes owner účet.
+- **Varianty:**
+  - (A) nastavit heslo pro `h2_migrator` (Neon SQL editor / connection string), přegenerovat `.env.migrate` přes `write-migrate-env.sh` tak, aby ukazoval na `h2_migrator`, a sladit realitu se schématem/architekturou,
+  - (B) ponechat jako vědomou zdokumentovanou odchylku — `neondb_owner` má striktní superset oprávnění `h2_migrator` (včetně `bypassrls`), takže žádné migraci dnes nic nechybí a žádné funkční riziko nevzniká,
+  - (C) zrušit roli `h2_migrator` ze schématu, pokud se nikdy reálně nepoužije.
+- **Doporučení Code:** (A) před M1 deploy gate — migrace by měly běžet pod nejméně-privilegovanou určenou rolí, ne pod účtem vlastníka projektu (defense in depth); dnes to funguje, ale nemělo by to zůstat takhle natrvalo. (C) zahazuje užitečné oddělení rolí bez důvodu.
+- **Dopad na I1–I8:** žádný přímý dnes (migrace fungují). Nepřímo oslabuje princip nejmenších oprávnění, který architektura pro migrátorské role předepisuje.
+- **Rozhodnutí:** (B) pro teď — zaznamenat jako vědomou odchylku, funkčně bezpečnou. (A) přesunuto do M1 deploy gate checklistu jako otevřená položka (nastavení hesla = nový secret, vyžaduje Honzíkovo GO, až se bude řešit).
+- **Kdo rozhodl:** Honzík — přímo, nahlásil nález a zadal zápis, řešení odloženo do M1 gate bez GPT brány (jde o operační/infra otázku, ne o produktovou hodnotu).
