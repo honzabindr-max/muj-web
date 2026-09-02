@@ -46,7 +46,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
-| BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 17/17 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), branch `build/h2-build-01-foundation-config`, čeká na Honzíkovo GO k merge do `main` |
+| BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 21/21 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), branch `build/h2-build-01-foundation-config`, KROK 0 (lazy config, žádný dopad na existující stránky bez H2 env) ověřen + zamčen regresními testy, čeká na Honzíkovo GO k merge do `main` |
 | BUILD-02 | Neon data layer | TODO | — (schema/unit/integration testy slice) | — |
 | BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
