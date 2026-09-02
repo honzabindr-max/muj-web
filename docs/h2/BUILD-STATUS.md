@@ -1,9 +1,9 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-02 — Neon data layer (schema/migrace/testy AT GREEN, Neon provisioning čeká na Honzíkovo GO — viz poznámka níže). BUILD-01 [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED do `main`.
-**Poslední deployment:** žádný (před M1 — první produkční deployment ještě neproběhl)
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 AT GREEN
-**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001, DEC-002 vyřešeny, viz [DECISIONS.md](./DECISIONS.md))
+**Aktuální slice:** BUILD-03 — Crypto & privacy foundation (rozjíždí se). BUILD-02 — Neon data layer je DOKONČENÝ: schema/migrace/RLS/role AT GREEN, mergnuto, Neon h2-runtime + h2-control provisioning kompletní a plně ověřený (production i preview, viz níže).
+**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) a [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) mergnuty do `main` (2026-09-02), Vercel auto-deploy proběhl přes existující GitHub integraci. Toto NENÍ H2 Buddy M1 produkční deployment (BUILD-01/02 negenerují uživatelsky viditelnou funkčnost) — jde jen o merge do main, který repo standardně auto-deployuje.
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 a BUILD-02 AT GREEN
+**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-004 vyřešeny, DEC-004 je zaznamenané riziko pro budoucí pg upgrade, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
 
@@ -39,15 +39,45 @@ Obě položky jsou zahrnuty v **M1 deploy gate** checklistu níže.
 - [ ] Smoke test proběhne na produkci: Telegram text + voice + web.
 - [ ] Minimální metering: `usage_ledger` zápisy živé + tvrdý strop 35 USD/měsíc vynucený (viz poznámka č. 1 výše).
 - [ ] `docs/h2/EXPERIMENT-0.md` založen (viz poznámka č. 2 výše).
+- [ ] Neon h2-runtime a h2-control upgradovány z Free na **Launch** plán, History Retention nastavena na **7 dní** (viz DEC-003 — dnes Free/6h, dočasná odchylka do M1, ne dřív).
 
-## BUILD-02 — čeká na GO: Neon provisioning
+## BUILD-02 — Neon provisioning (DOKONČENO)
 
-Schema/migrace/RLS/role jsou hotové a otestované proti lokální Postgres 17
-(`h2/db/migrations/`, 21/21 testů zelených). Zbývá jediný krok, který je
-Honzíkova brána (nové secrets/integrace): založit reálné Neon projekty a
-vložit connection stringy do Vercelu. Přesný seznam proměnných a kam patří
-je připravený a čeká na GO — Code se zastavil přesně před tímto krokem a
-nezaložil žádný Neon projekt ani nepřidal žádný Vercel secret.
+Schema/migrace/RLS/role hotové, otestované proti lokální Postgres 17
+(21/21 testů zelených) a mergnuté do `main` (PR #12).
+
+Neon projekty h2-runtime a h2-control založeny (region Frankfurt, Postgres 18,
+Free plán/6h retention do M1 — DEC-003; hlavní větev se v obou jmenuje
+`production`, ne `main`). Migrace aplikovány na `production` obou projektů,
+preview větve založeny až po migracích (`parent = production`, zdědily
+hotové schéma i role). Vercel: 8 proměnných (`H2_RUNTIME_DATABASE_URL`,
+`H2_JOB_DATABASE_URL`, `H2_BLIND_READER_DATABASE_URL`, `H2_CONTROL_DATABASE_URL`
+× production/preview) přidány jako Secret (write-only, nejde stáhnout
+`vercel env pull`).
+
+**Ověřeno `h2/db/scripts/check-neon-roles.ts` proti oběma prostředím**
+(current_user, `rolbypassrls`, `relrowsecurity`/`relforcerowsecurity` na
+`raw_events`, append-only na `h2_control` přes záměrně odmítnutý UPDATE):
+
+| Role | Production | Preview |
+|---|---|---|
+| h2_runtime | connectedAsExpected ✓, bypassrls false ✓, RLS enabled+forced ✓, 43 tabulek | stejné (ověřeno přes dočasný `/api/h2/db-check`, později nahrazený lokálním skriptem) |
+| h2_job | ✓ | ✓ |
+| h2_blind_reader | ✓ | ✓ |
+| h2_control | connectedAsExpected ✓, bypassrls false ✓, appendOnlyEnforced ✓, 2 tabulky | ✓ |
+
+Cestou se našly a opravily dva reálné bugy (ne teoretické): (1)
+`H2_RUNTIME_DATABASE_URL` byla omylem nastavena na výchozí `neondb_owner`
+connection string místo role `h2_runtime` — opraveno v obou prostředích;
+(2) `write-migrate-env.sh` mělo `echo` na stdout uvnitř funkce zachytávané
+přes `$(...)`, což korumpovalo zapsané `.env.migrate` — opraveno (`echo >&2`)
+a doplněna validace formátu. Obě opravy jsou v `build/h2-migration-tooling`
+(PR #13, zatím nemergnuto — funguje lokálně i bez mergu, čeká na Honzíkovo
+GO k mergi jako běžná dokončená tooling práce).
+
+DEC-004: `pg`/`pg-connection-string` hlásí SSL mode deprecation warning
+(`sslmode=require`) — zaznamenáno jako riziko pro budoucí pg major upgrade,
+neřeší se teď.
 
 ## Bloky BUILD-01 — BUILD-28
 
@@ -56,8 +86,8 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
 | BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 21/21 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED, branch `build/h2-build-01-foundation-config`, KROK 0 (lazy config, žádný dopad na existující stránky bez H2 env) ověřen + zamčen regresními testy |
-| BUILD-02 | Neon data layer | AT GREEN (schema část); provisioning BLOCKED na GO | — (21/21 DB testů zelených proti lokální Postgres 17) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), branch `build/h2-build-02-neon-data-layer` |
-| BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
+| BUILD-02 | Neon data layer | AT GREEN — DOKONČENO vč. provisioningu (production + preview ověřeny) | — (21/21 DB testů zelených proti lokální Postgres 17 + role/RLS ověřeno proti reálnému Neon oběma prostředími) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) MERGED; tooling PR #13 čeká na GO k mergi; DEC-003 (Free plán do M1), DEC-004 (pg SSL warning, budoucí upgrade) |
+| BUILD-03 | Crypto & privacy foundation | IN PROGRESS | AT-41, AT-42 | — |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
 | BUILD-04 | Unified ingestion | TODO | AT-01, AT-02, AT-48, AT-61 | — |
 | BUILD-05 | Queue, lease, fencing, quarantine | TODO | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | — |
@@ -90,4 +120,5 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 
 | Datum | Slice | Commit | URL | Poznámka |
 |---|---|---|---|---|
-| — | — | — | — | Zatím žádný deployment. |
+| 2026-09-02 | BUILD-01 | `e6368d0` (merge #11) | Vercel auto-deploy (produkce muj-web) | Config/logger/health foundation, žádná nová uživatelsky viditelná funkčnost. |
+| 2026-09-02 | BUILD-02 | merge #12 | Vercel auto-deploy (produkce muj-web) | DB schema/migrace, žádná Neon infrastruktura ani runtime dopad (nic H2 se zatím k DB nepřipojuje). |
