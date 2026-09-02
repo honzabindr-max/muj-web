@@ -49,8 +49,10 @@ vložit connection stringy do Vercelu.
 
 Migrační tooling pro tento krok (`db:migrate:neon:runtime`,
 `db:migrate:neon:control`, `.env.migrate` přes `write-migrate-env.sh`) je
-připravený — viz `h2/db/scripts/`. `.env.migrate` je pokryté `.env*` v
-`.gitignore` a nikdy neobsahuje hodnoty procházející chatem s modelem.
+připravený v [PR #13](https://github.com/honzabindr-max/muj-web/pull/13),
+branch `build/h2-migration-tooling` — funguje lokálně i před mergem.
+`.env.migrate` je pokryté `.env*` v `.gitignore` a nikdy neobsahuje
+hodnoty procházející chatem s modelem.
 
 ## Bloky BUILD-01 — BUILD-28
 
