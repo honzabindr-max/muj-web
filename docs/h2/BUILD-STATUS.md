@@ -1,6 +1,6 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-01 — Foundation & configuration (AT GREEN, push + PR proběhly, čeká na merge)
+**Aktuální slice:** BUILD-01 — Foundation & configuration (AT GREEN, [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) otevřen, čeká na merge GO). BUILD-02 mezitím rozjeto na nezávislé branchi — viz řádek BUILD-02.
 **Poslední deployment:** žádný (před M1 — první produkční deployment ještě neproběhl)
 **Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 AT GREEN
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001, DEC-002 vyřešeny, viz [DECISIONS.md](./DECISIONS.md))
@@ -46,7 +46,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
-| BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 17/17 zelených, viz evidence block) | branch `build/h2-build-01-foundation-config`, PR otevřen, čeká na Honzíkovo GO k merge do `main` |
+| BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 17/17 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), branch `build/h2-build-01-foundation-config`, čeká na Honzíkovo GO k merge do `main` |
 | BUILD-02 | Neon data layer | TODO | — (schema/unit/integration testy slice) | — |
 | BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
