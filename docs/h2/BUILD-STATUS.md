@@ -105,6 +105,8 @@ DoD splněn: mixed key-version data čitelná během rotace (AT-41, testováno),
 
 DEC-005: incident s `.env.local` (viz DECISIONS.md) — uzavřen Honzíkem bez rotace, nález "no exposure confirmed by owner".
 
+**CI flaky race (nalezeno a opraveno v rámci tohoto slicu):** první dva CI běhy na PR #15 spadly na race condition — role (`h2_migrator` atd.) jsou cluster-wide a paralelně běžící vitest test soubory je zkoušely vytvořit současně na sdíleném CI Postgres, což občas skončilo raw `unique_violation` místo bezpečně odchyceného `duplicate_object`. Opraveno `h2/db/scripts/ensure-test-roles.ts` jako vitest `globalSetup` — založí všech 6 rolí sekvenčně, jednou, PŘED spuštěním libovolného paralelního test souboru, takže k race nemůže dojít. Advisory lock (`pg_advisory_xact_lock`) v migracích zůstal jako druhá vrstva obrany. Ověřeno živě v CI: 24/24 souborů, 90/90 testů.
+
 **Zbývá pro produkci (mimo scope tohoto slice, analogické Neon provisioningu z BUILD-02):** přidat `H2_GOOGLE_CLIENT_ID`, `H2_GOOGLE_CLIENT_SECRET`, `H2_AUTH_SECRET` a `H2_RUNTIME_DATABASE_URL` do Vercel env (production + preview) — nové secrets, Honzíkova brána. Bez nich `/api/auth/*` v nasazeném prostředí poběží v degradovaném stavu (prázdné providers), lokální vývoj a testy fungují už teď.
 
 ## Bloky BUILD-01 — BUILD-28
