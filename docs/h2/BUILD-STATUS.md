@@ -56,7 +56,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
 | BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 17/17 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), branch `build/h2-build-01-foundation-config`, čeká na Honzíkovo GO k merge do `main` |
-| BUILD-02 | Neon data layer | AT GREEN (schema část); provisioning BLOCKED na GO | — (21/21 DB testů zelených proti lokální Postgres 17) | branch `build/h2-build-02-neon-data-layer`, čeká na Honzíkovo GO k Neon provisioningu (viz poznámka níže) |
+| BUILD-02 | Neon data layer | AT GREEN (schema část); provisioning BLOCKED na GO | — (21/21 DB testů zelených proti lokální Postgres 17) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) (stacked na #11), branch `build/h2-build-02-neon-data-layer` |
 | BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
 | BUILD-04 | Unified ingestion | TODO | AT-01, AT-02, AT-48, AT-61 | — |
