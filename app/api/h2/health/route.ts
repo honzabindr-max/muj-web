@@ -1,14 +1,22 @@
 import { NextResponse } from "next/server";
 
 import { getH2Config, H2ConfigError } from "@/h2/config";
+import { isAuthenticatedOwnerRequest } from "@/h2/identity/owner-session";
 import { logH2Event } from "@/h2/logging/logger";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const isOwner = isAuthenticatedOwnerRequest(request);
+
   try {
     const config = getH2Config();
     logH2Event({ purpose: "health", status: "ok" });
+
+    if (!isOwner) {
+      return NextResponse.json({ status: "ok" });
+    }
+
     return NextResponse.json({
       status: "ok",
       environment: config.environment,
@@ -22,17 +30,14 @@ export async function GET() {
       checkedAt: new Date().toISOString(),
     });
   } catch (error) {
-    if (error instanceof H2ConfigError) {
-      logH2Event({ purpose: "health", status: "error", errorCode: "H2_CONFIG_INVALID" });
-      return NextResponse.json(
-        { status: "error", errorCode: "H2_CONFIG_INVALID", missingKeys: error.missingKeys },
-        { status: 500 },
-      );
+    const errorCode = error instanceof H2ConfigError ? "H2_CONFIG_INVALID" : "H2_HEALTH_UNKNOWN_ERROR";
+    logH2Event({ purpose: "health", status: "error", errorCode });
+
+    if (!isOwner) {
+      return NextResponse.json({ status: "error" }, { status: 500 });
     }
-    logH2Event({ purpose: "health", status: "error", errorCode: "H2_HEALTH_UNKNOWN_ERROR" });
-    return NextResponse.json(
-      { status: "error", errorCode: "H2_HEALTH_UNKNOWN_ERROR" },
-      { status: 500 },
-    );
+
+    const missingKeys = error instanceof H2ConfigError ? error.missingKeys : undefined;
+    return NextResponse.json({ status: "error", errorCode, missingKeys }, { status: 500 });
   }
 }

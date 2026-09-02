@@ -33,5 +33,5 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
   - (C) najet Today jako `/honzik2` a landing page archivovat/smazat.
 - **Doporučení Code:** (A) — přesunout landing page, uvolnit kořen přesně podle Locked Architecture; nejméně invazivní a nemění uzamčený namespace.
 - **Dopad na I1–I8:** žádný přímo; nepřímo ovlivňuje BUILD-11 (web delivery routing) a BUILD-26 (Today page).
-- **Rozhodnutí:** ČEKÁ NA ROZHODNUTÍ.
-- **Kdo rozhodl:** — (neblokuje BUILD-01; blokuje pouze budoucí mountování Today page pod `/honzik2` root v BUILD-11 / BUILD-26 — do té doby nezávislý slice pokračuje).
+- **Rozhodnutí:** (A). Landing page přesunuta na `/honzik2/o-projektu` (obsah beze změny, jen cesta), kořen `/honzik2` uvolněn pro budoucí Today. Locked Architecture se neotvírá. Dočasný `redirect` (`permanent: false`) z `/honzik2` na `/honzik2/o-projektu` v `next.config.ts`, aby nespadl případný existující externí odkaz (např. sdílený s Markétkou) — smazat ho, až BUILD-26 přidá `app/honzik2/page.tsx` pro Today. V repu nebyly nalezeny žádné interní odkazy na `/honzik2` mimo samotnou route (grep přes `app/`, `lib/`, `config/`, `scripts/`).
+- **Kdo rozhodl:** Honzík — přímo, bez GPT brány (jde o produktové/UX rozhodnutí v jeho vlastní věci, ne o hodnotu/metodiku vyžadující kritickou oponenturu).

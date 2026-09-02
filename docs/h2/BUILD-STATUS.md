@@ -1,9 +1,9 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-01 — Foundation & configuration (AT GREEN, čeká na GO k pushi/PR — viz níže)
+**Aktuální slice:** BUILD-01 — Foundation & configuration (AT GREEN, push + PR proběhly, čeká na merge)
 **Poslední deployment:** žádný (před M1 — první produkční deployment ještě neproběhl)
 **Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 AT GREEN
-**Otevřené ARCHITECTURE DECISION REQUIRED:** 1 (DEC-002, viz [DECISIONS.md](./DECISIONS.md))
+**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001, DEC-002 vyřešeny, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
 
@@ -21,7 +21,7 @@
 1. Jeden BUILD blok = jedna větev = jeden PR = jeden evidence block. Nikdy dva bloky rozdělané současně.
 2. Slice je hotový, až jsou jeho acceptance testy z Acceptance Test Ownership Matrix (Build Specification §6) zelené. Bloky bez vlastního AT ownera (BUILD-01, BUILD-02, BUILD-08, BUILD-13, BUILD-18) se ověřují schema/unit/integration testy daného slice — to neznamená, že jsou volitelné.
 3. Nejasnost, která by měnila Product Spec, I1–I8 nebo Locked Architecture → `ARCHITECTURE DECISION REQUIRED`, zápis do `DECISIONS.md`, zastavit **pouze** dotčený slice a pokračovat jiným nezávislým.
-4. GO od Honzíka je potřeba na: produkční migraci, nové secrets nebo integrace, první produkční deployment, cokoli utrácející peníze nebo měnící limit, cokoli mazající data nebo rozšiřující oprávnění.
+4. GO od Honzíka je potřeba na: merge do `main` (spouští produkční deployment), přidání env proměnných nebo secrets do Vercelu, produkční migrace, cokoli utrácející peníze nebo měnící limit, cokoli mazající data nebo rozšiřující oprávnění. Push branche a otevření PR GO nepotřebují — to je běžná součást „jeden BUILD blok = jedna větev = jeden PR" workflow.
 
 ## Poznámky k zadání (úpravy patřící do M1)
 
@@ -46,7 +46,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
-| BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 10/10 zelených, viz evidence block) | branch `build/h2-build-01-foundation-config`, needeployováno, čeká na GO k pushi/PR |
+| BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 17/17 zelených, viz evidence block) | branch `build/h2-build-01-foundation-config`, PR otevřen, čeká na Honzíkovo GO k merge do `main` |
 | BUILD-02 | Neon data layer | TODO | — (schema/unit/integration testy slice) | — |
 | BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
