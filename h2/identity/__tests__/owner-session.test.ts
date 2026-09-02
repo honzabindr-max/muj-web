@@ -1,9 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/auth", () => ({
+  auth: vi.fn(),
+}));
+
+import { auth } from "@/auth";
 
 import { isAuthenticatedOwnerRequest } from "../owner-session";
 
-describe("isAuthenticatedOwnerRequest (placeholder do BUILD-03A)", () => {
-  it("vrací vždy false, dokud BUILD-03A nedodá skutečnou identity boundary", () => {
-    expect(isAuthenticatedOwnerRequest(new Request("http://localhost/api/h2/health"))).toBe(false);
+describe("isAuthenticatedOwnerRequest (BUILD-03A — reálná Auth.js session)", () => {
+  it("vrací true, pokud session obsahuje googleSub enrollnutého ownera", async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ googleSub: "some-sub" } as never);
+    expect(await isAuthenticatedOwnerRequest(new Request("http://localhost/"))).toBe(true);
+  });
+
+  it("vrací false bez session", async () => {
+    vi.mocked(auth).mockResolvedValueOnce(null as never);
+    expect(await isAuthenticatedOwnerRequest(new Request("http://localhost/"))).toBe(false);
+  });
+
+  it("vrací false, pokud session existuje, ale nemá googleSub", async () => {
+    vi.mocked(auth).mockResolvedValueOnce({} as never);
+    expect(await isAuthenticatedOwnerRequest(new Request("http://localhost/"))).toBe(false);
   });
 });

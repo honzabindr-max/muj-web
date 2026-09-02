@@ -6,8 +6,15 @@
 
 -- CREATE ROLE nemá IF NOT EXISTS a role jsou cluster-wide (ne per-databázi) —
 -- na produkčním Neonu je h2-runtime vlastní projekt/cluster, takže kolize
--- nehrozí, ale lokální testovací databáze sdílejí jeden cluster, proto DO
--- blok s ošetřením duplicate_object dělá migraci idempotentní i tam.
+-- nehrozí, ale lokální/CI testovací databáze sdílejí jeden cluster. Advisory
+-- lock serializuje souběžné migrace napříč paralelně běžícími test soubory
+-- (bez něj: dvě souběžné CREATE ROLE h2_migrator mohou obě projít kontrolou
+-- "existuje?" před tím, než druhá vloží řádek, a spadnout na raw
+-- unique_violation na pg_authid místo přátelského duplicate_object — přesně
+-- tahle race nastala v CI). DO blok s ošetřením duplicate_object zůstává
+-- jako druhá vrstva obrany.
+select pg_advisory_xact_lock(hashtext('h2_role_creation'));
+
 do $$
 begin
   create role h2_migrator noinherit bypassrls;

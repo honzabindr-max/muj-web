@@ -10,6 +10,13 @@ vi.mock("@/h2/config", async () => {
   };
 });
 
+// next-auth interně importuje next/server, což vitestí Node resolver v
+// téhle konfiguraci nenajde (balíčkové exports quirk, ne reálná chyba) —
+// mock stejně jako u ostatních "public"/"owner" variant testů.
+vi.mock("@/h2/identity/owner-session", () => ({
+  isAuthenticatedOwnerRequest: async () => false,
+}));
+
 describe("GET /api/h2/health — veřejný request při neplatné H2 konfiguraci (KROK 0)", () => {
   it("dostane jen bezpečnou {status: error}, žádné missingKeys/errorCode", async () => {
     const { GET } = await import("../route");

@@ -1,9 +1,9 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-03 — Crypto & privacy foundation, AT GREEN, čeká na Honzíkovo GO k merge (PR #14). BUILD-01 (PR #11) a BUILD-02 (PR #12 + #13, vč. plného Neon provisioningu — production i preview ověřeny) jsou MERGED.
-**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) a [PR #13](https://github.com/honzabindr-max/muj-web/pull/13) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Toto NENÍ H2 Buddy M1 produkční deployment (BUILD-01–03 negenerují uživatelsky viditelnou funkčnost).
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03 AT GREEN
-**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-004 vyřešeny, DEC-004 je zaznamenané riziko pro budoucí pg upgrade, viz [DECISIONS.md](./DECISIONS.md))
+**Aktuální slice:** BUILD-03A — Identity, sessions & recent re-auth, AT GREEN. Živě ověřeno reálným Google přihlášením (viz níže). BUILD-01 (PR #11), BUILD-02 (PR #12+#13) a BUILD-03 (PR #14) jsou MERGED; BUILD-03A čeká na PR + Honzíkovo GO k merge.
+**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13) a [PR #14](https://github.com/honzabindr-max/muj-web/pull/14) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Toto NENÍ H2 Buddy M1 produkční deployment (BUILD-01–03A negenerují uživatelsky viditelnou funkčnost).
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A AT GREEN
+**Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-005 vyřešeny; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
 
@@ -92,6 +92,23 @@ DoD splněn: mixed key-version data čitelná během rotace (AT-41, testováno),
 
 **AT ownership CI kontrola (Build Spec §6):** dřív existovala jen jako text v této tabulce, ne jako spustitelný kód. Teď: `h2/build-governance/at-ownership.ts` (strojový zrcadlový obraz matice) + test, který ověří žádnou duplicitu/mezeru v AT-01..AT-72 a že dokončené bloky mají skutečné test pokrytí svých AT. Potvrzeno: AT-41 i AT-42 patří výhradně BUILD-03. Nový `.github/workflows/h2-tests.yml` (dřív žádný CI test běh neexistoval) tuto kontrolu spouští na každém PR do `main` — ověřeno živým GHA během (run 33674346107): **68/68 testů zelených v CI**, vč. DB-závislých testů proti postgres:17 service containeru.
 
+## BUILD-03A — Identity, sessions & recent re-auth (AT GREEN)
+
+- `h2/identity/owner-enrollment.ts` — první přihlášení enrolluje ownera, další přihlášení stejným Google sub projde, jiný sub je odmítnut. "Přesně jeden povolený owner" (§31.1) je vynucený na úrovni web auth enrollmentu, ne jako DB-wide constraint na `owners` — ta tabulka musí zůstat schopná nést víc řádků (testovací fixtures napříč BUILD-02/03 testy na tom stavějí). Race-safe přes `pg_advisory_xact_lock`, testováno souběžným enrollmentem dvou různých účtů (vyhraje přesně jeden).
+- `h2/identity/session.ts` — `requireOwnerSession()` a `requireRecentReauth(maxAge=5m)`, přesně ty typed helpery, které Build Spec u BUILD-03A výslovně vyžaduje jako jedinou cestu k ověření identity (AT-64 testováno: re-auth do 5 min projde, po 5 min selže, po obnovení re-auth pokračuje).
+- `h2/identity/csrf.ts` — `assertSameOrigin()` pro write/admin endpointy.
+- `h2/identity/audit.ts` — `recordIdentityEvent()`, bez tokenů/payloadu (§31.1).
+- `h2/db/migrations/0012_identity_reauth.sql` — `owners.recent_reauth_at` + `identity_audit_events` (RLS stejný tvar jako `incidents`), ověřeno proti fresh lokální DB.
+- `h2/identity/auth-config.ts` + `auth.ts` (root) + `app/api/auth/[...nextauth]/route.ts` — živá Auth.js (`next-auth@5.0.0-beta.32`, podporuje Next 16) instance. `buildAuthConfig()` je záměrně NEHÁZEJÍCÍ (na rozdíl od zbytku h2/config vzoru) — `NextAuth()` se volá na module scope a `next build`'s route collection modul natahuje i bez requestu; bez H2 env vrátí degradovaný config (prázdné providers), ne pád buildu. Ověřeno: `npm run build` čistě bez jediné H2 proměnné i s reálnými credentials.
+- `h2/identity/owner-session.ts` (BUILD-01 placeholder) nahrazen reálnou implementací přes `auth()`.
+- **Živě ověřeno end-to-end:** Honzík se lokálně přihlásil přes `http://localhost:3000/api/auth/signin` svým Google účtem. DB po přihlášení: 1 owner s `google_sub`, `recent_reauth_at` nastaveno a v 5min okně, `identity_audit_events` obsahuje přesně 1 `LOGIN_SUCCESS` navázaný na ownera, žádné `LOGIN_REJECTED_UNKNOWN_OWNER`.
+
+DEC-005: incident s `.env.local` (viz DECISIONS.md) — uzavřen Honzíkem bez rotace, nález "no exposure confirmed by owner".
+
+**CI flaky race (nalezeno a opraveno v rámci tohoto slicu):** první dva CI běhy na PR #15 spadly na race condition — role (`h2_migrator` atd.) jsou cluster-wide a paralelně běžící vitest test soubory je zkoušely vytvořit současně na sdíleném CI Postgres, což občas skončilo raw `unique_violation` místo bezpečně odchyceného `duplicate_object`. Opraveno `h2/db/scripts/ensure-test-roles.ts` jako vitest `globalSetup` — založí všech 6 rolí sekvenčně, jednou, PŘED spuštěním libovolného paralelního test souboru, takže k race nemůže dojít. Advisory lock (`pg_advisory_xact_lock`) v migracích zůstal jako druhá vrstva obrany. Ověřeno živě v CI: 24/24 souborů, 90/90 testů.
+
+**Zbývá pro produkci (mimo scope tohoto slice, analogické Neon provisioningu z BUILD-02):** přidat `H2_GOOGLE_CLIENT_ID`, `H2_GOOGLE_CLIENT_SECRET`, `H2_AUTH_SECRET` a `H2_RUNTIME_DATABASE_URL` do Vercel env (production + preview) — nové secrets, Honzíkova brána. Bez nich `/api/auth/*` v nasazeném prostředí poběží v degradovaném stavu (prázdné providers), lokální vývoj a testy fungují už teď.
+
 ## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
@@ -101,7 +118,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 21/21 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED, branch `build/h2-build-01-foundation-config`, KROK 0 (lazy config, žádný dopad na existující stránky bez H2 env) ověřen + zamčen regresními testy |
 | BUILD-02 | Neon data layer | AT GREEN — DOKONČENO vč. provisioningu (production + preview ověřeny) | — (21/21 DB testů zelených proti lokální Postgres 17 + role/RLS ověřeno proti reálnému Neon oběma prostředími) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) MERGED, [PR #13](https://github.com/honzabindr-max/muj-web/pull/13) MERGED (tooling); DEC-003 (Free plán do M1), DEC-004 (pg SSL warning, budoucí upgrade) |
 | BUILD-03 | Crypto & privacy foundation | AT GREEN | AT-41, AT-42 (24/24 testů zelených, viz evidence block) | [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), branch `build/h2-build-03-crypto-privacy`, čeká na Honzíkovo GO k merge |
-| BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
+| BUILD-03A | Identity, sessions & recent re-auth | AT GREEN | AT-64 (90/90 testů v repu zelených) | [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), branch `build/h2-build-03a-identity-sessions`, ověřeno živým Google OAuth přihlášením lokálně, čeká na Honzíkovo GO k merge |
 | BUILD-04 | Unified ingestion | TODO | AT-01, AT-02, AT-48, AT-61 | — |
 | BUILD-05 | Queue, lease, fencing, quarantine | TODO | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | — |
 | BUILD-06 | Voice transcription | TODO | AT-04, AT-05 | — |

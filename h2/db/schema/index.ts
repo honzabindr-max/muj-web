@@ -1,4 +1,5 @@
 export * from "./core";
+export * from "./identity";
 export * from "./prompts";
 export * from "./context";
 export * from "./executive";

@@ -12,6 +12,7 @@ export const owners = pgTable("owners", {
   googleSub: text("google_sub").unique(),
   telegramUserId: text("telegram_user_id").unique(),
   displayName: text("display_name").notNull(),
+  recentReauthAt: timestamp("recent_reauth_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
