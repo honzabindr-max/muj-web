@@ -35,3 +35,19 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
 - **Dopad na I1–I8:** žádný přímo; nepřímo ovlivňuje BUILD-11 (web delivery routing) a BUILD-26 (Today page).
 - **Rozhodnutí:** (A). Landing page přesunuta na `/honzik2/o-projektu` (obsah beze změny, jen cesta), kořen `/honzik2` uvolněn pro budoucí Today. Locked Architecture se neotvírá. Dočasný `redirect` (`permanent: false`) z `/honzik2` na `/honzik2/o-projektu` v `next.config.ts`, aby nespadl případný existující externí odkaz (např. sdílený s Markétkou) — smazat ho, až BUILD-26 přidá `app/honzik2/page.tsx` pro Today. V repu nebyly nalezeny žádné interní odkazy na `/honzik2` mimo samotnou route (grep přes `app/`, `lib/`, `config/`, `scripts/`).
 - **Kdo rozhodl:** Honzík — přímo, bez GPT brány (jde o produktové/UX rozhodnutí v jeho vlastní věci, ne o hodnotu/metodiku vyžadující kritickou oponenturu).
+
+---
+
+### DEC-003
+
+- **Datum:** 2026-09-02
+- **Slice:** BUILD-02 (Neon provisioning)
+- **Co je nejasné:** Technical Architecture v1.2 §1 uzamyká Neon **Launch** plán se 7denním PITR pro h2-runtime i h2-control. Honzík založil oba projekty na **Free** plánu (History Retention 6 hodin) — Launch upgrade zatím nedává smysl platit, dokud do systému netečou reálná data. Zároveň hlavní větev obou projektů se v Neonu jmenuje `production` (Neon default), ne `main` — čistě nomenklatura, žádný dopad na chování.
+- **Varianty:**
+  - (A) zůstat na Free až do M1 a upgradovat na Launch těsně před prvním produkčním deploymentem, kdy vzniknou reálná uživatelská data vyžadující 7denní restore window,
+  - (B) upgradovat na Launch hned, i když ještě žádná reálná data neexistují — zbytečná platba měsíce/týdny předem,
+  - (C) zablokovat pokračování BUILD-02 provisioningu, dokud plán neodpovídá architektuře.
+- **Doporučení Code:** (A) — 6hodinová PITR na prázdné/testovací databázi bez reálných uživatelských dat nenese architektonické riziko (I3/I6 historical integrity se týká dat, která ještě neexistují); upgrade na Launch je mechanický (Neon to umožňuje bez downtime) a nemá cenu platit dřív, než je co chránit.
+- **Dopad na I1–I8:** žádný dnes — čistě rozpočtové rozhodnutí nad prázdnou infrastrukturou. Stal by se relevantním, pokud by se do produkce pustila reálná data před upgradem (proto je vázáno na M1 deploy gate, viz checklist).
+- **Rozhodnutí:** (A). Free plán / 6h retention do M1. Upgrade na Launch (7denní PITR) je nový bod v M1 deploy gate checklistu — bez něj se M1 nesmí spustit, protože Definition of BUILT §1 vyžaduje 7denní restore window jako uzamčenou technickou pojistku, ne doporučení.
+- **Kdo rozhodl:** Honzík — přímo, rozpočtové/timing rozhodnutí v jeho vlastní věci, bez GPT brány.

@@ -1,6 +1,6 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-02 — Neon data layer (schema/migrace/testy AT GREEN a MERGED, Neon provisioning čeká na Honzíkovo GO — viz poznámka níže).
+**Aktuální slice:** BUILD-02 — Neon data layer (schema/migrace/testy AT GREEN a MERGED; Neon projekty založeny, migrace aplikovány a schéma ověřeno na production větvi obou — zbývá preview větve + Vercel env, viz poznámka níže).
 **Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) a [PR #12](https://github.com/honzabindr-max/muj-web/pull/12) mergnuty do `main` (2026-09-02), Vercel auto-deploy proběhl přes existující GitHub integraci. Toto NENÍ H2 Buddy M1 produkční deployment (BUILD-01/02 negenerují uživatelsky viditelnou funkčnost) — jde jen o merge do main, který repo standardně auto-deployuje.
 **Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01 AT GREEN
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001, DEC-002 vyřešeny, viz [DECISIONS.md](./DECISIONS.md))
@@ -39,13 +39,28 @@ Obě položky jsou zahrnuty v **M1 deploy gate** checklistu níže.
 - [ ] Smoke test proběhne na produkci: Telegram text + voice + web.
 - [ ] Minimální metering: `usage_ledger` zápisy živé + tvrdý strop 35 USD/měsíc vynucený (viz poznámka č. 1 výše).
 - [ ] `docs/h2/EXPERIMENT-0.md` založen (viz poznámka č. 2 výše).
+- [ ] Neon h2-runtime a h2-control upgradovány z Free na **Launch** plán, History Retention nastavena na **7 dní** (viz DEC-003 — dnes Free/6h, dočasná odchylka do M1, ne dřív).
 
-## BUILD-02 — čeká na GO: Neon provisioning
+## BUILD-02 — Neon provisioning (probíhá)
 
 Schema/migrace/RLS/role jsou hotové, otestované proti lokální Postgres 17
-(21/21 testů zelených) a mergnuté do `main`. Zbývá jediný krok, který je
-Honzíkova brána (nové secrets/integrace): založit reálné Neon projekty a
-vložit connection stringy do Vercelu.
+(21/21 testů zelených) a mergnuté do `main`.
+
+Neon projekty h2-runtime a h2-control založeny (region Frankfurt, Postgres 18,
+Free plán/6h retention do M1 — viz DEC-003; hlavní větev se v obou jmenuje
+`production`, ne `main` — jen nomenklatura Neonu). Migrace aplikovány a
+schéma ověřeno proti reálným DB:
+
+- h2-runtime (production): 43 tabulek, 32 s vynucenou RLS, role
+  `h2_migrator` (bypassrls), `h2_runtime`, `h2_job`, `h2_blind_reader` —
+  odpovídá 1:1 lokálnímu testu.
+- h2-control (production): 2 tabulky (`deletion_ledger` + migration
+  tracking), role `h2_control_migrator` (bypassrls), `h2_control` —
+  odpovídá 1:1 lokálnímu testu.
+
+Zbývá: preview větve obou projektů (parent = production, zakládá Honzík)
+a Vercel env proměnné pro 4 runtime role (KROK 4) — Honzíkova brána (nové
+secrets/integrace).
 
 Migrační tooling pro tento krok (`db:migrate:neon:runtime`,
 `db:migrate:neon:control`, `.env.migrate` přes `write-migrate-env.sh`) je
@@ -61,7 +76,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | Blok | Název | Stav | Vlastněné AT (ownership matrix) | Evidence |
 |---|---|---|---|---|
 | BUILD-01 | Foundation & configuration | AT GREEN | — (schema/unit/integration testy slice: 21/21 zelených, viz evidence block) | [PR #11](https://github.com/honzabindr-max/muj-web/pull/11) MERGED, branch `build/h2-build-01-foundation-config`, KROK 0 (lazy config, žádný dopad na existující stránky bez H2 env) ověřen + zamčen regresními testy |
-| BUILD-02 | Neon data layer | AT GREEN (schema část); provisioning BLOCKED na GO | — (21/21 DB testů zelených proti lokální Postgres 17) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), branch `build/h2-build-02-neon-data-layer` |
+| BUILD-02 | Neon data layer | AT GREEN (schema); provisioning IN PROGRESS (migrace + schema ověřeny na production, preview + Vercel env zbývá) | — (21/21 DB testů zelených proti lokální Postgres 17, schéma ověřeno i proti reálnému Neon production) | [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), DEC-003 (Free plán do M1) |
 | BUILD-03 | Crypto & privacy foundation | TODO | AT-41, AT-42 | — |
 | BUILD-03A | Identity, sessions & recent re-auth | TODO | AT-64 | — |
 | BUILD-04 | Unified ingestion | TODO | AT-01, AT-02, AT-48, AT-61 | — |
