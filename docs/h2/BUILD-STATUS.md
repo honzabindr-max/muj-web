@@ -49,7 +49,7 @@ vložit connection stringy do Vercelu. Přesný seznam proměnných a kam patř�
 je připravený a čeká na GO — Code se zastavil přesně před tímto krokem a
 nezaložil žádný Neon projekt ani nepřidal žádný Vercel secret.
 
-## M1 deploy gate (Buddy Live)
+## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 
