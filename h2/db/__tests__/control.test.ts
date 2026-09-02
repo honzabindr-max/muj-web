@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import { Pool as PgPool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { createControlTestDatabase, dropTestDatabase } from "./helpers";
+import { buildTestConnectionString, createControlTestDatabase, dropTestDatabase, TEST_ROLE_PASSWORD } from "./helpers";
 
 const DB_NAME = "h2_test_control";
 
@@ -12,8 +12,10 @@ describe("h2-control — deletion_ledger append-only hash chain (§23.1)", () =>
 
   beforeAll(async () => {
     adminPool = await createControlTestDatabase(DB_NAME);
-    await adminPool.query("alter role h2_control login");
-    controlPool = new PgPool({ user: "h2_control", host: "localhost", database: DB_NAME });
+    await adminPool.query(`alter role h2_control login password '${TEST_ROLE_PASSWORD}'`);
+    controlPool = new PgPool({
+      connectionString: buildTestConnectionString(DB_NAME, { username: "h2_control", password: TEST_ROLE_PASSWORD }),
+    });
 
     await adminPool.query(
       `insert into deletion_ledger
