@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 
 import { getH2Pool } from "@/h2/db/pool";
+import { withOwnerScope } from "@/h2/db/with-owner-scope";
 import { recordIdentityEvent } from "@/h2/identity/audit";
 import { buildAuthConfig } from "@/h2/identity/auth-config";
 import { enrollOrVerifyOwner } from "@/h2/identity/owner-enrollment";
@@ -12,6 +13,12 @@ import { markRecentReauth } from "@/h2/identity/session";
  * providers pole, nikdy nespadne `next build`. getH2Pool()/DB volání jsou
  * uvnitř callbacků, tedy líné — spustí se jen při skutečném sign-in
  * requestu, ne při importu tohoto souboru.
+ *
+ * LOGIN_SUCCESS audit event se zapisuje uvnitř withOwnerScope — má
+ * vyplněné owner_id a identity_audit_events má RLS, takže bez SET LOCAL
+ * app.owner_id by insert pod rolí h2_runtime spadl (produkční bug,
+ * opraveno). LOGIN_REJECTED_UNKNOWN_OWNER má owner_id=null, RLS ho pustí
+ * i bez scope.
  */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...buildAuthConfig(),
@@ -27,7 +34,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return false;
       }
       await markRecentReauth(pool, result.ownerId);
-      await recordIdentityEvent(pool, result.ownerId, "LOGIN_SUCCESS");
+      await withOwnerScope(pool, result.ownerId, (client) =>
+        recordIdentityEvent(client, result.ownerId, "LOGIN_SUCCESS"),
+      );
       return true;
     },
     async jwt({ token, account }) {
