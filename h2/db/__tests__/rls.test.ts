@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import { Pool as PgPool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { createRuntimeTestDatabase, dropTestDatabase } from "./helpers";
+import { buildTestConnectionString, createRuntimeTestDatabase, dropTestDatabase, TEST_ROLE_PASSWORD } from "./helpers";
 
 const DB_NAME = "h2_test_rls";
 
@@ -30,11 +30,14 @@ describe("h2-runtime — Row Level Security (§31.5)", () => {
   beforeAll(async () => {
     adminPool = await createRuntimeTestDatabase(DB_NAME);
 
-    // Test-only: LOGIN se v produkci nastavuje na úrovni Neon credentials,
-    // portable migrace ho záměrně negrantuje (viz 0011_roles_and_rls.sql).
-    await adminPool.query("alter role h2_runtime login");
-    await adminPool.query("alter role h2_job login");
-    await adminPool.query("alter role h2_blind_reader login");
+    // Test-only: LOGIN+password se v produkci nastavuje na úrovni Neon
+    // credentials, portable migrace ho záměrně negrantuje (viz
+    // 0011_roles_and_rls.sql). Heslo je nutné i lokálně-vypadajícím
+    // spojením v CI (Postgres service container = síťové spojení, ne
+    // unix socket trust auth).
+    await adminPool.query(`alter role h2_runtime login password '${TEST_ROLE_PASSWORD}'`);
+    await adminPool.query(`alter role h2_job login password '${TEST_ROLE_PASSWORD}'`);
+    await adminPool.query(`alter role h2_blind_reader login password '${TEST_ROLE_PASSWORD}'`);
 
     const ownerA = await adminPool.query<{ id: string }>(
       "insert into owners (google_sub, display_name) values ($1, $2) returning id",
@@ -58,9 +61,18 @@ describe("h2-runtime — Row Level Security (§31.5)", () => {
       [ownerBId],
     );
 
-    runtimePool = new PgPool({ user: "h2_runtime", host: "localhost", database: DB_NAME });
-    jobPool = new PgPool({ user: "h2_job", host: "localhost", database: DB_NAME });
-    blindReaderPool = new PgPool({ user: "h2_blind_reader", host: "localhost", database: DB_NAME });
+    runtimePool = new PgPool({
+      connectionString: buildTestConnectionString(DB_NAME, { username: "h2_runtime", password: TEST_ROLE_PASSWORD }),
+    });
+    jobPool = new PgPool({
+      connectionString: buildTestConnectionString(DB_NAME, { username: "h2_job", password: TEST_ROLE_PASSWORD }),
+    });
+    blindReaderPool = new PgPool({
+      connectionString: buildTestConnectionString(DB_NAME, {
+        username: "h2_blind_reader",
+        password: TEST_ROLE_PASSWORD,
+      }),
+    });
   }, 30_000);
 
   afterAll(async () => {
