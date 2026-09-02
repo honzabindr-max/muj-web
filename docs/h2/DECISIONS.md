@@ -51,3 +51,19 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
 - **Dopad na I1–I8:** žádný dnes — čistě rozpočtové rozhodnutí nad prázdnou infrastrukturou. Stal by se relevantním, pokud by se do produkce pustila reálná data před upgradem (proto je vázáno na M1 deploy gate, viz checklist).
 - **Rozhodnutí:** (A). Free plán / 6h retention do M1. Upgrade na Launch (7denní PITR) je nový bod v M1 deploy gate checklistu — bez něj se M1 nesmí spustit, protože Definition of BUILT §1 vyžaduje 7denní restore window jako uzamčenou technickou pojistku, ne doporučení.
 - **Kdo rozhodl:** Honzík — přímo, rozpočtové/timing rozhodnutí v jeho vlastní věci, bez GPT brány.
+
+---
+
+### DEC-004
+
+- **Datum:** 2026-09-02
+- **Slice:** BUILD-02 (KROK 5 role/RLS ověření, `h2/db/scripts/check-neon-roles.ts`)
+- **Co je nejasné:** Není to nejasnost implementace, ale zaznamenané **známé riziko** vzniklé při KROK 5 — `pg` driver (`pg-connection-string`) hlásí deprecation warning: SSL módy `prefer`/`require`/`verify-ca` (naše connection stringy používají `sslmode=require`) se v `pg-connection-string@3.0.0` / `pg@9.0.0` přestanou chovat jako alias `verify-full` a přejdou na standardní libpq sémantiku se slabší zárukou (menší ochrana proti MITM, protože `require` samo o sobě neověřuje certifikát serveru).
+- **Varianty:**
+  - (A) neřešit teď — dnešní `pg@8.16.4` má současné (silnější) chování, riziko se aktivuje až budoucím major upgradem, který je samostatná, plánovaná akce,
+  - (B) hned přepnout všechny connection stringy na `sslmode=verify-full` nebo `uselibpqcompat=true&sslmode=require`, aby budoucí upgrade byl no-op,
+  - (C) ignorovat trvale a nezaznamenávat.
+- **Doporučení Code:** (A) — dnešní chování je bezpečné, oprava (B) je nenákladná, ale nemá se dělat mimo řízený pg major upgrade (menší diff, jasný bod ke kontrole), aby se nezavlekla ad hoc.
+- **Dopad na I1–I8:** žádný dnes. Stal by se relevantním až při pg major upgradu, pokud by se `sslmode` nezpřísnil zároveň — proto zápis sem, ne jen do poznámky.
+- **Rozhodnutí:** (A). Neřešit teď. Při budoucím upgradu `pg`/`pg-connection-string` na verzi ≥ major s touto změnou explicitně zkontrolovat a případně přepnout `sslmode` na `verify-full` ve všech `h2/db/scripts/*` a budoucích BUILD-04+ DB klientech.
+- **Kdo rozhodl:** Honzík — přímo, zaznamenat jako riziko pro budoucí pg upgrade, ne řešit teď.
