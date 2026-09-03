@@ -40,6 +40,38 @@ describe("callAnthropicModel()", () => {
     expect(body.messages).toEqual([{ role: "user", content: "user input" }]);
   });
 
+  it("maxOutputTokens parametr → max_tokens v request body odpovídá (BUILD-08 Rozhodnutí 4)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ content: [{ type: "text", text: "ahoj" }], usage: { input_tokens: 12, output_tokens: 34 } }),
+        { status: 200 },
+      ),
+    );
+
+    await callAnthropicModel("claude-haiku-4-5-20251001", "system prompt", "user input", "sk-ant-test", 2048);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.max_tokens).toBe(2048);
+  });
+
+  it("bez maxOutputTokens → default zůstává 4096 (Sonnet, beze změny chování)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ content: [{ type: "text", text: "ahoj" }], usage: { input_tokens: 12, output_tokens: 34 } }),
+        { status: 200 },
+      ),
+    );
+
+    await callAnthropicModel("claude-sonnet-5", "system prompt", "user input", "sk-ant-test");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.max_tokens).toBe(4096);
+  });
+
   it("429 → H2AnthropicCallError ANTHROPIC_RATE_LIMITED", async () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(new Response("rate limited", { status: 429 }));

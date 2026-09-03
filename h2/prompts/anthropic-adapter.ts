@@ -8,7 +8,7 @@ import { H2AnthropicCallError } from "./errors";
 const CALL_TIMEOUT_MS = 60_000;
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_API_VERSION = "2023-06-01";
-const MAX_OUTPUT_TOKENS = 4096;
+const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 
 export type AnthropicCallResult = {
   text: string;
@@ -26,6 +26,7 @@ export async function callAnthropicModel(
   promptContent: string,
   input: string,
   apiKey: string,
+  maxOutputTokens: number = DEFAULT_MAX_OUTPUT_TOKENS,
 ): Promise<AnthropicCallResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
@@ -41,7 +42,7 @@ export async function callAnthropicModel(
       },
       body: JSON.stringify({
         model: modelId,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        max_tokens: maxOutputTokens,
         system: promptContent,
         messages: [{ role: "user", content: input }],
       }),
