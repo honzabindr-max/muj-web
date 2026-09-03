@@ -3,10 +3,12 @@ import type { Pool } from "pg";
 import { encryptPayload } from "@/h2/crypto/envelope";
 import type { EncryptionKeyRegistry } from "@/h2/crypto/keys";
 import { withOwnerScope } from "@/h2/db/with-owner-scope";
+import { recordLlmRun } from "@/h2/prompts/llm-run";
 import { H2FencingError } from "@/h2/processing/errors";
 import type { FencingToken } from "@/h2/processing/lease";
 
-import { recordWhisperUsage } from "./usage";
+import { recordWhisperUsage, WHISPER_PURPOSE } from "./usage";
+import { WHISPER_MODEL_ID } from "./transcribe";
 
 /**
  * commitVoiceTranscript() — materializuje transcript IN-PLACE do stejného
@@ -21,8 +23,15 @@ import { recordWhisperUsage } from "./usage";
  * Fencing: stejná atomická `UPDATE ... WHERE` epoch-check klauzule jako
  * `h2/processing/commit.ts` `commitJobResult()` — ne "přečti pak zapiš".
  *
- * Metering (Rozhodnutí 4): `recordWhisperUsage()` běží VE STEJNÉ transakci
- * jako transcript update — atomicky, buď oba zápisy, nebo žádný.
+ * Metering (BUILD-06 plán, Rozhodnutí 4): `recordWhisperUsage()` běží VE
+ * STEJNÉ transakci jako transcript update — atomicky, buď oba zápisy,
+ * nebo žádný.
+ *
+ * Provenance (BUILD-07 plán, Rozhodnutí 5 — retrofit): `recordLlmRun()`
+ * ve STEJNÉ transakci navíc zapíše `llm_runs` řádek (`purpose =
+ * 'voice_transcription'`, `model_id = 'whisper-1'`, žádný `prompt_
+ * version_id` — Whisper nemá prompt). Sjednocuje Whisper pod stejnou
+ * provenance disciplínu jako Anthropic volání (`h2/prompts/*`).
  */
 export async function commitVoiceTranscript(
   pool: Pool,
@@ -49,5 +58,11 @@ export async function commitVoiceTranscript(
     }
 
     await recordWhisperUsage(client, token.ownerId, durationSeconds);
+    await recordLlmRun(client, {
+      ownerId: token.ownerId,
+      purpose: WHISPER_PURPOSE,
+      modelId: WHISPER_MODEL_ID,
+      status: "OK",
+    });
   });
 }

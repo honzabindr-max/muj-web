@@ -1,7 +1,29 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-06 — Voice transcription, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci. PR [#22](https://github.com/honzabindr-max/muj-web/pull/22) (branch `build/h2-build-06-voice-transcription`) mergnut do `main` (merge commit `d61860e`), Vercel auto-deploy proběhl (`dpl_ChYNSo3bcfbL5pCwppZMHDHDx7PL`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný produkční trigger (voice joby budou v produkci jen `PENDING`, stejně jako text z BUILD-04). `check-required-env.ts` po mergi potvrdil přesně očekávaný nález: `H2_OPENAI_API_KEY` chybí (nový, BUILD-06) na obou prostředích; `H2_TELEGRAM_BOT_TOKEN` je **už ve Vercelu přítomný** (Honzík ho tam dal dřív, jen ho kód do teď nečetl) — nemusí se dodávat. `H2_LEDGER_HMAC_KEY` je stejný starší známý nález (BUILD-20, mimo scope). Ani jeden nebrání mergi/produkci (žádný trigger volání nespouští). BUILD-05 (PR #20) je od minula UZAVŘENO — AT GREEN, MERGED (`c802edd`), nasazeno. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-07 (Prompt Registry & model adapter) — plán zapisuje se, čeká na Honzíkovo potvrzení. Nová session: začni čtením tohoto souboru + DECISIONS.md.**
+**Aktuální slice:** BUILD-07 — Prompt Registry & model adapter, **AT GREEN** — implementace hotová podle schváleného [docs/h2/BUILD-07-PLAN.md](./BUILD-07-PLAN.md) (plán commitnut `a8d13a2`, doplněn Rozhodnutími 3 a 7 na Honzíkův výslovný požadavek), branch `build/h2-build-07-prompt-registry`, čeká na push+PR a Honzíkovo GO k mergi. Jedna nová migrace (`0015_prompt_registry_runtime_grants.sql` — GRANT na `prompt_versions`/`prompt_test_runs`, žádná nová tabulka/sloupec). Nový fail-closed credential `H2_ANTHROPIC_API_KEY`, ale implementace/testy/merge běží bez něj (mockovaný `fetch`) — Honzík ho založí až u reálného STOPu. BUILD-06 (PR #22) je od minula UZAVŘENO — AT GREEN, MERGED (`d61860e`), nasazeno na produkci. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + DECISIONS.md.**
 
+**Evidence (BUILD-07, implementace hotová, čeká na push+PR):**
+```
+Commit: 82c76e0 (implementace + testy + AT ownership/required-env registry update)
+Branch: build/h2-build-07-prompt-registry
+DB: nová migrace 0015_prompt_registry_runtime_grants.sql — grant select/insert/update na
+    prompt_versions a select/insert na prompt_test_runs pro h2_runtime (dřív jen SELECT).
+    Žádná nová tabulka/sloupec — schéma je celé z BUILD-02 (0003_prompts_and_llm.sql).
+    Aktivace ACTIVE zůstává výhradně přes h2/prompts/activation.ts (kód) + strojová CI
+    kontrola (governance test), ne DB trigger.
+GHA: čeká se na push + otevření PR
+Artifact: N/A
+Deployment: N/A — implementace ještě není pushnutá; migrace 0015 zatím NEAPLIKOVÁNA na
+    production/preview Neon (aplikuje se před mergem, jako u BUILD-04's 0014)
+Timestamp: 2026-09-03
+Verified by: Code — lokálně 146/146 testů zelených (39 souborů, vč. 20 nových: AT-33,
+    AT-34, AT-35, AT-36, AT-63, Anthropic metering atomicita, governance test, retrofit
+    Whisper llm_runs), `npx tsc --noEmit` čistě, `npm run build` čistě
+Remaining risk: reálné Anthropic/OpenAI volání zatím neověřeno (mockovaný fetch, Rozhodnutí
+    6) — ruční certifikace čeká na H2_ANTHROPIC_API_KEY, vyžádám si ho zvlášť jako explicitní
+    STOP, až na něj dojde. Migrace 0015 musí být ověřena na production i preview PŘED mergem
+    (pravidlo 5).
+```
 **Evidence (BUILD-06 celý slice):**
 ```
 Commit: a217506 (implementace + testy), 446bd45 (docs), merge d61860e do main
@@ -323,6 +345,101 @@ jakýkoli storage pro audio (audio se nikdy nepersistuje).
 6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, nález přesně podle očekávání: `H2_OPENAI_API_KEY` chybí (nový), `H2_TELEGRAM_BOT_TOKEN` **už ve Vercelu je** (Honzík ho tam dal dřív, kód ho do teď nečetl), `H2_LEDGER_HMAC_KEY` starý známý nález (BUILD-20). Nic z toho neblokuje — žádný trigger volání nespouští,
 7. ruční end-to-end verifikace (reálný Telegram download + reálný Whisper call) — ČEKÁ na `H2_OPENAI_API_KEY` od Honzíka, vyžádám si ho zvlášť až budu chtít verifikaci dělat.
 
+## BUILD-07 — Prompt Registry & model adapter (AT GREEN)
+
+Plán schválen Honzíkem 2026-09-03, doplněn na jeho výslovný požadavek o
+Rozhodnutí 3 (Anthropic metering od prvního dne) a Rozhodnutí 7 (strojová
+governance kontrola) — [docs/h2/BUILD-07-PLAN.md](./BUILD-07-PLAN.md).
+Schéma (`prompt_versions`, `prompt_test_runs`, `llm_runs`) je celé z
+BUILD-02, jediná nová migrace jsou GRANTy.
+
+- `h2/db/migrations/0015_prompt_registry_runtime_grants.sql` — `h2_runtime`
+  dostává `select, insert, update` na `prompt_versions` a `select, insert`
+  na `prompt_test_runs` (dřív jen SELECT). Aktivace (`status='ACTIVE'`)
+  zůstává výhradně přes `h2/prompts/activation.ts`, ne DB trigger — přesně
+  podle poznámky v `0003_prompts_and_llm.sql`.
+- `h2/prompts/anthropic-adapter.ts` — `callAnthropicModel()`: syrový
+  `fetch` na Anthropic Messages API, `AbortController` timeout 60s, žádná
+  `@anthropic-ai/sdk` závislost. `h2/prompts/config.ts` — fail-closed
+  `requireEnv({H2_ANTHROPIC_API_KEY})`. `h2/prompts/errors.ts` —
+  `H2PromptActivationError`, `H2AnthropicCallError`.
+- `h2/prompts/registry.ts` — `createDraftPromptVersion()`,
+  `getActivePromptVersion()`.
+- `h2/prompts/fixtures.ts` — `runPromptFixtureSuite()`: běží fixtury
+  (happy-path/malformed-input/adversarial-context/schema-validation)
+  proti injektovanému `callModel`, zapisuje `llm_runs` + Anthropic usage
+  **za každý fixture, co se skutečně zavolal** (i když later selže
+  validace — zavolalo se, zaplatilo se), pak jeden `prompt_test_runs`
+  souhrn (`PASS`/`FAIL`).
+- `h2/prompts/activation.ts` — **jediná** funkce v repu, co smí nastavit
+  `status='ACTIVE'`: `activatePromptVersion()` (recent re-auth →
+  passing test run pro přesnou kombinaci verze/model/schema/fixture-set →
+  atomicky retire staré ACTIVE + aktivuje nové) a `rollbackPromptVersion()`
+  (AT-35 — re-aktivace přesné starší verze, žádná editace historie).
+- `h2/prompts/llm-run.ts` — `recordLlmRun()`: `llm_runs` provenance
+  (AT-36 — model/prompt/schema/input manifest).
+- `h2/prompts/usage.ts` — `recordAnthropicUsage()`: **dva** `usage_ledger`
+  řádky na volání (`tokens_input`/`tokens_output`, různá cena — Sonnet
+  `$2`/`$10` za MTok, Haiku `$1`/`$5`, referenční sazby z architektury
+  §28), atomicky se stejnou transakcí jako `recordLlmRun()`. Metering od
+  prvního dne (Honzíkův požadavek), enforcement 35 USD/měsíc stropu
+  zůstává odloženo do M1 gate/BUILD-27 stejně jako u BUILD-06.
+- `h2/prompts/model-drift.ts` — `checkModelDrift()` (AT-63): porovná
+  pinned `H2_MODELS` s poslední certifikovanou kombinací; pro Whisper
+  (bez promptu) porovnává proti poslednímu `llm_runs.model_id`. Čistá
+  funkce, bez zapojení do live health endpointu (BUILD-23).
+- **Retrofit BUILD-06:** `h2/voice/commit-transcript.ts` teď zapisuje i
+  `llm_runs` řádek pro Whisper (`purpose='voice_transcription'`), atomicky
+  se stávající `usage_ledger`/`raw_events` transakcí — sjednocuje
+  provenance napříč providery.
+- `h2/build-governance/__tests__/prompt-activation-single-writer.test.ts`
+  — strojová kontrola (Rozhodnutí 7): projde `h2/`/`app/` a ověří, že
+  vzor "UPDATE/INSERT na `prompt_versions` nastavující `'ACTIVE'`"
+  existuje jen v `h2/prompts/activation.ts`. Regresní fixture dokazuje,
+  že regex skutečně něco chytí (ne jen vždycky projde).
+- `h2/build-governance/required-env.ts` — `H2_ANTHROPIC_API_KEY`
+  (fail-closed).
+
+**Testy pod skutečnou rolí `h2_runtime`**, 20 nových:
+- `h2/prompts/__tests__/registry-activation.test.ts` — AT-33 (DRAFT bez
+  passing run → odmítnuto), AT-34 (invalid output → FAIL, activation
+  blocked, ale usage/llm_runs se přesto zapsaly), AT-36 (provenance),
+  AT-35 (rollback vrací přesnou verzi), AT-63 (model drift + activation
+  blocked na necertifikovaný model_id).
+- `h2/prompts/__tests__/anthropic-adapter.test.ts` — mockovaný `fetch`.
+- `h2/build-governance/__tests__/prompt-activation-single-writer.test.ts`
+  — governance kontrola + regresní fixture + false-positive test (TS
+  union typ, testovací assert).
+- Rozšířeny `h2/voice/__tests__/process-voice-job.test.ts` testy o
+  `llm_runs` assert (retrofit) a atomicity assert (fencing selže → nula
+  `llm_runs` řádků taky).
+
+**Ověřeno:** 20/20 nových testů zelených, 146/146 testů v celém repu
+(39 souborů), `npx tsc --noEmit` čistě, `npm run build` čistě.
+
+**Škrt oproti návrhu:** `h2/prompts/schemas/*.ts` (zod schémata per
+purpose) se nestavěly jako samostatné soubory — žádný reálný purpose
+ještě nemá definovaný obsah (BUILD-08/10/14), fingované schéma by se
+stejně muselo předělat. Typy (`ValidateOutputFn`/`CallModelFn`) žijí v
+`h2/prompts/fixtures.ts`, konkrétní validátor si dodá volající (test/
+budoucí slice).
+
+**Co zůstává mimo scope (vědomě, viz plán):** skutečná Buddy konverzace
+(BUILD-10), operational/blind extraction obsahová logika (BUILD-08/14),
+model drift health endpoint (BUILD-23), skutečná certifikace promptu
+proti reálnému Sonnetu/Haiku (ruční krok, credentials zvlášť), admin/web
+UI pro aktivaci/rollback (BUILD-26).
+
+**Uzavření slicu:**
+1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
+2. push branche, otevřít PR — PROBÍHÁ,
+3. zelené GHA na PR — ČEKÁ SE,
+4. aplikovat migraci 0015 na production i preview a ověřit přímým dotazem na `_h2_migrations` (pravidlo 5) — ČEKÁ SE, PŘED mergem,
+5. Honzíkovo GO k mergi do `main` — ČEKÁ SE,
+6. potvrdit produkční Vercel deploy po mergi — ČEKÁ SE,
+7. preflight `check-required-env.ts` proti production i preview — ČEKÁ SE (očekávaný nález: `H2_ANTHROPIC_API_KEY` nově chybí, vedle už známých `H2_OPENAI_API_KEY`/`H2_LEDGER_HMAC_KEY` — nic z toho neblokuje, žádný trigger volání nespouští),
+8. ruční certifikace prvního promptu proti reálnému Sonnetu/Haiku — ČEKÁ na `H2_ANTHROPIC_API_KEY` od Honzíka, vyžádám si ho jako explicitní STOP, až na něj dojde.
+
 ## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
@@ -336,7 +453,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-04 | Unified ingestion | AT GREEN — MERGED, DEPLOYED, živě ověřeno end-to-end (reálné Telegram zprávy → DB) | AT-01, AT-02, AT-48, AT-61 | [PR #18](https://github.com/honzabindr-max/muj-web/pull/18) + [PR #19](https://github.com/honzabindr-max/muj-web/pull/19) MERGED; viz sekce výše |
 | BUILD-05 | Queue, lease, fencing, quarantine | AT GREEN — MERGED, DEPLOYED (bez HTTP povrchu, ověřeno jen zdravím + testy) | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) MERGED, branch `build/h2-build-05-queue-lease-fencing`; viz sekce výše |
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
-| BUILD-07 | Prompt Registry & model adapter | TODO | AT-33, AT-34, AT-35, AT-36, AT-63 | — |
+| BUILD-07 | Prompt Registry & model adapter | AT GREEN — implementace hotová, push+PR probíhá, migrace 0015 čeká na Honzíkovo GO | AT-33, AT-34, AT-35, AT-36, AT-63 | branch `build/h2-build-07-prompt-registry`, viz sekce výše |
 | BUILD-08 | Operational extraction | TODO | — (schema/unit/integration testy slice) | — |
 | BUILD-09 | Context Engine | TODO | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | — |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |

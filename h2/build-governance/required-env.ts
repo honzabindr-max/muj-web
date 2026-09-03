@@ -61,6 +61,11 @@ export const REQUIRED_ENV_VARS: readonly RequiredEnvVar[] = [
     failureMode: "fail-closed",
   },
   {
+    key: "H2_ANTHROPIC_API_KEY",
+    module: "h2/prompts/config.ts (loadPromptProviderConfig — Sonnet/Haiku volání, BUILD-07)",
+    failureMode: "fail-closed",
+  },
+  {
     key: "H2_GOOGLE_CLIENT_ID",
     module: "h2/identity/auth-config.ts (buildAuthConfig — chybějící = degradovaný auth, ne crash)",
     failureMode: "degraded",
