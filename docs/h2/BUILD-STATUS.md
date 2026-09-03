@@ -1,7 +1,27 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-07 — Prompt Registry & model adapter, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci. PR [#24](https://github.com/honzabindr-max/muj-web/pull/24) (branch `build/h2-build-07-prompt-registry`) mergnut do `main` (merge commit `dbec556`), Vercel auto-deploy proběhl (`dpl_GajgTX5d47SdpewC7mTwFNSxoMEG`), `/api/h2/health` živě ověřen. Migrace `0015_prompt_registry_runtime_grants.sql` aplikována a ověřena přímým dotazem na `_h2_migrations` na **obou** větvích PŘED mergem (preview `applied_at 09:43:36.503Z`, production `09:47:54.953Z` — `.env.migrate` musel být mezi tím přegenerován z preview na production, Honzík spustil `write-migrate-env.sh` znovu). `check-required-env.ts` po mergi potvrdil přesně očekávaný nález: `H2_ANTHROPIC_API_KEY` nově chybí (BUILD-07) na obou prostředích, vedle už známých `H2_OPENAI_API_KEY` (BUILD-06) a `H2_LEDGER_HMAC_KEY` (BUILD-20) — nic z toho neblokuje, žádný trigger volání nespouští. BUILD-06 (PR #22) je od minula UZAVŘENO — AT GREEN, MERGED (`d61860e`), nasazeno. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-08 (Operational extraction) — plán zapisuje se, čeká na Honzíkovo potvrzení. Nová session: začni čtením tohoto souboru + DECISIONS.md.**
+**Aktuální slice:** BUILD-08 — Operational extraction, **AT GREEN** — implementace hotová podle schváleného [docs/h2/BUILD-08-PLAN.md](./BUILD-08-PLAN.md) (plán commitnut `dc52719`, doplněn Rozhodnutím 5 na Honzíkův výslovný požadavek), branch `build/h2-build-08-operational-extraction`, čeká na push+PR a Honzíkovo GO k mergi. **Žádná nová migrace, žádný nový credential, žádný nový env — plán explicitně "žádný STOP se neočekává"** (`operational_extractions` má plný CRUD+RLS grant pro `h2_runtime` už z BUILD-02, Haiku běží přes stejný `H2_ANTHROPIC_API_KEY` jako Sonnet z BUILD-07). BUILD-07 (PR #24) je od minula UZAVŘENO — AT GREEN, MERGED (`dbec556`), nasazeno na produkci. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + DECISIONS.md.**
 
+**Evidence (BUILD-08, implementace hotová, čeká na push+PR):**
+```
+Commit: a5a9f11 (implementace + testy)
+Branch: build/h2-build-08-operational-extraction
+DB: žádná nová migrace — operational_extractions (0003_prompts_and_llm.sql, BUILD-02) už má
+    plný CRUD+RLS grant pro h2_runtime (je v owner_scoped_tables).
+GHA: čeká se na push + otevření PR
+Artifact: N/A
+Deployment: N/A — implementace ještě není pushnutá; BUILD-08 nemá HTTP povrch ani produkční
+    trigger (Rozhodnutí 3, zapojení je BUILD-10), takže merge sám o sobě nezmění chování
+    žijící produkce
+Timestamp: 2026-09-03
+Verified by: Code — lokálně 151/151 testů zelených (40 souborů, vč. 5 nových: happy path OK
+    + metering rozlišitelnost Haiku/Sonnet, malformed output INVALID + žádný zápis do
+    tasks/commitments/open_loops/reminders, missing ACTIVE prompt version → explicitní chyba,
+    2 nové callAnthropicModel() maxOutputTokens testy), `npx tsc --noEmit` čistě, `npm run
+    build` čistě (žádné nové routy)
+Remaining risk: reálné Anthropic (Haiku) volání zatím neověřeno (mockovaný callModel) — stejná
+    otevřená položka jako BUILD-07 (ruční certifikace promptu proti reálnému modelu), ne nová.
+```
 **Evidence (BUILD-07 celý slice):**
 ```
 Commit: 82c76e0 (implementace + testy), 87f061f (docs), merge dbec556 do main
@@ -84,7 +104,7 @@ Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a 
     4 raw_events (telegram/USER), 4 message_processing_jobs PENDING, 0 rejected-sender audit
 ```
 **Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19), [PR #20](https://github.com/honzabindr-max/muj-web/pull/20), [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) a [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`. BUILD-06 (voice transcription) nasazeno na produkci — ingest větev live (feature flag `telegramVoice=true`), zpracování (download/transkripce) zatím bez produkčního triggeru, čeká na ruční end-to-end verifikaci s `H2_OPENAI_API_KEY`. BUILD-07 (prompt registry & model adapter) nasazeno na produkci — migrace 0015 aplikována na obou Neon větvích, mechanismus bez produkčního triggeru, čeká na ruční certifikaci s `H2_ANTHROPIC_API_KEY`.
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end; BUILD-06/07 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace)
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07 AT GREEN, MERGED, nasazeny; BUILD-08 AT GREEN, implementace hotová, čeká na push+PR+merge; BUILD-04 živě ověřeno end-to-end; BUILD-06/07 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace)
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-006 vyřešeny/zaznamenány; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", DEC-006 vědomá odchylka — migrace běží přes `neondb_owner`, ne `h2_migrator` — s remedy odloženým do M1 deploy gate, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
@@ -440,6 +460,79 @@ UI pro aktivaci/rollback (BUILD-26).
 7. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, nález přesně podle očekávání: `H2_ANTHROPIC_API_KEY` nově chybí, vedle už známých `H2_OPENAI_API_KEY`/`H2_LEDGER_HMAC_KEY` — nic z toho neblokuje,
 8. ruční certifikace prvního promptu proti reálnému Sonnetu/Haiku — ČEKÁ na `H2_ANTHROPIC_API_KEY` od Honzíka, vyžádám si ho jako explicitní STOP, až na něj dojde.
 
+## BUILD-08 — Operational extraction (AT GREEN)
+
+Plán schválen Honzíkem 2026-09-03, doplněn na jeho výslovný požadavek o
+Rozhodnutí 5 (vlastní `model_id`/`purpose` pro Haiku metering) —
+[docs/h2/BUILD-08-PLAN.md](./BUILD-08-PLAN.md). Skoro celá infrastruktura
+je hotová z BUILD-07 (`callAnthropicModel()`, `recordLlmRun()`,
+`recordAnthropicUsage()`, `getActivePromptVersion()`) — BUILD-08 ji jen
+použije s Haiku modelem, žádná nová migrace (`operational_extractions` už
+má plný CRUD+RLS grant pro `h2_runtime` z BUILD-02).
+
+- `h2/extraction/operational-schema.ts` — zod `OperationalExtractionOutputSchema`
+  (Rozhodnutí 1): obecný kandidátní kontejner (`candidates: Array<{type,
+  payload, confidence?}>`), ne finální CRUD objekty — hluboká validace
+  `payload` je BUILD-12's rozhodnutí.
+- `h2/extraction/operational-extraction.ts` — `extractOperationalCandidates(pool,
+  ownerId, rawEventId, messageText, credentials, callModel?)`:
+  `getActivePromptVersion(pool, 'OPERATIONAL_EXTRACTION')` (chybějící
+  ACTIVE verze → `H2ExtractionError`, ne tichý no-op) → `callModel`
+  (injektovatelný, stejný vzor jako BUILD-06/07, default `callAnthropicModel`)
+  s `maxOutputTokens=2048` (Rozhodnutí 4) → zod validace → JEDNA transakce
+  (`withOwnerScope`): `recordLlmRun()` + `recordAnthropicUsage()` +
+  `insert operational_extractions` (`status` OK/INVALID) — atomicky,
+  zavolalo se/zaplatilo se i při INVALID (stejná disciplína jako BUILD-07
+  AT-34). `status='REJECTED'` zůstává ve schématu nepoužité, rezervované
+  pro budoucí business-rule odmítnutí (Rozhodnutí 2).
+- `h2/prompts/anthropic-adapter.ts` — `callAnthropicModel()` rozšířen o
+  volitelný pátý parametr `maxOutputTokens` (default `4096`, beze změny
+  chování pro existující Sonnet volání z BUILD-07).
+- `h2/extraction/errors.ts` — `H2ExtractionError` (`NO_ACTIVE_PROMPT_VERSION`).
+- Metering rozlišitelnost (Rozhodnutí 5): `model_id` vždy `H2_MODELS.extraction`
+  (`claude-haiku-4-5-20251001`), `purpose` vždy `'OPERATIONAL_EXTRACTION'`
+  — nikdy nesplyne se `'BUDDY_RESPONSE'` ani `'voice_transcription'` v
+  `usage_ledger`/`llm_runs`. `PURPOSE_TO_MODEL_PURPOSE` mapping pro
+  `checkModelDrift()` (`h2/prompts/model-drift.ts`) byl už zapsán v
+  BUILD-07 — BUILD-08 na něm nic nemění, jen ho poprvé skutečně použije.
+- Žádný produkční trigger (Rozhodnutí 3, stejné jako BUILD-05/06/07) —
+  `extractOperationalCandidates()` je volatelná přímo (testy, budoucí
+  ruční skript), zapojení do live message-processing cesty je BUILD-10.
+
+**Testy pod skutečnou rolí `h2_runtime`**, 5 nových:
+- `h2/extraction/__tests__/operational-extraction.test.ts` — žádná
+  ACTIVE verze → `H2ExtractionError`; happy path (status OK, `output`
+  odpovídá vstupu, `llm_runs` + 2 `usage_ledger` řádky, metering
+  rozlišitelnost od Sonnetu — `model_id`/`purpose` přesně Haiku, cena
+  Haiku sazbě `$1`/`$5` za MTok, ne Sonnetově `$2`/`$10`); malformed
+  output (status INVALID, ale `llm_runs`/`usage_ledger` se přesto
+  zapsaly, a **žádný** nový řádek v `tasks`/`commitments`/`open_loops`/
+  `reminders` — DoD).
+- Rozšířen `h2/prompts/__tests__/anthropic-adapter.test.ts` o 2 testy:
+  `maxOutputTokens` parametr se propíše do `max_tokens` v request body;
+  bez parametru zůstává default `4096`.
+
+**Ověřeno:** 5/5 nových testů zelených, 151/151 testů v celém repu (40
+souborů), `npx tsc --noEmit` čistě, `npm run build` čistě (žádné nové
+routy — BUILD-08 nemá HTTP povrch).
+
+**Co zůstává mimo scope (vědomě, viz plán):** skutečné vytváření/aktualizace
+`tasks`/`commitments`/`open_loops`/`reminders`/`projects` z kandidátů
+(BUILD-12), zapojení do live message-processing/Buddy runtime cesty
+(BUILD-10), input-side token budget/context assembly (BUILD-09), business-rule
+`REJECTED` odmítnutí (nespecifikováno, rezervováno beze změny), ruční
+certifikace `OPERATIONAL_EXTRACTION` promptu proti reálnému Haiku — stejná
+otevřená položka jako BUILD-07, ne nová.
+
+**Uzavření slicu:**
+1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
+2. push branche, otevřít PR — PROBÍHÁ,
+3. zelené GHA na PR — ČEKÁ SE,
+4. Honzíkovo GO k mergi do `main` — ČEKÁ SE (žádná migrace, žádný env, jen běžné GO na merge),
+5. potvrdit produkční Vercel deploy po mergi — ČEKÁ SE,
+6. preflight `check-required-env.ts` proti production i preview — ČEKÁ SE (očekávaný nález:
+   žádný nový — `H2_ANTHROPIC_API_KEY` je stejný, už z BUILD-07 registrovaný požadavek).
+
 ## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
@@ -454,7 +547,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-05 | Queue, lease, fencing, quarantine | AT GREEN — MERGED, DEPLOYED (bez HTTP povrchu, ověřeno jen zdravím + testy) | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) MERGED, branch `build/h2-build-05-queue-lease-fencing`; viz sekce výše |
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | AT GREEN — MERGED, DEPLOYED (mechanismus bez produkčního triggeru, čeká na ruční certifikaci) | AT-33, AT-34, AT-35, AT-36, AT-63 | [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) MERGED, branch `build/h2-build-07-prompt-registry`; viz sekce výše |
-| BUILD-08 | Operational extraction | TODO | — (schema/unit/integration testy slice) | — |
+| BUILD-08 | Operational extraction | AT GREEN — implementace hotová, čeká na push+PR | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | branch `build/h2-build-08-operational-extraction`, commit `a5a9f11` |
 | BUILD-09 | Context Engine | TODO | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | — |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |
 | BUILD-11 | Telegram + web delivery | TODO | AT-10 | — |
