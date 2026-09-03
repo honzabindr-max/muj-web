@@ -122,12 +122,16 @@ route handler přímo se sestaveným payloadem).
 - `h2/voice/telegram-download.ts` a `h2/voice/transcribe.ts` — tenké
   adaptéry na `fetch`, testované mockovaným `fetch` (request shape, chybové
   stavy, timeout), ne reálnou sítí.
-- `h2/voice/process-voice-job.ts` (orchestrace: claim → decrypt reference
-  handle → download → transcribe → `commitVoiceTranscript` (transcript +
-  usage_ledger atomicky, Rozhodnutí 4) → `commitJobResult` se stub
-  odpovědí) přijímá `download`/`transcribe` jako injektované funkce
-  (stejný vzor jako BUILD-05 `work`) — AT-04/AT-05 testy injektují fake
-  verze proti reálné Postgres pod rolí `h2_runtime`.
+- `h2/voice/process-voice-job.ts` `transcribeVoiceJob()` (orchestrace:
+  decrypt reference handle → download → transcribe → `commitVoiceTranscript`
+  — transcript + usage_ledger atomicky, Rozhodnutí 4) přijímá
+  `download`/`transcribe` jako injektované funkce (stejný vzor jako
+  BUILD-05 `work`). **Nevolá `commitJobResult()` samo** — stejný důvod
+  jako Rozhodnutí 2 (žádná placeholder response). Volající (test, ruční
+  skript, později BUILD-10) zavolá `commitJobResult()` odděleně se svým
+  vlastním `work`, přesně jako BUILD-05 AT-03 test — AT-04/AT-05 testy tak
+  dělají obojí (claim → `transcribeVoiceJob` → `commitJobResult` se stub
+  odpovědí) proti reálné Postgres pod rolí `h2_runtime`.
 - Skutečné ověření (reálný Telegram download + reálný Whisper call) je
   **samostatný ruční krok** po implementaci, stejný vzor jako
   `verify-ingestion.ts` — ne součást automatického test běhu ani mergu.

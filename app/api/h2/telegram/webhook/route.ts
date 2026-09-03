@@ -4,7 +4,7 @@ import { getH2Config, H2ConfigError } from "@/h2/config";
 import { loadEncryptionKeyRegistry } from "@/h2/crypto/keys";
 import { getH2Pool } from "@/h2/db/pool";
 import { recordIdentityEvent } from "@/h2/identity/audit";
-import { ingestMessage } from "@/h2/ingestion/ingest-message";
+import { ingestMessage, type IngestPayloadType } from "@/h2/ingestion/ingest-message";
 import {
   isAllowlistedTelegramSender,
   linkTelegramUserId,
@@ -12,6 +12,7 @@ import {
   verifyTelegramWebhookSecret,
 } from "@/h2/ingestion/telegram-auth";
 import { logH2Event } from "@/h2/logging/logger";
+import { encodeVoiceReferenceHandle } from "@/h2/voice/reference-handle";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ type TelegramUpdate = {
   message?: {
     message_id: number;
     text?: string;
+    voice?: { file_id: string; duration: number };
     from?: { id: number };
   };
 };
@@ -55,11 +57,27 @@ export async function POST(request: Request) {
 
     const message = update.message;
     const text = message?.text;
+    const voice = message?.voice;
     const fromId = message?.from?.id;
 
-    if (!message || text === undefined || fromId === undefined) {
-      // Nepodporovaný typ update (voice/photo/…) — voice ingest je BUILD-06,
-      // mimo DoD tohoto slicu. Validní Telegram provoz, jen no-op.
+    if (!message || fromId === undefined) {
+      logH2Event({ purpose: "ingest", status: "skipped" });
+      return NextResponse.json({ status: "ignored" });
+    }
+
+    let payloadType: IngestPayloadType;
+    let payloadPlaintext: Buffer;
+    if (text !== undefined) {
+      payloadType = "TEXT";
+      payloadPlaintext = Buffer.from(text, "utf8");
+    } else if (config.featureFlags.telegramVoice && voice?.file_id !== undefined && typeof voice.duration === "number") {
+      // Voice flow krok 1 (Technical Architecture v1.2 §5): reference handle,
+      // ne audio — stažení/transkripce jsou BUILD-06 processing, ne ingest.
+      payloadType = "VOICE";
+      payloadPlaintext = encodeVoiceReferenceHandle({ telegramFileId: voice.file_id, durationSeconds: voice.duration });
+    } else {
+      // Nepodporovaný typ update (photo/…), nebo voice s vypnutým feature
+      // flagem. Validní Telegram provoz, jen no-op.
       logH2Event({ purpose: "ingest", status: "skipped" });
       return NextResponse.json({ status: "ignored" });
     }
@@ -86,8 +104,8 @@ export async function POST(request: Request) {
       channel: "telegram",
       speaker: "USER",
       externalEventId: String(update.update_id),
-      payloadType: "TEXT",
-      payloadPlaintext: Buffer.from(text, "utf8"),
+      payloadType,
+      payloadPlaintext,
     });
 
     logH2Event({
