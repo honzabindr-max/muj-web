@@ -154,12 +154,12 @@ describe("POST /api/h2/telegram/webhook", () => {
     expect(audit.rows[0].n).toBe(0);
   });
 
-  it("update bez text pole (např. voice — mimo scope BUILD-04) → 200, no-op, žádný raw_event", async () => {
+  it("update bez text a bez voice pole (např. photo — mimo scope) → 200, no-op, žádný raw_event", async () => {
     const { POST } = await import("../route");
     const response = await POST(
       buildRequest({
         update_id: 500,
-        message: { message_id: 6, from: { id: Number(OWNER_USER_ID) }, voice: { file_id: "abc" } },
+        message: { message_id: 6, from: { id: Number(OWNER_USER_ID) } },
       }),
     );
     expect(response.status).toBe(200);

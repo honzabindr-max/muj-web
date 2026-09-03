@@ -51,6 +51,16 @@ export const REQUIRED_ENV_VARS: readonly RequiredEnvVar[] = [
     failureMode: "fail-closed",
   },
   {
+    key: "H2_TELEGRAM_BOT_TOKEN",
+    module: "h2/voice/config.ts (loadVoiceProviderConfig — Telegram getFile/download, BUILD-06)",
+    failureMode: "fail-closed",
+  },
+  {
+    key: "H2_OPENAI_API_KEY",
+    module: "h2/voice/config.ts (loadVoiceProviderConfig — Whisper transkripce, BUILD-06)",
+    failureMode: "fail-closed",
+  },
+  {
     key: "H2_GOOGLE_CLIENT_ID",
     module: "h2/identity/auth-config.ts (buildAuthConfig — chybějící = degradovaný auth, ne crash)",
     failureMode: "degraded",
