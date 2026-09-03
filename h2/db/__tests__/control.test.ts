@@ -12,7 +12,8 @@ describe("h2-control — deletion_ledger append-only hash chain (§23.1)", () =>
 
   beforeAll(async () => {
     adminPool = await createControlTestDatabase(DB_NAME);
-    await adminPool.query(`alter role h2_control login password '${TEST_ROLE_PASSWORD}'`);
+    // Heslo pro h2_control nastavuje jednou globalSetup (ensure-test-roles.ts),
+    // ne tento soubor — viz BUILD-04 poznámka v rls.test.ts.
     controlPool = new PgPool({
       connectionString: buildTestConnectionString(DB_NAME, { username: "h2_control", password: TEST_ROLE_PASSWORD }),
     });

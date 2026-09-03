@@ -26,8 +26,8 @@ export type H2FeatureFlags = {
 };
 
 export const H2_FEATURE_FLAG_DEFAULTS: H2FeatureFlags = {
-  telegramIngest: false,
+  telegramIngest: true,
   telegramVoice: false,
-  webBuddyChat: false,
+  webBuddyChat: true,
   calendarIntegration: false,
 };

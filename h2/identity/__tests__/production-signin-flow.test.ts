@@ -27,7 +27,6 @@ describe("BUILD-03A sign-in flow pod rolí h2_runtime (reprodukce produkčního 
 
   beforeEach(async () => {
     adminPool = await createRuntimeTestDatabase(DB_NAME);
-    await adminPool.query(`alter role h2_runtime login password '${TEST_ROLE_PASSWORD}'`);
     runtimePool = new PgPool({
       connectionString: buildTestConnectionString(DB_NAME, { username: "h2_runtime", password: TEST_ROLE_PASSWORD }),
     });
