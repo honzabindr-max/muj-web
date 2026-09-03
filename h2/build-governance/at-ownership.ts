@@ -46,4 +46,11 @@ export const AT_OWNERSHIP: Readonly<Record<string, readonly string[]>> = {
  * pravidlo jako pro BUILD-STATUS.md). Používá se k ověření, že vlastněné
  * AT mají skutečně existující test pokrytí, ne jen záznam v matici.
  */
-export const COMPLETED_BUILD_BLOCKS: readonly string[] = ["BUILD-01", "BUILD-02", "BUILD-03", "BUILD-03A", "BUILD-04"];
+export const COMPLETED_BUILD_BLOCKS: readonly string[] = [
+  "BUILD-01",
+  "BUILD-02",
+  "BUILD-03",
+  "BUILD-03A",
+  "BUILD-04",
+  "BUILD-05",
+];
