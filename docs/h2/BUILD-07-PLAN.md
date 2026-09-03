@@ -116,10 +116,16 @@ output mají různou cenu, nejde je sečíst do jednoho `quantity`):
   řádek pro totéž volání),
 - `model_id = <přesné pinned ID>` (`claude-sonnet-5` nebo
   `claude-haiku-4-5-20251001`, nikdy zkrácené/obecné jméno),
-- řádek 1: `unit = 'input_tokens'`, `quantity = inputTokens`, `cost_usd =
+- řádek 1: `unit = 'tokens_input'`, `quantity = inputTokens`, `cost_usd =
   inputTokens / 1_000_000 * cena_za_input_MTok`,
-- řádek 2: `unit = 'output_tokens'`, `quantity = outputTokens`, `cost_usd
+- řádek 2: `unit = 'tokens_output'`, `quantity = outputTokens`, `cost_usd
   = outputTokens / 1_000_000 * cena_za_output_MTok`.
+
+(Přesné názvy `tokens_input`/`tokens_output` — existující `usage_ledger_
+unit_check` z BUILD-02 (`0010_billing_and_ops.sql`) povoluje jen
+`'tokens_input', 'tokens_output', 'minutes', 'compute_hours',
+'storage_gb'` — zjištěno až při implementaci, žádný nový constraint
+netřeba, jen se použije správné jméno.)
 
 Sazby (`ANTHROPIC_PRICING_USD_PER_MTOK`, referenční hodnoty přímo z
 architektury §28, stejný vzor jako `WHISPER_RATE_USD_PER_MINUTE` v
@@ -230,6 +236,7 @@ aktivovat prompt přímo) — ne až za tři měsíce v produkci.
 
 ## Návrh API (bude upřesněno při implementaci)
 
+- `h2/prompts/config.ts` — `loadPromptProviderConfig()`: fail-closed `requireEnv({H2_ANTHROPIC_API_KEY})`, stejný vzor jako `h2/voice/config.ts`.
 - `h2/prompts/anthropic-adapter.ts` — `callAnthropicModel(modelId, promptContent, input, apiKey)`: syrový `fetch` na Messages API, `AbortController` timeout, vrací `{text, inputTokens, outputTokens}`.
 - `h2/prompts/registry.ts` — `createDraftPromptVersion()`, `getActivePromptVersion(pool, purpose)`.
 - `h2/prompts/fixtures.ts` — typ pro fixture (`{name, input, kind: 'happy_path'|'malformed_input'|'adversarial_context'|'schema_validation', expectedOutcome}`), `runPromptFixtureSuite(pool, promptVersionId, modelId, schemaVersion, fixtureSetVersion, fixtures, callModel, validateOutput)` → zapíše jeden `prompt_test_runs` řádek (`PASS`/`FAIL` + `results` jsonb detail per fixture).
@@ -237,9 +244,17 @@ aktivovat prompt přímo) — ne až za tři měsíce v produkci.
 - `h2/prompts/llm-run.ts` — `recordLlmRun(client, {ownerId, purpose, modelId, promptVersionId, schemaVersion, inputReferenceManifest, tokens, latencyMs, status, errorCode})`: insert do `llm_runs`, volatelné zevnitř cizí transakce (`PoolClient`, stejný vzor jako `h2/voice/usage.ts`).
 - `h2/prompts/usage.ts` — `ANTHROPIC_PRICING_USD_PER_MTOK`, `recordAnthropicUsage(client, ownerId, purpose, modelId, inputTokens, outputTokens)` (Rozhodnutí 3).
 - `h2/prompts/model-drift.ts` — `checkModelDrift(pool, purpose)`: porovná `H2_MODELS[purpose]` s `model_id` poslední `PASS` kombinace; vrací `{configured, certified, drift: boolean}` — čistá funkce, nikam se sama nezapojuje (BUILD-23 zapojení).
-- `h2/prompts/schemas/*.ts` — zod schémata per purpose (Rozhodnutí 4).
 - Retrofit: `h2/voice/commit-transcript.ts` — přidat `recordLlmRun()` volání (Rozhodnutí 5).
 - `h2/build-governance/__tests__/prompt-activation-single-writer.test.ts` — governance test (Rozhodnutí 7).
+
+**Škrt v implementaci oproti návrhu:** `h2/prompts/schemas/*.ts` (zod
+schémata per purpose, Rozhodnutí 4) se nakonec nestavěly jako samostatné
+soubory — žádný reálný purpose (BUDDY_RESPONSE/OPERATIONAL_EXTRACTION/…)
+ještě nemá definovaný obsah (to je BUILD-08/10/14), takže "reálné" schéma
+by bylo fingované a stejně by ho ta budoucí slice musela předělat.
+`ValidateOutputFn`/`CallModelFn` typy (Rozhodnutí 4 princip beze změny —
+zod, ne generický JSON-Schema interpreter) žijí v `h2/prompts/fixtures.ts`,
+konkrétní zod validátor si testy/budoucí slicey dodají inline.
 
 ## Test plán
 
@@ -248,7 +263,7 @@ aktivovat prompt přímo) — ne až za tři měsíce v produkci.
 - **AT-35:** verze 1 ACTIVE → certifikovat + aktivovat verzi 2 → `rollbackPromptVersion()` zpět na verzi 1 → assert `prompt_versions` řádek verze 1 má nový `activated_at` (ne editovaný starý), verze 2 je `RETIRED`, žádná verze 3 ani edit historie nevznikla.
 - **AT-36:** `recordLlmRun()` po fake `callAnthropicModel()` volání → assert `llm_runs` řádek má `model_id`, `prompt_version_id`, `schema_version`, `input_reference_manifest` vyplněné.
 - **AT-63:** `H2_MODELS.buddy` v konfiguraci změněn (test-only override) → `checkModelDrift()` hlásí `drift: true` → `activatePromptVersion()` s tímhle `modelId` odmítnuto (žádný `PASS` run pro NOVOU kombinaci `model_id`, i kdyby stará kombinace `PASS` měla).
-- **Metering (Rozhodnutí 3):** fake `callModel` vrátí `{inputTokens: 1000, outputTokens: 500}` → po `recordLlmRun()` + `recordAnthropicUsage()` assert přesně 2 nové `usage_ledger` řádky (`input_tokens`/`output_tokens`), `cost_usd` odpovídá pinned sazbě pro daný `model_id`. Samostatný test, že fixture se selhávající zod validací (AT-34 scénář) **přesto** zapíše usage (zaplatilo se, i když aktivace neprošla).
+- **Metering (Rozhodnutí 3):** fake `callModel` vrátí `{inputTokens: 1000, outputTokens: 500}` → po `recordLlmRun()` + `recordAnthropicUsage()` assert přesně 2 nové `usage_ledger` řádky (`tokens_input`/`tokens_output`), `cost_usd` odpovídá pinned sazbě pro daný `model_id`. Samostatný test, že fixture se selhávající zod validací (AT-34 scénář) **přesto** zapíše usage (zaplatilo se, i když aktivace neprošla).
 - Retrofit test v `h2/voice/__tests__/process-voice-job.test.ts` nebo nový `commit-transcript.test.ts`: `commitVoiceTranscript()` zapíše i `llm_runs` řádek (`purpose='voice_transcription'`) atomicky se stávajícím `usage_ledger`/`raw_events` update.
 - Adaptér (`anthropic-adapter.test.ts`): mockovaný `fetch`, stejný vzor jako BUILD-06.
 - **Governance (Rozhodnutí 7):** `prompt-activation-single-writer.test.ts` — pozitivní test (najde vzor v `activation.ts`, projde) + regresní fixture (dočasně vloží zakázaný vzor do pomocného test-fixture souboru mimo `activation.ts`, ověří že test na něj spadne — dokazuje, že kontrola skutečně něco hlídá, ne že jen vždycky projde).

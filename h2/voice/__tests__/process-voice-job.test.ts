@@ -101,6 +101,18 @@ describe("voice job processing pod rolí h2_runtime", () => {
     expect(Number(usage.rows[0].quantity)).toBeCloseTo(3, 5);
     expect(Number(usage.rows[0].cost_usd)).toBeCloseTo(0.018, 5);
 
+    // Retrofit BUILD-07 (docs/h2/BUILD-07-PLAN.md Rozhodnutí 5): commitVoiceTranscript()
+    // teď zapisuje i llm_runs provenance pro Whisper, atomicky se stejnou transakcí.
+    const llmRuns = await adminPool.query(
+      "select purpose, model_id, prompt_version_id, status from llm_runs where owner_id = $1",
+      [ownerId],
+    );
+    expect(llmRuns.rows).toHaveLength(1);
+    expect(llmRuns.rows[0].purpose).toBe("voice_transcription");
+    expect(llmRuns.rows[0].model_id).toBe("whisper-1");
+    expect(llmRuns.rows[0].prompt_version_id).toBeNull();
+    expect(llmRuns.rows[0].status).toBe("OK");
+
     // "odpověď bez duplicity" — stejný vzor jako BUILD-05 AT-03, stub work.
     await commitJobResult(runtimePool, TEST_REGISTRY, claim!, async () => ({
       responsePayloadPlaintext: Buffer.from("stub odpověď", "utf8"),
@@ -204,6 +216,9 @@ describe("voice job processing pod rolí h2_runtime", () => {
 
     const usage = await adminPool.query("select count(*)::int as n from usage_ledger where owner_id = $1", [ownerId]);
     expect(usage.rows[0].n).toBe(0);
+
+    const llmRuns = await adminPool.query("select count(*)::int as n from llm_runs where owner_id = $1", [ownerId]);
+    expect(llmRuns.rows[0].n).toBe(0);
 
     const rawEvent = await adminPool.query<{ payload_ciphertext: Buffer; encryption_key_version: number }>(
       "select payload_ciphertext, encryption_key_version from raw_events where id = $1",
