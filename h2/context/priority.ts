@@ -14,6 +14,17 @@ export type ContextCandidateItem = {
   reason: string;
   tokensEstimated: number;
   personId?: string | null;
+  /**
+   * Krok 2 (relevance floor, §7.3) — jméno/reference podkladového řádku
+   * (např. `projects.name`, `experiments.question`), proti kterému se
+   * porovnávají `resolveMessageEntities()` výsledky. Není persistované
+   * (`persist-context-run.ts` ho ignoruje) — jen runtime matching.
+   */
+  matchLabel?: string | null;
+  /** Condition 2 (§7.3) — operační stav nutný k požadované akci, floor vždy propustí. */
+  requiredForAction?: boolean;
+  /** AT-23 — nevalidovaná hypotéza/psychologická interpretace, floor propustí jen při `purpose='BUDDY_DEEP_DIVE'`. */
+  isHypothesis?: boolean;
 };
 
 export function sumTokens(items: readonly ContextCandidateItem[]): number {
