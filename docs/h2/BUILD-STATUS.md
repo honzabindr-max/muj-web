@@ -4,11 +4,46 @@
 
 **[DEC-007](./DECISIONS.md#dec-007) — Sovereignty fast path retrofit (C2), zásah do uzavřeného BUILD-04:** PR [#32](https://github.com/honzabindr-max/muj-web/pull/32) mergnut do `main` (merge commit `57190c5`), Vercel auto-deploy proběhl (`dpl_9LWiYUkm8Bccatisv8eoR4zjbjQB`), `/api/h2/health` živě ověřen. Po adversarial review přes GPT Honzík změnil svoje doporučení z B na C2 — `ingestMessage()` vždy vytvoří `raw_event`+job i pro control command (I7.6), navíc přesný `/stop`/`/pause`/`/resume` bumpne `owner_control_epoch` ve stejné transakci. 7 sub-invariantů I7.1–I7.7 zapsáno jako závazné. Žádná nová migrace, žádný nový credential. **Pravidlo 10 (viz "Pravidla" níže): BUILD-11 se nesmí uzavřít AT GREEN bez testu, že delivery respektuje `owner_control_epoch`** — nalezená mezera při I7.5 review, dnešní `response_deliveries` schéma tuhle kontrolu nemá vůbec.
 
-**Aktuální slice: BUILD-10 (Buddy runtime) — implementace HOTOVÁ na branchi, ČEKÁ na push+PR+GO k mergi.** `H2_ANTHROPIC_API_KEY` živě ověřen na Vercelu (production i preview, `check-required-env.ts`, 2026-09-03) — první ze dvou blokátorů z plánu je pryč. Ruční certifikace `BUDDY_RESPONSE` promptu (`activatePromptVersion()`, recent re-auth) zůstává samostatný krok — **žádný `prompt_versions` řádek pro `BUDDY_RESPONSE` (ani pro žádný jiný purpose) dnes v produkci neexistuje** (`createDraftPromptVersion()` se dosud nikde nevolá mimo testy — stejná mezera platí i pro BUILD-08's `OPERATIONAL_EXTRACTION`, není to nový BUILD-10 nález). `getActivePromptVersion()` proto v produkci vrátí `null` a `generateBuddyResponse()` explicitně vyhodí `H2BuddyRuntimeError("NO_ACTIVE_PROMPT")` — žádný tichý no-op. **Žádné reálné Sonnet volání neproběhlo** (mockovaný `callAnthropicModel` ve všech 16 nových testech), autorizace i certifikace zůstává na Honzíkovi (viz Evidence blok níže). Nová session: začni čtením tohoto souboru + BUILD-10-PLAN.md + DECISIONS.md.
+**Aktuální slice: BUILD-10 (Buddy runtime) — UZAVŘENO, AT GREEN, MERGED, nasazeno na produkci.** PR [#33](https://github.com/honzabindr-max/muj-web/pull/33) mergnut do `main` (merge commit `1f25bca`), Vercel production deploy proběhl (`dpl_DSfRydxYFf2wZ3maM4vtMpaA6Tzw`), `/api/h2/health` živě ověřen, `check-required-env.ts` beze změny nálezu (chybí jen `H2_LEDGER_HMAC_KEY`/`H2_OPENAI_API_KEY`, oba mimo BUILD-10 scope, známé z dřívějška). `H2_ANTHROPIC_API_KEY` živě ověřen na Vercelu (production i preview) PŘED mergem. Žádná nová migrace, žádný nový credential.
+
+**Co BUILD-10 samo nezapojuje do žádného produkčního triggeru (mechanismus existuje, nic ho dnes nevolá):** `generateBuddyResponse()` čeká na volajícího, který claimne job a zavolá ji — ten dnes neexistuje (BUILD-05's `claimNextJob()` nemá v produkci žádného callera mimo testy). Ruční certifikace `BUDDY_RESPONSE` promptu (`activatePromptVersion()`, recent re-auth) zůstává samostatný krok — **žádný `prompt_versions` řádek pro `BUDDY_RESPONSE` (ani pro žádný jiný purpose) dnes v produkci neexistuje** (`createDraftPromptVersion()` se dosud nikde nevolá mimo testy — stejná mezera platí i pro BUILD-08's `OPERATIONAL_EXTRACTION`, není to nový BUILD-10 nález). `getActivePromptVersion()` proto v produkci vrátí `null` a `generateBuddyResponse()` explicitně vyhodí `H2BuddyRuntimeError("NO_ACTIVE_PROMPT")` — žádný tichý no-op. **Žádné reálné Sonnet volání neproběhlo** (mockovaný `callAnthropicModel` ve všech 16 nových testech).
+
+**Dva nové nálezy pro BUILD-11 plánování (zapsáno 2026-09-03, neřešeno teď — forward-pointer):**
+1. **Voice → text handoff mezera.** `commitVoiceTranscript()` (BUILD-06) přepíše `raw_events.payload_ciphertext` na přepis, ale **nechává `payload_type='VOICE'`** — nikdy ho nepřepne na `'TEXT'`. `generateBuddyResponse()` (BUILD-10) čte zprávu přes `readMessageText()`, která filtruje `payload_type = 'TEXT'` — u hlasovky po transkripci by tak nenašla nic. Netýká se dnešních 6 PENDING jobů (jsou to telegram TEXT zprávy), ale blokuje hlasovky, jakmile bude trigger zapojený. Oprava je malá (buď `commitVoiceTranscript` přepne `payload_type`, nebo `readMessageText` přijme oboje) — rozhodnutí o tom, kde má ta logika žít, patří tomu, kdo staví trigger.
+2. **`OPERATIONAL_EXTRACTION` (BUILD-08) taky nemá volajícího.** `generateBuddyResponse()` čte entity přes `buildContextPack()` → `resolveMessageEntities()`, což čte z `operational_extractions` — ale nic dnes nevolá `extractOperationalCandidates()` v produkci. Dokud trigger nezavolá i tohle (ideálně před `generateBuddyResponse()`, podle §7.1 pořadí), bude entity resolution v produkci vždy prázdná — Buddy odpoví, ale bez povědomí o zmíněných projektech/úkolech.
+
+Nová session: začni čtením tohoto souboru + BUILD-10-PLAN.md + DECISIONS.md.
 
 **Command Gate scope (BUILD-10, `h2/buddy/command-gate.ts`):** implementován jen exact-match re-detekce `/stop`/`/pause`/`/resume` (DEC-007 bod 5 — I7.3 idempotence, žádný druhý epoch bump). §8.1's širší Command Gate scope (holé "stop"/"pause" v přirozené větě, `IGNORE` s cílem, `DELETE`/`HARD_DELETE`/`RECONSIDER`/`CORRECT`) NENÍ implementován — přesná protokolová syntaxe (I7.7: "control intent má být protokolová struktura, ne odvozený z přirozeného jazyka") existuje jen v uzamčené Notion Technical Architecture §8.1 v plném znění, ne v BUILD-10-PLAN.md ani DECISIONS.md. Hádání syntaxe by riskovalo přesně to, co I7.6 zakazuje (chybná klasifikace nevratně bere zprávě normální zpracování). Forward-pointer pro budoucí slice (BUILD-12 Reconsideration / BUILD-20 Deletion Ledger vlastní hlubokou sémantiku už podle BUILD-10-PLAN.md, ale detekce/routing v Command Gate na ně čeká na doplnění přesné syntaxe z Notionu).
 
-**Evidence (BUILD-10 implementace, ČEKÁ na push+PR+Honzíkovo GO k mergi):**
+**Evidence (BUILD-10 celý slice — MERGED):**
+```
+Commit: c3126d1 (implementace + testy), 4a6133c (docs), merge 1f25bca do main
+Branch: build/h2-build-10-buddy-runtime (PR #33, MERGED)
+DB: žádná nová migrace — h2/buddy/* čte/zapisuje výhradně přes už existující
+    tabulky a granty (responses, prompt_versions, llm_runs, usage_ledger,
+    projects/commitments/tasks/open_loops/reminders, claims/mechanisms/
+    experiments, evidence_items+raw_events). Žádný nový sloupec.
+GHA: run 33761563336 (PR #33, h2-tests) — pass; Vercel + Vercel Preview
+    Comments checky pass
+Artifact: N/A
+Deployment: Vercel production, deployment dpl_DSfRydxYFf2wZ3maM4vtMpaA6Tzw,
+    target=production, vytvořen ihned po mergi (15:44), state READY; živě
+    ověřeno curl -sL https://good-inventions.work/api/h2/health →
+    {"status":"ok"}
+Timestamp: 2026-09-03
+Verified by: Code — CI (test + oba Vercel checky), Vercel CLI (vercel
+    inspect, vercel ls --prod), živý curl na produkci,
+    h2/db/scripts/check-required-env.ts proti production i preview (žádná
+    regrese — stejné dvě mimo-scope chybějící proměnné jako před mergem),
+    217/217 testů lokálně (16 nových), tsc/build čisté. Merge proveden pod
+    Honzíkovým explicitním GO v chatu.
+Remaining risk: dva forward-pointery pro BUILD-11 (voice payload_type
+    handoff, operational extraction bez volajícího — viz výše), žádný
+    aktivní BUDDY_RESPONSE prompt, žádné reálné Sonnet volání, žádný
+    produkční trigger, který by generateBuddyResponse() vůbec zavolal.
+```
+**Evidence (BUILD-10 implementace, PŘED mergem — archiv):**
 ```
 Commit: c3126d1 (implementace + testy, branch build/h2-build-10-buddy-runtime)
 Branch: build/h2-build-10-buddy-runtime — NEPUSHNUTÁ, žádné PR zatím
@@ -222,7 +257,7 @@ Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a 
     4 raw_events (telegram/USER), 4 message_processing_jobs PENDING, 0 rejected-sender audit
 ```
 **Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19), [PR #20](https://github.com/honzabindr-max/muj-web/pull/20), [PR #22](https://github.com/honzabindr-max/muj-web/pull/22), [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) a [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`. BUILD-06 (voice transcription) nasazeno na produkci — ingest větev live (feature flag `telegramVoice=true`), zpracování (download/transkripce) zatím bez produkčního triggeru, čeká na ruční end-to-end verifikaci s `H2_OPENAI_API_KEY`. BUILD-07 (prompt registry & model adapter) nasazeno na produkci — migrace 0015 aplikována na obou Neon větvích, mechanismus bez produkčního triggeru, čeká na ruční certifikaci s `H2_ANTHROPIC_API_KEY`. BUILD-08 (operational extraction) nasazeno na produkci — žádná migrace, žádný nový credential, mechanismus bez produkčního triggeru (zapojení je BUILD-10).
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07/08/09 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end; BUILD-06/07 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace); BUILD-10 (Buddy runtime) čeká na H2_ANTHROPIC_API_KEY od Honzíka
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED se skutečným produkčním triggerem (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07/08/09/10 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end; BUILD-06/07/10 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace — BUILD-10 navíc čeká na BUILD-11's trigger, který teprve zavolá `generateBuddyResponse()` v produkci); BUILD-11 (Telegram + web delivery) — zbývající blok před M1, viz BUILD-10's evidence blok výše pro dva forward-pointery (voice payload_type handoff, operational extraction bez volajícího), které by BUILD-11's trigger měl vyřešit zároveň
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-006 vyřešeny/zaznamenány; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", DEC-006 vědomá odchylka — migrace běží přes `neondb_owner`, ne `h2_migrator` — s remedy odloženým do M1 deploy gate, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
