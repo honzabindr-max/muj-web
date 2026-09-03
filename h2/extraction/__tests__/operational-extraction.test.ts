@@ -3,6 +3,7 @@ import { Pool as PgPool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildTestConnectionString, createRuntimeTestDatabase, dropTestDatabase, TEST_ROLE_PASSWORD } from "../../db/__tests__/helpers";
+import { H2ContextBudgetError } from "../../context/errors";
 import { extractOperationalCandidates, OPERATIONAL_EXTRACTION_PURPOSE } from "../operational-extraction";
 import { H2ExtractionError } from "../errors";
 
@@ -146,5 +147,21 @@ describe("extractOperationalCandidates() pod rolí h2_runtime", () => {
     expect(commitments.rows[0].count).toBe(0);
     expect(openLoops.rows[0].count).toBe(0);
     expect(reminders.rows[0].count).toBe(0);
+  });
+
+  it("BUILD-09 Krok 1 retrofit: zpráva přes 8000 tokenů → H2ContextBudgetError, ne tiché ořezání, žádné volání modelu/zápis", async () => {
+    await activatePromptVersionDirectly();
+    const oversizedMessage = "a".repeat(30_000); // ~8571 odhadnutých tokenů > 8000 strop
+
+    await expect(
+      extractOperationalCandidates(runtimePool, ownerId, rawEventId, oversizedMessage, { anthropicApiKey: "sk-ant-test" }, fakeCallModel("{}")),
+    ).rejects.toBeInstanceOf(H2ContextBudgetError);
+
+    const llmRuns = await adminPool.query("select count(*)::int as count from llm_runs where owner_id = $1", [ownerId]);
+    expect(llmRuns.rows[0].count).toBe(0);
+    const usage = await adminPool.query("select count(*)::int as count from usage_ledger where owner_id = $1", [ownerId]);
+    expect(usage.rows[0].count).toBe(0);
+    const extractions = await adminPool.query("select count(*)::int as count from operational_extractions where owner_id = $1", [ownerId]);
+    expect(extractions.rows[0].count).toBe(0);
   });
 });
