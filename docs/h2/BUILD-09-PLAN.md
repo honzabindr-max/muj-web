@@ -1,9 +1,12 @@
 # BUILD-09 — Context Engine — návrh plánu
 
-**Status:** NÁVRH — čeká na Honzíkovo schválení. **Explicitně: pro celý
-tenhle slice neočekávám žádný STOP** (viz "Proč žádný STOP" níže) — na
-rozdíl od BUILD-04/07 se nečeká na žádnou migraci, credential ani env
-proměnnou před implementací ani mergem kteréhokoli ze 4 kroků.
+**Status:** SCHVÁLENO Honzíkem 2026-09-03, včetně Rozhodnutí 1–4, s
+doplněním retry/quarantine odpovědi do Rozhodnutí 2 a "bezpečné mergnout
+samostatně" věty u každého kroku (obojí na jeho výslovný požadavek).
+**Explicitně: pro celý tenhle slice neočekávám žádný STOP** (viz "Proč
+žádný STOP" níže) — na rozdíl od BUILD-04/07 se nečeká na žádnou
+migraci, credential ani env proměnnou před implementací ani mergem
+kteréhokoli ze 4 kroků.
 
 ## Rozsah (Build Specification §2 BUILD-09, Technical Architecture v1.2 §7)
 
@@ -107,6 +110,32 @@ předělat, až se objeví konkrétní scénář (stejná logika jako BUILD-07's
 (`code: 'P0_EXCEEDS_BUDGET'`) — hlasitě, nikdy tiše. Skutečný
 chunking/summarization flow zůstává budoucí, need-driven slice.
 
+**Co se s jobem reálně stane (Honzíkova otázka):** BUILD-09 samo nevolá
+`claimNextJob()`/`recordJobFailure()` — to je BUILD-05, zapojení do
+job-processing cesty je BUILD-10 (stejně jako u zbytku Context Enginu).
+Až se to zapojí, `H2ContextBudgetError` poteče přes **stejnou** uniformní
+retry/backoff/karanténu jako každá jiná chyba (BUILD-05, BUILD-06
+Rozhodnutí 6 — "žádná klasifikace retryable/non-retryable", `errorCode`
+je jen observabilita, neřídí control flow). BUILD-09 tenhle uniformní
+model nemění — přidávat teď retryable/non-retryable rozlišení by
+znamenalo zasahovat do uzavřeného, mergnutého BUILD-05 kvůli
+hypotetickému scénáři, který dnešní limity (24 000 vstupních tokenů pro
+`BUDDY_RESPONSE`, P0 = current message + operační stav) reálně
+nedosahují.
+
+**Oprava k "tři zaplacená volání navíc":** `fitToBudget()` běží **před**
+jakýmkoli LLM voláním (je to kontrola nad odhadnutými tokeny, ne nad
+odpovědí modelu) — stejně jako retrofit input-trim v
+`extractOperationalCandidates()` (Krok 1) běží před `callAnthropicModel()`.
+Tři pokusy tedy nejsou tři zaplacená Anthropic volání, ale tři **rychlé,
+bezplatné** no-op pokusy (žádný network call ven), jen zpožděné o
+backoff (5 s → 15 s → 30 s ≈ 50 s) před karanténou. Cena je nulová,
+cena je jen latence do karantény — akceptovatelné pro scénář, který dnes
+navíc není dosažitelný (viz výše). Pokud by se to v budoucnu ukázalo
+jako reálně dosažitelné a otravné, fast-track-do-karantény pro
+deterministicky neopravitelné chyby je rozumné vylepšení BUILD-05 v
+době BUILD-10 zapojení — ne teď, kvůli hypotéze.
+
 ## Rozhodnutí 3: `context_packs` mimo scope BUILD-09
 
 `context_packs` (per-domain `summary` jsonb cache) není v Build
@@ -177,6 +206,15 @@ odřezáno, `omitted_item_ids` auditované), P0-overflow →
 `h2_runtime` roli, retrofit test (dlouhá zpráva → extrakce odmítne
 hlasitě, ne tiše).
 
+**Proč je bezpečné mergnout samostatně:** všechny nové moduly jsou
+čisté/injektovatelné funkce, které nikdo nevolá (Krok 2–4 na nich teprve
+budou stavět) — jediná změna v už existujícím, dnes běžícím kódu je
+retrofit `extractOperationalCandidates()`, a tu funkci žádná produkční
+cesta zatím nespouští (BUILD-08 Rozhodnutí 3, žádný trigger). Merge tedy
+nemění chování žijící produkce ani neponechává main v mezistavu, kde
+něco volá něco neúplného — AT-58 je Kroku 1 vlastní a plně zelený sám o
+sobě, DoD celého BUILD-09 se uzavírá až Krokem 4.
+
 ### Krok 2 — Deterministic relevance floor + entity resolution (v1)
 
 `branch/h2-build-09-step2-relevance-floor`
@@ -194,6 +232,13 @@ floor odmítne nesouvisející candidate (AT-21); resolved entity typu
 experiment → floor propustí matchující experiment candidate (AT-22);
 `purpose='BUDDY_RESPONSE'` + hypotéza (`claims.state='HYPOTEZA'`) → floor
 odmítne, `purpose='BUDDY_DEEP_DIVE'` → floor propustí (AT-23).
+
+**Proč je bezpečné mergnout samostatně:** `relevance-floor.ts` a
+`resolve-entities.ts` jsou další čisté/read-only funkce bez volajícího —
+nezasahují do Kroku 1 (na jeho typech jen stojí) ani do žádné produkční
+cesty. AT-21/22/23 se ověřují přímo proti těmto funkcím (unit úroveň),
+ne přes nedokončenou orchestraci — takže jsou zeleně testovatelné a
+uzavřené už v tomto kroku, bez závislosti na Kroku 3/4.
 
 ### Krok 3 — Source providers (P1–P4) + third-person cap
 
@@ -215,6 +260,13 @@ zkušenosti, ne fakt o osobě (AT-25 — assert na tvar/labeling výstupu, ne
 jen na count), normal cap 2 / deep-dive cap 10, `third_party_aggregation_allowed`
 vždy `false` i při deep-dive (AT-66).
 
+**Proč je bezpečné mergnout samostatně:** source providery jsou
+read-only query funkce nad tabulkami, které dnes v produkci nemají
+reálná data (viz "Co BUILD-09 znovu nestaví") — vrací prázdné/testovací
+seznamy, nic je zatím nevolá mimo testy. AT-24/25/66 (third-person cap)
+se ověřují přímo na `episodes.ts` nad seedovanými `evidence_items`, takže
+jsou uzavřené a zelené bez čekání na Krok 4's orchestraci.
+
 ### Krok 4 — `buildContextPack()` orchestrace + context manifest snapshot testy
 
 `branch/h2-build-09-step4-orchestration`
@@ -231,6 +283,14 @@ vždy `false` i při deep-dive (AT-66).
 
 **Uzavírá DoD celého BUILD-09** — end-to-end průchod všech 7 AT přes
 `buildContextPack()`, ne jen izolované jednotky z Kroků 1–3.
+
+**Proč je bezpečné mergnout samostatně:** `buildContextPack()` je nová
+volatelná funkce, kterou po mergi Kroku 4 pořád nic v produkci nespouští
+(žádný route/job trigger — zapojení je BUILD-10, stejně jako u BUILD-05
+až BUILD-08). Merge tohoto kroku tedy nemění chování žijící produkce;
+rozdíl oproti Krokům 1–3 je jen v tom, že tady se poprvé skládá DoD
+celého slicu dohromady (celý AT-21..25/58/66 set + snapshot testy), ne v
+tom, že by main po mergi byl v nekonzistentním mezistavu.
 
 ## Test plán (souhrn)
 
