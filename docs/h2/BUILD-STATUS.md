@@ -1,7 +1,30 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). Krok 1 (Token Budget Contract + persistence) i **Krok 2 (deterministic relevance floor + entity resolution v1) — UZAVŘENO**, MERGED, nasazeno na produkci. PR [#28](https://github.com/honzabindr-max/muj-web/pull/28) mergnut do `main` (merge commit `c10bb22`), Vercel auto-deploy proběhl (`dpl_iD3rgtaxsUcGXeH83MfuJ4WRTNJp`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential — `check-required-env.ts` beze změny nálezu. **Honzíkovo předschválené GO na Krok 3+4** (2026-09-03, podmíněné: CI zelené, žádná migrace/env/credential, žádný produkční trigger, žádný ARCHITECTURE DECISION REQUIRED, přesně podle plánu — jinak STOP). **Krok 3 (source providers P1–P4 + third-person cap) — probíhá.** BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26), BUILD-09 Krok 1 (PR #27), Krok 2 (PR #28) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
+**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). Krok 1 (Token Budget Contract + persistence) i **Krok 2 (deterministic relevance floor + entity resolution v1) — UZAVŘENO**, MERGED, nasazeno na produkci. PR [#28](https://github.com/honzabindr-max/muj-web/pull/28) mergnut do `main` (merge commit `c10bb22`), Vercel auto-deploy proběhl (`dpl_iD3rgtaxsUcGXeH83MfuJ4WRTNJp`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential — `check-required-env.ts` beze změny nálezu. **Honzíkovo předschválené GO na Krok 3+4** (2026-09-03, podmíněné: CI zelené, žádná migrace/env/credential, žádný produkční trigger, žádný ARCHITECTURE DECISION REQUIRED, přesně podle plánu — jinak STOP). **Krok 3 (source providers P1–P4 + third-person cap)** — implementace hotová, branch `build/h2-build-09-step3-source-providers`, čeká na push+PR+CI. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26), BUILD-09 Krok 1 (PR #27), Krok 2 (PR #28) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
 
+**Evidence (BUILD-09 Krok 3, implementace hotová, čeká na push+PR):**
+```
+Commit: 23daba3 (implementace + testy)
+Branch: build/h2-build-09-step3-source-providers
+DB: žádná nová migrace — čte projects/commitments/tasks/open_loops/reminders (BUILD-02),
+    claims/mechanisms/experiments (BUILD-02), evidence_items (BUILD-02) — všechny už mají
+    grant pro h2_runtime.
+GHA: čeká se na push + otevření PR
+Artifact: N/A
+Deployment: N/A — read-only query funkce nad tabulkami, které dnes v produkci nemají
+    reálná data (BUILD-12/14/16/17 producenti ještě neexistují) — vrací prázdné seznamy,
+    nic je zatím nevolá mimo testy.
+Timestamp: 2026-09-03
+Verified by: Code — lokálně 185/185 testů zelených (48 souborů, vč. 11 nových: executive
+    providery aktivní/neaktivní filtr, knowledge HYPOTEZA/validated claim + AT-22 experiment
+    zdroj, episodes AT-66 cap 2/10 per osoba + AT-24/AT-25/I5 strukturální
+    third_party_aggregation_allowed=false — jen THIRD_PARTY_EPISODE položky, nula nových
+    claims/mechanisms řádků), `npx tsc --noEmit` čistě, `npm run build` čistě (žádné nové
+    routy). Cestou opraven reálný bug — Promise.all() nad souběžnými query na jednom
+    owner-scoped DB klientovi (pg deprecation warning), přepsáno na sekvenční await.
+Remaining risk: žádné funkční — Krok 3 nemá produkční trigger, DoD celého BUILD-09 se
+    uzavírá až Krokem 4.
+```
 **Evidence (BUILD-09 Krok 2 celý krok):**
 ```
 Commit: c644964 (implementace + testy), d479a09 + 2f4ca0f (docs), merge c10bb22 do main
@@ -659,6 +682,52 @@ stavět, nic v produkci je zatím nespouští.
 5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_iD3rgtaxsUcGXeH83MfuJ4WRTNJp` READY, `/api/h2/health` živě ověřen,
 6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, beze změny nálezu.
 
+### Krok 3 — Source providers (P1–P4) + third-person cap (implementace hotová)
+
+- `h2/context/sources/executive.ts` — P1 kandidáti z
+  `projects`/`commitments`/`tasks`/`open_loops`/`reminders` (aktivní
+  stav, `matchLabel` = `name`/`statement`/`title`; reminders label se
+  dopočítá joinem na navázaný task/commitment/open_loop, protože vlastní
+  text nemají).
+- `h2/context/sources/knowledge.ts` — P2 kandidáti z `claims`/
+  `mechanisms` + P1 `experiments` (AT-22 zdroj). `claims.state='HYPOTEZA'`
+  → `isHypothesis: true`, relevance floor (Krok 2) ho propustí jen při
+  `purpose='BUDDY_DEEP_DIVE'` (AT-23 end-to-end zdroj).
+- `h2/context/sources/episodes.ts` — third-party episode cap (§31.10,
+  Rozhodnutí 4): max 2 `evidence_items` na osobu normální runtime / max
+  10 explicit deep-dive, cap **per osobu**, ne globální.
+  `third_party_aggregation_allowed=false` je strukturální záruka —
+  provider vrací výhradně `item_type='THIRD_PARTY_EPISODE'` kandidáty,
+  nikdy agregát/pattern objekt o osobě (I5, AT-24/AT-25/AT-66).
+- **Bonus oprava:** `Promise.all()` nad víc query na STEJNÉM
+  owner-scoped DB klientovi (`executive.ts`, `knowledge.ts`) — pg
+  historicky tiše frontuje souběžné dotazy na jednom klientovi, ale
+  vitest hlásil deprecation warning (chování se v `pg@9` odstraní).
+  Přepsáno na sekvenční `await`.
+
+**AT:** AT-24, AT-25, AT-66. **Testy pod skutečnou rolí `h2_runtime`**,
+11 nových: executive providery (aktivní vs. neaktivní filtr napříč
+všemi 5 typy), knowledge (HYPOTEZA vs. validated claim, mechanisms,
+AT-22 experiment zdroj s CANCELLED vyloučením), episodes (AT-66 cap 2
+normal / 10 deep-dive, cap per osobu ne globálně, AT-24/AT-25/I5
+strukturální assert — jen `THIRD_PARTY_EPISODE`, nula nových
+`claims`/`mechanisms` řádků, first-person evidence se nepočítá).
+
+**Ověřeno:** 11/11 nových testů zelených, 185/185 testů v celém repu (48
+souborů), `npx tsc --noEmit` čistě, `npm run build` čistě (žádné nové
+routy).
+
+**Proč bezpečné mergnout samostatně:** read-only query funkce nad
+tabulkami, které dnes v produkci nemají reálná data (BUILD-12/14/16/17
+producenti ještě neexistují) — vrací prázdné seznamy, nic je zatím
+nevolá mimo testy.
+
+**Uzavření Kroku 3:**
+1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
+2. push branche, otevřít PR — PROBÍHÁ,
+3. zelené GHA na PR — ČEKÁ SE,
+4. merge do `main` pod Honzíkovým předschváleným podmíněným GO — ČEKÁ SE.
+
 ## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
@@ -674,7 +743,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | AT GREEN — MERGED, DEPLOYED (mechanismus bez produkčního triggeru, čeká na ruční certifikaci) | AT-33, AT-34, AT-35, AT-36, AT-63 | [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) MERGED, branch `build/h2-build-07-prompt-registry`; viz sekce výše |
 | BUILD-08 | Operational extraction | AT GREEN — MERGED, DEPLOYED (bez produkčního triggeru, zapojení je BUILD-10) | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) MERGED, branch `build/h2-build-08-operational-extraction`; viz sekce výše |
-| BUILD-09 | Context Engine | IN PROGRESS — Krok 1-2/4 MERGED, DEPLOYED; Krok 3/4 probíhá | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27) + [PR #28](https://github.com/honzabindr-max/muj-web/pull/28) MERGED |
+| BUILD-09 | Context Engine | IN PROGRESS — Krok 1-2/4 MERGED, DEPLOYED; Krok 3/4 implementace hotová, čeká na push+PR | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27) + [PR #28](https://github.com/honzabindr-max/muj-web/pull/28) MERGED; Krok 3 branch `build/h2-build-09-step3-source-providers` |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |
 | BUILD-11 | Telegram + web delivery | TODO | AT-10 | — |
 | — | **MILESTONE M1 — Buddy Live** | **NOT STARTED** | — | — |
