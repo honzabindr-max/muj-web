@@ -1,22 +1,26 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-05 — Queue, lease, fencing, quarantine, **AT GREEN** — implementace hotová podle schváleného [docs/h2/BUILD-05-PLAN.md](./BUILD-05-PLAN.md), PR [#20](https://github.com/honzabindr-max/muj-web/pull/20) otevřen a GHA zelené (branch `build/h2-build-05-queue-lease-fencing`, commit `f2d5f81`), čeká na Honzíkovo GO k mergi. Žádná nová migrace, žádné nové env proměnné, žádný produkční trigger (viz plán, Rozhodnutí 2) — mechanismus zatím jen přímým voláním funkcí proti reálné DB pod rolí `h2_runtime`. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19) a hotfix (PR #17) jsou MERGED. **Další slice po BUILD-05: BUILD-06 (Voice transcription).**
+**Aktuální slice:** BUILD-05 — Queue, lease, fencing, quarantine, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci. PR [#20](https://github.com/honzabindr-max/muj-web/pull/20) (branch `build/h2-build-05-queue-lease-fencing`) mergnut do `main` (merge commit `c802edd`), Vercel auto-deploy proběhl, `/api/h2/health` živě ověřen. Žádná nová migrace, žádné nové env proměnné, žádný produkční trigger (viz plán, Rozhodnutí 2) — mechanismus zatím jen přímým voláním funkcí proti reálné DB pod rolí `h2_runtime`. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-06 (Voice transcription) — plán zapisuje se, čeká na Honzíkovo potvrzení. Nová session: začni čtením tohoto souboru + DECISIONS.md.**
 
-**Evidence (BUILD-05, implementace hotová, čeká na merge):**
+**Evidence (BUILD-05 celý slice):**
 ```
-Commit: f2d5f81 (implementace + testy + AT ownership registry update)
-Branch: build/h2-build-05-queue-lease-fencing (PR #20, OPEN, GHA pass, čeká na GO k mergi)
+Commit: f2d5f81 (implementace + testy), 2fa3deb (docs), merge c802edd do main
+Branch: build/h2-build-05-queue-lease-fencing (PR #20, MERGED, branch smazána po mergi)
 DB: žádná nová migrace — 0002_messaging.sql (BUILD-02) a 0009_proactivity_and_jobs.sql
     (schéma incidents) beze změny, žádný nový sloupec/constraint
-GHA: run 33734216901 (PR #20, h2-tests) — pass
+GHA: run 33734216901 (PR, h2-tests) — pass; run 33734400228 (PR po docs commitu) — pass
 Artifact: N/A
-Deployment: Vercel preview deploy na PR #20 proběhl (state READY) — BUILD-05 nemá HTTP
-    povrch a žádný produkční trigger (Rozhodnutí 2), preview jen potvrzuje čistý build
+Deployment: Vercel production, deployment dpl_23RojA1yQwwXym1e9rbsi5RUAi4y, target=production,
+    vytvořen ihned po mergi (10:42:50, ~3 min po merge commitu), state READY; aliasy vč.
+    good-inventions.work; živě ověřeno curl -sL https://good-inventions.work/api/h2/health
+    → {"status":"ok"}
 Timestamp: 2026-09-03
-Verified by: Code — GHA (run 33734216901, pass), lokálně 120/120 testů zelených
-    (32 souborů, vč. 6 nových pod rolí h2_runtime), `npx tsc --noEmit` čistě,
-    `npm run build` čistě
-Remaining risk: žádné funkční — čeká se jen na Honzíkovo GO k mergi do `main`
+Verified by: Code — CI, Vercel CLI (vercel inspect, vercel ls --prod), živý curl na produkci,
+    h2/db/scripts/check-required-env.ts proti production i preview
+Remaining risk: žádné funkční — BUILD-05 nemá HTTP povrch, žádný produkční trigger (Rozhodnutí
+    2), takže merge sám o sobě nemění chování žijící produkce. check-required-env.ts hlásí
+    chybějící H2_LEDGER_HMAC_KEY na obou prostředích — STEJNÝ, už z BUILD-04 známý nález
+    (BUILD-20/Deletion Ledger, mimo scope BUILD-05, hmac.ts se touhle slicí nemění)
 ```
 **Evidence (BUILD-04 celý slice):**
 ```
@@ -37,8 +41,8 @@ Verified by: Code — CI, přímý SQL dotaz proti oběma Neon větvím (neondb_
 Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a smoke test sekce níže):
     4 raw_events (telegram/USER), 4 message_processing_jobs PENDING, 0 rejected-sender audit
 ```
-**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18) a [PR #19](https://github.com/honzabindr-max/muj-web/pull/19) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB.
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04 AT GREEN, MERGED, nasazeny a (BUILD-04) živě ověřeny end-to-end; BUILD-05 AT GREEN, PR #20 otevřen, čeká na merge
+**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19) a [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`.
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-006 vyřešeny/zaznamenány; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", DEC-006 vědomá odchylka — migrace běží přes `neondb_owner`, ne `h2_migrator` — s remedy odloženým do M1 deploy gate, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
@@ -192,7 +196,7 @@ DEC-006 (zaznamenáno při hotfixu): `.env.migrate` obsahuje connection stringy 
 
 Žádný z nálezů nevyžadoval změnu kódu BUILD-04 — všechny příčiny jsou mimo repo (DNS/redirect topologie, Vercel secret konfigurace, chybějící env proměnné). Vedlejším produktem bylo i odhalení a oprava bugu v samotném `verify-ingestion.ts` (chybějící `app.owner_id` scope, viz pravidlo 7) a vznik `h2/build-governance/required-env.ts` + `h2/db/scripts/check-required-env.ts` jako preflight nástroje pro příští slicey.
 
-## BUILD-05 — Queue, lease, fencing, quarantine (AT GREEN)
+## BUILD-05 — Queue, lease, fencing, quarantine (AT GREEN — MERGED, DEPLOYED)
 
 Plán schválen Honzíkem 2026-09-03, zapsán beze změny v [docs/h2/BUILD-05-PLAN.md](./BUILD-05-PLAN.md). Nízkoúrovňový mechanismus zpracování fronty nad už existujícím schématem BUILD-02 (`0002_messaging.sql`) — žádná nová migrace, žádné nové env proměnné, žádný produkční trigger (viz plán, Rozhodnutí 2 — `after()`/scheduler zapojení patří až BUILD-10/BUILD-23, aby produkce netvořila placeholder responses dřív, než je co reálně spouštět).
 
@@ -212,8 +216,10 @@ Plán schválen Honzíkem 2026-09-03, zapsán beze změny v [docs/h2/BUILD-05-PL
 **Uzavření slicu:**
 1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
 2. ~~push branche, otevřít PR~~ — HOTOVO, [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) (Honzíkovo GO na tenhle krok bylo dané předem),
-3. ~~zelené GHA na PR #20~~ — HOTOVO, run 33734216901 pass,
-4. Honzíkovo GO k mergi do `main` — ČEKÁ SE.
+3. ~~zelené GHA na PR #20~~ — HOTOVO, run 33734216901 + 33734400228 pass,
+4. ~~Honzíkovo GO k mergi do `main`~~ — HOTOVO, merge commit `c802edd`,
+5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_23RojA1yQwwXym1e9rbsi5RUAi4y` READY, `/api/h2/health` živě ověřen,
+6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, jediný nález (`H2_LEDGER_HMAC_KEY`) je už z BUILD-04 známý a mimo scope BUILD-05.
 
 ## Bloky BUILD-01 — BUILD-28
 
@@ -226,7 +232,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-03 | Crypto & privacy foundation | AT GREEN — MERGED | AT-41, AT-42 (24/24 testů zelených, viz evidence block) | [PR #14](https://github.com/honzabindr-max/muj-web/pull/14) MERGED, branch `build/h2-build-03-crypto-privacy` |
 | BUILD-03A | Identity, sessions & recent re-auth | AT GREEN — MERGED, DEPLOYED, produkční hotfix aplikován | AT-64 (90/90 testů v repu zelených) | [PR #15](https://github.com/honzabindr-max/muj-web/pull/15) MERGED, branch `build/h2-build-03a-identity-sessions`, ověřeno živým Google OAuth přihlášením na produkci; [PR #17](https://github.com/honzabindr-max/muj-web/pull/17) MERGED — hotfix produkčního `AccessDenied` (viz sekce výše), migrace 0012+0013 aplikovány na production i preview |
 | BUILD-04 | Unified ingestion | AT GREEN — MERGED, DEPLOYED, živě ověřeno end-to-end (reálné Telegram zprávy → DB) | AT-01, AT-02, AT-48, AT-61 | [PR #18](https://github.com/honzabindr-max/muj-web/pull/18) + [PR #19](https://github.com/honzabindr-max/muj-web/pull/19) MERGED; viz sekce výše |
-| BUILD-05 | Queue, lease, fencing, quarantine | AT GREEN — PR otevřen, čeká na merge | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) OPEN, branch `build/h2-build-05-queue-lease-fencing`, viz sekce výše |
+| BUILD-05 | Queue, lease, fencing, quarantine | AT GREEN — MERGED, DEPLOYED (bez HTTP povrchu, ověřeno jen zdravím + testy) | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) MERGED, branch `build/h2-build-05-queue-lease-fencing`; viz sekce výše |
 | BUILD-06 | Voice transcription | TODO | AT-04, AT-05 | — |
 | BUILD-07 | Prompt Registry & model adapter | TODO | AT-33, AT-34, AT-35, AT-36, AT-63 | — |
 | BUILD-08 | Operational extraction | TODO | — (schema/unit/integration testy slice) | — |
@@ -263,3 +269,4 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | 2026-09-02 | Hotfix (post-03A) | merge #17 (`c687def`) | Vercel auto-deploy (produkce muj-web), `good-inventions.work` | Opraveny 3 mezery (owners GRANT, RLS scope, chybějící migrace 0012 na produkci). Migrace 0012+0013 aplikovány na production i preview `h2-runtime`. Reálné přihlášení na produkci živě ověřeno Honzíkem — funkční. |
 | 2026-09-03 | BUILD-04 | merge #18 (`76a7d40`) | Vercel auto-deploy (produkce muj-web, `dpl_Bwqy4G3jPyiJ99ziTDmcehA7i8AE`), `good-inventions.work` | Unified ingestion — `ingestMessage()` + Telegram/web routy. Migrace 0014 aplikována a ověřena na production i preview `h2-runtime` PŘED mergem. `/api/h2/health` živě ověřen po deployi. Telegram webhook zatím neregistrován (Honzíkovo `setWebhook` s reálným tokenem, mimo scope Code). |
 | 2026-09-03 | BUILD-04 post-deploy fix | merge #19 (`68f9cde`) | Vercel auto-deploy (produkce muj-web, `dpl_HnYrRVC3vukun9QxZySXxWT4EFL9`), `good-inventions.work` | Oprava `verify-ingestion.ts` (tiché nulování na chybějící `app.owner_id` scope, pravidlo 9) + nový `check-required-env.ts` preflight nástroj (pravidlo 8). **BUILD-04 živě potvrzen end-to-end na produkci** po tomto deployi: `check-required-env.ts` OK na obou prostředích kromě `H2_LEDGER_HMAC_KEY` (BUILD-20, mimo scope, informační), `verify-ingestion.ts` ukázal 4 `raw_events` (`telegram/USER`), 4 `message_processing_jobs` `PENDING`, 0 rejected-sender audit eventů. |
+| 2026-09-03 | BUILD-05 | merge #20 (`c802edd`) | Vercel auto-deploy (produkce muj-web, `dpl_23RojA1yQwwXym1e9rbsi5RUAi4y`), `good-inventions.work` | Queue/lease/fencing/quarantine (`h2/processing/*`) — žádná migrace, žádný nový env, žádný HTTP povrch ani produkční trigger (Rozhodnutí 2), takže merge sám o sobě nemění chování žijící produkce. `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` opět jen `H2_LEDGER_HMAC_KEY` (stejný známý nález, BUILD-20). |
