@@ -36,10 +36,16 @@ export const BUDDY_INTENT_VALUES = [
   "REFLECTION",
 ] as const;
 
+/**
+ * `intent` je pole, ne jedna hodnota — Complete Product Specification v1.0
+ * §5: "Jedna zpráva může mít několik intentů." (`stance` zůstává jedna
+ * hodnota, §4 nedává stance žádnou takovou poznámku — jde o odpověď
+ * Buddyho, ne o klasifikaci vstupu, a odpověď má vždy jeden postoj.)
+ */
 export const BuddyResponseOutputSchema = z.object({
   responseText: z.string().min(1),
   stance: z.enum(BUDDY_STANCE_VALUES),
-  intent: z.enum(BUDDY_INTENT_VALUES),
+  intent: z.array(z.enum(BUDDY_INTENT_VALUES)).min(1),
 });
 
 export type BuddyStance = (typeof BUDDY_STANCE_VALUES)[number];
