@@ -4,7 +4,7 @@
 
 **Evidence (BUILD-06, implementace hotová, čeká na push+PR):**
 ```
-Commit: (branch build/h2-build-06-voice-transcription, ještě nepushnuto)
+Commit: a217506 (implementace + testy + AT ownership/required-env registry update)
 Branch: build/h2-build-06-voice-transcription
 DB: žádná nová migrace — transcript se zapisuje in-place do raw_events.payload_ciphertext,
     usage_ledger už existuje z BUILD-02 (viz docs/h2/BUILD-06-PLAN.md Rozhodnutí 1/4)
