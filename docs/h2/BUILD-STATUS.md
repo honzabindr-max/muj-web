@@ -42,6 +42,8 @@ Remaining risk: Honzíkovo setWebhook proti Telegram API reálným tokenem (mimo
 3. Nejasnost, která by měnila Product Spec, I1–I8 nebo Locked Architecture → `ARCHITECTURE DECISION REQUIRED`, zápis do `DECISIONS.md`, zastavit **pouze** dotčený slice a pokračovat jiným nezávislým.
 4. GO od Honzíka je potřeba na: merge do `main` (spouští produkční deployment), přidání env proměnných nebo secrets do Vercelu, produkční migrace, cokoli utrácející peníze nebo měnící limit, cokoli mazající data nebo rozšiřující oprávnění. Push branche a otevření PR GO nepotřebují — to je běžná součást „jeden BUILD blok = jedna větev = jeden PR" workflow.
 5. **Migrace se na Neon neaplikují automaticky při Vercel deploy.** Existence souboru v `h2/db/migrations/` neznamená, že běží na produkci nebo na preview větvi — to zjistil hotfix po BUILD-03A: migrace `0012_identity_reauth.sql` byla mergnutá a nasazená týden, ale na produkční ani preview databázi nikdy neproběhla (viz hotfix sekce v BUILD-03A níže), což se navenek projevilo jako `AccessDenied` při přihlášení. Trvalé pravidlo: **žádný slice s novou migrací se nepovažuje za uzavřený, dokud není ověřeno (přímým dotazem na `_h2_migrations`, ne předpokladem), že migrace skutečně proběhla na produkční i preview větvi obou Neon projektů.**
+6. **Kanonická doména pro externí registrace je `www.good-inventions.work`, ne apex.** Apex `good-inventions.work` dělá `307` redirect na `www.` (Vercel/DNS konfigurace, mimo H2 scope) a většina webhook doručovatelů (Telegram Bot API prokazatelně, BUILD-04 nález 2026-09-03) redirect nenásleduje — request na apex URL je tak nedoručitelný, přestože samotná aplikace běží a `curl -L` z terminálu redirect transparentně proleze. **Trvalé pravidlo: jakákoli budoucí externí webhook/callback registrace (Telegram, Google Calendar OAuth/push notifications, budoucí provideři) musí použít `https://www.good-inventions.work/...`, nikdy apex.** Stejná třída chyby jako chybějící `www.` redirect URI v Google Cloud Console u BUILD-03A (§ hotfix níže) — externí služby a prohlížeče se chovají k redirectům jinak než `curl -L`/uživatel v prohlížeči.
+7. **Standardní ad hoc ověřovací nástroj: `h2/db/scripts/verify-ingestion.ts`.** Připojí se jako role `h2_runtime` (ne admin/owner — stejné poučení jako BUILD-03A hotfix) přes `.env.verify` (jednorázově zapsaný `bash h2/db/scripts/write-verify-env.sh`, natrvalo ponechaný na disku stejně jako `.env.local` — 600, `.gitignore`, nemazat po každém použití). Vypíše počty `raw_events` podle `channel`/`speaker`, posledních 20 raw events, počty `message_processing_jobs` podle stavu a posledních 20 `identity_audit_events` — vždy jen counts/states/timestamps, nikdy payload. Použít v každém dalším slicu místo psaní ad hoc SQL pokaždé znovu.
 
 ## Poznámky k zadání (úpravy patřící do M1)
 
@@ -161,7 +163,14 @@ DEC-006 (zaznamenáno při hotfixu): `.env.migrate` obsahuje connection stringy 
 2. ~~aplikovat migraci 0014 na production i preview `h2-runtime` a ověřit přímým dotazem na `_h2_migrations`~~ — HOTOVO, viz evidence blok nahoře,
 3. ~~merge branch `build/h2-build-04-unified-ingestion` (PR #18) do `main`~~ — HOTOVO, merge commit `76a7d40`,
 4. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_Bwqy4G3jPyiJ99ziTDmcehA7i8AE` READY, `/api/h2/health` živě ověřen,
-5. **zbývá:** Honzíkovo `setWebhook` proti Telegram API reálným tokenem — mimo scope Code, provede Honzík sám.
+5. ~~Honzíkovo `setWebhook` proti Telegram API reálným tokenem~~ — HOTOVO, ale viz smoke test níže.
+
+### Post-deploy smoke test (2026-09-03) — dva reálné nálezy, kód beze změny
+
+1. **Apex `307` redirect na `www.` — Telegram request nikdy nedorazil.** Honzík zaregistroval `setWebhook` na `https://good-inventions.work/api/h2/telegram/webhook`; Vercel runtime logy (production, 24h okno) ukázaly nulu requestů na tuto cestu, DB (`h2_runtime`, `verify-ingestion.ts`) potvrdila 0 raw_events/jobs. Diagnostikováno postupně (Vercel logy → DB → `getWebhookInfo`): apex redirectuje 307 na `www.`, Telegram redirect nenásleduje. Opraveno přeregistrací webhooku na `www.` variantu (Honzík) — **operační krok, ne kód.** Zapsáno jako trvalé pravidlo č. 6 výše.
+2. **`H2_TELEGRAM_WEBHOOK_SECRET` mismatch.** Po opravě URL dorazilo 9 requestů, všech 9 s HTTP 401 `TELEGRAM_SECRET_MISMATCH` (Vercel runtime logy) — kód se choval přesně podle návrhu (odmítl, nic nezapsal do DB, žádný audit event, protože request není prokazatelně od Telegramu). Root cause: hodnota secretu ve Vercelu produkci nesedí s `secret_token` použitým v `setWebhook`. Náprava: Honzík vygeneruje nový secret, přepíše ho ve Vercelu (production), zavolá `setWebhook` znovu se stejnou hodnotou. **Čeká na potvrzení a opětovné doručení testovací zprávy.**
+
+Ani jeden nález nevyžadoval změnu kódu BUILD-04 — obě příčiny jsou mimo repo (DNS/redirect topologie, Vercel secret konfigurace).
 
 ## Bloky BUILD-01 — BUILD-28
 
