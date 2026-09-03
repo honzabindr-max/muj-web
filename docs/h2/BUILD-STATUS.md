@@ -1,6 +1,6 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). **Krok 1 (Token Budget Contract + context_run persistence + retrofit BUILD-08 input trim) — implementace hotová**, branch `build/h2-build-09-step1-token-budget`, čeká na push+PR a Honzíkovo GO k mergi. Žádná nová migrace, žádný nový credential. BUILD-08 (PR #26) je od minula UZAVŘENO — AT GREEN, MERGED (`417c789`), nasazeno na produkci. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
+**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). **Krok 1 (Token Budget Contract + context_run persistence + retrofit BUILD-08 input trim)** — implementace hotová, PR [#27](https://github.com/honzabindr-max/muj-web/pull/27) (branch `build/h2-build-09-step1-token-budget`) otevřen, GHA zelené (run 33745005718), čeká na Honzíkovo GO k mergi. Žádná nová migrace, žádný nový credential. BUILD-08 (PR #26) je od minula UZAVŘENO — AT GREEN, MERGED (`417c789`), nasazeno na produkci. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
 
 **Evidence (BUILD-09 Krok 1, implementace hotová, čeká na push+PR):**
 ```
@@ -8,11 +8,12 @@ Commit: 4fc64c2 (implementace + testy)
 Branch: build/h2-build-09-step1-token-budget
 DB: žádná nová migrace — context_runs/context_run_items (0004_context.sql, BUILD-02) už mají
     plný CRUD grant pro h2_runtime (0011_roles_and_rls.sql).
-GHA: čeká se na push + otevření PR
+GHA: run 33745005718 (PR #27, h2-tests) — pass
 Artifact: N/A
-Deployment: N/A — nové moduly (h2/context/*) nikdo nevolá (Krok 2-4 na nich teprve budou
-    stavět), retrofit v extractOperationalCandidates() upravuje funkci bez produkčního
-    triggeru (BUILD-08), takže merge sám o sobě nezmění chování žijící produkce.
+Deployment: N/A — čeká se na Honzíkovo GO k mergi; nové moduly (h2/context/*) nikdo nevolá
+    (Krok 2-4 na nich teprve budou stavět), retrofit v extractOperationalCandidates() upravuje
+    funkci bez produkčního triggeru (BUILD-08), takže merge sám o sobě nezmění chování žijící
+    produkce.
 Timestamp: 2026-09-03
 Verified by: Code — lokálně 161/161 testů zelených (43 souborů, vč. 10 nových: AT-58
     přes fitToBudget() overflow/P0-exceeds/deterministické pořadí, persistContextRun()
@@ -600,8 +601,8 @@ routy).
 
 **Uzavření Kroku 1:**
 1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
-2. push branche, otevřít PR — PROBÍHÁ,
-3. zelené GHA na PR — ČEKÁ SE,
+2. ~~push branche, otevřít PR~~ — HOTOVO, [PR #27](https://github.com/honzabindr-max/muj-web/pull/27),
+3. ~~zelené GHA na PR~~ — HOTOVO, run 33745005718 (h2-tests) pass,
 4. Honzíkovo GO k mergi do `main` — ČEKÁ SE (žádná migrace, žádný env, jen běžné GO na merge).
 
 ## Bloky BUILD-01 — BUILD-28
@@ -619,7 +620,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | AT GREEN — MERGED, DEPLOYED (mechanismus bez produkčního triggeru, čeká na ruční certifikaci) | AT-33, AT-34, AT-35, AT-36, AT-63 | [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) MERGED, branch `build/h2-build-07-prompt-registry`; viz sekce výše |
 | BUILD-08 | Operational extraction | AT GREEN — MERGED, DEPLOYED (bez produkčního triggeru, zapojení je BUILD-10) | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) MERGED, branch `build/h2-build-08-operational-extraction`; viz sekce výše |
-| BUILD-09 | Context Engine | IN PROGRESS — Krok 1/4 implementace hotová, čeká na push+PR | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | branch `build/h2-build-09-step1-token-budget`, commit `4fc64c2` |
+| BUILD-09 | Context Engine | IN PROGRESS — Krok 1/4 PR otevřen, GHA zelené, čeká na GO k mergi | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27), branch `build/h2-build-09-step1-token-budget` |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |
 | BUILD-11 | Telegram + web delivery | TODO | AT-10 | — |
 | — | **MILESTONE M1 — Buddy Live** | **NOT STARTED** | — | — |
