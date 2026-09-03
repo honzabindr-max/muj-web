@@ -57,4 +57,5 @@ export const COMPLETED_BUILD_BLOCKS: readonly string[] = [
   "BUILD-07",
   "BUILD-08",
   "BUILD-09",
+  "BUILD-10",
 ];
