@@ -1,0 +1,112 @@
+import { Pool } from "pg";
+
+import { BUDDY_RESPONSE_PROMPT_CONTENT, BUDDY_RESPONSE_OUTPUT_JSON_SCHEMA } from "@/h2/buddy/prompt-content";
+import { BUDDY_RESPONSE_FIXTURES, BUDDY_RESPONSE_FIXTURE_SET_VERSION } from "@/h2/buddy/prompt-fixtures";
+import { BuddyResponseOutputSchema } from "@/h2/buddy/stance-intent-schema";
+import { H2_MODELS } from "@/h2/config/models";
+import { callAnthropicModel } from "@/h2/prompts/anthropic-adapter";
+import { loadPromptProviderConfig } from "@/h2/prompts/config";
+import { runPromptFixtureSuite } from "@/h2/prompts/fixtures";
+import { createDraftPromptVersion } from "@/h2/prompts/registry";
+
+const BUDDY_RESPONSE_PURPOSE = "BUDDY_RESPONSE";
+const SCHEMA_VERSION = 1;
+
+/**
+ * Certifikace prvního BUDDY_RESPONSE promptu proti REÁLNÉMU Sonnetu
+ * (BUILD-07 aktivační gate, BUILD-10-PLAN.md požadavek). VOLÁ SKUTEČNÉ
+ * Anthropic API — malý, ale reálný náklad (9 fixtur × krátký prompt).
+ * NIKDY nevolat automaticky, jen na Honzíkovo explicitní GO.
+ *
+ * Tenhle skript NEAKTIVUJE prompt — jen vytvoří DRAFT verzi a spustí
+ * fixture suite, vypíše výsledky (vč. celého responseText ke kontrole)
+ * a promptVersionId. Aktivace (`activatePromptVersion()`, vyžaduje
+ * recent re-auth v prohlížeči) je samostatný, ruční krok POTÉ, co
+ * Honzík výstupy přečte a schválí.
+ *
+ * Použití: npx tsx h2/db/scripts/certify-buddy-response-prompt.ts
+ * Vyžaduje: .env.verify (DB, viz write-verify-env.sh) + H2_ANTHROPIC_API_KEY
+ * v prostředí, kde skript běží.
+ */
+async function main() {
+  try {
+    process.loadEnvFile(".env.verify");
+  } catch {
+    throw new Error(".env.verify neexistuje. Spusť nejdřív: bash h2/db/scripts/write-verify-env.sh");
+  }
+
+  const connectionString = process.env.H2_RUNTIME_DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(".env.verify neobsahuje H2_RUNTIME_DATABASE_URL.");
+  }
+  const credentials = loadPromptProviderConfig();
+
+  const pool = new Pool({ connectionString });
+  try {
+    const owner = await pool.query<{ id: string }>("select id from owners where google_sub is not null limit 1");
+    const ownerId = owner.rows[0]?.id;
+    if (!ownerId) {
+      throw new Error("Žádný owner v DB — certifikace potřebuje existujícího ownera pro llm_runs/usage_ledger provenance.");
+    }
+
+    const draft = await createDraftPromptVersion(
+      pool,
+      BUDDY_RESPONSE_PURPOSE,
+      BUDDY_RESPONSE_PROMPT_CONTENT,
+      BUDDY_RESPONSE_OUTPUT_JSON_SCHEMA,
+    );
+    console.log(`DRAFT prompt_versions řádek vytvořen: purpose=${BUDDY_RESPONSE_PURPOSE} version=${draft.version} id=${draft.id}`);
+
+    // runPromptFixtureSuite() nevrací raw text (jen name/kind/passed/
+    // errorSummary) — Honzík ale chce vidět skutečné odpovědi Buddyho, ne
+    // jen PASS/FAIL, proto si je zachytáváme bokem podle fixture inputu.
+    const rawResponsesByInput = new Map<string, string>();
+    const capturingCallModel = async (modelId: string, promptContent: string, input: string) => {
+      const result = await callAnthropicModel(modelId, promptContent, input, credentials.anthropicApiKey);
+      rawResponsesByInput.set(input, result.text);
+      return result;
+    };
+
+    const suite = await runPromptFixtureSuite(pool, ownerId, {
+      promptVersionId: draft.id,
+      purpose: BUDDY_RESPONSE_PURPOSE,
+      modelId: H2_MODELS.buddy,
+      promptContent: BUDDY_RESPONSE_PROMPT_CONTENT,
+      schemaVersion: SCHEMA_VERSION,
+      fixtureSetVersion: BUDDY_RESPONSE_FIXTURE_SET_VERSION,
+      fixtures: BUDDY_RESPONSE_FIXTURES,
+      callModel: capturingCallModel,
+      validateOutput: (text) => {
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(text);
+        } catch {
+          return { valid: false, errorSummary: "výstup není validní JSON" };
+        }
+        const parsed = BuddyResponseOutputSchema.safeParse(parsedJson);
+        return parsed.success ? { valid: true } : { valid: false, errorSummary: parsed.error.message.slice(0, 300) };
+      },
+    });
+
+    console.log(`\nFixture suite status: ${suite.status} (${suite.results.filter((r) => r.passed).length}/${suite.results.length} passed)\n`);
+    for (const result of suite.results) {
+      const fixture = BUDDY_RESPONSE_FIXTURES.find((f) => f.name === result.name);
+      const rawText = fixture ? rawResponsesByInput.get(fixture.input) : undefined;
+      console.log(`[${result.passed ? "PASS" : "FAIL"}] ${result.name} (${result.kind})${result.errorSummary ? ` — ${result.errorSummary}` : ""}`);
+      if (fixture) console.log(`  vstup:  ${fixture.input.replace(/\n/g, " ⏎ ")}`);
+      if (rawText) console.log(`  výstup: ${rawText}`);
+    }
+
+    console.log(
+      `\nDalší krok (NEPROVEDEN automaticky): pokud výstupy vypadají dobře, aktivace vyžaduje\n` +
+        `recent re-auth v prohlížeči + activatePromptVersion(pool, ownerId, "${draft.id}", "${H2_MODELS.buddy}", ${SCHEMA_VERSION}, "${BUDDY_RESPONSE_FIXTURE_SET_VERSION}").`,
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
