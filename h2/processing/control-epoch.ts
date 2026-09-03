@@ -1,26 +1,38 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 import { withOwnerScope } from "@/h2/db/with-owner-scope";
 
 /**
- * bumpOwnerControlEpoch() — primitiv pro budoucí explicitní PAUSE/STOP
- * command (BUILD-12). Zvýšení owner_control_epoch okamžitě invaliduje
- * jakýkoli rozpracovaný fencing token pro tohoto ownera — commitJobResult()
- * i recordJobFailure() kontrolují OBOU epoch (lease i control) atomicky
- * v jedné UPDATE ... WHERE (BUILD-05 plán, Rozhodnutí 4, AT-71).
+ * bumpOwnerControlEpoch() — primitiv pro explicitní PAUSE/STOP/RESUME
+ * command (BUILD-12 plný command flow; od DEC-007/BUILD-04 retrofitu i
+ * ingest fast path pro `/stop`/`/pause`/`/resume`, viz
+ * `h2/ingestion/control-fast-path.ts`). Zvýšení owner_control_epoch
+ * okamžitě invaliduje jakýkoli rozpracovaný fencing token pro tohoto
+ * ownera — commitJobResult() i recordJobFailure() kontrolují OBOU epoch
+ * (lease i control) atomicky v jedné UPDATE ... WHERE (BUILD-05 plán,
+ * Rozhodnutí 4, AT-71).
+ *
+ * `bumpOwnerControlEpochWithClient()` je stejná logika nad už otevřeným
+ * klientem/transakcí volajícího (DEC-007, I7.3/I7.4 — control efekt musí
+ * jet ve STEJNÉ transakci jako insert raw_eventu, aby zdědil dedup a
+ * per-owner ordering, ne vlastní druhou transakci s vlastním crash
+ * window). `bumpOwnerControlEpoch(pool, ...)` zůstává beze změny chování
+ * pro volající, kteří vlastní transakci nemají.
  */
+export async function bumpOwnerControlEpochWithClient(client: PoolClient, ownerId: string): Promise<bigint> {
+  await client.query(`insert into owner_processing_state (owner_id) values ($1) on conflict (owner_id) do nothing`, [
+    ownerId,
+  ]);
+  const result = await client.query<{ owner_control_epoch: string }>(
+    `update owner_processing_state
+     set owner_control_epoch = owner_control_epoch + 1, updated_at = now()
+     where owner_id = $1
+     returning owner_control_epoch`,
+    [ownerId],
+  );
+  return BigInt(result.rows[0].owner_control_epoch);
+}
+
 export async function bumpOwnerControlEpoch(pool: Pool, ownerId: string): Promise<bigint> {
-  return withOwnerScope(pool, ownerId, async (client) => {
-    await client.query(`insert into owner_processing_state (owner_id) values ($1) on conflict (owner_id) do nothing`, [
-      ownerId,
-    ]);
-    const result = await client.query<{ owner_control_epoch: string }>(
-      `update owner_processing_state
-       set owner_control_epoch = owner_control_epoch + 1, updated_at = now()
-       where owner_id = $1
-       returning owner_control_epoch`,
-      [ownerId],
-    );
-    return BigInt(result.rows[0].owner_control_epoch);
-  });
+  return withOwnerScope(pool, ownerId, (client) => bumpOwnerControlEpochWithClient(client, ownerId));
 }

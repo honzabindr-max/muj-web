@@ -99,3 +99,34 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
 - **Dopad na I1–I8:** žádný přímý dnes (migrace fungují). Nepřímo oslabuje princip nejmenších oprávnění, který architektura pro migrátorské role předepisuje.
 - **Rozhodnutí:** (B) pro teď — zaznamenat jako vědomou odchylku, funkčně bezpečnou. (A) přesunuto do M1 deploy gate checklistu jako otevřená položka (nastavení hesla = nový secret, vyžaduje Honzíkovo GO, až se bude řešit).
 - **Kdo rozhodl:** Honzík — přímo, nahlásil nález a zadal zápis, řešení odloženo do M1 gate bez GPT brány (jde o operační/infra otázku, ne o produktovou hodnotu).
+
+---
+
+### DEC-007
+
+- **Datum:** 2026-09-03
+- **Slice:** BUILD-10 plán (Buddy runtime) — umístění Command Gate / Sovereignty Fast Lane (Technical Architecture v1.2 §8.1), retrofit do uzavřeného BUILD-04 (`h2/ingestion/ingest-message.ts`)
+- **Co je nejasné:** §8.1 popisuje dvě různé věci pod jedním jménem: (1) ingress-level "exact-command detector", který běží **před vytvořením `message_processing_job`** a má control command zpracovat v oddělené high-priority lane, mimo běžnou frontu; (2) Command Gate jako první stage v §7.1's runtime pipeline, které běží **uvnitř** už claimnutého jobu, před ENTITY/INTENT/STANCE/reasoningem. Build Specification hodí "commands/sovereignty gate před reasoningem" jednoznačně pod BUILD-10, ale (1) architektonicky patří do BUILD-04's ingestní cesty (uzavřený blok), ne do BUILD-10's job processingu. Pokud se implementuje jen (2), explicitní PAUSE/STOP čeká za frontou přesně tak, jak §8.1 říká, že nesmí — riziko čtení proti I7 (Human Sovereignty) doslovnému znění.
+- **Varianty (první kolo, Code):**
+  - (A) jen (2) — Command Gate jako stage uvnitř BUILD-10's vlastního pipeline, nejmenší zásah, ale control command čeká ve frontě jako běžná zpráva,
+  - (B) (2) **plus** retrofit BUILD-04's `ingestMessage()` o pre-check, který pro control command **vůbec nevytvoří** `message_processing_job` a rovnou zapíše `owner_control_epoch` bump — doslovnější podle §8.1, ale zásah do uzavřeného bloku,
+  - (C) zablokovat BUILD-10 dokud se nerozhodne.
+- **Doporučení Code (první kolo):** (B) — Honzík ho zprvu přijal jako svoje doporučení.
+- **Adversarial review (GPT) — nalezená chyba ve variantě (B):** pokud se `message_processing_job` **vůbec nevytvoří** na základě deterministické klasifikace textu, pak chybná/hraniční klasifikace (např. text, co vypadá jako command, ale uživatel myslel něco jiného) **nevratně** připraví tu konkrétní zprávu o normální zpracování — zpráva zmizí z běžného lifecycle bez cesty zpět. To je přímo v rozporu s duchem I7 (sovereignty má chránit uživatele, ne ho nechat ztratit content kvůli chybné heuristice) a nebylo to v prvním kole vidět, dokud review neposoudilo failure mode klasifikace, ne jen happy path.
+- **Rozhodnutí:** **C2** — control fast path jako **side effect ve STEJNÉ transakci**, nikdy jako exkluzivní routing. Nahrazuje (B), varianta (A) samotná je nedostatečná (viz "co je nejasné" výše).
+  1. `ingestMessage()` zůstává jediným vstupem a **vždy** vytvoří `raw_event` i `message_processing_job` — i pro control command. Žádná zpráva nikdy nezmizí z lifecycle kvůli klasifikaci.
+  2. Pokud text odpovídá přesné command syntaxi (`/stop`, `/pause`, `/resume` — trim, case-insensitive, celá zpráva, nic jiného), zavolá se navíc `bumpOwnerControlEpochWithClient()` ve **stejné** transakci jako insert `raw_event`u — dědí dedup (§4.1 `external_event_id` check) i per-owner ordering (advisory lock + sekvence), takže nevzniká druhá transakce ani crash window.
+  3. Holé "stop"/"pause" v přirozené větě fast lane neřeší — to zůstává na Command Gate stage uvnitř BUILD-10 pipeline, kde je kontext a kde chybná klasifikace nemá destruktivní následek (zpráva se prostě zpracuje jako běžný text).
+  4. `IGNORE` do fast lane nepatří (potřebuje cíl — co ignorovat) — zůstává výhradně v Command Gate stage.
+  5. Job vzniklý z control commandu BUILD-10's pipeline zpracuje jako no-op s potvrzením — Command Gate re-detekuje stejnou deterministickou funkcí (`detectFastPathControlCommand()`), a shoda je strukturální důkaz, že epoch už byl bumpnutý při ingestu, takže pipeline nesmí bumpnout znovu (žádný nový sloupec/marker potřeba — dvě volání stejné čisté funkce nad stejným textem dají stejný výsledek).
+- **Sub-invarianty k I7 (formulace GPT review, závazné pro BUILD-04/05/10 implementaci, zapsané zde protože Technical Architecture v Notionu zůstává uzamčená a neotevírá se kvůli implementační specifičnosti):**
+  - **I7.1** control command nesmí záviset na dostupnosti conversation queue,
+  - **I7.2** každý příchozí event má immutable raw záznam, včetně commandů,
+  - **I7.3** control efekty jsou idempotentní podle `raw_event_id`,
+  - **I7.4** control přechody mají deterministické per-owner pořadí,
+  - **I7.5** každý běžící worker je fencovaný `owner_control_epoch` před jakýmkoli navenek viditelným efektem,
+  - **I7.6** klasifikace commandu nesmí způsobit nevratnou ztrátu možnosti zprávu normálně zpracovat,
+  - **I7.7** control intent má být protokolová struktura, ne odvozený z přirozeného jazyka.
+- **Ověření I7.5 proti `commitJobResult()` (BUILD-05, na Honzíkovu žádost):** `commitJobResult()` atomicky kontroluje `lease_epoch` i `owner_control_epoch` v jedné `UPDATE ... WHERE` před insertem `responses` řádku (BUILD-05, AT-67/AT-71) — **pro jediný navenek viditelný efekt, který BUILD-10 samo přidává (zápis `responses` řádku), I7.5 platí beze změny kódu.** Sonnet API volání uvnitř `work()` běží před fencing checkem, ale to není "navenek viditelný efekt" ve smyslu I7 (nemění stav, který owner vidí) — je to náklad, ne akce; `usage_ledger`/`llm_runs` zápis (stejný "zavolalo se, zaplatilo se" vzor jako BUILD-07 AT-34) je proto v pořádku nechat nezávislý na fencing výsledku. **Reálná mezera, kterou jsem našel:** skutečné **odeslání** odpovědi (Telegram/web) je BUILD-11's `response_deliveries` mechanismus, který **dnes nemá žádnou `owner_control_epoch` kontrolu** — `response_deliveries` schéma (BUILD-02) nenese epoch sloupec vůbec. To znamená, že committed-ale-ještě-nedoručená odpověď se dnes doručí, i kdyby mezitím přišel PAUSE/STOP. Nejde o mezeru v BUILD-05/BUILD-10 (mimo jejich scope — delivery je jinam přiřazená stavba, co ještě neexistuje), ale je to reálná otevřená otázka pro BUILD-10/BUILD-11 rozhraní — zapsáno do BUILD-10-PLAN.md jako poznámka pro BUILD-11, neřeším ho teď vymýšlením BUILD-11 kódu předčasně.
+- **Dopad na I1–I8:** I7 (Human Sovereignty) — přímo, tenhle zápis ho zpřesňuje na úroveň implementovatelnou napříč BUILD-04/05/10/11, aniž by se otevírala uzamčená Technical Architecture v Notionu.
+- **Kdo rozhodl:** Honzík — po adversarial review přes GPT, který odhalil reálnou chybu v Code's původním doporučení (B). Rozhodnutí (C2) je Honzíkovo, GPT dodalo kritiku a sub-invarianty I7.1–I7.7, Code implementuje.
