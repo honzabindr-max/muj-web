@@ -1,7 +1,28 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). Kroky 1–3 **UZAVŘENY**, MERGED, nasazeny na produkci. PR [#29](https://github.com/honzabindr-max/muj-web/pull/29) (Krok 3) mergnut do `main` (merge commit `905dd25`), Vercel auto-deploy proběhl (`dpl_26KPdG46h4dWrdMhmZ6x76TN2QNi`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential — `check-required-env.ts` beze změny nálezu. **Honzíkovo předschválené GO na Krok 3+4** (2026-09-03, podmíněné: CI zelené, žádná migrace/env/credential, žádný produkční trigger, žádný ARCHITECTURE DECISION REQUIRED, přesně podle plánu — jinak STOP). **Krok 4 (buildContextPack() orchestrace + context manifest snapshot testy, uzavírá celý DoD) — probíhá.** BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26), BUILD-09 Krok 1 (PR #27), Krok 2 (PR #28), Krok 3 (PR #29) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
+**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). Kroky 1–3 **UZAVŘENY**, MERGED, nasazeny na produkci. PR [#29](https://github.com/honzabindr-max/muj-web/pull/29) (Krok 3) mergnut do `main` (merge commit `905dd25`), Vercel auto-deploy proběhl (`dpl_26KPdG46h4dWrdMhmZ6x76TN2QNi`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential — `check-required-env.ts` beze změny nálezu. **Honzíkovo předschválené GO na Krok 3+4** (2026-09-03, podmíněné: CI zelené, žádná migrace/env/credential, žádný produkční trigger, žádný ARCHITECTURE DECISION REQUIRED, přesně podle plánu — jinak STOP). **Krok 4 (buildContextPack() orchestrace + context manifest snapshot testy, uzavírá celý DoD)** — implementace hotová, branch `build/h2-build-09-step4-orchestration`, čeká na push+PR+CI. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26), BUILD-09 Krok 1 (PR #27), Krok 2 (PR #28), Krok 3 (PR #29) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
 
+**Evidence (BUILD-09 Krok 4, implementace hotová, čeká na push+PR):**
+```
+Commit: e8fcdb4 (implementace + testy)
+Branch: build/h2-build-09-step4-orchestration
+DB: žádná nová migrace — orchestruje jen Kroky 1-3 (persistContextRun, source providery).
+GHA: čeká se na push + otevření PR
+Artifact: N/A
+Deployment: N/A — buildContextPack() je volatelná přímo, žádný route/job trigger (zapojení
+    je BUILD-10), takže merge sám o sobě nezmění chování žijící produkce.
+Timestamp: 2026-09-03
+Verified by: Code — lokálně 193/193 testů zelených (49 souborů, vč. 8 nových end-to-end:
+    AT-21 (jen P0 v manifestu bez entity), AT-22 (experiment entity match), AT-23
+    (hypotéza vyloučena z BUDDY_RESPONSE, dostupná v BUDDY_DEEP_DIVE), AT-24/I5 (max 2
+    third-party epizody, nula nových claims/mechanisms), AT-25/AT-66 (deep-dive max 10,
+    pořád jen per-episode kandidáti), AT-58 overflow (P0 zůstane, omission auditovaná v
+    context_runs) + AT-58 P0-exceeds (H2ContextBudgetError, žádný osiřelý context_runs
+    řádek), context manifest snapshot test (redaktovaný stabilní tvar, Build Specification
+    DoD)), `npx tsc --noEmit` čistě, `npm run build` čistě (žádné nové routy)
+Remaining risk: žádné funkční — Krok 4 nemá produkční trigger. Zapojení do živé Buddy
+    runtime cesty je BUILD-10.
+```
 **Evidence (BUILD-09 Krok 3 celý krok):**
 ```
 Commit: 23daba3 (implementace + testy), 638aef1 (docs), merge 905dd25 do main
@@ -729,6 +750,49 @@ nevolá mimo testy.
 5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_26KPdG46h4dWrdMhmZ6x76TN2QNi` READY, `/api/h2/health` živě ověřen,
 6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, beze změny nálezu.
 
+### Krok 4 — buildContextPack() orchestrace + context manifest snapshot testy (implementace hotová, uzavírá DoD)
+
+`h2/context/build-context-pack.ts` — `buildContextPack(pool, ownerId,
+purpose, rawEventId, messageText)`: `resolveMessageEntities()` (Krok 2)
++ source providery (Krok 3, souběžně přes `Promise.all` — každý má
+vlastní DB klienta z poolu, ne sdílený, takže je to bezpečné) →
+`passesRelevanceFloor()` filtr (Krok 2) → `fitToBudget()` (Krok 1) →
+`persistContextRun()` (Krok 1) → vrátí context manifest (P0 + included
+P1–P4 položky) pro budoucí BUILD-10 prompt assembly.
+
+**AT (celý set BUILD-09, end-to-end):**
+- AT-21: čistá emoční zpráva bez entity → manifest obsahuje jen P0.
+- AT-22: zpráva zmiňuje experiment → experiment context dostupný.
+- AT-23: hypotéza vyloučena z `BUDDY_RESPONSE`, dostupná v
+  `BUDDY_DEEP_DIVE`.
+- AT-24/I5: normal runtime max 2 third-party epizody na osobu, žádný
+  agregát/pattern, nula nových `claims`/`mechanisms`.
+- AT-25/AT-66: deep-dive max 10 epizod na osobu, pořád jen per-episode
+  kandidáti.
+- AT-58: overflow odřízne jen non-P0 (auditováno v `context_runs`),
+  P0-overflow vlastní zprávy → `H2ContextBudgetError`, žádný osiřelý
+  `context_runs` řádek.
+- Context manifest snapshot test (Build Specification DoD) —
+  redaktovaný (bez generovaných UUID) stabilní tvar pro reprezentativní
+  scénář.
+
+**Ověřeno:** 8/8 nových end-to-end testů zelených, 193/193 testů v
+celém repu (49 souborů), `npx tsc --noEmit` čistě, `npm run build`
+čistě (žádné nové routy).
+
+**Proč bezpečné mergnout samostatně:** `buildContextPack()` je nová
+volatelná funkce, kterou po mergi pořád nic v produkci nespouští (žádný
+route/job trigger — zapojení je BUILD-10, stejně jako u BUILD-05 až
+BUILD-08). Rozdíl oproti Krokům 1–3 je jen v tom, že tady se poprvé
+skládá DoD celého slicu dohromady, ne v tom, že by main po mergi byl v
+nekonzistentním mezistavu.
+
+**Uzavření Kroku 4 (a celého BUILD-09):**
+1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
+2. push branche, otevřít PR — PROBÍHÁ,
+3. zelené GHA na PR — ČEKÁ SE,
+4. merge do `main` pod Honzíkovým předschváleným podmíněným GO — ČEKÁ SE.
+
 ## Bloky BUILD-01 — BUILD-28
 
 Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
@@ -744,7 +808,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | AT GREEN — MERGED, DEPLOYED (mechanismus bez produkčního triggeru, čeká na ruční certifikaci) | AT-33, AT-34, AT-35, AT-36, AT-63 | [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) MERGED, branch `build/h2-build-07-prompt-registry`; viz sekce výše |
 | BUILD-08 | Operational extraction | AT GREEN — MERGED, DEPLOYED (bez produkčního triggeru, zapojení je BUILD-10) | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) MERGED, branch `build/h2-build-08-operational-extraction`; viz sekce výše |
-| BUILD-09 | Context Engine | IN PROGRESS — Krok 1-3/4 MERGED, DEPLOYED; Krok 4/4 probíhá | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27) + [PR #28](https://github.com/honzabindr-max/muj-web/pull/28) + [PR #29](https://github.com/honzabindr-max/muj-web/pull/29) MERGED |
+| BUILD-09 | Context Engine | IN PROGRESS — Krok 1-3/4 MERGED, DEPLOYED; Krok 4/4 implementace hotová, čeká na push+PR | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27) + [PR #28](https://github.com/honzabindr-max/muj-web/pull/28) + [PR #29](https://github.com/honzabindr-max/muj-web/pull/29) MERGED; Krok 4 branch `build/h2-build-09-step4-orchestration` |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |
 | BUILD-11 | Telegram + web delivery | TODO | AT-10 | — |
 | — | **MILESTONE M1 — Buddy Live** | **NOT STARTED** | — | — |
