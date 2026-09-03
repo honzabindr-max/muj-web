@@ -76,6 +76,20 @@ describe("h2-runtime — DB constraints (fresh DB jen z migrací, BUILD-02 DoD)"
     ).rejects.toThrow(/message_processing_jobs_status_check/);
   });
 
+  it("message_processing_jobs: MANUALLY_CLEARED je platný terminální stav (migrace 0016, BUILD-11 prep)", async () => {
+    const rawEvent = await pool.query<{ id: string }>(
+      `insert into raw_events (owner_id, conversation_sequence, input_sequence, channel, speaker, payload_ciphertext, payload_type, encryption_key_version)
+       values ($1, 20, 20, 'telegram', 'USER', '\\x00', 'TEXT', 1) returning id`,
+      [ownerId],
+    );
+    await expect(
+      pool.query(`insert into message_processing_jobs (owner_id, raw_event_id, status) values ($1, $2, 'MANUALLY_CLEARED')`, [
+        ownerId,
+        rawEvent.rows[0].id,
+      ]),
+    ).resolves.toBeDefined();
+  });
+
   it("responses: nejvýše jeden BUDDY response na (owner_id, source_input_sequence) (§4.4 exactly-once)", async () => {
     const rawEventA = await pool.query<{ id: string }>(
       `insert into raw_events (owner_id, conversation_sequence, input_sequence, channel, speaker, payload_ciphertext, payload_type, encryption_key_version)
