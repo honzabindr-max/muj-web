@@ -1,22 +1,26 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-06 — Voice transcription, **AT GREEN** — implementace hotová podle schváleného [docs/h2/BUILD-06-PLAN.md](./BUILD-06-PLAN.md) (plán commitnut `d594a2d`, doplněn Rozhodnutími 4–6 na Honzíkův výslovný požadavek), branch `build/h2-build-06-voice-transcription`, čeká na push+PR a Honzíkovo GO k mergi. Žádná nová migrace (transcript in-place update `raw_events`, fencing-chráněné), žádný produkční trigger (voice joby budou v produkci jen `PENDING`, stejně jako text z BUILD-04). Dvě nové fail-closed env proměnné (`H2_TELEGRAM_BOT_TOKEN`, `H2_OPENAI_API_KEY`) zapsané do `required-env.ts` manifestu, ale reálné credentials si vyžádám až u ruční end-to-end verifikace — merge na ně čekat nemusí (stejně jako `H2_LEDGER_HMAC_KEY` dnes). BUILD-05 (PR #20) je od tohoto commitu **UZAVŘENO** — AT GREEN, MERGED (`c802edd`), nasazeno na produkci, `/api/h2/health` živě ověřen. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + DECISIONS.md.**
+**Aktuální slice:** BUILD-06 — Voice transcription, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci. PR [#22](https://github.com/honzabindr-max/muj-web/pull/22) (branch `build/h2-build-06-voice-transcription`) mergnut do `main` (merge commit `d61860e`), Vercel auto-deploy proběhl (`dpl_ChYNSo3bcfbL5pCwppZMHDHDx7PL`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný produkční trigger (voice joby budou v produkci jen `PENDING`, stejně jako text z BUILD-04). `check-required-env.ts` po mergi potvrdil přesně očekávaný nález: `H2_OPENAI_API_KEY` chybí (nový, BUILD-06) na obou prostředích; `H2_TELEGRAM_BOT_TOKEN` je **už ve Vercelu přítomný** (Honzík ho tam dal dřív, jen ho kód do teď nečetl) — nemusí se dodávat. `H2_LEDGER_HMAC_KEY` je stejný starší známý nález (BUILD-20, mimo scope). Ani jeden nebrání mergi/produkci (žádný trigger volání nespouští). BUILD-05 (PR #20) je od minula UZAVŘENO — AT GREEN, MERGED (`c802edd`), nasazeno. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-07 (Prompt Registry & model adapter) — plán zapisuje se, čeká na Honzíkovo potvrzení. Nová session: začni čtením tohoto souboru + DECISIONS.md.**
 
-**Evidence (BUILD-06, implementace hotová, čeká na push+PR):**
+**Evidence (BUILD-06 celý slice):**
 ```
-Commit: a217506 (implementace + testy + AT ownership/required-env registry update)
-Branch: build/h2-build-06-voice-transcription
+Commit: a217506 (implementace + testy), 446bd45 (docs), merge d61860e do main
+Branch: build/h2-build-06-voice-transcription (PR #22, MERGED, branch smazána po mergi)
 DB: žádná nová migrace — transcript se zapisuje in-place do raw_events.payload_ciphertext,
     usage_ledger už existuje z BUILD-02 (viz docs/h2/BUILD-06-PLAN.md Rozhodnutí 1/4)
-GHA: čeká se na push + otevření PR
+GHA: run 33737639151 (PR, h2-tests) — pass
 Artifact: N/A
-Deployment: N/A — implementace ještě není pushnutá
+Deployment: Vercel production, deployment dpl_ChYNSo3bcfbL5pCwppZMHDHDx7PL, target=production,
+    vytvořen ihned po mergi (11:16:27), state READY; aliasy vč. good-inventions.work; živě
+    ověřeno curl -sL https://good-inventions.work/api/h2/health → {"status":"ok"}
 Timestamp: 2026-09-03
-Verified by: Code — lokálně 134/134 testů zelených (36 souborů, vč. 14 nových: AT-04, AT-05,
-    voice deadline 300s + 1 retry, metering atomicita), `npx tsc --noEmit` čistě,
-    `npm run build` čistě (žádné nové routy)
-Remaining risk: reálné Telegram/OpenAI volání zatím neověřeno (mockovaný fetch v testech,
-    Rozhodnutí 3) — ruční end-to-end verifikace proběhne až s reálnými credentials
+Verified by: Code — CI, Vercel CLI (vercel inspect, vercel ls --prod), živý curl na produkci,
+    h2/db/scripts/check-required-env.ts proti production i preview (134/134 testů lokálně,
+    `npx tsc --noEmit` čistě, `npm run build` čistě)
+Remaining risk: žádné funkční — BUILD-06 nemá automatický produkční trigger, takže chybějící
+    H2_OPENAI_API_KEY nic v produkci dnes nerozbíjí. Reálné Telegram/Whisper volání zatím
+    neověřeno end-to-end (mockovaný fetch v testech) — ruční verifikace čeká na
+    H2_OPENAI_API_KEY od Honzíka (H2_TELEGRAM_BOT_TOKEN už ve Vercelu je)
 ```
 **Evidence (BUILD-05 celý slice):**
 ```
@@ -57,8 +61,8 @@ Verified by: Code — CI, přímý SQL dotaz proti oběma Neon větvím (neondb_
 Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a smoke test sekce níže):
     4 raw_events (telegram/USER), 4 message_processing_jobs PENDING, 0 rejected-sender audit
 ```
-**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19) a [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`.
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end
+**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19), [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) a [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`. BUILD-06 (voice transcription) nasazeno na produkci — ingest větev live (feature flag `telegramVoice=true`), zpracování (download/transkripce) zatím bez produkčního triggeru, čeká na ruční end-to-end verifikaci s `H2_OPENAI_API_KEY`.
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end; BUILD-06 čeká na ruční voice end-to-end ověření
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-006 vyřešeny/zaznamenány; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", DEC-006 vědomá odchylka — migrace běží přes `neondb_owner`, ne `h2_migrator` — s remedy odloženým do M1 deploy gate, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
@@ -237,7 +241,7 @@ Plán schválen Honzíkem 2026-09-03, zapsán beze změny v [docs/h2/BUILD-05-PL
 5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_23RojA1yQwwXym1e9rbsi5RUAi4y` READY, `/api/h2/health` živě ověřen,
 6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, jediný nález (`H2_LEDGER_HMAC_KEY`) je už z BUILD-04 známý a mimo scope BUILD-05.
 
-## BUILD-06 — Voice transcription (AT GREEN)
+## BUILD-06 — Voice transcription (AT GREEN — MERGED, DEPLOYED)
 
 Plán schválen Honzíkem 2026-09-03, doplněn na jeho výslovný požadavek o
 Rozhodnutí 4 (metering), 5 (šifrování) a 6 (Whisper failure handling) —
@@ -312,12 +316,12 @@ jakýkoli storage pro audio (audio se nikdy nepersistuje).
 
 **Uzavření slicu:**
 1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
-2. push branche, otevřít PR — PROBÍHÁ,
-3. zelené GHA na PR — ČEKÁ SE,
-4. Honzíkovo GO k mergi do `main` — ČEKÁ SE,
-5. potvrdit produkční Vercel deploy po mergi — ČEKÁ SE,
-6. preflight `check-required-env.ts` proti production i preview — ČEKÁ SE (očekávaný nález: `H2_TELEGRAM_BOT_TOKEN`, `H2_OPENAI_API_KEY`, `H2_LEDGER_HMAC_KEY` chybí — informační, ne blokující, dokud nic voice joby automaticky nezpracovává),
-7. ruční end-to-end verifikace (reálný Telegram download + reálný Whisper call) — ČEKÁ na credentials od Honzíka, vyžádám si je zvlášť.
+2. ~~push branche, otevřít PR~~ — HOTOVO, [PR #22](https://github.com/honzabindr-max/muj-web/pull/22),
+3. ~~zelené GHA na PR~~ — HOTOVO, run 33737639151 pass,
+4. ~~Honzíkovo GO k mergi do `main`~~ — HOTOVO, merge commit `d61860e`,
+5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_ChYNSo3bcfbL5pCwppZMHDHDx7PL` READY, `/api/h2/health` živě ověřen,
+6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, nález přesně podle očekávání: `H2_OPENAI_API_KEY` chybí (nový), `H2_TELEGRAM_BOT_TOKEN` **už ve Vercelu je** (Honzík ho tam dal dřív, kód ho do teď nečetl), `H2_LEDGER_HMAC_KEY` starý známý nález (BUILD-20). Nic z toho neblokuje — žádný trigger volání nespouští,
+7. ruční end-to-end verifikace (reálný Telegram download + reálný Whisper call) — ČEKÁ na `H2_OPENAI_API_KEY` od Honzíka, vyžádám si ho zvlášť až budu chtít verifikaci dělat.
 
 ## Bloky BUILD-01 — BUILD-28
 
@@ -331,7 +335,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-03A | Identity, sessions & recent re-auth | AT GREEN — MERGED, DEPLOYED, produkční hotfix aplikován | AT-64 (90/90 testů v repu zelených) | [PR #15](https://github.com/honzabindr-max/muj-web/pull/15) MERGED, branch `build/h2-build-03a-identity-sessions`, ověřeno živým Google OAuth přihlášením na produkci; [PR #17](https://github.com/honzabindr-max/muj-web/pull/17) MERGED — hotfix produkčního `AccessDenied` (viz sekce výše), migrace 0012+0013 aplikovány na production i preview |
 | BUILD-04 | Unified ingestion | AT GREEN — MERGED, DEPLOYED, živě ověřeno end-to-end (reálné Telegram zprávy → DB) | AT-01, AT-02, AT-48, AT-61 | [PR #18](https://github.com/honzabindr-max/muj-web/pull/18) + [PR #19](https://github.com/honzabindr-max/muj-web/pull/19) MERGED; viz sekce výše |
 | BUILD-05 | Queue, lease, fencing, quarantine | AT GREEN — MERGED, DEPLOYED (bez HTTP povrchu, ověřeno jen zdravím + testy) | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) MERGED, branch `build/h2-build-05-queue-lease-fencing`; viz sekce výše |
-| BUILD-06 | Voice transcription | AT GREEN — implementace hotová, push+PR probíhá | AT-04, AT-05 | branch `build/h2-build-06-voice-transcription`, viz sekce výše |
+| BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | TODO | AT-33, AT-34, AT-35, AT-36, AT-63 | — |
 | BUILD-08 | Operational extraction | TODO | — (schema/unit/integration testy slice) | — |
 | BUILD-09 | Context Engine | TODO | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | — |
@@ -368,3 +372,4 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | 2026-09-03 | BUILD-04 | merge #18 (`76a7d40`) | Vercel auto-deploy (produkce muj-web, `dpl_Bwqy4G3jPyiJ99ziTDmcehA7i8AE`), `good-inventions.work` | Unified ingestion — `ingestMessage()` + Telegram/web routy. Migrace 0014 aplikována a ověřena na production i preview `h2-runtime` PŘED mergem. `/api/h2/health` živě ověřen po deployi. Telegram webhook zatím neregistrován (Honzíkovo `setWebhook` s reálným tokenem, mimo scope Code). |
 | 2026-09-03 | BUILD-04 post-deploy fix | merge #19 (`68f9cde`) | Vercel auto-deploy (produkce muj-web, `dpl_HnYrRVC3vukun9QxZySXxWT4EFL9`), `good-inventions.work` | Oprava `verify-ingestion.ts` (tiché nulování na chybějící `app.owner_id` scope, pravidlo 9) + nový `check-required-env.ts` preflight nástroj (pravidlo 8). **BUILD-04 živě potvrzen end-to-end na produkci** po tomto deployi: `check-required-env.ts` OK na obou prostředích kromě `H2_LEDGER_HMAC_KEY` (BUILD-20, mimo scope, informační), `verify-ingestion.ts` ukázal 4 `raw_events` (`telegram/USER`), 4 `message_processing_jobs` `PENDING`, 0 rejected-sender audit eventů. |
 | 2026-09-03 | BUILD-05 | merge #20 (`c802edd`) | Vercel auto-deploy (produkce muj-web, `dpl_23RojA1yQwwXym1e9rbsi5RUAi4y`), `good-inventions.work` | Queue/lease/fencing/quarantine (`h2/processing/*`) — žádná migrace, žádný nový env, žádný HTTP povrch ani produkční trigger (Rozhodnutí 2), takže merge sám o sobě nemění chování žijící produkce. `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` opět jen `H2_LEDGER_HMAC_KEY` (stejný známý nález, BUILD-20). |
+| 2026-09-03 | BUILD-06 | merge #22 (`d61860e`) | Vercel auto-deploy (produkce muj-web, `dpl_ChYNSo3bcfbL5pCwppZMHDHDx7PL`), `good-inventions.work` | Voice transcription — Telegram voice ingest větev live (`telegramVoice=true`), zpracování (`h2/voice/*`) beze produkčního triggeru. `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` nově hlásí `H2_OPENAI_API_KEY` chybí (BUILD-06, čeká na Honzíka) vedle staršího `H2_LEDGER_HMAC_KEY` (BUILD-20); `H2_TELEGRAM_BOT_TOKEN` byl ve Vercelu už přítomný. |
