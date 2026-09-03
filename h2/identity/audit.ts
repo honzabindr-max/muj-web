@@ -16,7 +16,8 @@ export type H2IdentityEventType =
   | "LOGIN_REJECTED_UNKNOWN_OWNER"
   | "REAUTH_SUCCESS"
   | "REAUTH_EXPIRED"
-  | "CSRF_REJECTED";
+  | "CSRF_REJECTED"
+  | "TELEGRAM_MESSAGE_REJECTED_UNKNOWN_SENDER";
 
 export async function recordIdentityEvent(
   db: Pool | PoolClient,

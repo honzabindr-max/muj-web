@@ -34,10 +34,9 @@ describe("h2-runtime — Row Level Security (§31.5)", () => {
     // credentials, portable migrace ho záměrně negrantuje (viz
     // 0011_roles_and_rls.sql). Heslo je nutné i lokálně-vypadajícím
     // spojením v CI (Postgres service container = síťové spojení, ne
-    // unix socket trust auth).
-    await adminPool.query(`alter role h2_runtime login password '${TEST_ROLE_PASSWORD}'`);
-    await adminPool.query(`alter role h2_job login password '${TEST_ROLE_PASSWORD}'`);
-    await adminPool.query(`alter role h2_blind_reader login password '${TEST_ROLE_PASSWORD}'`);
+    // unix socket trust auth) — nastavuje ho jednou globalSetup
+    // (h2/db/scripts/ensure-test-roles.ts), ne tento soubor, aby paralelně
+    // běžící test soubory nekolidovaly na stejném catalog update (BUILD-04).
 
     const ownerA = await adminPool.query<{ id: string }>(
       "insert into owners (google_sub, display_name) values ($1, $2) returning id",
