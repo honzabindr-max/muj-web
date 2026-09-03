@@ -1,6 +1,6 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-04 — Unified ingestion, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci a živě ověřeno end-to-end (skutečné Telegram zprávy prošly celou cestou: `setWebhook` → `ingestMessage()` → `raw_events`/`message_processing_jobs` v DB, ověřeno pod rolí `h2_runtime`, ne adminem). PR #18 (`76a7d40`) a PR #19 (`68f9cde`, hotfixy nalezené při post-deploy smoke testu) mergnuty do `main`. Migrace 0014 ověřena na production i preview. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-05 (Queue, lease, fencing, quarantine).**
+**Aktuální slice:** BUILD-04 — Unified ingestion, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci a živě ověřeno end-to-end (skutečné Telegram zprávy prošly celou cestou: `setWebhook` → `ingestMessage()` → `raw_events`/`message_processing_jobs` v DB, ověřeno pod rolí `h2_runtime`, ne adminem). PR #18 (`76a7d40`) a PR #19 (`68f9cde`, hotfixy nalezené při post-deploy smoke testu) mergnuty do `main`. Migrace 0014 ověřena na production i preview. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-05 (Queue, lease, fencing, quarantine) — plán schválen Honzíkem 2026-09-03, zapsán v [docs/h2/BUILD-05-PLAN.md](./BUILD-05-PLAN.md), čeká na implementaci. Nová session: začni čtením tohoto souboru + tohoto BUILD-STATUS.md + DECISIONS.md.**
 
 **Evidence (BUILD-04 celý slice):**
 ```
