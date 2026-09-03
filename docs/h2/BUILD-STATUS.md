@@ -1,24 +1,22 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-08 — Operational extraction, **AT GREEN** — implementace hotová podle schváleného [docs/h2/BUILD-08-PLAN.md](./BUILD-08-PLAN.md) (plán commitnut `dc52719`, doplněn Rozhodnutím 5 na Honzíkův výslovný požadavek), PR [#26](https://github.com/honzabindr-max/muj-web/pull/26) (branch `build/h2-build-08-operational-extraction`) otevřen, GHA zelené (run 33742774536), čeká na Honzíkovo GO k mergi. **Žádná nová migrace, žádný nový credential, žádný nový env — plán explicitně "žádný STOP se neočekává"** (`operational_extractions` má plný CRUD+RLS grant pro `h2_runtime` už z BUILD-02, Haiku běží přes stejný `H2_ANTHROPIC_API_KEY` jako Sonnet z BUILD-07). BUILD-07 (PR #24) je od minula UZAVŘENO — AT GREEN, MERGED (`dbec556`), nasazeno na produkci. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + DECISIONS.md.**
+**Aktuální slice:** BUILD-08 — Operational extraction, **UZAVŘENO** — AT GREEN, MERGED, nasazeno na produkci. PR [#26](https://github.com/honzabindr-max/muj-web/pull/26) (branch `build/h2-build-08-operational-extraction`) mergnut do `main` (merge commit `417c789`), Vercel auto-deploy proběhl (`dpl_C9RFhCDSpueSnCsw68EDrbs6inrL`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential (`operational_extractions` grant je z BUILD-02, Haiku sdílí `H2_ANTHROPIC_API_KEY` se Sonnetem z BUILD-07). `check-required-env.ts` po mergi potvrdil přesně očekávaný nález — žádná nová proměnná, jen 3 už známé (`H2_LEDGER_HMAC_KEY` BUILD-20, `H2_OPENAI_API_KEY` BUILD-06, `H2_ANTHROPIC_API_KEY` BUILD-07), nic z toho neblokuje (BUILD-08 nemá produkční trigger). BUILD-07 (PR #24) je od minula UZAVŘENO — AT GREEN, MERGED (`dbec556`), nasazeno. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26) a hotfix (PR #17) jsou MERGED. **Další slice: BUILD-09 (Context Engine) — plán zapisuje se, čeká na Honzíkovo potvrzení. Nová session: začni čtením tohoto souboru + DECISIONS.md.**
 
-**Evidence (BUILD-08, implementace hotová, čeká na push+PR):**
+**Evidence (BUILD-08 celý slice):**
 ```
-Commit: a5a9f11 (implementace + testy)
-Branch: build/h2-build-08-operational-extraction
+Commit: a5a9f11 (implementace + testy), dbe3a03 + 8052d21 (docs), merge 417c789 do main
+Branch: build/h2-build-08-operational-extraction (PR #26, MERGED, branch smazána po mergi)
 DB: žádná nová migrace — operational_extractions (0003_prompts_and_llm.sql, BUILD-02) už má
     plný CRUD+RLS grant pro h2_runtime (je v owner_scoped_tables).
 GHA: run 33742774536 (PR #26, h2-tests) — pass
 Artifact: N/A
-Deployment: N/A — čeká se na Honzíkovo GO k mergi; BUILD-08 nemá HTTP povrch ani produkční
-    trigger (Rozhodnutí 3, zapojení je BUILD-10), takže merge sám o sobě nezmění chování
-    žijící produkce
+Deployment: Vercel production, deployment dpl_C9RFhCDSpueSnCsw68EDrbs6inrL, target=production,
+    vytvořen ihned po mergi (10:13), state READY; živě ověřeno curl -sL
+    https://good-inventions.work/api/h2/health → {"status":"ok"}
 Timestamp: 2026-09-03
-Verified by: Code — lokálně 151/151 testů zelených (40 souborů, vč. 5 nových: happy path OK
-    + metering rozlišitelnost Haiku/Sonnet, malformed output INVALID + žádný zápis do
-    tasks/commitments/open_loops/reminders, missing ACTIVE prompt version → explicitní chyba,
-    2 nové callAnthropicModel() maxOutputTokens testy), `npx tsc --noEmit` čistě, `npm run
-    build` čistě (žádné nové routy)
+Verified by: Code — CI, Vercel CLI (vercel inspect, vercel ls --prod), živý curl na produkci,
+    h2/db/scripts/check-required-env.ts proti production i preview (151/151 testů lokálně,
+    tsc/build čisté)
 Remaining risk: reálné Anthropic (Haiku) volání zatím neověřeno (mockovaný callModel) — stejná
     otevřená položka jako BUILD-07 (ruční certifikace promptu proti reálnému modelu), ne nová.
 ```
@@ -103,8 +101,8 @@ Verified by: Code — CI, přímý SQL dotaz proti oběma Neon větvím (neondb_
 Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a smoke test sekce níže):
     4 raw_events (telegram/USER), 4 message_processing_jobs PENDING, 0 rejected-sender audit
 ```
-**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19), [PR #20](https://github.com/honzabindr-max/muj-web/pull/20), [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) a [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`. BUILD-06 (voice transcription) nasazeno na produkci — ingest větev live (feature flag `telegramVoice=true`), zpracování (download/transkripce) zatím bez produkčního triggeru, čeká na ruční end-to-end verifikaci s `H2_OPENAI_API_KEY`. BUILD-07 (prompt registry & model adapter) nasazeno na produkci — migrace 0015 aplikována na obou Neon větvích, mechanismus bez produkčního triggeru, čeká na ruční certifikaci s `H2_ANTHROPIC_API_KEY`.
-**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07 AT GREEN, MERGED, nasazeny; BUILD-08 AT GREEN, implementace hotová, čeká na push+PR+merge; BUILD-04 živě ověřeno end-to-end; BUILD-06/07 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace)
+**Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19), [PR #20](https://github.com/honzabindr-max/muj-web/pull/20), [PR #22](https://github.com/honzabindr-max/muj-web/pull/22), [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) a [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`. BUILD-06 (voice transcription) nasazeno na produkci — ingest větev live (feature flag `telegramVoice=true`), zpracování (download/transkripce) zatím bez produkčního triggeru, čeká na ruční end-to-end verifikaci s `H2_OPENAI_API_KEY`. BUILD-07 (prompt registry & model adapter) nasazeno na produkci — migrace 0015 aplikována na obou Neon větvích, mechanismus bez produkčního triggeru, čeká na ruční certifikaci s `H2_ANTHROPIC_API_KEY`. BUILD-08 (operational extraction) nasazeno na produkci — žádná migrace, žádný nový credential, mechanismus bez produkčního triggeru (zapojení je BUILD-10).
+**Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07/08 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end; BUILD-06/07 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace)
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-006 vyřešeny/zaznamenány; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", DEC-006 vědomá odchylka — migrace běží přes `neondb_owner`, ne `h2_migrator` — s remedy odloženým do M1 deploy gate, viz [DECISIONS.md](./DECISIONS.md))
 
 ## Zdroje pravdy
@@ -460,7 +458,7 @@ UI pro aktivaci/rollback (BUILD-26).
 7. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, nález přesně podle očekávání: `H2_ANTHROPIC_API_KEY` nově chybí, vedle už známých `H2_OPENAI_API_KEY`/`H2_LEDGER_HMAC_KEY` — nic z toho neblokuje,
 8. ruční certifikace prvního promptu proti reálnému Sonnetu/Haiku — ČEKÁ na `H2_ANTHROPIC_API_KEY` od Honzíka, vyžádám si ho jako explicitní STOP, až na něj dojde.
 
-## BUILD-08 — Operational extraction (AT GREEN)
+## BUILD-08 — Operational extraction (AT GREEN — MERGED, DEPLOYED)
 
 Plán schválen Honzíkem 2026-09-03, doplněn na jeho výslovný požadavek o
 Rozhodnutí 5 (vlastní `model_id`/`purpose` pro Haiku metering) —
@@ -528,10 +526,9 @@ otevřená položka jako BUILD-07, ne nová.
 1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
 2. ~~push branche, otevřít PR~~ — HOTOVO, [PR #26](https://github.com/honzabindr-max/muj-web/pull/26),
 3. ~~zelené GHA na PR~~ — HOTOVO, run 33742774536 (h2-tests) pass,
-4. Honzíkovo GO k mergi do `main` — ČEKÁ SE (žádná migrace, žádný env, jen běžné GO na merge),
-5. potvrdit produkční Vercel deploy po mergi — ČEKÁ SE,
-6. preflight `check-required-env.ts` proti production i preview — ČEKÁ SE (očekávaný nález:
-   žádný nový — `H2_ANTHROPIC_API_KEY` je stejný, už z BUILD-07 registrovaný požadavek).
+4. ~~Honzíkovo GO k mergi do `main`~~ — HOTOVO, merge commit `417c789`,
+5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_C9RFhCDSpueSnCsw68EDrbs6inrL` READY, `/api/h2/health` živě ověřen,
+6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, nález přesně podle očekávání: žádná nová proměnná, jen 3 už známé (`H2_LEDGER_HMAC_KEY` BUILD-20, `H2_OPENAI_API_KEY` BUILD-06, `H2_ANTHROPIC_API_KEY` BUILD-07) — nic z toho neblokuje, žádný trigger volání nespouští.
 
 ## Bloky BUILD-01 — BUILD-28
 
@@ -547,7 +544,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-05 | Queue, lease, fencing, quarantine | AT GREEN — MERGED, DEPLOYED (bez HTTP povrchu, ověřeno jen zdravím + testy) | AT-03, AT-06, AT-07, AT-54, AT-67, AT-71 | [PR #20](https://github.com/honzabindr-max/muj-web/pull/20) MERGED, branch `build/h2-build-05-queue-lease-fencing`; viz sekce výše |
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | AT GREEN — MERGED, DEPLOYED (mechanismus bez produkčního triggeru, čeká na ruční certifikaci) | AT-33, AT-34, AT-35, AT-36, AT-63 | [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) MERGED, branch `build/h2-build-07-prompt-registry`; viz sekce výše |
-| BUILD-08 | Operational extraction | AT GREEN — PR otevřen, GHA zelené, čeká na GO k mergi | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | [PR #26](https://github.com/honzabindr-max/muj-web/pull/26), branch `build/h2-build-08-operational-extraction` |
+| BUILD-08 | Operational extraction | AT GREEN — MERGED, DEPLOYED (bez produkčního triggeru, zapojení je BUILD-10) | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) MERGED, branch `build/h2-build-08-operational-extraction`; viz sekce výše |
 | BUILD-09 | Context Engine | TODO | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | — |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |
 | BUILD-11 | Telegram + web delivery | TODO | AT-10 | — |
@@ -584,3 +581,4 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | 2026-09-03 | BUILD-05 | merge #20 (`c802edd`) | Vercel auto-deploy (produkce muj-web, `dpl_23RojA1yQwwXym1e9rbsi5RUAi4y`), `good-inventions.work` | Queue/lease/fencing/quarantine (`h2/processing/*`) — žádná migrace, žádný nový env, žádný HTTP povrch ani produkční trigger (Rozhodnutí 2), takže merge sám o sobě nemění chování žijící produkce. `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` opět jen `H2_LEDGER_HMAC_KEY` (stejný známý nález, BUILD-20). |
 | 2026-09-03 | BUILD-06 | merge #22 (`d61860e`) | Vercel auto-deploy (produkce muj-web, `dpl_ChYNSo3bcfbL5pCwppZMHDHDx7PL`), `good-inventions.work` | Voice transcription — Telegram voice ingest větev live (`telegramVoice=true`), zpracování (`h2/voice/*`) beze produkčního triggeru. `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` nově hlásí `H2_OPENAI_API_KEY` chybí (BUILD-06, čeká na Honzíka) vedle staršího `H2_LEDGER_HMAC_KEY` (BUILD-20); `H2_TELEGRAM_BOT_TOKEN` byl ve Vercelu už přítomný. |
 | 2026-09-03 | BUILD-07 | merge #24 (`dbec556`) | Vercel auto-deploy (produkce muj-web, `dpl_GajgTX5d47SdpewC7mTwFNSxoMEG`), `good-inventions.work` | Prompt Registry & model adapter (`h2/prompts/*`) — migrace 0015 (GRANTy na `prompt_versions`/`prompt_test_runs`) aplikována a ověřena na obou Neon větvích PŘED mergem. Retrofit BUILD-06: Whisper teď zapisuje i `llm_runs`. Žádný HTTP povrch ani produkční trigger. `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` nově hlásí `H2_ANTHROPIC_API_KEY` chybí (BUILD-07, čeká na Honzíka) vedle `H2_OPENAI_API_KEY`/`H2_LEDGER_HMAC_KEY`. |
+| 2026-09-03 | BUILD-08 | merge #26 (`417c789`) | Vercel auto-deploy (produkce muj-web, `dpl_C9RFhCDSpueSnCsw68EDrbs6inrL`), `good-inventions.work` | Operational extraction (`h2/extraction/*`) — žádná nová migrace, žádný nový credential (Haiku sdílí `H2_ANTHROPIC_API_KEY` se Sonnetem). Drobné rozšíření `callAnthropicModel()` o `maxOutputTokens`. Žádný HTTP povrch ani produkční trigger (zapojení je BUILD-10). `/api/h2/health` živě ověřen po deployi. `check-required-env.ts` beze změny nálezu — jen 3 už známé (`H2_LEDGER_HMAC_KEY`, `H2_OPENAI_API_KEY`, `H2_ANTHROPIC_API_KEY`). |
