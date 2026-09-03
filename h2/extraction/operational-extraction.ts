@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 
 import { H2_MODELS } from "@/h2/config/models";
+import { H2ContextBudgetError } from "@/h2/context/errors";
+import { CONTEXT_TOKEN_BUDGETS, estimateTokens } from "@/h2/context/token-budget";
 import { withOwnerScope } from "@/h2/db/with-owner-scope";
 import type { AnthropicCallResult } from "@/h2/prompts/anthropic-adapter";
 import { callAnthropicModel } from "@/h2/prompts/anthropic-adapter";
@@ -60,6 +62,13 @@ export async function extractOperationalCandidates(
   const promptVersion = await getActivePromptVersion(pool, OPERATIONAL_EXTRACTION_PURPOSE);
   if (!promptVersion) {
     throw new H2ExtractionError("NO_ACTIVE_PROMPT_VERSION");
+  }
+
+  // BUILD-09 Krok 1 retrofit (BUILD-08 Rozhodnutí 4 debt): input strop PŘED
+  // voláním modelu — žádné tiché ořezání user zprávy (stejná disciplína
+  // jako h2/context/budget-fit.ts P0-overflow).
+  if (estimateTokens(messageText) > CONTEXT_TOKEN_BUDGETS.OPERATIONAL_EXTRACTION.maxInputTokens) {
+    throw new H2ContextBudgetError("P0_EXCEEDS_BUDGET");
   }
 
   const startedAt = Date.now();
