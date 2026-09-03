@@ -1,15 +1,24 @@
 # BUILD-10 — Buddy runtime — návrh plánu
 
-**Status:** NÁVRH — napsán 2026-09-03 při dokončování BUILD-09, **NEcommitnutý**
-(na Honzíkovu explicitní žádost — čeká na jeho návrat k počítači).
-**STOP: implementace nezačíná.** BUILD-10 potřebuje reálný
-`H2_ANTHROPIC_API_KEY` ve Vercelu (dnes chybí, `check-required-env.ts`
-to hlásí od BUILD-07) **a** ruční certifikaci prvního `BUDDY_RESPONSE`
-promptu proti reálnému Sonnetu (`activatePromptVersion()`, BUILD-07 —
-vyžaduje recent re-auth, kterou umí udělat jen Honzík v prohlížeči).
-Bez obojího nejde ověřit ani jeden AT vlastněný BUILD-10 proti reálnému
-modelu (testy by běžely jen na mocku, což je nedostatečné pro DoD
-poprvé volající skutečný Buddy).
+**Status (aktualizace 2026-09-03):** Implementace hotová na branchi
+`build/h2-build-10-buddy-runtime` (commit `c3126d1`), čeká na push+PR+
+Honzíkovo GO k mergi. `H2_ANTHROPIC_API_KEY` je od 2026-09-03 živě
+ověřen na Vercelu (production i preview, `check-required-env.ts`) —
+blokátor č. 1 z původního znění téhle sekce je pryč. Ruční certifikace
+prvního `BUDDY_RESPONSE` promptu proti reálnému Sonnetu
+(`activatePromptVersion()`, BUILD-07 — vyžaduje recent re-auth, kterou
+umí udělat jen Honzík v prohlížeči) zůstává samostatný, neproběhlý krok
+— **žádné reálné Sonnet volání v téhle implementaci neproběhlo**,
+všech 16 nových testů běží proti mockovanému `callAnthropicModel`
+(stejná disciplína jako BUILD-07/08/09). Detaily viz Evidence blok v
+[BUILD-STATUS.md](./BUILD-STATUS.md).
+
+Command Gate scope je oproti návrhu níže zúžený — implementována jen
+exact-match re-detekce `/stop`/`/pause`/`/resume` (DEC-007 bod 5). Bare-
+word/IGNORE/DELETE/HARD_DELETE/RECONSIDER/CORRECT detekce zůstává mimo
+scope: přesná protokolová syntaxe (I7.7) je jen v uzamčené Notion §8.1
+v plném znění, ne v tomhle plánu ani v DECISIONS.md — hádání by
+riskovalo I7.6 porušení. Forward-pointer, ne provedeno.
 
 Otázka umístění Command Gate (§8.1 Sovereignty Fast Lane) je od
 2026-09-03 **vyřešená** — [DEC-007](./DECISIONS.md#dec-007), rozhodnutí
@@ -234,20 +243,25 @@ BUILD-13+ nedodá první reálnou ACT capability.
   jen respektuje `purpose='BUDDY_DEEP_DIVE'` jako vstup do
   `buildContextPack()`, odkud přijde je BUILD-26 (web UI).
 
-## Co potřebuji od Honzíka, než začnu
+## Co potřebuji od Honzíka (aktualizace 2026-09-03)
 
-1. **`H2_ANTHROPIC_API_KEY` ve Vercelu** (production + preview) — dnes
-   chybí, `check-required-env.ts` to hlásí nepřetržitě od BUILD-07.
+1. ~~`H2_ANTHROPIC_API_KEY` ve Vercelu~~ — HOTOVO, živě ověřeno
+   `check-required-env.ts` proti production i preview.
 2. **Ruční certifikace prvního `BUDDY_RESPONSE` promptu** proti reálnému
    Sonnetu — `activatePromptVersion()` vyžaduje recent re-auth (5min
-   okno, jen v prohlížeči) + passing test run. Tohle je stejná otevřená
-   položka jako u BUILD-07/08's Anthropic certifikace, teď se stává
-   blokující (BUILD-10 bez aktivního promptu nemá co volat).
+   okno, jen v prohlížeči) + passing test run + zatím neexistující DRAFT
+   `prompt_versions` řádek pro `BUDDY_RESPONSE` (žádný `createDraftPrompt
+   Version()` call dnes v produkci pro žádný purpose neproběhl — stejná
+   mezera jako BUILD-08's `OPERATIONAL_EXTRACTION`). Zůstává jediný
+   krok, u kterého Honzík chce být osobně přítomen.
 3. ~~Rozhodnutí o umístění Command Gate~~ — HOTOVO, [DEC-007](./DECISIONS.md#dec-007) (C2).
-4. **GO na merge retrofit PR** (`build/h2-build-04-command-fast-path-retrofit`,
-   DEC-007 bod 1–2) — CI zelené, push+PR proběhly, čeká na tebe. Bez
-   tohohle mergnutého nemá BUILD-10's Command Gate co re-detekovat
-   konzistentně s ingestem.
+4. ~~GO na merge retrofit PR~~ — HOTOVO, PR #32 mergnut (`57190c5`).
+5. **GO na push branche `build/h2-build-10-buddy-runtime` a otevření PR**
+   — implementace hotová, 217/217 testů lokálně, tsc/build čisté (viz
+   Evidence blok v BUILD-STATUS.md). Push/PR podle Pravidla 4 GO
+   nepotřebují, ale Honzík chtěl vidět dokončený stav před timto krokem.
 
-Bez věcí 1, 2 a 4 nejde BUILD-10 implementovat tak, aby AT-09/50/62
-byly ověřené proti něčemu reálnému, ne jen mocku.
+Zbývá jen bod 2 — bez aktivního `BUDDY_RESPONSE` promptu
+`generateBuddyResponse()` v produkci vždy vyhodí `H2BuddyRuntimeError
+("NO_ACTIVE_PROMPT")` pro cokoliv, co není přesný `/stop`/`/pause`/
+`/resume` (ten projde bez promptu, je to Command Gate no-op).
