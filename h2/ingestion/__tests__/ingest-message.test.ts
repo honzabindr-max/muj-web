@@ -195,4 +195,94 @@ describe("ingestMessage() pod rolí h2_runtime", () => {
       expect(job.rows[0].status).toBe("PENDING");
     }
   });
+
+  async function ownerControlEpoch(): Promise<bigint> {
+    const result = await adminPool.query<{ owner_control_epoch: string }>(
+      "select owner_control_epoch from owner_processing_state where owner_id = $1",
+      [ownerId],
+    );
+    return BigInt(result.rows[0]?.owner_control_epoch ?? "0");
+  }
+
+  it("DEC-007 (C2): přesný /stop navíc bumpne owner_control_epoch ve STEJNÉ transakci, raw_event i job vzniknou normálně (I7.6)", async () => {
+    const before = await ownerControlEpoch();
+
+    const result = await ingestMessage(runtimePool, TEST_REGISTRY, {
+      ownerId,
+      channel: "telegram",
+      speaker: "USER",
+      externalEventId: "tg-stop-1",
+      payloadType: "TEXT",
+      payloadPlaintext: Buffer.from("/stop", "utf8"),
+    });
+    expect(result.duplicate).toBe(false);
+    if (result.duplicate) return;
+    expect(result.fastPathCommand).toBe("STOP");
+    expect(result.jobId).not.toBeNull(); // I7.6: command dostal normální raw_event + job jako každá jiná zpráva.
+
+    expect(await ownerControlEpoch()).toBe(before + BigInt(1));
+  });
+
+  it("DEC-007/I7.6: přirozená věta se slovem 'stop' NEBUMPNE epoch — jen přesná syntaxe", async () => {
+    const before = await ownerControlEpoch();
+
+    const result = await ingestMessage(runtimePool, TEST_REGISTRY, {
+      ownerId,
+      channel: "telegram",
+      speaker: "USER",
+      externalEventId: "tg-stop-sentence",
+      payloadType: "TEXT",
+      payloadPlaintext: Buffer.from("prosím stop, otravuješ mě", "utf8"),
+    });
+    expect(result.duplicate).toBe(false);
+    if (result.duplicate) return;
+    expect(result.fastPathCommand).toBeNull();
+
+    expect(await ownerControlEpoch()).toBe(before);
+  });
+
+  it("DEC-007/I7.3: duplicitní doručení stejného /pause (stejný external_event_id) nebumpne epoch podruhé", async () => {
+    const before = await ownerControlEpoch();
+
+    await ingestMessage(runtimePool, TEST_REGISTRY, {
+      ownerId,
+      channel: "telegram",
+      speaker: "USER",
+      externalEventId: "tg-pause-dup",
+      payloadType: "TEXT",
+      payloadPlaintext: Buffer.from("/pause", "utf8"),
+    });
+    const afterFirst = await ownerControlEpoch();
+    expect(afterFirst).toBe(before + BigInt(1));
+
+    const second = await ingestMessage(runtimePool, TEST_REGISTRY, {
+      ownerId,
+      channel: "telegram",
+      speaker: "USER",
+      externalEventId: "tg-pause-dup",
+      payloadType: "TEXT",
+      payloadPlaintext: Buffer.from("/pause", "utf8"),
+    });
+    expect(second.duplicate).toBe(true); // dedup (krok 1) proběhne dřív než detekce — bump se vůbec nevyhodnotí podruhé.
+
+    expect(await ownerControlEpoch()).toBe(afterFirst);
+  });
+
+  it("DEC-007: VOICE payload se stejnými bajty se nedetekuje — fast path je jen pro TEXT", async () => {
+    const before = await ownerControlEpoch();
+
+    const result = await ingestMessage(runtimePool, TEST_REGISTRY, {
+      ownerId,
+      channel: "telegram",
+      speaker: "USER",
+      externalEventId: "tg-voice-not-command",
+      payloadType: "VOICE",
+      payloadPlaintext: Buffer.from("/stop", "utf8"),
+    });
+    expect(result.duplicate).toBe(false);
+    if (result.duplicate) return;
+    expect(result.fastPathCommand).toBeNull();
+
+    expect(await ownerControlEpoch()).toBe(before);
+  });
 });

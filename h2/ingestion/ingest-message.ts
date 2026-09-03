@@ -3,6 +3,10 @@ import type { Pool } from "pg";
 import { encryptPayload } from "@/h2/crypto/envelope";
 import type { EncryptionKeyRegistry } from "@/h2/crypto/keys";
 import { withOwnerScope } from "@/h2/db/with-owner-scope";
+import { bumpOwnerControlEpochWithClient } from "@/h2/processing/control-epoch";
+
+import type { FastPathControlCommand } from "./control-fast-path";
+import { detectFastPathControlCommand } from "./control-fast-path";
 
 /**
  * ingestMessage() — jediná doménová funkce, kterou volají Telegram i web
@@ -20,6 +24,16 @@ import { withOwnerScope } from "@/h2/db/with-owner-scope";
  * Volající (webhook/route handler) smí vrátit ACK/200 teprve po úspěšném
  * návratu této funkce (§4.1: "Teprve po commitu smí Telegram webhook vrátit
  * HTTP 200") — AT-01.
+ *
+ * **DEC-007 (Sovereignty fast path, C2):** `ingestMessage()` zůstává
+ * jediným vstupem a VŽDY vytvoří raw_event i job i pro control command —
+ * žádná zpráva nikdy nezmizí z lifecycle kvůli klasifikaci (I7.6).
+ * Pokud text přesně odpovídá `/stop`/`/pause`/`/resume` (§8.1 exact-match,
+ * `h2/ingestion/control-fast-path.ts`), navíc se ve STEJNÉ transakci
+ * zavolá `bumpOwnerControlEpochWithClient()` — dědí dedup (krok 1 výše)
+ * i per-owner ordering (advisory lock + sekvence), takže nevzniká druhá
+ * transakce ani crash window (I7.3/I7.4). BUILD-10's Command Gate re-
+ * detekuje stejnou funkcí a NESMÍ bumpnout znovu (viz komentář tam).
  */
 export type IngestChannel = "telegram" | "web";
 export type IngestSpeaker = "USER" | "BUDDY" | "SYSTEM";
@@ -37,7 +51,7 @@ export type IngestMessageInput = {
 
 export type IngestMessageResult =
   | { duplicate: true; rawEventId: string }
-  | { duplicate: false; rawEventId: string; jobId: string | null };
+  | { duplicate: false; rawEventId: string; jobId: string | null; fastPathCommand: FastPathControlCommand | null };
 
 export async function ingestMessage(
   pool: Pool,
@@ -109,6 +123,17 @@ export async function ingestMessage(
       jobId = jobInsert.rows[0].id;
     }
 
-    return { duplicate: false, rawEventId, jobId };
+    // DEC-007 (C2): fast path jako side effect ve STEJNÉ transakci, nikdy
+    // jako exkluzivní routing — raw_event a job výše vznikly bez ohledu na
+    // tohle. Jen USER + TEXT zprávy mají smysluplný plaintext k detekci.
+    let fastPathCommand: FastPathControlCommand | null = null;
+    if (input.speaker === "USER" && input.payloadType === "TEXT") {
+      fastPathCommand = detectFastPathControlCommand(input.payloadPlaintext.toString("utf8"));
+      if (fastPathCommand !== null) {
+        await bumpOwnerControlEpochWithClient(client, input.ownerId);
+      }
+    }
+
+    return { duplicate: false, rawEventId, jobId, fastPathCommand };
   });
 }
