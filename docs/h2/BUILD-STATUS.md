@@ -4,8 +4,41 @@
 
 **[DEC-007](./DECISIONS.md#dec-007) — Sovereignty fast path retrofit (C2), zásah do uzavřeného BUILD-04:** PR [#32](https://github.com/honzabindr-max/muj-web/pull/32) mergnut do `main` (merge commit `57190c5`), Vercel auto-deploy proběhl (`dpl_9LWiYUkm8Bccatisv8eoR4zjbjQB`), `/api/h2/health` živě ověřen. Po adversarial review přes GPT Honzík změnil svoje doporučení z B na C2 — `ingestMessage()` vždy vytvoří `raw_event`+job i pro control command (I7.6), navíc přesný `/stop`/`/pause`/`/resume` bumpne `owner_control_epoch` ve stejné transakci. 7 sub-invariantů I7.1–I7.7 zapsáno jako závazné. Žádná nová migrace, žádný nový credential. **Pravidlo 10 (viz "Pravidla" níže): BUILD-11 se nesmí uzavřít AT GREEN bez testu, že delivery respektuje `owner_control_epoch`** — nalezená mezera při I7.5 review, dnešní `response_deliveries` schéma tuhle kontrolu nemá vůbec.
 
-**Další slice: BUILD-10 (Buddy runtime) — plán napsán a COMMITNUTÝ ([docs/h2/BUILD-10-PLAN.md](./BUILD-10-PLAN.md)), implementace ČEKÁ na Honzíka — potřebuje reálný `H2_ANTHROPIC_API_KEY` + ruční certifikaci `BUDDY_RESPONSE` promptu, Honzík chce být u prvního reálného Sonnet volání osobně. Code na BUILD-10 nezačíná bez něj. Nová session: začni čtením tohoto souboru + BUILD-10-PLAN.md + DECISIONS.md.**
+**Aktuální slice: BUILD-10 (Buddy runtime) — implementace HOTOVÁ na branchi, ČEKÁ na push+PR+GO k mergi.** `H2_ANTHROPIC_API_KEY` živě ověřen na Vercelu (production i preview, `check-required-env.ts`, 2026-09-03) — první ze dvou blokátorů z plánu je pryč. Ruční certifikace `BUDDY_RESPONSE` promptu (`activatePromptVersion()`, recent re-auth) zůstává samostatný krok — **žádný `prompt_versions` řádek pro `BUDDY_RESPONSE` (ani pro žádný jiný purpose) dnes v produkci neexistuje** (`createDraftPromptVersion()` se dosud nikde nevolá mimo testy — stejná mezera platí i pro BUILD-08's `OPERATIONAL_EXTRACTION`, není to nový BUILD-10 nález). `getActivePromptVersion()` proto v produkci vrátí `null` a `generateBuddyResponse()` explicitně vyhodí `H2BuddyRuntimeError("NO_ACTIVE_PROMPT")` — žádný tichý no-op. **Žádné reálné Sonnet volání neproběhlo** (mockovaný `callAnthropicModel` ve všech 16 nových testech), autorizace i certifikace zůstává na Honzíkovi (viz Evidence blok níže). Nová session: začni čtením tohoto souboru + BUILD-10-PLAN.md + DECISIONS.md.
 
+**Command Gate scope (BUILD-10, `h2/buddy/command-gate.ts`):** implementován jen exact-match re-detekce `/stop`/`/pause`/`/resume` (DEC-007 bod 5 — I7.3 idempotence, žádný druhý epoch bump). §8.1's širší Command Gate scope (holé "stop"/"pause" v přirozené větě, `IGNORE` s cílem, `DELETE`/`HARD_DELETE`/`RECONSIDER`/`CORRECT`) NENÍ implementován — přesná protokolová syntaxe (I7.7: "control intent má být protokolová struktura, ne odvozený z přirozeného jazyka") existuje jen v uzamčené Notion Technical Architecture §8.1 v plném znění, ne v BUILD-10-PLAN.md ani DECISIONS.md. Hádání syntaxe by riskovalo přesně to, co I7.6 zakazuje (chybná klasifikace nevratně bere zprávě normální zpracování). Forward-pointer pro budoucí slice (BUILD-12 Reconsideration / BUILD-20 Deletion Ledger vlastní hlubokou sémantiku už podle BUILD-10-PLAN.md, ale detekce/routing v Command Gate na ně čeká na doplnění přesné syntaxe z Notionu).
+
+**Evidence (BUILD-10 implementace, ČEKÁ na push+PR+Honzíkovo GO k mergi):**
+```
+Commit: c3126d1 (implementace + testy, branch build/h2-build-10-buddy-runtime)
+Branch: build/h2-build-10-buddy-runtime — NEPUSHNUTÁ, žádné PR zatím
+DB: žádná nová migrace — h2/buddy/* čte/zapisuje výhradně přes už existující
+    tabulky a granty (responses, prompt_versions, llm_runs, usage_ledger,
+    projects/commitments/tasks/open_loops/reminders, claims/mechanisms/
+    experiments, evidence_items+raw_events). Žádný nový sloupec.
+GHA: neběželo — branch není pushnutá.
+Artifact: N/A
+Deployment: N/A — nemergnuto.
+Timestamp: 2026-09-03
+Verified by: Code — lokálně 217/217 testů (16 nových: AT-09 ×1, AT-50 ×2,
+    AT-62 ×1 ve h2/buddy/__tests__/generate-response.test.ts + 6 Command
+    Gate unit testů + 5 resolve-manifest-content testů), `npx tsc --noEmit`
+    čisté, `npm run build` čisté (Next.js build prošel bez chyby),
+    `h2/build-governance/__tests__/at-ownership.test.ts` zelený po přidání
+    "BUILD-10" do COMPLETED_BUILD_BLOCKS. `check-required-env.ts` živě
+    ověřeno proti production i preview — H2_ANTHROPIC_API_KEY PŘÍTOMEN na
+    obou (chybí jen H2_LEDGER_HMAC_KEY/H2_OPENAI_API_KEY, oba mimo BUILD-10
+    scope, známé z dřívějška).
+Remaining risk: (1) žádné reálné Sonnet volání — mockovaný callAnthropicModel
+    ve všech testech, ruční certifikace `BUDDY_RESPONSE` promptu je
+    samostatný krok, který Honzík chce vidět osobně; (2) Command Gate scope
+    zúžený (viz poznámka výše) — bare-word/IGNORE/DELETE/HARD_DELETE/
+    RECONSIDER/CORRECT detekce mimo scope, čeká na přesnou syntaxi z
+    uzamčené Notion §8.1; (3) žádný `prompt_versions` řádek pro
+    BUDDY_RESPONSE dnes v produkci neexistuje — vytvoření DRAFT verze +
+    `prompt_test_runs` PASS řádek + `activatePromptVersion()` je součást
+    téhož certifikačního kroku, ne vyřešeno teď.
+```
 **Evidence (BUILD-09 Krok 4 celý krok — a tím celý BUILD-09 slice):**
 ```
 Commit: e8fcdb4 (implementace + testy), dc96509 (docs), merge 93accfc do main
