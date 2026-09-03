@@ -1,23 +1,21 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). **Krok 1 (Token Budget Contract + context_run persistence + retrofit BUILD-08 input trim) — UZAVŘENO**, MERGED, nasazeno na produkci. PR [#27](https://github.com/honzabindr-max/muj-web/pull/27) mergnut do `main` (merge commit `df7c78a`), Vercel auto-deploy proběhl (`dpl_6sVj7YmFsNdoJFSYFgQgySUfUdpX`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential — `check-required-env.ts` beze změny nálezu. **Krok 2 (deterministic relevance floor + entity resolution v1)** — implementace hotová, PR [#28](https://github.com/honzabindr-max/muj-web/pull/28) (branch `build/h2-build-09-step2-relevance-floor`) otevřen, GHA zelené (run 33745846282), čeká na Honzíkovo GO k mergi. BUILD-08 (PR #26) je od minula UZAVŘENO — AT GREEN, MERGED (`417c789`), nasazeno na produkci. BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26), BUILD-09 Krok 1 (PR #27) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
+**Aktuální slice:** BUILD-09 — Context Engine, **IN PROGRESS** — plán schválen Honzíkem ([docs/h2/BUILD-09-PLAN.md](./BUILD-09-PLAN.md), 4 kroky/PR). Krok 1 (Token Budget Contract + persistence) i **Krok 2 (deterministic relevance floor + entity resolution v1) — UZAVŘENO**, MERGED, nasazeno na produkci. PR [#28](https://github.com/honzabindr-max/muj-web/pull/28) mergnut do `main` (merge commit `c10bb22`), Vercel auto-deploy proběhl (`dpl_iD3rgtaxsUcGXeH83MfuJ4WRTNJp`), `/api/h2/health` živě ověřen. Žádná nová migrace, žádný nový credential — `check-required-env.ts` beze změny nálezu. **Honzíkovo předschválené GO na Krok 3+4** (2026-09-03, podmíněné: CI zelené, žádná migrace/env/credential, žádný produkční trigger, žádný ARCHITECTURE DECISION REQUIRED, přesně podle plánu — jinak STOP). **Krok 3 (source providers P1–P4 + third-person cap) — probíhá.** BUILD-01 (PR #11), BUILD-02 (PR #12+#13), BUILD-03 (PR #14), BUILD-03A (PR #15), BUILD-04 (PR #18+#19), BUILD-05 (PR #20), BUILD-06 (PR #22), BUILD-07 (PR #24), BUILD-08 (PR #26), BUILD-09 Krok 1 (PR #27), Krok 2 (PR #28) a hotfix (PR #17) jsou MERGED. **Nová session: začni čtením tohoto souboru + BUILD-09-PLAN.md + DECISIONS.md.**
 
-**Evidence (BUILD-09 Krok 2, implementace hotová, čeká na push+PR):**
+**Evidence (BUILD-09 Krok 2 celý krok):**
 ```
-Commit: c644964 (implementace + testy)
-Branch: build/h2-build-09-step2-relevance-floor
+Commit: c644964 (implementace + testy), d479a09 + 2f4ca0f (docs), merge c10bb22 do main
+Branch: build/h2-build-09-step2-relevance-floor (PR #28, MERGED, branch smazána po mergi)
 DB: žádná nová migrace — čte operational_extractions (BUILD-08), žádný nový zápis.
 GHA: run 33745846282 (PR #28, h2-tests) — pass
 Artifact: N/A
-Deployment: N/A — čeká se na Honzíkovo GO k mergi; relevance-floor.ts a resolve-entities.ts
-    jsou další čisté/read-only funkce bez volajícího (Krok 3-4 na nich teprve staví), merge
-    sám o sobě nezmění chování žijící produkce.
+Deployment: Vercel production, deployment dpl_iD3rgtaxsUcGXeH83MfuJ4WRTNJp, target=production,
+    vytvořen ihned po mergi (10:46), state READY; živě ověřeno curl -sL
+    https://good-inventions.work/api/h2/health → {"status":"ok"}
 Timestamp: 2026-09-03
-Verified by: Code — lokálně 174/174 testů zelených (45 souborů, vč. 13 nových: AT-21
-    přes passesRelevanceFloor() bez entity/required/hypotézy, AT-22 entity match
-    case-insensitive, AT-23 hypotéza blokovaná mimo BUDDY_DEEP_DIVE, resolveMessageEntities()
-    ENTITY mapping/INVALID filtr/missing-label skip/nejnovější-OK-řádek), `npx tsc --noEmit`
-    čistě, `npm run build` čistě (žádné nové routy)
+Verified by: Code — CI, Vercel CLI (vercel inspect, vercel ls --prod), živý curl na produkci,
+    h2/db/scripts/check-required-env.ts proti production i preview (174/174 testů lokálně,
+    tsc/build čisté)
 Remaining risk: žádné funkční — Krok 2 nemá produkční trigger, DoD celého BUILD-09 se
     uzavírá až Krokem 4.
 ```
@@ -622,7 +620,7 @@ routy).
 5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_6sVj7YmFsNdoJFSYFgQgySUfUdpX` READY, `/api/h2/health` živě ověřen,
 6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, beze změny nálezu (jen 3 už známé proměnné).
 
-### Krok 2 — Deterministic relevance floor + entity resolution v1 (implementace hotová)
+### Krok 2 — Deterministic relevance floor + entity resolution v1 (MERGED, DEPLOYED)
 
 - `h2/context/relevance-floor.ts` — `passesRelevanceFloor(candidate,
   resolvedEntities, purpose)`: hypotéza (`isHypothesis`) projde jen při
@@ -657,7 +655,9 @@ stavět, nic v produkci je zatím nespouští.
 1. ~~implementace + testy podle schváleného plánu~~ — HOTOVO, viz evidence blok nahoře,
 2. ~~push branche, otevřít PR~~ — HOTOVO, [PR #28](https://github.com/honzabindr-max/muj-web/pull/28),
 3. ~~zelené GHA na PR~~ — HOTOVO, run 33745846282 (h2-tests) pass,
-4. Honzíkovo GO k mergi do `main` — ČEKÁ SE (žádná migrace, žádný env, jen běžné GO na merge).
+4. ~~Honzíkovo GO k mergi do `main`~~ — HOTOVO, merge commit `c10bb22` (Honzíkovo předschválené GO na Krok 3+4, 2026-09-03, podmíněné — viz hlavička souboru),
+5. ~~potvrdit produkční Vercel deploy po mergi~~ — HOTOVO, `dpl_iD3rgtaxsUcGXeH83MfuJ4WRTNJp` READY, `/api/h2/health` živě ověřen,
+6. ~~preflight `check-required-env.ts` proti production i preview~~ — HOTOVO, beze změny nálezu.
 
 ## Bloky BUILD-01 — BUILD-28
 
@@ -674,7 +674,7 @@ Stavy: `TODO` | `IN PROGRESS` | `AT GREEN` | `DEPLOYED` | `BLOCKED`
 | BUILD-06 | Voice transcription | AT GREEN — MERGED, DEPLOYED (ingest live, zpracování čeká na ruční ověření) | AT-04, AT-05 | [PR #22](https://github.com/honzabindr-max/muj-web/pull/22) MERGED, branch `build/h2-build-06-voice-transcription`; viz sekce výše |
 | BUILD-07 | Prompt Registry & model adapter | AT GREEN — MERGED, DEPLOYED (mechanismus bez produkčního triggeru, čeká na ruční certifikaci) | AT-33, AT-34, AT-35, AT-36, AT-63 | [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) MERGED, branch `build/h2-build-07-prompt-registry`; viz sekce výše |
 | BUILD-08 | Operational extraction | AT GREEN — MERGED, DEPLOYED (bez produkčního triggeru, zapojení je BUILD-10) | — (schema/unit/integration testy slice: 5/5 nových zelených, viz evidence block) | [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) MERGED, branch `build/h2-build-08-operational-extraction`; viz sekce výše |
-| BUILD-09 | Context Engine | IN PROGRESS — Krok 1/4 MERGED, DEPLOYED; Krok 2/4 PR otevřen, GHA zelené, čeká na GO k mergi | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27) MERGED (Krok 1); [PR #28](https://github.com/honzabindr-max/muj-web/pull/28) (Krok 2) |
+| BUILD-09 | Context Engine | IN PROGRESS — Krok 1-2/4 MERGED, DEPLOYED; Krok 3/4 probíhá | AT-21, AT-22, AT-23, AT-24, AT-25, AT-58, AT-66 | [PR #27](https://github.com/honzabindr-max/muj-web/pull/27) + [PR #28](https://github.com/honzabindr-max/muj-web/pull/28) MERGED |
 | BUILD-10 | Buddy runtime | TODO | AT-09, AT-50, AT-62 | — |
 | BUILD-11 | Telegram + web delivery | TODO | AT-10 | — |
 | — | **MILESTONE M1 — Buddy Live** | **NOT STARTED** | — | — |
