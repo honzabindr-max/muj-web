@@ -111,7 +111,7 @@ async function main() {
         }
         const contentCheck = lastFixtureName ? BUDDY_RESPONSE_FIXTURE_CONTENT_CHECKS[lastFixtureName] : undefined;
         if (contentCheck) {
-          const result = contentCheck(parsed.data.responseText);
+          const result = contentCheck(parsed.data);
           if (!result.valid) return { valid: false, errorSummary: result.errorSummary };
         }
         return { valid: true };
