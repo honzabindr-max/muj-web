@@ -1,7 +1,11 @@
 import { Pool } from "pg";
 
 import { BUDDY_RESPONSE_PROMPT_CONTENT, BUDDY_RESPONSE_OUTPUT_JSON_SCHEMA } from "@/h2/buddy/prompt-content";
-import { BUDDY_RESPONSE_FIXTURES, BUDDY_RESPONSE_FIXTURE_SET_VERSION } from "@/h2/buddy/prompt-fixtures";
+import {
+  BUDDY_RESPONSE_FIXTURE_CONTENT_CHECKS,
+  BUDDY_RESPONSE_FIXTURES,
+  BUDDY_RESPONSE_FIXTURE_SET_VERSION,
+} from "@/h2/buddy/prompt-fixtures";
 import { BuddyResponseOutputSchema } from "@/h2/buddy/stance-intent-schema";
 import { H2_MODELS } from "@/h2/config/models";
 import { callAnthropicModel } from "@/h2/prompts/anthropic-adapter";
@@ -15,7 +19,7 @@ const SCHEMA_VERSION = 1;
 /**
  * Certifikace prvního BUDDY_RESPONSE promptu proti REÁLNÉMU Sonnetu
  * (BUILD-07 aktivační gate, BUILD-10-PLAN.md požadavek). VOLÁ SKUTEČNÉ
- * Anthropic API — malý, ale reálný náklad (11 fixtur × krátký prompt).
+ * Anthropic API — malý, ale reálný náklad (12 fixtur × krátký prompt).
  * NIKDY nevolat automaticky, jen na Honzíkovo explicitní GO.
  *
  * Tenhle skript NEAKTIVUJE prompt — jen vytvoří DRAFT verzi a spustí
@@ -71,8 +75,15 @@ async function main() {
     // runPromptFixtureSuite() nevrací raw text (jen name/kind/passed/
     // errorSummary) — Honzík ale chce vidět skutečné odpovědi Buddyho, ne
     // jen PASS/FAIL, proto si je zachytáváme bokem podle fixture inputu.
+    // Zachytáváme i JMÉNO aktuální fixtury (podle inputu), aby validateOutput
+    // níže mohlo zavolat obsahovou kontrolu specifickou pro tuhle fixturu
+    // (BUDDY_RESPONSE_FIXTURE_CONTENT_CHECKS) — suite volá callModel a hned
+    // nato validateOutput sekvenčně, jedna fixtura po druhé, takže tenhle
+    // "poslední input" box je bezpečný.
     const rawResponsesByInput = new Map<string, string>();
+    let lastFixtureName: string | null = null;
     const capturingCallModel = async (modelId: string, promptContent: string, input: string) => {
+      lastFixtureName = BUDDY_RESPONSE_FIXTURES.find((f) => f.input === input)?.name ?? null;
       const result = await callAnthropicModel(modelId, promptContent, input, credentials.anthropicApiKey);
       rawResponsesByInput.set(input, result.text);
       return result;
@@ -95,7 +106,15 @@ async function main() {
           return { valid: false, errorSummary: "výstup není validní JSON" };
         }
         const parsed = BuddyResponseOutputSchema.safeParse(parsedJson);
-        return parsed.success ? { valid: true } : { valid: false, errorSummary: parsed.error.message.slice(0, 300) };
+        if (!parsed.success) {
+          return { valid: false, errorSummary: parsed.error.message.slice(0, 300) };
+        }
+        const contentCheck = lastFixtureName ? BUDDY_RESPONSE_FIXTURE_CONTENT_CHECKS[lastFixtureName] : undefined;
+        if (contentCheck) {
+          const result = contentCheck(parsed.data.responseText);
+          if (!result.valid) return { valid: false, errorSummary: result.errorSummary };
+        }
+        return { valid: true };
       },
     });
 
