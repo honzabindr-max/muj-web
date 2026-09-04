@@ -279,22 +279,22 @@ odpověď šla odeslat i po mezitímním PAUSE/STOP — přímo proti §8.1.
 potřeba baseline z okamžiku commitu, ne jen aktuální hodnota.
 **Vyžaduje Honzíkovo GO na migraci** (Pravidlo 4).
 
-## Rozhodnutí 5 (beze změny oproti v1): quarantine notice delivery — samostatná cesta, ne `response_deliveries`
+## Rozhodnutí 5 (ROZHODNUTO — Honzík, 2026-09-04): quarantine notice delivery — samostatná cesta, ne `response_deliveries`
 
 **Nalezená mezera (BUILD-05-PLAN.md "Rozhodnutí 3"):**
 `response_deliveries.response_id` je dnes `NOT NULL` — karanténovaná
 zpráva nemá žádný `responses` řádek.
 
-**Varianty:**
+**Varianty (zvažované):**
 - (a) rozšířit `response_deliveries.response_id` na nullable + discriminator,
 - (b) samostatná tabulka/mechanismus pro systémové notice.
 
-**Doporučení:** (b) — malá funkce `sendQuarantineNotice(ownerId, jobId)`
-volaná ze stejného místa jako `quarantineJob()` (uvnitř
-`processOwnerQueueBounded()`'s catch větve), `idempotency_key =
-quarantine_notice:{job_id}` proti nové malé tabulce
-(`system_notice_deliveries`). **Vyžaduje Honzíkovo potvrzení** — dotýká se
-schématu.
+**Rozhodnuto: (b), nová tabulka `system_notice_deliveries`.** Malá
+funkce `sendQuarantineNotice(ownerId, jobId)` volaná ze stejného místa
+jako `quarantineJob()` (uvnitř `processOwnerQueueBounded()`'s catch
+větve), `idempotency_key = quarantine_notice:{job_id}` proti nové malé
+tabulce `system_notice_deliveries` — beze změny oproti Code's doporučení,
+Honzík ho potvrdil beze změny.
 
 ## Rozhodnutí 6 (beze změny oproti v1): delivery mechanismus — Telegram outbound + web polling
 
@@ -591,12 +591,14 @@ dnes neměří retry, měří kvalitu scheduleru** (gate formulace, přesná).
   charged time, ne jako wall-clock okno),
 - `charged_processing_ms bigint not null default 0` — kumulativní
   účtovaný čas napříč pokusy,
-- `processing_deadline_at` — **navrhováno zrušit** (drop column) v téže
-  migraci, ne ponechat vedle nových sloupců jako matoucí duplicitní
-  koncept. Tabulka má dnes 0 produkčních řádků (BUILD-10 evidence), takže
-  drop je bezpečný bez migrace dat. Pokud Honzík preferuje ponechat pro
-  audit trail (read-only, nečtený žádnou rozhodovací logikou), je to
-  alternativa k potvrzení, ne blokující bod.
+- `processing_deadline_at` — **ROZHODNUTO (Honzík, 2026-09-04): ZRUŠIT**
+  (drop column) v téže migraci. Důvod: nulová produkční data (BUILD-10
+  evidence — tabulka má dnes 0 řádků, drop je bezpečný bez migrace dat) a
+  ponechaný nečtený sloupec vedle `charged_processing_ms`/
+  `processing_budget_ms` by byl matoucí duplicitní koncept — dvě pole
+  popisující "kdy job vyprší", z nichž jedno už nikdy nic nerozhoduje, je
+  přesně ta nejednoznačnost, kterou DEC-008 měl odstranit, ne zavést v
+  jiné podobě.
 
 **Návrh — účtování (`isJobExhausted()`, `h2/processing/quarantine.ts`):**
 druhá podmínka (`processing_deadline_at !== null && now >
@@ -758,7 +760,7 @@ lease.ts` + `h2/processing/quarantine.ts` (BUILD-05 uzavřený blok).
 
 **Migrace:** `0018_processing_budget.sql` — `message_processing_jobs` nové
 sloupce (`processing_budget_ms`, `charged_processing_ms`), drop
-`processing_deadline_at` (k potvrzení, viz Rozhodnutí 9).
+`processing_deadline_at` (ROZHODNUTO, viz Rozhodnutí 9).
 
 **Proč je bezpečné mergnout samostatně:** stejný důvod jako Krok 1 — žádný
 produkční trigger dnes volá `claimNextJob()`/`recordJobFailure()`. Nulová
@@ -778,10 +780,15 @@ epoch check), Rozhodnutí 5 (quarantine notice seam), Rozhodnutí 6
 Pravidlo 10's explicitní test — commit → epoch bump → `deliverResponse()`
 odmítne), ale **nikým nevolané v produkci** — Krok 4 je připojí.
 
-**Migrace:** `0019_response_delivery_epoch.sql` — `responses.
+**Migrace — ROZHODNUTO (Honzík, 2026-09-04): dvě samostatné migrace, ne
+sloučit.** `0019_response_delivery_epoch.sql` — `responses.
 owner_control_epoch` sloupec; `0020_system_notice_deliveries.sql` — nová
-tabulka pro Rozhodnutí 5 (nebo sloučeno do jedné migrace, pokud Honzík
-preferuje méně souborů — k potvrzení).
+tabulka `system_notice_deliveries` pro Rozhodnutí 5. Důvod oddělení:
+různé subjekty (`responses` je existující BUILD-02 tabulka, `system_
+notice_deliveries` je zcela nová) a Pravidlo 5 (BUILD-STATUS.md)
+vyžaduje ověření `_h2_migrations` u každé migrace zvlášť, přímým dotazem
+na production i preview větev — sloučením by se tohle ověření provedlo
+jen jednou za dvě věcně nesouvisející schema změny, ne za každou.
 
 **Proč je bezpečné mergnout samostatně:** `deliverResponse()`/
 `sendQuarantineNotice()` jsou nové, testované funkce bez produkčního
@@ -833,7 +840,7 @@ neúplné/nekonzistentní fázi vlastní fronty.
 | 1 | Krok 1 | `0017_llm_attempts.sql` (nová) | nová tabulka `llm_attempts` (FK na `message_processing_jobs`) | Aditivní FK na BUILD-02 tabulku, samo o sobě nová tabulka |
 | 2 | Krok 2 | `0018_processing_budget.sql` (nová) | `message_processing_jobs` — 2 nové sloupce, 1 drop | ANO — BUILD-02 (`0002_messaging.sql`), sémanticky BUILD-05 |
 | 3 | Krok 3 | `0019_response_delivery_epoch.sql` (nová) | `responses.owner_control_epoch` | ANO — BUILD-02 (`0002_messaging.sql`) |
-| 3 | Krok 3 | `0020_system_notice_deliveries.sql` (nová, k potvrzení počet souborů) | nová tabulka `system_notice_deliveries` | Aditivní, nezasahuje existující tabulku |
+| 3 | Krok 3 | `0020_system_notice_deliveries.sql` (nová, samostatně od 0019 — ROZHODNUTO) | nová tabulka `system_notice_deliveries` | Aditivní, nezasahuje existující tabulku |
 | 4 | Krok 4 | žádná | — | — |
 
 **Celkem: 4 nové migrace v tomto plánu (0017–0020) + 1 už existující
@@ -905,8 +912,9 @@ rozšíření), žádná nepřepisuje ani neodstraňuje existující produkční
    (bezprostředně před Krokem 4) → teprve pak merge Kroku 4.
 4. Rozhodnutí 8: založení `cron-job.org` účtu (externí, mimo repo) a GO na
    nový `H2_QUEUE_WAKE_SECRET` credential.
-5. Rozhodnutí 9: potvrzení/úprava návrhu drop `processing_deadline_at`
-   sloupce (vs. ponechat jako nečtený audit trail).
+5. ~~Rozhodnutí 9: potvrzení drop `processing_deadline_at` sloupce~~ —
+   **VYŘEŠENO.** Honzík rozhodl ZRUŠIT (2026-09-04), viz Rozhodnutí 9.
+   Není to už otevřený bod.
 6. Rozhodnutí 9: **hodnota a tvar stale-age pravidla** — produktové
    rozhodnutí, Code ho nenavrhuje (viz "Co zůstává mimo scope").
 7. Ověření Vercel `maxDuration` (plán/tier) pro ingest routes i wake
@@ -918,6 +926,13 @@ rozšíření), žádná nepřepisuje ani neodstraňuje existující produkční
    nedělá. Zbývá jen nezávazný monitorovací bod (první měsíc po nasazení
    Kroku 4 sledovat CU-h spotřebu) — neblokuje schválení plánu ani Krok
    4. Není to už otevřený bod.
+9. ~~Rozhodnutí 5: nová tabulka vs. rozšíření `response_deliveries`~~ —
+   **VYŘEŠENO.** Honzík potvrdil (b), nová tabulka `system_notice_
+   deliveries` (2026-09-04), viz Rozhodnutí 5. Není to už otevřený bod.
+10. ~~Krok 3: sloučit migrace 0019+0020, nebo oddělit?~~ — **VYŘEŠENO.**
+    Honzík rozhodl oddělit (2026-09-04, Pravidlo 5 — ověření
+    `_h2_migrations` zvlášť za každou), viz Krok 3. Není to už otevřený
+    bod.
 
 **Rozhodnutí 10's výklad (a) vs. (b) je vyřešeno — Honzík potvrdil (b)
 2026-09-04, viz Rozhodnutí 10 výše. Není to už otevřený bod.**
