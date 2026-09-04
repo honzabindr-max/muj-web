@@ -2,7 +2,7 @@ import type { PromptFixture } from "@/h2/prompts/fixtures";
 
 import { renderBuddyPromptInput } from "./render-prompt-input";
 
-export const BUDDY_RESPONSE_FIXTURE_SET_VERSION = "v1-draft-2026-09-04";
+export const BUDDY_RESPONSE_FIXTURE_SET_VERSION = "v1-draft-2026-09-04b";
 
 /**
  * Fixture set pro BUDDY_RESPONSE certifikaci (`runPromptFixtureSuite`,
@@ -86,9 +86,15 @@ export const BUDDY_RESPONSE_FIXTURES: readonly PromptFixture[] = [
     ]),
   },
   {
-    // Vážný osobní obsah — VÁŽNÉ CHVÍLE blok (revize 2026-09-04) očekává
-    // BE_WITH, žádný akční plán, žádnou předstíranou odbornost.
-    name: "happy_path_serious_personal_content_be_with",
+    // Vážný osobní obsah — VÁŽNÉ CHVÍLE blok (revize 2026-09-04b) očekává
+    // BE_WITH, žádný akční plán, žádnou předstíranou odbornost, A NAVÍC
+    // (druhá revize, Honzíkova žádost): jednu upřímnou větu, že Buddy sám
+    // nestačí a Honzík by o tom měl mluvit i s někým živým, ne skript ani
+    // odkaz na linku. `expectedValid` ověří jen tvar JSON — přítomnost
+    // téhle věty se čte ručně (Honzíkova certifikační kontrola), harness
+    // na to nemá automatickou asserci. Pokud věta v odpovědi chybí, prompt
+    // revizi nesplnil, i kdyby byl JSON validní.
+    name: "happy_path_serious_personal_content_encourages_real_person",
     kind: "happy_path",
     expectedValid: true,
     input: renderBuddyPromptInput(
