@@ -344,7 +344,7 @@ zdůvodnění):**
    podle Honzíkova původního zadání (varianta B, 2026-09-03).
 4. Teprve pak merge Kroku 4.
 
-## Rozhodnutí 8 (nové, z gate, interval revidován 2026-09-04): nezávislý budík (10–15 min) — control plane wake, ne data plane
+## Rozhodnutí 8 (nové, z gate; interval ROZHODNUT 2026-09-04): nezávislý budík (30 min, pevně) — control plane wake, ne data plane
 
 **Nález (gate, 2026-09-04):** systém dnes nemá liveness. Jediný spouštěč
 zpracování fronty je `after()` uvnitř příchozí zprávy (Rozhodnutí 1) — bez
@@ -362,12 +362,13 @@ budoucí review, ať se neopakuje diskuze):**
 - Neon pg_cron — zamítnuto, neumí outbound HTTP a Free plán scale-to-zero
   po 5 min neaktivity by pg_cron job stejně nespustil spolehlivě.
 
-**Návrh:** externí ping (cron-job.org, zdarma, interval **10–15 min —
-minutový interval ZAMÍTNUT, viz otevřený bod 4 níže pro důvod a výpočet**,
-custom headers) → nový autentizovaný endpoint `POST /api/internal/queue-
-wakeup` → pro **každého** ownera zavolá `processOwnerQueueBounded()`
-(Rozhodnutí 1), ne jen pro jednoho — na rozdíl od Rozhodnutí 1's volání z
-ingest routy, kde je `ownerId` dán requestem.
+**Návrh:** externí ping (cron-job.org, zdarma, interval **30 minut —
+ROZHODNUTO Honzíkem, pevná hodnota, neladí se ani nedopočítává, viz
+otevřený bod 4 níže pro odůvodnění**, custom headers) → nový
+autentizovaný endpoint `POST /api/internal/queue-wakeup` → pro
+**každého** ownera zavolá `processOwnerQueueBounded()` (Rozhodnutí 1), ne
+jen pro jednoho — na rozdíl od Rozhodnutí 1's volání z ingest routy, kde
+je `ownerId` dán requestem.
 
 **Oprava nálezu (2026-09-04) — enumerace ownerů přes `message_processing_
 jobs` je stejná třída bugu jako `verify-ingestion.ts` před Pravidlem 9:**
@@ -469,40 +470,19 @@ nemusí, znovupoužít stejný `cron-job.org` účet s jiným endpointem).
    (závisí na plánu — dnes neověřeno) — vstup pro Rozhodnutí 1's
    `deadlineAt` výpočtu, musí se zjistit před implementací Kroku 4, ne
    předpokládat.
-4. **Interval budíku a dopad na Neon compute náklady (2026-09-04,
-   aktualizováno po ověření proti Neon dokumentaci a Neon Console —
-   čísla, ne odhad):**
+4. **Interval budíku — ROZHODNUTO (Honzík, 2026-09-04): 30 minut,
+   pevně.** Neladí se, nedopočítává se, nečeká se na ověření velikosti
+   computu (viz "Poznámka" níže — přesunuto z blokujícího ověření do
+   nezávazné monitorovací poznámky).
 
-   **(a) Ověření skutečné velikosti computu a chování po vyčerpání
-   limitu — ČÁSTEČNĚ BLOKOVÁNO, chybí přístup, nehádáno:**
-   Skutečnou nakonfigurovanou velikost computu (`h2-runtime`,
-   `h2-control`) nejde z tohohle repu/prostředí ověřit — žádný Neon API
-   klíč (`env | grep -i neon` prázdné), žádný `neonctl` binární
-   (`which neonctl` nenalezeno), žádný Neon MCP server připojený k téhle
-   session. Honzík si to ověří sám v Neon Console:
-   - **Compute size:** vyber projekt → **BRANCH** selektor → sekce
-     "Postgres database" → **Computes** → tlačítko **Edit** u daného
-     computu — otevře se panel s compute size, autoscaling rozsahem
-     (min/max CU) a scale-to-zero nastavením. Zdroj:
-     `neon.com/docs/manage/computes`, ověřeno živě 2026-09-04.
-   - **Aktuální spotřeba CU-hodin proti limitu:** stránka **Projects** v
-     Neon Console (zjednodušený přehled, řádek "Compute") nebo stránka
-     **Billing** pro detailnější rozpad. Zdroj:
-     `neon.com/docs/introduction/monitor-usage`, ověřeno živě 2026-09-04
-     — dokumentace nespecifikuje přesné umístění živého počítadla proti
-     100CU-hodinovému limitu, jen že se ukazuje na těchhle dvou místech.
-   - **Chování po vyčerpání 100 CU-h — ověřeno, ne odhad:** Neon
-     dokumentace (`neon.com/docs/introduction/free-tier`, ověřeno živě
-     2026-09-04) doslovně: *"when you run out of CU-hours...your
-     compute is suspended until the next billing period or until you
-     upgrade."* Tedy **suspend**, ne throttle a ne tiché doúčtování —
-     po vyčerpání limitu uprostřed měsíce by `h2-runtime` přestal být
-     dostupný, dokud nezačne další zúčtovací období nebo Honzík
-     neupgraduje plán. Riziko je vyšší, než "prodraží se to" — je to
-     "aplikace přestane fungovat".
+   **Honzíkovo zdůvodnění:** osobní projekt — budík je záchranná síť pro
+   případ, že `after()` (Rozhodnutí 1) selže nebo nestihne frontu
+   vyprázdnit, ne běžná zpracovávací cesta. Latence do 30 min v tomhle
+   scénáři nemá dopad. Priorita je velká rezerva proti Neon suspendu, ne
+   nízká latence budíku.
 
-   **(b) Minutový interval — ZAMÍTNUT.** Důvod: Neon Free 100 CU-h/měsíc
-   limit + (a)'s suspend-při-vyčerpání chování. Minutový ping (1/min,
+   **(a) Minutový interval — ZAMÍTNUT.** Důvod: Neon Free 100 CU-h/měsíc
+   limit + (b)'s suspend-při-vyčerpání chování. Minutový ping (1/min,
    24/7) resetuje 5minutový scale-to-zero idle timer při každém volání
    (1 min < 5 min suspend threshold) — `h2-runtime`'s compute tak nikdy
    nestihne usnout a běží fakticky nepřetržitě. Na dokumentované
@@ -510,49 +490,42 @@ nemusí, znovupoužít stejný `cron-job.org` účet s jiným endpointem).
    plans`: "100 CU-hodin stačí run a 0.25 CU compute in a project for
    400 hours/month") by kontinuální běh 720 h/měsíc (30denní měsíc)
    spotřeboval `720 × 0,25 = 180 CU-hodin/měsíc` — 1,8× nad limitem,
-   vyčerpáno za `400 h ÷ 24 h/den ≈ 16,7 dne`. Pak by `h2-runtime`
-   podle (a) spadl do **suspendu na zbytek měsíce**, ne jen zdražil
-   provoz. Zamítnuto.
+   vyčerpáno za `400 h ÷ 24 h/den ≈ 16,7 dne`. Zamítnuto.
 
-   **(c) Navržený interval — 10–15 min, s výpočtem:**
-   - Free budget: `100 CU-h ÷ 0,25 CU = 400 h` wall-clock aktivního
-     computu za měsíc (na dokumentované výchozí velikosti — viz (a) pro
-     ověření skutečné hodnoty).
-   - Jeden ping stojí přibližně **5 min** aktivního computu: probudí
-     spící compute, provede krátký dotaz (Rozhodnutí 8's enumerace přes
-     `owners` + no-op `claimNextJob()` volání), pak compute čeká na
-     5minutový scale-to-zero timer, než znovu usne — pokud mezi pingy
-     nepřijde žádný jiný provoz.
-   - Strop bez rezervy: `400 h × 60 = 24 000 min` budgetu ÷ `5 min` na
-     ping = **4 800 pingů/měsíc** nejvýš. Měsíc má `30 × 24 × 60 =
-     43 200 min` → minimální bezpečný interval `43 200 ÷ 4 800 = 9 min`
-     — pod touhle hranicí (např. 5–8 min) by i bez minutového extrému
-     hrozilo vyčerpání limitu.
-   - **Doporučeno 10–15 min** — nad 9minutovým stropem, s rezervou pro
-     (d) níže (sdílený rozpočet s běžným provozem aplikace). **Přesná
-     hodnota v tomhle rozsahu se dopočítá až podle skutečně ověřené
-     velikosti computu z (a)** — pokud `h2-runtime` neběží na
-     dokumentované výchozí 0,25 CU, celý výpočet se úměrně mění (větší
-     CU velikost = míň wall-clock hodin ve 100CU-hodinovém budgetu =
-     delší potřebný interval, ne kratší).
+   **(b) Ověřený fakt, proč se volí velká rezerva, ne těsný výpočet:**
+   Neon dokumentace (`neon.com/docs/introduction/free-tier`, ověřeno
+   živě 2026-09-04) doslovně: *"when you run out of CU-hours...your
+   compute is suspended until the next billing period or until you
+   upgrade."* Po vyčerpání 100 CU-h Neon compute **SUSPENDUJE** do
+   dalšího fakturačního období — **netrotluje, nezdraží tiše**.
+   Vyčerpání limitu tak nesrazí jen budík — srazí **celou aplikaci
+   včetně Telegram ingestu**, protože `app/api/h2/telegram/webhook/
+   route.ts` (BUILD-04) běží na tom samém `h2-runtime` Neon projektu.
+   Proto se interval nevolí těsně u matematického stropu, ale s velkou
+   rezervou nad ním.
+
+   **(c) Matematický strop (kontext k (b), ne návod na doladění):** Free
+   budget `100 CU-h ÷ 0,25 CU = 400 h` wall-clock/měsíc (na
+   dokumentované výchozí velikosti); jeden ping ~5 min aktivního computu
+   (probuzení + čekání na 5minutový scale-to-zero timer); strop bez
+   rezervy `24 000 min ÷ 5 min = 4 800 pingů/měsíc` → `43 200 min ÷
+   4 800 = 9 min` minimální bezpečný interval. **30 min je ~3,3× nad
+   tímhle stropem** — i kdyby skutečná velikost computu nebo spotřeba
+   běžného provozu (viz (d) níže) vybočila z dokumentovaného výchozího
+   odhadu, 30minutový interval má prostor to absorbovat beze změny.
 
    **(d) Rozpočet je sdílený s běžným provozem aplikace, ne jen s
-   budíkem.** Výpočet v (c) počítá jen s pingy budíku — ale **100
-   CU-hodin/měsíc je celkový limit projektu**, ne vyhrazený jen pro
-   Rozhodnutí 8. Každý reálný Telegram webhook a web request taky budí
-   `h2-runtime`'s compute (stejný scale-to-zero mechanismus) a spotřebovává
-   ze stejného měsíčního rozpočtu. Interval budíku proto **nemůže
-   spotřebovat celých 400 h** vypočtených v (c) — kolik zbyde na budík
-   záleží na tom, kolik compute-hodin sní běžný provoz (dnes neznámo,
-   žádný produkční trigger ještě neběží — BUILD-STATUS.md). Rezerva pro
-   běžný provoz je další důvod volit horní konec rozsahu (15 min), ne
-   spodní (10 min), dokud Honzík nebo pozdější monitoring nedodá reálná
-   čísla skutečné spotřeby.
+   budíkem.** Každý reálný Telegram webhook a web request taky budí
+   `h2-runtime`'s compute (stejný scale-to-zero mechanismus) a
+   spotřebovává ze stejného měsíčního rozpočtu jako budík. Skutečná
+   spotřeba běžného provozu je dnes neznámá (žádný produkční trigger
+   ještě neběží — BUILD-STATUS.md) — 30minutová rezerva z (c) tohle
+   částečně kompenzuje, ale ne neomezeně, proto monitorovací bod níže.
 
    **(e) Tenhle interval je použitelný teprve PO Kroku 2, ne dřív.** S
    dnešní wall-clock sémantikou (`processing_deadline_at =
-   first_started_at + 120 s`, §4.2) by budík běžící po 10–15 minutách
-   místo po 1 minutě znamenal, že mezi dvěma probuzeními uplyne víc než
+   first_started_at + 120 s`, §4.2) by budík běžící po 30 minutách místo
+   po 1 minutě znamenal, že mezi dvěma probuzeními uplyne mnohem víc než
    120 s wall clock i pro joby, které nikdy neběžely — `isJobExhausted()`
    by je našel **už propadlé** (`now > processing_deadline_at`) a poslal
    rovnou do karantény, bez ohledu na to, kolik reálné práce se stihlo.
@@ -563,12 +536,25 @@ nemusí, znovupoužít stejný `cron-job.org` účet s jiným endpointem).
    endpoint je součást Kroku 4, poslední) tuhle podmínku už samo splňuje
    — jde o to nezkracovat pořadí, ne o novou závislost navíc.
 
-   **Závěr:** minutový interval zamítnut, 10–15 min navrženo s
-   podmínkou (e) a otevřenou hodnotou podle (a)+(d). Tohle **nemění
-   architekturu Rozhodnutí 8** — princip "control plane wake" zůstává
-   správný, mění se jen jeho rozvrh. Musí se vyřešit **před** Krokem 4
-   (viz "Implementační strategie" níže), protože Krok 4 je jediný krok,
-   který wake endpoint skutečně zapojí do provozu.
+   **Poznámka — ověření velikosti computu, NEBLOKUJE Krok 4:** skutečnou
+   nakonfigurovanou velikost computu (`h2-runtime`, `h2-control`) nejde
+   z tohohle repu/prostředí ověřit (žádný Neon API klíč, žádný
+   `neonctl`, žádný Neon MCP server připojený k téhle session) — pokud
+   by se to v budoucnu hodilo přesněji dopočítat (viz monitorovací bod
+   níže), Honzík ji najde v Neon Console: **projekt → BRANCH selektor →
+   "Postgres database" → Computes → Edit** — panel ukáže compute size,
+   autoscaling rozsah (min/max CU) i scale-to-zero nastavení
+   (`neon.com/docs/manage/computes`, ověřeno živě). Rozhodnutá hodnota
+   30 min se na tomhle ověření nezakládá a nečeká na něj.
+
+   **Monitorovací bod (první měsíc po nasazení Kroku 4):** sledovat
+   spotřebu CU-h proti Free limitu — stránka **Projects** v Neon
+   Console (zjednodušený přehled, řádek "Compute") nebo **Billing** pro
+   detailnější rozpad (`neon.com/docs/introduction/monitor-usage`,
+   ověřeno živě). Pokud se spotřeba blíží 100 CU-h/měsíc, **interval
+   prodloužit** (ne zkrátit, ne přijmout riziko) — suspend celé databáze
+   (a tím Telegram ingestu, viz (b)) je tvrdší failure mode než
+   pomalejší budík.
 
 ## Rozhodnutí 9 (nové, z gate — [DEC-008](./DECISIONS.md#dec-008)): deadline sémantika — wall clock vs. ACTIVE/stage processing budget
 
@@ -830,18 +816,14 @@ neúplné/nekonzistentní fázi vlastní fronty.
 - Vercel `maxDuration` pro obě ingest routes i pro wake endpoint
   (Rozhodnutí 8's otevřený bod 3) — `WORST_CASE_JOB_DURATION_MS` výpočet
   (Rozhodnutí 1) je bezcenný bez skutečného čísla, ne odhadu.
-- **Otevřený bod před tímhle krokem (Rozhodnutí 8's otevřený bod 4):**
-  minutový interval je zamítnutý (Neon Free 100 CU-h/měsíc + suspend-při-
-  vyčerpání chování — viz Rozhodnutí 8 bod 4a/4b), navrženo 10–15 min
-  (bod 4c) s výpočtem `min_interval = 9 min` bez rezervy. **Před mergem
-  Kroku 4 musí být hotové všechny tři:** (1) Honzík ověří skutečnou
-  velikost `h2-runtime` computu v Neon Console (bod 4a) a výpočet z bodu
-  4c se podle ní přepočítá, (2) finální interval zohlední sdílený
-  rozpočet s běžným provozem, ne jen budík (bod 4d), (3) wake endpoint se
-  nesmí zapojit do provozu dřív, než je Krok 2 mergnutý (bod 4e — dnešní
-  pořadí Kroků to už zajišťuje, jen to nezkracovat). Toto nemění
-  architekturu Rozhodnutí 8 — mění se jen jeho rozvrh, a přesná hodnota
-  je Honzíkovo rozhodnutí, ne implementační detail k mergnutí bez GO.
+- **Vyřešeno (Rozhodnutí 8's bod 4):** interval budíku je **ROZHODNUTO —
+  30 minut, pevně** (Honzík, 2026-09-04; minutový interval zamítnut kvůli
+  Neon Free 100 CU-h/měsíc limitu a suspend-při-vyčerpání chování).
+  Jediná zbývající podmínka před mergem Kroku 4: wake endpoint se nesmí
+  zapojit do provozu dřív, než je Krok 2 mergnutý (bod 4e) — dnešní
+  pořadí Kroků 1→2→3→4 tohle už zajišťuje, stačí ho nezkracovat. Ověření
+  skutečné velikosti computu je nezávazná monitorovací poznámka
+  (Rozhodnutí 8's "Poznámka"/"Monitorovací bod"), Krok 4 na ní nečeká.
 
 ### Migrace — souhrn
 
@@ -929,14 +911,13 @@ rozšíření), žádná nepřepisuje ani neodstraňuje existující produkční
    rozhodnutí, Code ho nenavrhuje (viz "Co zůstává mimo scope").
 7. Ověření Vercel `maxDuration` (plán/tier) pro ingest routes i wake
    endpoint — potřeba PŘED implementací Kroku 4, ne teď.
-8. **Rozhodnutí 8's Neon compute nález (bod 4), aktualizováno 2026-09-04:**
-   minutový interval zamítnut (Free 100 CU-h/měsíc + suspend-při-
-   vyčerpání chování), navrženo 10–15 min. Honzík potřebuje: (a) ověřit
-   skutečnou velikost `h2-runtime` computu v Neon Console (Computes →
-   Edit) a přepočítat interval podle ní, (b) zohlednit sdílený rozpočet
-   s běžným provozem (webhook/web requesty taky budí compute), (c)
-   potvrdit finální hodnotu v rozsahu 10–15 min. Blokuje Krok 4, ne
-   implementaci Kroků 1–3.
+8. ~~Rozhodnutí 8's Neon compute nález (bod 4)~~ — **VYŘEŠENO.** Interval
+   budíku je 30 minut, pevně (Honzík, 2026-09-04) — minutový interval
+   zamítnut (Free 100 CU-h/měsíc + suspend-při-vyčerpání chování),
+   dopočet/ladění podle skutečné velikosti computu se explicitně
+   nedělá. Zbývá jen nezávazný monitorovací bod (první měsíc po nasazení
+   Kroku 4 sledovat CU-h spotřebu) — neblokuje schválení plánu ani Krok
+   4. Není to už otevřený bod.
 
 **Rozhodnutí 10's výklad (a) vs. (b) je vyřešeno — Honzík potvrdil (b)
 2026-09-04, viz Rozhodnutí 10 výše. Není to už otevřený bod.**
