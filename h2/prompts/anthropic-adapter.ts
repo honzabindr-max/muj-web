@@ -5,7 +5,9 @@ import { H2AnthropicCallError } from "./errors";
  * `fetch`, žádná `@anthropic-ai/sdk` závislost (stejný styl jako BUILD-06
  * OpenAI adaptér). `AbortController` timeout na síťové volání.
  */
-const CALL_TIMEOUT_MS = 60_000;
+// Exportováno pro h2/processing/lease.ts (BUILD-11 Rozhodnutí 9/DEC-008) —
+// stage hard timeout cap pro ABANDONED_UNKNOWN accounting v reap větvi.
+export const CALL_TIMEOUT_MS = 60_000;
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_API_VERSION = "2023-06-01";
 const DEFAULT_MAX_OUTPUT_TOKENS = 4096;

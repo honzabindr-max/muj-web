@@ -182,4 +182,60 @@ describe("quarantine (retry/backoff/terminál) pod rolí h2_runtime", () => {
     expect(availableAt).toBeGreaterThan(before + 40_000);
     expect(availableAt).toBeLessThan(before + 50_000);
   });
+
+  /**
+   * BUILD-11 Rozhodnutí 9 (DEC-008) — resolveJobFailure() připočte
+   * charged_processing_ms z llm_attempts řádků vzniklých BĚHEM tohohle
+   * pokusu (created_at >= job.started_at). Přímý insert do llm_attempts
+   * (adminPool, mimo withLlmAttempt()) je legitimní testovací technika —
+   * simuluje "volání proběhlo, vrátilo se, ale samotné generateBuddyResponse()
+   * pak throwlo z jiného důvodu" (např. AT-50 neplatný výstup).
+   */
+  it("resolveJobFailure() připočte charged_processing_ms z llm_attempts tohohle pokusu", async () => {
+    const { jobId } = await ingestUserText("charged-accumulate");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-charged");
+    expect(claim).not.toBeNull();
+    expect(claim?.chargedProcessingMs).toBe(0);
+
+    await adminPool.query(
+      `insert into llm_attempts (owner_id, job_id, purpose, model_id, status, charged_processing_ms, resolved_at)
+       values ($1, $2, 'BUDDY_RESPONSE', 'claude-sonnet-5', 'SUCCEEDED', 5000, now())`,
+      [ownerId, jobId],
+    );
+
+    const outcome = await recordJobFailure(runtimePool, claim!, "INVALID_MODEL_OUTPUT", true, "AT-50 zod validation failed");
+    expect(outcome).toBe("RETRIED");
+
+    const job = await adminPool.query("select charged_processing_ms from message_processing_jobs where id = $1", [jobId]);
+    expect(Number(job.rows[0].charged_processing_ms)).toBe(5000);
+  });
+
+  /**
+   * BUILD-11 Rozhodnutí 9 (DEC-008) — budget exhaustion
+   * (charged_processing_ms >= processing_budget_ms) jde do karantény
+   * OKAMŽITĚ, i před 3. pokusem — nezávisle na attempt_count podmínce.
+   */
+  it("charged_processing_ms >= processing_budget_ms → KARANTÉNA i na 1. pokusu (budget, ne attempt_count)", async () => {
+    const { jobId } = await ingestUserText("budget-exhausted-attempt-1");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-budget");
+    expect(claim).not.toBeNull();
+    expect(claim?.attemptCount).toBe(1);
+    expect(claim?.processingBudgetMs).toBe(120_000); // TEXT
+
+    await adminPool.query(
+      `insert into llm_attempts (owner_id, job_id, purpose, model_id, status, charged_processing_ms, resolved_at)
+       values ($1, $2, 'BUDDY_RESPONSE', 'claude-sonnet-5', 'FAILED_CONFIRMED', 120000, now())`,
+      [ownerId, jobId],
+    );
+
+    const outcome = await recordJobFailure(runtimePool, claim!, "ANTHROPIC_SERVER_ERROR", true, "budget exhausted this attempt");
+    expect(outcome).toBe("QUARANTINED");
+
+    const job = await adminPool.query("select status, attempt_count, charged_processing_ms from message_processing_jobs where id = $1", [
+      jobId,
+    ]);
+    expect(job.rows[0].status).toBe("QUARANTINED");
+    expect(job.rows[0].attempt_count).toBe(1);
+    expect(Number(job.rows[0].charged_processing_ms)).toBe(120_000);
+  });
 });

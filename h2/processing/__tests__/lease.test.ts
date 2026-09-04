@@ -124,4 +124,102 @@ describe("claimNextJob() pod rolí h2_runtime", () => {
     const job = await adminPool.query("select status from message_processing_jobs where id = $1", [jobId]);
     expect(job.rows[0].status).toBe("RESPONSE_READY");
   });
+
+  /**
+   * BUILD-11 Rozhodnutí 9 (DEC-008) — ABANDONED_UNKNOWN accounting v reap
+   * větvi. min(reap_time - created_at, CALL_TIMEOUT_MS), NIKDY plochá
+   * hodnota. `llm_attempts` řádek se přímo insertuje s manipulovaným
+   * `created_at` (legitimní technika, stejná jako manipulace
+   * `available_at`/`lease_until` v ostatních testech tady) — simuluje
+   * procesor, co zmrzl uprostřed LLM volání.
+   */
+  async function insertStuckCallIntent(jobId: string, createdSecondsAgo: number): Promise<string> {
+    const result = await adminPool.query<{ id: string }>(
+      `insert into llm_attempts (owner_id, job_id, purpose, model_id, status, created_at)
+       values ($1, $2, 'BUDDY_RESPONSE', 'claude-sonnet-5', 'CALL_INTENT', now() - make_interval(secs => $3))
+       returning id`,
+      [ownerId, jobId, createdSecondsAgo],
+    );
+    return result.rows[0].id;
+  }
+
+  async function expireLease(): Promise<void> {
+    await adminPool.query("update owner_processing_state set lease_until = now() - interval '1 minute' where owner_id = $1", [
+      ownerId,
+    ]);
+  }
+
+  it("ABANDONED_UNKNOWN reap: starý CALL_INTENT (nad CALL_TIMEOUT_MS) → charged_processing_ms připočte CAP 60000ms, ne celou uplynulou dobu; job se reklamuje", async () => {
+    const { jobId } = await ingestUserText("reap-capped");
+    const claimA = await claimNextJob(runtimePool, ownerId, "processor-a");
+    expect(claimA?.attemptCount).toBe(1);
+
+    const attemptId = await insertStuckCallIntent(jobId, 70); // 70s > 60s CALL_TIMEOUT_MS
+    await expireLease();
+
+    const claimB = await claimNextJob(runtimePool, ownerId, "processor-b");
+    expect(claimB).not.toBeNull();
+    expect(claimB?.jobId).toBe(jobId);
+    expect(claimB?.attemptCount).toBe(2);
+    expect(claimB?.chargedProcessingMs).toBe(60_000); // cap, ne 70_000
+
+    const attempt = await adminPool.query("select status, charged_processing_ms from llm_attempts where id = $1", [attemptId]);
+    expect(attempt.rows[0].status).toBe("ABANDONED_UNKNOWN");
+    expect(Number(attempt.rows[0].charged_processing_ms)).toBe(60_000);
+
+    const job = await adminPool.query("select charged_processing_ms, status from message_processing_jobs where id = $1", [jobId]);
+    expect(Number(job.rows[0].charged_processing_ms)).toBe(60_000);
+    expect(job.rows[0].status).toBe("PROCESSING");
+  });
+
+  it("ABANDONED_UNKNOWN reap: krátce běžící CALL_INTENT → připočte skutečnou krátkou dobu, ne plochých 60000ms", async () => {
+    const { jobId } = await ingestUserText("reap-short");
+    await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    const attemptId = await insertStuckCallIntent(jobId, 2); // 2s << 60s CALL_TIMEOUT_MS
+    await expireLease();
+
+    const claimB = await claimNextJob(runtimePool, ownerId, "processor-b");
+    expect(claimB).not.toBeNull();
+    // Tolerance pro test wall-clock (SQL now() vs. JS Date.now() při reapu).
+    expect(claimB?.chargedProcessingMs).toBeGreaterThanOrEqual(1_500);
+    expect(claimB?.chargedProcessingMs).toBeLessThan(10_000);
+
+    const attempt = await adminPool.query("select status, charged_processing_ms from llm_attempts where id = $1", [attemptId]);
+    expect(attempt.rows[0].status).toBe("ABANDONED_UNKNOWN");
+    expect(Number(attempt.rows[0].charged_processing_ms)).toBeLessThan(10_000);
+  });
+
+  it("ABANDONED_UNKNOWN reap opakovaně vyčerpá processing_budget_ms → KARANTÉNA i když attempt_count < MAX_ATTEMPTS", async () => {
+    const { jobId } = await ingestUserText("reap-budget-exhausted");
+    await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    // První reap: 70s stuck call → +60_000ms (cap), 60_000 < 120_000 TEXT budget → reklamuje se.
+    await insertStuckCallIntent(jobId, 70);
+    await expireLease();
+    const claimB = await claimNextJob(runtimePool, ownerId, "processor-b");
+    expect(claimB).not.toBeNull();
+    expect(claimB?.attemptCount).toBe(2);
+    expect(claimB?.chargedProcessingMs).toBe(60_000);
+
+    // Druhý reap: dalších 70s stuck call → +60_000ms (cap) = 120_000 celkem,
+    // >= 120_000 TEXT budget → KARANTÉNA, i když attempt_count je jen 2 (< MAX_ATTEMPTS=3).
+    await insertStuckCallIntent(jobId, 70);
+    await expireLease();
+    const claimC = await claimNextJob(runtimePool, ownerId, "processor-c");
+    expect(claimC).toBeNull(); // job šel do karantény, ne reklamován
+
+    const job = await adminPool.query("select status, charged_processing_ms, attempt_count from message_processing_jobs where id = $1", [
+      jobId,
+    ]);
+    expect(job.rows[0].status).toBe("QUARANTINED");
+    expect(Number(job.rows[0].charged_processing_ms)).toBe(120_000);
+    expect(job.rows[0].attempt_count).toBe(2);
+
+    const incidents = await adminPool.query(
+      "select count(*)::int as n from incidents where owner_id = $1 and incident_type = 'MESSAGE_QUARANTINED'",
+      [ownerId],
+    );
+    expect(incidents.rows[0].n).toBe(1);
+  });
 });

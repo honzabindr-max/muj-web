@@ -1,6 +1,6 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice: BUILD-11 Krok 1 (retry taxonomie + `llm_attempts` CALL_INTENT metering) — IMPLEMENTOVÁNO, PR OTEVŘENÝ, NEMERGNUTO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 schválen Honzíkem jako celek (2026-09-04, 10 Rozhodnutí, [DEC-008](./DECISIONS.md#dec-008)). PR [#42](https://github.com/honzabindr-max/muj-web/pull/42) (plán v2 dokumentace) mergnut do `main` (merge commit `b9f9728`), Vercel production deploy READY (`dpl_4ubaVw2cxEr8ENk9G8Av9j6vabZW`), `/api/h2/health` živě ověřen. PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) (Krok 0, `MANUALLY_CLEARED`) mergnut do `main` (merge commit `76f6952`), Vercel production deploy READY. Migrace `0016_manually_cleared_job_status.sql` aplikována a ověřena na **production** `h2-runtime` (`_h2_migrations.applied_at=2026-09-04T13:01:18.464Z`, `current_user=neondb_owner`, DEC-006 odchylka beze změny) — **preview větev čeká na Honzíkovo GO** (`.env.migrate` nese jen production connection string, přepnutí na preview vyžaduje Honzíkův vlastní terminál přes `write-migrate-env.sh` — hodnota nikdy neprochází přes Code). Krok 1 (Rozhodnutí 3 retry taxonomie + Rozhodnutí 10 `llm_attempts`) implementován na branchi `build/h2-build-11-step1-retry-taxonomy`, migrace `0017_llm_attempts.sql` napsána, **NEAPLIKOVANÁ** (čeká na Honzíkovo GO). 251/251 testů lokálně (11 nových), `tsc --noEmit` a `npm run build` čisté. Viz Evidence blok níže.
+**Aktuální slice: BUILD-11 Krok 2 (deadline sémantika split, [DEC-008](./DECISIONS.md#dec-008)) — IMPLEMENTOVÁNO, PR OTEVŘENÝ, NEMERGNUTO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 schválen Honzíkem jako celek (2026-09-04, 10 Rozhodnutí, DEC-008). **Krok 0 — HOTOVO:** PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) (`MANUALLY_CLEARED`) mergnut (merge `76f6952`), migrace `0016` aplikována a ověřena na **production** (`applied_at=2026-09-04T13:01:18.464Z`) i **preview** (`applied_at=2026-09-04T13:25:28.835Z`) h2-runtime. **Krok 1 — HOTOVO, MERGED, NASAZENO:** PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) (retry taxonomie + `llm_attempts` CALL_INTENT metering) mergnut do `main` (merge commit `11d5d34`), Vercel production deploy READY (`dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL`), `/api/h2/health` živě ověřen. Migrace `0017_llm_attempts.sql` aplikována a ověřena na **preview** (`applied_at=2026-09-04T13:25:28.958Z`) i **production** (`applied_at=2026-09-04T13:31:09.362Z`) h2-runtime — obě migrace teď na obou větvích, ověřeno přímým SELECTem. `check-required-env.ts` beze změny nálezu po mergi (chybí jen `H2_LEDGER_HMAC_KEY`/`H2_OPENAI_API_KEY`, oba mimo scope, známé z dřívějška). **Krok 2** (Rozhodnutí 9, `isJobExhausted()`/`resolveJobFailure()` přepsané na `charged_processing_ms >= processing_budget_ms`, ABANDONED_UNKNOWN reap accounting v `lease.ts`) implementován na branchi `build/h2-build-11-step2-processing-budget`, migrace `0018_processing_budget.sql` napsána, **NEAPLIKOVANÁ** (čeká na Honzíkovo GO). 256/256 testů lokálně, `tsc --noEmit` a `npm run build` čisté. Viz Evidence blok níže.
 
 **[DEC-007](./DECISIONS.md#dec-007) — Sovereignty fast path retrofit (C2), zásah do uzavřeného BUILD-04:** PR [#32](https://github.com/honzabindr-max/muj-web/pull/32) mergnut do `main` (merge commit `57190c5`), Vercel auto-deploy proběhl (`dpl_9LWiYUkm8Bccatisv8eoR4zjbjQB`), `/api/h2/health` živě ověřen. Po adversarial review přes GPT Honzík změnil svoje doporučení z B na C2 — `ingestMessage()` vždy vytvoří `raw_event`+job i pro control command (I7.6), navíc přesný `/stop`/`/pause`/`/resume` bumpne `owner_control_epoch` ve stejné transakci. 7 sub-invariantů I7.1–I7.7 zapsáno jako závazné. Žádná nová migrace, žádný nový credential. **Pravidlo 10 (viz "Pravidla" níže): BUILD-11 se nesmí uzavřít AT GREEN bez testu, že delivery respektuje `owner_control_epoch`** — nalezená mezera při I7.5 review, dnešní `response_deliveries` schéma tuhle kontrolu nemá vůbec.
 
@@ -33,7 +33,7 @@ Certifikace `BUDDY_RESPONSE` promptu proběhla přes 7 kol proti reálnému Sonn
 6. **Red team nálezy — ZAPSÁNO.** Honzík dodal obsah 2026-09-04 (5 bodů: LLM/kód kontrakt pro BUILD-12, trivial-turn gate pro BUILD-12+, potvrzení "žádné LLM ve scheduleru/zálohách/rotaci/deletion ledgeru", zamítnutí Zapier/Make/n8n, scheduler ledger existence + otevřená volba budíku pro BUILD-23). Zapsáno do [docs/h2/RED-TEAM-FINDINGS.md](./RED-TEAM-FINDINGS.md) — neimplementováno, jen forward-pointery + jedna potvrzená (bod 3) a jedna uzavřená (bod 4, viz Pravidlo 11) položka. Bod 3 a 5 ověřeny přímo proti kódu (grep na volající `callAnthropicModel`, migrace `0009_proactivity_and_jobs.sql`), ne jen tvrzeny.
 7. **BUILD-11 plán v2 — NAPSÁN po adversarial gate, ČEKÁ NA SCHVÁLENÍ, NEIMPLEMENTOVÁNO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) přepsán 2026-09-04 podle rozhodnutí adversarial gate (GPT) nad v1 — 10 rozhodnutí: (1) trigger přes `after()`, revidováno na **rozpočtem času ohraničenou** smyčku (kontrola zbývajícího budgetu PŘED každým dalším `claimNextJob()`, `after()` je jen latency optimization, nikdy liveness), (2) voice→text handoff fix (beze změny oproti v1), (3) retry taxonomie (beze změny oproti v1, PR #38 metering mezera teď řešena Rozhodnutím 10), (4) **nová migrace** — `responses.owner_control_epoch` sloupec + delivery-time kontrola proti Pravidlu 10 (beze změny oproti v1), (5) quarantine notice delivery seam (beze změny oproti v1), (6) Telegram `sendMessage` + web polling delivery mechanismus (beze změny oproti v1), (7) `MANUALLY_CLEARED` (PR #35) — aktualizované pořadí, merge **před** Krokem 1 kvůli číslování migrací, (8) **nové** — nezávislý minutový budík (`cron-job.org` → autentizovaný `/api/internal/queue-wakeup` → `processOwnerQueueBounded()`), řeší chybějící liveness (Vercel Pro cron/GitHub Actions/Neon pg_cron zamítnuty, viz Rozhodnutí 8), (9) **nové, [DEC-008](./DECISIONS.md#dec-008), nová migrace** — deadline sémantika rozdělena na wall-clock (lease/backoff/max_attempts, beze změny) vs. ACTIVE/stage processing budget (`charged_processing_ms`/`processing_budget_ms`, nahrazuje `processing_deadline_at`), stale-age pravidlo vyčleněno jako samostatné budoucí Honzíkovo produktové rozhodnutí, (10) **nové, nová migrace** — `llm_attempts` tabulka s `CALL_INTENT`/`SUCCEEDED`/`FAILED_CONFIRMED`/`ABANDONED_UNKNOWN` stavy, uzavírá PR #38's metering mezeru a dodává vstup pro Rozhodnutí 9's ABANDONED_UNKNOWN accounting. Plán teď explicitně rozdělen na **4 implementační kroky/PR + Krok 0 (PR #35 merge jako prerekvizita)**, po vzoru BUILD-09 — jen poslední krok zapojuje produkční trigger. AT-10, §4.2/§4.3/§4.4/§8.1 ověřeny živě v Notionu (ne jen parafrázovány). Rozhodnutí 4, 5, 9, 10 vyžadují GO na migraci (celkem 4 nové migrace + 1 už existující nemergnutá z PR #35, tři z pěti zasahují uzavřený BUILD-02 blok schématu — viz BUILD-11-PLAN.md "Migrace — souhrn" tabulka).
 
-**Shrnutí závislostí (aktualizace 2026-09-04, po Honzíkově schválení BUILD-11 plánu v2 jako celku):** #36 (tolerantní parser) MERGED. #38 (Structured Outputs) MERGED a nasazeno (merge `4709c13`, deploy `dpl_GLJ8YGTZJbVjBNYinetSFse5WBMa`, READY). #37 (re-auth) MERGED a nasazeno (merge `7963deb`, deploy `dpl_FbUuuUFQELFoo4eJdVDapjs2zrMr`, READY). **DRAFT v7** (`id=9483ad27-ac71-4a34-a29a-8682445d331c`) je `ACTIVE` pro `BUDDY_RESPONSE` (aktivováno 2026-09-04T10:09:29.580Z, viz bod 1 výše — **NE v6**, ta zůstala `DRAFT`). [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 — **SCHVÁLENO Honzíkem jako celek (2026-09-04)**, 10 Rozhodnutí, [DEC-008](./DECISIONS.md#dec-008), PR [#42](https://github.com/honzabindr-max/muj-web/pull/42) MERGED. Postup: **Krok 0 — HOTOVO** (PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) `MANUALLY_CLEARED` MERGED, migrace `0016` aplikována a ověřena na production, preview čeká na Honzíkovo GO) → **Krok 1 — IMPLEMENTOVÁNO, PR OTEVŘENÝ, NEMERGNUTO** (retry taxonomie + `llm_attempts` CALL_INTENT metering, migrace `0017` napsána, NEAPLIKOVANÁ) → Krok 2 (deadline sémantika split, [DEC-008](./DECISIONS.md#dec-008), závisí na Kroku 1) → Krok 3 (voice handoff + delivery mechanismus + `owner_control_epoch`/Pravidlo 10 + quarantine notice seam) → Krok 4 (jediný krok s produkčním dopadem: `after()` trigger ohraničený rozpočtem času + budík `/api/internal/queue-wakeup` s **pevným 30minutovým intervalem** — ROZHODNUTO, viz Rozhodnutí 8 — vyžaduje předem ověřený Vercel `maxDuration` a Honzíkovo GO na `clear-stale-pending-jobs.ts --confirm`). S aktivním promptem a bez triggeru zůstává `generateBuddyResponse()` dál nedosažitelná v produkci až do Kroku 4.
+**Shrnutí závislostí (aktualizace 2026-09-04, po mergi Kroku 1):** #36 (tolerantní parser) MERGED. #38 (Structured Outputs) MERGED a nasazeno (merge `4709c13`, deploy `dpl_GLJ8YGTZJbVjBNYinetSFse5WBMa`, READY). #37 (re-auth) MERGED a nasazeno (merge `7963deb`, deploy `dpl_FbUuuUFQELFoo4eJdVDapjs2zrMr`, READY). **DRAFT v7** (`id=9483ad27-ac71-4a34-a29a-8682445d331c`) je `ACTIVE` pro `BUDDY_RESPONSE` (aktivováno 2026-09-04T10:09:29.580Z, viz bod 1 výše — **NE v6**, ta zůstala `DRAFT`). [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 — **SCHVÁLENO Honzíkem jako celek (2026-09-04)**, 10 Rozhodnutí, [DEC-008](./DECISIONS.md#dec-008), PR [#42](https://github.com/honzabindr-max/muj-web/pull/42) MERGED. Postup: **Krok 0 — HOTOVO** (PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) MERGED, migrace `0016` na production i preview) → **Krok 1 — HOTOVO, MERGED, NASAZENO** (PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) mergnut, merge `11d5d34`, deploy `dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL` READY; retry taxonomie + `llm_attempts` CALL_INTENT metering; migrace `0017` na production i preview) → **Krok 2 — IMPLEMENTOVÁNO, PR OTEVŘENÝ, NEMERGNUTO** (deadline sémantika split, [DEC-008](./DECISIONS.md#dec-008); migrace `0018` napsána, NEAPLIKOVANÁ) → Krok 3 (voice handoff + delivery mechanismus + `owner_control_epoch`/Pravidlo 10 + quarantine notice seam) → Krok 4 (jediný krok s produkčním dopadem: `after()` trigger ohraničený rozpočtem času + budík `/api/internal/queue-wakeup` s **pevným 30minutovým intervalem** — ROZHODNUTO, viz Rozhodnutí 8 — vyžaduje předem ověřený Vercel `maxDuration` a Honzíkovo GO na `clear-stale-pending-jobs.ts --confirm`). S aktivním promptem a bez triggeru zůstává `generateBuddyResponse()` dál nedosažitelná v produkci až do Kroku 4.
 
 **Command Gate scope (BUILD-10, `h2/buddy/command-gate.ts`):** implementován jen exact-match re-detekce `/stop`/`/pause`/`/resume` (DEC-007 bod 5 — I7.3 idempotence, žádný druhý epoch bump). §8.1's širší Command Gate scope (holé "stop"/"pause" v přirozené větě, `IGNORE` s cílem, `DELETE`/`HARD_DELETE`/`RECONSIDER`/`CORRECT`) NENÍ implementován — přesná protokolová syntaxe (I7.7: "control intent má být protokolová struktura, ne odvozený z přirozeného jazyka") existuje jen v uzamčené Notion Technical Architecture §8.1 v plném znění, ne v BUILD-10-PLAN.md ani DECISIONS.md. Hádání syntaxe by riskovalo přesně to, co I7.6 zakazuje (chybná klasifikace nevratně bere zprávě normální zpracování). Forward-pointer pro budoucí slice (BUILD-12 Reconsideration / BUILD-20 Deletion Ledger vlastní hlubokou sémantiku už podle BUILD-10-PLAN.md, ale detekce/routing v Command Gate na ně čeká na doplnění přesné syntaxe z Notionu).
 
@@ -43,13 +43,11 @@ Commit: merge 76f6952 do main (PR #35)
 Branch: prep/h2-manually-cleared-job-status (PR #35, MERGED, branch smazána po mergi)
 DB: migrace 0016_manually_cleared_job_status.sql — rozšiřuje
     message_processing_jobs_status_check o MANUALLY_CLEARED, aditivní.
-    Aplikována a ověřena přímým dotazem na _h2_migrations PROTI PRODUCTION
-    h2-runtime: applied_at=2026-09-04T13:01:18.464Z, current_user=neondb_owner
-    (DEC-006 odchylka beze změny), constraint ověřen přes
-    pg_get_constraintdef obsahuje 'MANUALLY_CLEARED'. PREVIEW větev
-    NEAPLIKOVÁNO — čeká na Honzíkovo GO (write-migrate-env.sh musí spustit
-    Honzík sám ve svém terminálu s preview connection stringem, hodnota
-    nikdy neprochází přes Code).
+    Aplikována a ověřena přímým dotazem na _h2_migrations PROTI OBĚMA
+    VĚTVÍM h2-runtime: production applied_at=2026-09-04T13:01:18.464Z,
+    preview applied_at=2026-09-04T13:25:28.835Z (current_user=neondb_owner
+    na obou, DEC-006 odchylka beze změny), constraint ověřen přes
+    pg_get_constraintdef obsahuje 'MANUALLY_CLEARED'.
 GHA: run 33817489387 (PR #35, h2-tests) — pass, ověřeno před mergem
 Artifact: N/A
 Deployment: Vercel production, deployment dpl_DGe2W9rQWZbqjEJTiw2ozsb3LPJ3,
@@ -57,42 +55,45 @@ Deployment: Vercel production, deployment dpl_DGe2W9rQWZbqjEJTiw2ozsb3LPJ3,
     https://www.good-inventions.work/api/h2/health → {"status":"ok"}
 Timestamp: 2026-09-04
 Verified by: Code — gh pr checks (CI zelené před mergem), přímý SQL dotaz
-    na _h2_migrations + pg_get_constraintdef proti production h2-runtime,
-    vercel ls --prod + vercel inspect, živý curl na produkci
-Remaining risk: preview h2-runtime nemá migraci 0016 aplikovanou — Krok 1
-    (níže) na tom nezávisí (nová tabulka, ne CHECK rozšíření), ale Krok 4's
-    trigger nesmí jít živě, dokud preview i production nemají shodné
-    schéma. clear-stale-pending-jobs.ts --confirm zatím NESPUŠTĚN (čeká na
+    na _h2_migrations + pg_get_constraintdef proti oběma větvím
+    h2-runtime, vercel ls --prod + vercel inspect, živý curl na produkci
+Remaining risk: žádné funkční — migrace 0016 na obou větvích ověřena.
+    clear-stale-pending-jobs.ts --confirm zatím NESPUŠTĚN (čeká na
     Honzíkovo GO bezprostředně před Krokem 4, Rozhodnutí 7).
 ```
-**Evidence (BUILD-11 Krok 1 — retry taxonomie + `llm_attempts`, PŘED mergem):**
+**Evidence (BUILD-11 Krok 1 celý slice — MERGED, NASAZENO):**
 ```
-Commit: implementace + testy na branchi build/h2-build-11-step1-retry-taxonomy
-Branch: build/h2-build-11-step1-retry-taxonomy — pushnutá, PR otevřený, NEMERGNUTO
+Commit: def2d9e (implementace + testy), merge 11d5d34 do main
+Branch: build/h2-build-11-step1-retry-taxonomy (PR #43, MERGED, branch smazána po mergi)
 DB: migrace 0017_llm_attempts.sql — nová tabulka llm_attempts (owner_id,
     job_id FK na message_processing_jobs, purpose, model_id, status
     CALL_INTENT|SUCCEEDED|FAILED_CONFIRMED|ABANDONED_UNKNOWN,
     charged_processing_ms, created_at, resolved_at), RLS owner_isolation
     stejný vzor jako 0011_roles_and_rls.sql, grant select/insert/update pro
-    h2_runtime v samostatné migraci (vzor 0015). NAPSÁNA, NEAPLIKOVANÁ na
-    žádné prostředí — čeká na Honzíkovo GO (Pravidlo 4).
-GHA: neběželo ještě na téhle branchi — PR se otevře po tomhle commitu.
+    h2_runtime v samostatné migraci (vzor 0015). Aplikována a ověřena
+    přímým dotazem na _h2_migrations PROTI OBĚMA VĚTVÍM h2-runtime:
+    preview applied_at=2026-09-04T13:25:28.958Z, production
+    applied_at=2026-09-04T13:31:09.362Z — strukturálně ověřeno i sloupci
+    tabulky (information_schema.columns) na obou.
+GHA: run 33876760433 (PR #43, h2-tests) — pass; Vercel + Vercel Preview
+    Comments checky pass
 Artifact: N/A
-Deployment: N/A — nemergnuto, žádný produkční dopad (recordJobFailure()
-    ani withLlmAttempt() nemají dnes v produkci žádného volajícího —
-    BUILD-11's trigger je až Krok 4).
+Deployment: Vercel production, deployment dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL,
+    target=production, vytvořen ihned po mergi, state READY; živě ověřeno
+    curl -sL https://www.good-inventions.work/api/h2/health →
+    {"status":"ok"}
 Timestamp: 2026-09-04
-Verified by: Code — 251/251 testů lokálně (11 nových: 7 čistě nových v
-    anthropic-adapter.test.ts, netto po nahrazení 1 starého testu 8 novými,
-    pro status-kód rozpad + retry-after header, 2 v quarantine.test.ts pro
-    retryable=false okamžitou karanténu a retryAfterSeconds override, 2 v
-    novém llm-attempts.test.ts pro CALL_INTENT→SUCCEEDED a
-    CALL_INTENT→FAILED_CONFIRMED přechody pod skutečnou rolí h2_runtime),
-    `npx tsc --noEmit` čisté, `npm run build` čisté. Obsah (Rozhodnutí 3):
-    H2AnthropicCallError rozpad ANTHROPIC_HTTP_ERROR na ANTHROPIC_BAD_REQUEST
-    (400)/ANTHROPIC_AUTH_ERROR (401/403)/ANTHROPIC_SERVER_ERROR (500/529),
-    retryAfterSeconds z retry-after hlavičky na 429, ANTHROPIC_ERROR_RETRYABLE
-    lookup tabulka (h2/prompts/errors.ts) pro budoucí Krok 4 caller mapping.
+Verified by: Code — CI (test + oba Vercel checky), přímé SQL dotazy na
+    _h2_migrations proti oběma Neon větvím, Vercel CLI (vercel inspect,
+    vercel ls --prod), živý curl na produkci,
+    h2/db/scripts/check-required-env.ts proti production i preview (beze
+    změny nálezu — jen H2_LEDGER_HMAC_KEY/H2_OPENAI_API_KEY, oba mimo
+    scope, známé z dřívějška), 251/251 testů lokálně (11 nových), tsc/build
+    čisté. Obsah (Rozhodnutí 3): H2AnthropicCallError rozpad
+    ANTHROPIC_HTTP_ERROR na ANTHROPIC_BAD_REQUEST (400)/ANTHROPIC_AUTH_ERROR
+    (401/403)/ANTHROPIC_SERVER_ERROR (500/529), retryAfterSeconds z
+    retry-after hlavičky na 429, ANTHROPIC_ERROR_RETRYABLE lookup tabulka
+    (h2/prompts/errors.ts) pro budoucí Krok 4 caller mapping.
     resolveJobFailure()/recordJobFailure() (h2/processing/quarantine.ts)
     dostaly nový povinný retryable: boolean + volitelný retryAfterSeconds
     vstup — retryable===false jde do karantény okamžitě bez ohledu na
@@ -102,12 +103,59 @@ Verified by: Code — 251/251 testů lokálně (11 nových: 7 čistě nových v
     SUCCEEDED/FAILED_CONFIRMED s charged_processing_ms — výklad (b),
     ROZHODNUTO Honzíkem 2026-09-04 (insert JE svůj vlastní atomický
     "claim", ne doslovně uvnitř claimNextJob()'s transakce).
-Remaining risk: žádné funkční — Krok 1 nemá produkční trigger, migrace
-    neaplikovaná. ABANDONED_UNKNOWN přechod (reap větev) je Krok 2 scope,
-    dnes nikdo tenhle status nenastavuje. Voice test
-    (process-voice-job.test.ts) upraven jen na novou recordJobFailure()
-    signaturu (retryable=true na obou existujících voláních), chování
-    beze změny.
+Remaining risk: žádné funkční — Krok 1 nemá produkční trigger (Krok 4).
+    ABANDONED_UNKNOWN přechod (reap větev) byl Krok 1 scope tabulky, ale
+    Krok 2 scope logiky — viz Evidence (BUILD-11 Krok 2) níže.
+```
+**Evidence (BUILD-11 Krok 2 — deadline sémantika split, DEC-008, PŘED mergem):**
+```
+Commit: implementace + testy na branchi build/h2-build-11-step2-processing-budget
+Branch: build/h2-build-11-step2-processing-budget — pushnutá, PR otevřený, NEMERGNUTO
+DB: migrace 0018_processing_budget.sql — message_processing_jobs dostává
+    processing_budget_ms (bigint null) + charged_processing_ms (bigint not
+    null default 0), drop processing_deadline_at (ROZHODNUTO Honzíkem
+    2026-09-04, DEC-008 — 0 řádků v produkci dnes, drop bezpečný bez
+    migrace dat). NAPSÁNA, NEAPLIKOVANÁ na žádné prostředí — čeká na
+    Honzíkovo GO (Pravidlo 4).
+GHA: neběželo ještě na téhle branchi — PR se otevře po tomhle commitu.
+Artifact: N/A
+Deployment: N/A — nemergnuto, žádný produkční dopad (claimNextJob()/
+    recordJobFailure() nemají dnes v produkci žádného volajícího —
+    BUILD-11's trigger je až Krok 4).
+Timestamp: 2026-09-04
+Verified by: Code — 256/256 testů lokálně (5 nových: 2 v quarantine.test.ts
+    pro charged_processing_ms accumulaci z llm_attempts a budget exhaustion
+    před 3. pokusem, 3 v lease.test.ts pro ABANDONED_UNKNOWN reap — cap na
+    CALL_TIMEOUT_MS pro starý CALL_INTENT, skutečná krátká doba pro čerstvý
+    CALL_INTENT, opakovaný reap vyčerpá budget → karanténa i pod
+    MAX_ATTEMPTS), `npx tsc --noEmit` čisté, `npm run build` čisté. Obsah:
+    isJobExhausted() přepsáno z wall-clock processing_deadline_at na
+    charged_processing_ms >= processing_budget_ms (h2/processing/
+    quarantine.ts). resolveJobFailure() navíc před rozhodnutím
+    karanténa/retry sečte charged_processing_ms z llm_attempts řádků
+    vzniklých BĚHEM právě končícího pokusu (created_at >= job.started_at —
+    claimSpecificJob() nastavuje started_at = now() na každém claimu,
+    přirozeně odděluje pokusy bez dalšího bookkeeping sloupce).
+    reapAbandonedLlmAttempts() (h2/processing/lease.ts, nová) v reap větvi
+    claimNextJob() přepne zaseklé CALL_INTENT řádky na ABANDONED_UNKNOWN a
+    připočte min(reap_time - created_at, CALL_TIMEOUT_MS) — NIKDY plochá
+    hodnota (opravený nález oproti BUILD-11-PLAN.md v1 tohohle rozhodnutí),
+    NIKDY doba bez executoru. CALL_TIMEOUT_MS exportováno z
+    h2/prompts/anthropic-adapter.ts (dřív privátní konstanta). FencingToken
+    ztratil processingDeadlineAt, dostal processingBudgetMs +
+    chargedProcessingMs — voice testy (process-voice-job.test.ts)
+    aktualizovány na nová pole, chování beze změny (voice joby dnes
+    nevolají withLlmAttempt(), takže charged_processing_ms zůstává 0 a
+    exhaustion jde jen přes attempt_count, stejně jako dřív).
+    h2/db/schema/core.ts (nepoužívaný drizzle mirror, 0 importerů v repu)
+    a komentář v h2/voice/telegram-download.ts aktualizovány pro
+    konzistenci.
+Remaining risk: žádné funkční — Krok 2 nemá produkční trigger, migrace
+    neaplikovaná. Voice joby (BUILD-06) nikdy nevolají withLlmAttempt(),
+    takže jejich charged_processing_ms zůstává trvale 0 — exhaustion pro
+    ně dál řeší jen attempt_count>=3, ne budget. Vědomý důsledek scope
+    (Krok 2 se voice extrakce nedotýká), ne bug — zapsáno pro budoucí
+    čtenáře, ne řešeno teď.
 ```
 **Evidence (BUILD-10 celý slice — MERGED):**
 ```
