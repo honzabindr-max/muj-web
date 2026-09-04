@@ -7,6 +7,7 @@ import { ingestMessage } from "../../ingestion/ingest-message";
 import { claimNextJob } from "../../processing/lease";
 import { H2BuddyRuntimeError } from "../errors";
 import { generateBuddyResponse } from "../generate-response";
+import { BUDDY_RESPONSE_JSON_SCHEMA } from "../stance-intent-schema";
 
 const DB_NAME = "h2_test_buddy_generate_response";
 const BUDDY_RESPONSE_PURPOSE = "BUDDY_RESPONSE";
@@ -83,6 +84,24 @@ describe("generateBuddyResponse() pod rolí h2_runtime", () => {
     await expect(
       generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, fakeCallModel("{}")),
     ).rejects.toMatchObject({ code: "NO_ACTIVE_PROMPT" });
+  });
+
+  it("Structured Outputs (BUILD-11, 2026-09-04): callModel dostane BUDDY_RESPONSE_JSON_SCHEMA jako 6. argument", async () => {
+    await activateBuddyPrompt();
+    await ingestText("structured-outputs", "Ahoj Buddy");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    const validOutput = { responseText: "Ahoj!", stance: "BE_WITH", intent: ["SHARE"] };
+    const calls: unknown[][] = [];
+    const spyCallModel = async (...args: unknown[]) => {
+      calls.push(args);
+      return { text: JSON.stringify(validOutput), inputTokens: 10, outputTokens: 5 };
+    };
+
+    await generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, spyCallModel);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0][5]).toEqual(BUDDY_RESPONSE_JSON_SCHEMA);
   });
 
   it("AT-62/AT-09: response už existuje pro source_raw_event_id → retry nevolá Sonnet znovu ani nevytvoří druhý responses řádek", async () => {

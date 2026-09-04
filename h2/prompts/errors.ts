@@ -11,7 +11,14 @@ export class H2PromptActivationError extends Error {
 }
 
 export class H2AnthropicCallError extends Error {
-  constructor(public readonly code: "ANTHROPIC_TIMEOUT" | "ANTHROPIC_RATE_LIMITED" | "ANTHROPIC_HTTP_ERROR") {
+  constructor(
+    public readonly code:
+      | "ANTHROPIC_TIMEOUT"
+      | "ANTHROPIC_RATE_LIMITED"
+      | "ANTHROPIC_HTTP_ERROR"
+      | "ANTHROPIC_REFUSAL"
+      | "ANTHROPIC_MAX_TOKENS_TRUNCATED",
+  ) {
     super(`H2 prompts: ${code}`);
     this.name = "H2AnthropicCallError";
   }

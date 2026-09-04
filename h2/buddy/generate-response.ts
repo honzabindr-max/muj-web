@@ -6,7 +6,7 @@ import { CONTEXT_TOKEN_BUDGETS } from "@/h2/context/token-budget";
 import { decryptPayload } from "@/h2/crypto/envelope";
 import type { EncryptionKeyRegistry } from "@/h2/crypto/keys";
 import { withOwnerScope } from "@/h2/db/with-owner-scope";
-import type { AnthropicCallResult } from "@/h2/prompts/anthropic-adapter";
+import type { AnthropicCallResult, AnthropicOutputSchema } from "@/h2/prompts/anthropic-adapter";
 import { callAnthropicModel } from "@/h2/prompts/anthropic-adapter";
 import type { PromptProviderConfig } from "@/h2/prompts/config";
 import { recordLlmRun } from "@/h2/prompts/llm-run";
@@ -22,6 +22,7 @@ import { parseBuddyResponseOutput } from "./parse-model-output";
 import { renderBuddyPromptInput } from "./render-prompt-input";
 import { resolveManifestContent } from "./resolve-manifest-content";
 import type { BuddyIntent, BuddyStance } from "./stance-intent-schema";
+import { BUDDY_RESPONSE_JSON_SCHEMA } from "./stance-intent-schema";
 
 const BUDDY_RESPONSE_PURPOSE = "BUDDY_RESPONSE";
 
@@ -31,6 +32,7 @@ export type CallAnthropicModelFn = (
   input: string,
   apiKey: string,
   maxOutputTokens?: number,
+  outputSchema?: AnthropicOutputSchema,
 ) => Promise<AnthropicCallResult>;
 
 export type GenerateBuddyResponseResult =
@@ -119,12 +121,24 @@ export async function generateBuddyResponse(
 
   const { responseId } = await commitJobResult(pool, registry, token, async () => {
     const startedAt = Date.now();
+    // Structured Outputs (BUILD-11 decision, 2026-09-04): output_config.format
+    // makes the API guarantee content[0] is valid JSON matching this shape at
+    // generation time — the tolerant parser (parse-model-output.ts) stays as
+    // defense-in-depth, not a replacement. Not applied to OPERATIONAL_EXTRACTION
+    // (BUILD-08, Haiku) — its open `payload: z.record(...)` needs
+    // `additionalProperties` other than `false`, which Structured Outputs
+    // doesn't support; that's a BUILD-12 decision, not decided here.
+    // callModel() throws before reaching this point on refusal/max_tokens
+    // truncation (anthropic-adapter.ts stop_reason check) — usage for those
+    // two failure classes is therefore not recorded here today, a known gap,
+    // not silently accepted (see BUILD-STATUS.md forward-pointer).
     const callResult = await callModel(
       H2_MODELS.buddy,
       promptVersion.content,
       promptInput,
       credentials.anthropicApiKey,
       CONTEXT_TOKEN_BUDGETS[BUDDY_RESPONSE_PURPOSE].maxOutputTokens,
+      BUDDY_RESPONSE_JSON_SCHEMA,
     );
 
     const parsed = parseBuddyResponseOutput(callResult.text);
