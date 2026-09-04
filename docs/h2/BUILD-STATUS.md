@@ -383,6 +383,14 @@ Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a 
     - ukládání/logování odpovědí (response storage) u externího providera vypnuté.
 
     Rozlišení pro budoucí review: **core message-processing cesta** = cokoli, co vidí, přenáší nebo ukládá obsah zprávy, entitu, nebo Buddyho odpověď (sem no-code platformy nepatří nikdy). **Control plane** = signál typu "zkontroluj frontu"/healthcheck bez datového obsahu (sem tenhle jeden mechanismus patří, za podmínkami výše). Nezaměňovat s BUILD-23's scheduler (`job_definitions`/`job_runs`) — wake endpoint probouzí jen `message_processing_jobs` frontu, BUILD-23's vlastní budík zůstává samostatné, ještě nerozhodnuté téma (RED-TEAM-FINDINGS.md bod 5).
+12. **Migrační env workflow (od 2026-09-04): `.env.migrate.preview` + `.env.migrate.production`, hesla se vkládají JEDNOU za session.** Dřív existoval jeden `.env.migrate`, který se musel ručně přepisovat mezi preview a production connection stringem pokaždé, když bylo potřeba aplikovat migraci na druhou větev (`bash h2/db/scripts/write-migrate-env.sh` spuštěný dvakrát, s přepsáním mezi tím) — zdroj zbytečného tření a rizika omylu (aplikace migrace na nesprávnou větev, protože soubor ukazoval na tu poslední vloženou). `write-migrate-env.sh` teď zapíše **oba** soubory najednou (ptá se na h2-runtime preview connection string, h2-runtime production connection string, a jeden h2-control connection string zapsaný do obou souborů — h2-control nemá dnes doloženou preview/production distinkci). Oba soubory 600, v `.gitignore` (`.env*` wildcard), hodnoty nikdy neprochází přes Code/chat — stejná bezpečnostní záruka jako dřív. `migrate-neon-runtime.ts`/`migrate-neon-control.ts` přijímají volitelný 1. CLI argument (`preview`/`production`), vybírají odpovídající soubor; bez argumentu fallback na dřívější `.env.migrate` (zpětná kompatibilita, nic starého nespadne). **Spouštění:**
+    ```
+    npm run db:migrate:neon:runtime:preview
+    npm run db:migrate:neon:runtime:production
+    npm run db:migrate:neon:control:preview
+    npm run db:migrate:neon:control:production
+    ```
+    Honzík spouští `write-migrate-env.sh` jednou na začátku session (nebo když soubory na disku chybí/jsou staré) — dokud zůstávají na disku, Code může aplikovat migrace na obě větve bez dalšího zásahu Honzíka do connection stringů. Role v obou souborech zůstává `neondb_owner`, ne `h2_migrator` (DEC-006 odchylka beze změny — tenhle refactor se role netýká, jen počtu/rozložení souborů).
 
 ## Poznámky k zadání (úpravy patřící do M1)
 
