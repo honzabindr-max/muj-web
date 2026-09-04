@@ -15,7 +15,7 @@ const SCHEMA_VERSION = 1;
 /**
  * Certifikace prvního BUDDY_RESPONSE promptu proti REÁLNÉMU Sonnetu
  * (BUILD-07 aktivační gate, BUILD-10-PLAN.md požadavek). VOLÁ SKUTEČNÉ
- * Anthropic API — malý, ale reálný náklad (9 fixtur × krátký prompt).
+ * Anthropic API — malý, ale reálný náklad (11 fixtur × krátký prompt).
  * NIKDY nevolat automaticky, jen na Honzíkovo explicitní GO.
  *
  * Tenhle skript NEAKTIVUJE prompt — jen vytvoří DRAFT verzi a spustí
@@ -24,15 +24,26 @@ const SCHEMA_VERSION = 1;
  * recent re-auth v prohlížeči) je samostatný, ruční krok POTÉ, co
  * Honzík výstupy přečte a schválí.
  *
+ * `H2_ANTHROPIC_API_KEY` je ve Vercelu typu Secret (write-only, nejde
+ * `vercel env pull`, ověřeno 2026-09-04) — musí do `.env.local` (git-
+ * ignored, stejné místo jako ostatní lokální secrety, DEC-005) přijít
+ * mimo tuhle konverzaci, ne vložením hodnoty do chatu (Secret Handling
+ * pravidlo — hodnota v chatu = kompromitovaná).
+ *
  * Použití: npx tsx h2/db/scripts/certify-buddy-response-prompt.ts
- * Vyžaduje: .env.verify (DB, viz write-verify-env.sh) + H2_ANTHROPIC_API_KEY
- * v prostředí, kde skript běží.
+ * Vyžaduje: .env.verify (DB, viz write-verify-env.sh) + .env.local
+ * s H2_ANTHROPIC_API_KEY=...
  */
 async function main() {
   try {
     process.loadEnvFile(".env.verify");
   } catch {
     throw new Error(".env.verify neexistuje. Spusť nejdřív: bash h2/db/scripts/write-verify-env.sh");
+  }
+  try {
+    process.loadEnvFile(".env.local");
+  } catch {
+    // .env.local je volitelný obecně, ale bez H2_ANTHROPIC_API_KEY loadPromptProviderConfig() níže stejně failne nahlas.
   }
 
   const connectionString = process.env.H2_RUNTIME_DATABASE_URL;
