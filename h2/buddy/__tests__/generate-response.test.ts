@@ -90,7 +90,7 @@ describe("generateBuddyResponse() pod rolí h2_runtime", () => {
     const { rawEventId } = await ingestText("happy-path", "Ahoj, jak se máš?");
     const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
 
-    const validOutput = { responseText: "Ahoj! Mám se dobře, díky.", stance: "BE_WITH", intent: "SHARE" };
+    const validOutput = { responseText: "Ahoj! Mám se dobře, díky.", stance: "BE_WITH", intent: ["SHARE"] };
     const first = await generateBuddyResponse(
       runtimePool,
       TEST_REGISTRY,
@@ -101,7 +101,7 @@ describe("generateBuddyResponse() pod rolí h2_runtime", () => {
     expect(first.reused).toBe(false);
     if (!first.reused) {
       expect(first.stance).toBe("BE_WITH");
-      expect(first.intent).toBe("SHARE");
+      expect(first.intent).toEqual(["SHARE"]);
     }
 
     const responsesAfterFirst = await adminPool.query("select count(*)::int as n from responses where source_raw_event_id = $1", [
@@ -154,10 +154,40 @@ describe("generateBuddyResponse() pod rolí h2_runtime", () => {
     await ingestText("bad-stance", "Ahoj");
     const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
 
-    const bogusOutput = { responseText: "ahoj", stance: "AGGRESSIVE_SELL", intent: "SHARE" };
+    const bogusOutput = { responseText: "ahoj", stance: "AGGRESSIVE_SELL", intent: ["SHARE"] };
     await expect(
       generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, fakeCallModel(JSON.stringify(bogusOutput))),
     ).rejects.toBeInstanceOf(H2BuddyRuntimeError);
+  });
+
+  it("AT-50: prázdné pole intent (0 hodnot) → stejná explicitní chyba — Product Spec §5 vyžaduje aspoň jeden intent", async () => {
+    await activateBuddyPrompt();
+    await ingestText("empty-intent", "Ahoj");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    const bogusOutput = { responseText: "ahoj", stance: "BE_WITH", intent: [] };
+    await expect(
+      generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, fakeCallModel(JSON.stringify(bogusOutput))),
+    ).rejects.toBeInstanceOf(H2BuddyRuntimeError);
+  });
+
+  it("více intentů na jednu zprávu (Product Spec §5: 'jedna zpráva může mít několik intentů') → validní, resolveuje všechny", async () => {
+    await activateBuddyPrompt();
+    await ingestText("multi-intent", "Zítra musím zavolat účetní a mimochodem mě napadl nový nápad na projekt");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    const multiIntentOutput = { responseText: "Jasně, poznamenám si obojí.", stance: "ACT", intent: ["TASK", "IDEA"] };
+    const result = await generateBuddyResponse(
+      runtimePool,
+      TEST_REGISTRY,
+      CREDENTIALS,
+      claim!,
+      fakeCallModel(JSON.stringify(multiIntentOutput)),
+    );
+    expect(result.reused).toBe(false);
+    if (!result.reused) {
+      expect(result.intent).toEqual(["TASK", "IDEA"]);
+    }
   });
 
   it("Command Gate (DEC-007 bod 5): přesný /stop → no-op potvrzení, epoch bumpnutý jen jednou (při ingestu), Sonnet se nevolá", async () => {

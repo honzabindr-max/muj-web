@@ -40,7 +40,7 @@ export type GenerateBuddyResponseResult =
       reused: false;
       isControlCommandAck: boolean;
       stance: BuddyStance | null;
-      intent: BuddyIntent | null;
+      intent: BuddyIntent[] | null;
     };
 
 function tryParseJson(text: string): unknown {
@@ -123,7 +123,7 @@ export async function generateBuddyResponse(
   }
 
   const promptInput = renderBuddyPromptInput(messageText, contextItems);
-  const outputBox: { value: { stance: BuddyStance; intent: BuddyIntent } | null } = { value: null };
+  const outputBox: { value: { stance: BuddyStance; intent: BuddyIntent[] } | null } = { value: null };
 
   const { responseId } = await commitJobResult(pool, registry, token, async () => {
     const startedAt = Date.now();
