@@ -75,6 +75,17 @@ export function isJobExhausted(job: JobSnapshot, now: Date): boolean {
  * throwl) — na rozdíl od pasivního vypršení leasu (h2/processing/lease.ts
  * reap), tady procesor ví HNED, že pokus selhal, takže se uplatní backoff
  * před dalším pokusem (nehádá se "je mrtvý, nebo jen pomalý").
+ *
+ * BUILD-11 Rozhodnutí 3 — `retryable` je vstupní klasifikace, kterou
+ * volající odvodí z chyby (např. `H2AnthropicCallError.code` přes
+ * `ANTHROPIC_ERROR_RETRYABLE` lookup tabulku, `h2/prompts/errors.ts`), ne
+ * něco, co si `resolveJobFailure` hádá ze `reasonCode` stringu samo.
+ * `retryable === false` → okamžitá karanténa bez ohledu na
+ * `attempt_count` (neretryovatelná chyba jako auth/bad request/refuz by
+ * jinak čekala 3 marné pokusy s exponenciálním backoffem, než by šla do
+ * karantény zbytečně). `retryAfterSeconds` (z `retry-after` hlavičky
+ * 429 odpovědi) přebije `RETRY_BACKOFF_SECONDS` ladder, pokud je
+ * přítomný.
  */
 async function resolveJobFailure(
   client: PoolClient,
@@ -82,6 +93,8 @@ async function resolveJobFailure(
   jobId: string,
   reasonCode: string,
   errorDetail: string | null,
+  retryable: boolean,
+  retryAfterSeconds?: number,
 ): Promise<JobFailureOutcome> {
   const jobResult = await client.query<JobSnapshot>(
     `select status, attempt_count, processing_deadline_at from message_processing_jobs where id = $1`,
@@ -90,12 +103,13 @@ async function resolveJobFailure(
   const job = jobResult.rows[0];
   if (job.status === "QUARANTINED") return "ALREADY_QUARANTINED";
 
-  if (isJobExhausted(job, new Date())) {
+  if (!retryable || isJobExhausted(job, new Date())) {
     await quarantineJob(client, ownerId, jobId, reasonCode);
     return "QUARANTINED";
   }
 
-  const backoffSeconds = RETRY_BACKOFF_SECONDS[Math.min(job.attempt_count - 1, RETRY_BACKOFF_SECONDS.length - 1)];
+  const backoffSeconds =
+    retryAfterSeconds ?? RETRY_BACKOFF_SECONDS[Math.min(job.attempt_count - 1, RETRY_BACKOFF_SECONDS.length - 1)];
   await client.query(
     `update message_processing_jobs
      set status = 'RETRY_PENDING',
@@ -118,12 +132,19 @@ async function resolveJobFailure(
  * (throwlo). Fencing-chráněné stejným epoch-check vzorem jako
  * commitJobResult — jinak by mohl neaktuální procesor omylem poslat do
  * retry/karantény job, který mezitím reklamoval a už zpracoval někdo jiný.
+ *
+ * `retryable` (BUILD-11 Rozhodnutí 3): volající musí zachycenou chybu
+ * napřed zmapovat na retryable/retryAfterSeconds (viz `resolveJobFailure`
+ * doc výše) — dnes nikdo v produkci `recordJobFailure()` nevolá (BUILD-11's
+ * trigger je Krok 4), takže tohle mapování zatím dělají jen testy.
  */
 export async function recordJobFailure(
   pool: Pool,
   token: FencingToken,
   reasonCode: string,
+  retryable: boolean,
   errorDetail: string | null = null,
+  retryAfterSeconds?: number,
 ): Promise<JobFailureOutcome> {
   return withOwnerScope(pool, token.ownerId, async (client) => {
     const stateResult = await client.query<{ lease_epoch: string; owner_control_epoch: string }>(
@@ -138,6 +159,6 @@ export async function recordJobFailure(
     ) {
       throw new H2FencingError("STALE_FENCING_TOKEN", token.jobId);
     }
-    return resolveJobFailure(client, token.ownerId, token.jobId, reasonCode, errorDetail);
+    return resolveJobFailure(client, token.ownerId, token.jobId, reasonCode, errorDetail, retryable, retryAfterSeconds);
   });
 }

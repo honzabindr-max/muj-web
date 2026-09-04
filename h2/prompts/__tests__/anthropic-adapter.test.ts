@@ -81,13 +81,83 @@ describe("callAnthropicModel()", () => {
     });
   });
 
-  it("500 → H2AnthropicCallError ANTHROPIC_HTTP_ERROR", async () => {
+  /**
+   * BUILD-11 Rozhodnutí 3 — rozpad ANTHROPIC_HTTP_ERROR na retryovatelné
+   * (500/529 server chyba) vs. neretryovatelné (400/401/403) třídy, plus
+   * retry-after header propagovaný na 429. Honzíkova taxonomie: retryovat
+   * 429/500/529/síť, nikdy 400/auth/token budget/schema violation/refuz.
+   */
+  it("500 → H2AnthropicCallError ANTHROPIC_SERVER_ERROR (retryovatelné)", async () => {
     const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(new Response("server error", { status: 500 }));
 
     await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_SERVER_ERROR",
+    });
+  });
+
+  it("529 → H2AnthropicCallError ANTHROPIC_SERVER_ERROR (retryovatelné)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("overloaded", { status: 529 }));
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_SERVER_ERROR",
+    });
+  });
+
+  it("400 → H2AnthropicCallError ANTHROPIC_BAD_REQUEST (neretryovatelné)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_BAD_REQUEST",
+    });
+  });
+
+  it("401 → H2AnthropicCallError ANTHROPIC_AUTH_ERROR (neretryovatelné)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("unauthorized", { status: 401 }));
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_AUTH_ERROR",
+    });
+  });
+
+  it("403 → H2AnthropicCallError ANTHROPIC_AUTH_ERROR (neretryovatelné)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("forbidden", { status: 403 }));
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_AUTH_ERROR",
+    });
+  });
+
+  it("404 (neklasifikovaný status) → fallback ANTHROPIC_HTTP_ERROR (neretryovatelné, default-deny)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("not found", { status: 404 }));
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
       code: "ANTHROPIC_HTTP_ERROR",
     });
+  });
+
+  it("429 s retry-after hlavičkou → retryAfterSeconds na chybě", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "retry-after": "45" } }));
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_RATE_LIMITED",
+      retryAfterSeconds: 45,
+    });
+  });
+
+  it("429 bez retry-after hlavičky → retryAfterSeconds undefined", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+
+    const error = await callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(H2AnthropicCallError);
+    expect((error as H2AnthropicCallError).retryAfterSeconds).toBeUndefined();
   });
 
   it("fetch selže (timeout/network) → H2AnthropicCallError ANTHROPIC_TIMEOUT", async () => {

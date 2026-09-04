@@ -76,7 +76,7 @@ describe("quarantine (retry/backoff/terminál) pod rolí h2_runtime", () => {
       expect(claim?.jobId).toBe(second.jobId);
       expect(claim?.attemptCount).toBe(attempt);
 
-      const outcome = await recordJobFailure(runtimePool, claim!, "WORK_THREW", "stub work always throws");
+      const outcome = await recordJobFailure(runtimePool, claim!, "WORK_THREW", true, "stub work always throws");
       expect(outcome).toBe("RETRIED");
 
       const job = await adminPool.query("select status, available_at from message_processing_jobs where id = $1", [
@@ -96,7 +96,7 @@ describe("quarantine (retry/backoff/terminál) pod rolí h2_runtime", () => {
     expect(finalClaim).not.toBeNull();
     expect(finalClaim?.attemptCount).toBe(3);
 
-    const finalOutcome = await recordJobFailure(runtimePool, finalClaim!, "WORK_THREW", "stub work always throws");
+    const finalOutcome = await recordJobFailure(runtimePool, finalClaim!, "WORK_THREW", true, "stub work always throws");
     expect(finalOutcome).toBe("QUARANTINED");
 
     const quarantinedJob = await adminPool.query(
@@ -141,5 +141,45 @@ describe("quarantine (retry/backoff/terminál) pod rolí h2_runtime", () => {
       [ownerId],
     );
     expect(incidents.rows[0].n).toBe(1);
+  });
+
+  /**
+   * BUILD-11 Rozhodnutí 3 — retryable=false musí jít do karantény OKAMŽITĚ,
+   * bez ohledu na attempt_count. Neretryovatelná chyba (auth/bad request/
+   * refuz) by jinak marně čekala 3 pokusy s exponenciálním backoffem, než
+   * by šla do karantény, přestože retry se stejným vstupem nikdy neuspěje.
+   */
+  it("retryable=false → okamžitá karanténa na prvním pokusu, žádný RETRY_PENDING", async () => {
+    const { jobId } = await ingestUserText("non-retryable");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-non-retryable");
+    expect(claim).not.toBeNull();
+    expect(claim?.attemptCount).toBe(1);
+
+    const outcome = await recordJobFailure(runtimePool, claim!, "ANTHROPIC_AUTH_ERROR", false, "invalid api key");
+    expect(outcome).toBe("QUARANTINED");
+
+    const job = await adminPool.query("select status, quarantined_at from message_processing_jobs where id = $1", [jobId]);
+    expect(job.rows[0].status).toBe("QUARANTINED");
+    expect(job.rows[0].quarantined_at).not.toBeNull();
+  });
+
+  /**
+   * BUILD-11 Rozhodnutí 3 — retryAfterSeconds (z 429 retry-after hlavičky)
+   * přebije RETRY_BACKOFF_SECONDS ladder (5s→15s→30s), pokud je přítomný.
+   */
+  it("retryAfterSeconds přebije RETRY_BACKOFF_SECONDS ladder", async () => {
+    await ingestUserText("retry-after-owner-seq1");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-retry-after");
+    expect(claim).not.toBeNull();
+
+    const before = Date.now();
+    const outcome = await recordJobFailure(runtimePool, claim!, "ANTHROPIC_RATE_LIMITED", true, "rate limited", 45);
+    expect(outcome).toBe("RETRIED");
+
+    const job = await adminPool.query("select available_at from message_processing_jobs where id = $1", [claim!.jobId]);
+    const availableAt = new Date(job.rows[0].available_at).getTime();
+    // 45s override, ne 5s ladder default — tolerance pro test wall-clock.
+    expect(availableAt).toBeGreaterThan(before + 40_000);
+    expect(availableAt).toBeLessThan(before + 50_000);
   });
 });

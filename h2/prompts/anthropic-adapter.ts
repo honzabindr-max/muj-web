@@ -71,7 +71,21 @@ export async function callAnthropicModel(
   }
 
   if (response.status === 429) {
-    throw new H2AnthropicCallError("ANTHROPIC_RATE_LIMITED");
+    const retryAfterHeader = response.headers.get("retry-after");
+    const retryAfterSeconds = retryAfterHeader !== null ? Number(retryAfterHeader) : undefined;
+    throw new H2AnthropicCallError(
+      "ANTHROPIC_RATE_LIMITED",
+      retryAfterSeconds !== undefined && Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+    );
+  }
+  if (response.status === 400) {
+    throw new H2AnthropicCallError("ANTHROPIC_BAD_REQUEST");
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new H2AnthropicCallError("ANTHROPIC_AUTH_ERROR");
+  }
+  if (response.status === 500 || response.status === 529) {
+    throw new H2AnthropicCallError("ANTHROPIC_SERVER_ERROR");
   }
   if (!response.ok) {
     throw new H2AnthropicCallError("ANTHROPIC_HTTP_ERROR");
