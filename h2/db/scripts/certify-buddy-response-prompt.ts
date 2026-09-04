@@ -7,7 +7,9 @@ import {
   BUDDY_RESPONSE_FIXTURES,
   BUDDY_RESPONSE_FIXTURE_SET_VERSION,
 } from "@/h2/buddy/prompt-fixtures";
+import { BUDDY_RESPONSE_JSON_SCHEMA } from "@/h2/buddy/stance-intent-schema";
 import { H2_MODELS } from "@/h2/config/models";
+import { CONTEXT_TOKEN_BUDGETS } from "@/h2/context/token-budget";
 import { callAnthropicModel } from "@/h2/prompts/anthropic-adapter";
 import { loadPromptProviderConfig } from "@/h2/prompts/config";
 import { runPromptFixtureSuite } from "@/h2/prompts/fixtures";
@@ -93,7 +95,14 @@ async function main() {
     let lastFixtureName: string | null = null;
     const capturingCallModel = async (modelId: string, promptContent: string, input: string) => {
       lastFixtureName = BUDDY_RESPONSE_FIXTURES.find((f) => f.input === input)?.name ?? null;
-      const result = await callAnthropicModel(modelId, promptContent, input, credentials.anthropicApiKey);
+      const result = await callAnthropicModel(
+        modelId,
+        promptContent,
+        input,
+        credentials.anthropicApiKey,
+        CONTEXT_TOKEN_BUDGETS[BUDDY_RESPONSE_PURPOSE].maxOutputTokens,
+        BUDDY_RESPONSE_JSON_SCHEMA,
+      );
       rawResponsesByInput.set(input, result.text);
       return result;
     };
