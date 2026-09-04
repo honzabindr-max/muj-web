@@ -51,3 +51,22 @@ export const BuddyResponseOutputSchema = z.object({
 export type BuddyStance = (typeof BUDDY_STANCE_VALUES)[number];
 export type BuddyIntent = (typeof BUDDY_INTENT_VALUES)[number];
 export type BuddyResponseOutput = z.infer<typeof BuddyResponseOutputSchema>;
+
+/**
+ * JSON Schema mirror of `BuddyResponseOutputSchema` for Anthropic Structured
+ * Outputs (`output_config.format`, BUILD-11 Structured Outputs decision). Not
+ * auto-derived from the zod schema — Structured Outputs doesn't support
+ * `minLength`/`minItems`, so `responseText.min(1)` and `intent.min(1)` are
+ * deliberately omitted here and stay enforced by
+ * `BuddyResponseOutputSchema.safeParse()` downstream (AT-50 unchanged).
+ */
+export const BUDDY_RESPONSE_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    responseText: { type: "string" },
+    stance: { type: "string", enum: BUDDY_STANCE_VALUES },
+    intent: { type: "array", items: { type: "string", enum: BUDDY_INTENT_VALUES } },
+  },
+  required: ["responseText", "stance", "intent"],
+  additionalProperties: false,
+} as const;
