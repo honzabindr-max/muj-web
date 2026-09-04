@@ -364,11 +364,70 @@ budoucí review, ať se neopakuje diskuze):**
 
 **Návrh:** externí ping (cron-job.org, zdarma, interval 1 min, custom
 headers) → nový autentizovaný endpoint `POST /api/internal/queue-wakeup`
-→ `processOwnerQueueBounded()` (Rozhodnutí 1) volané pro **každého**
-ownera s dostupnou processable frontou (`select distinct owner_id from
+→ pro **každého** ownera zavolá `processOwnerQueueBounded()` (Rozhodnutí
+1), ne jen pro jednoho — na rozdíl od Rozhodnutí 1's volání z ingest
+routy, kde je `ownerId` dán requestem.
+
+**Oprava nálezu (2026-09-04) — enumerace ownerů přes `message_processing_
+jobs` je stejná třída bugu jako `verify-ingestion.ts` před Pravidlem 9:**
+v1 tohoto rozhodnutí navrhovala enumeraci `select distinct owner_id from
 message_processing_jobs where status in ('PENDING', 'RETRY_PENDING') and
-available_at <= now()`), ne jen pro jednoho — na rozdíl od Rozhodnutí 1's
-volání z ingest routy, kde je `ownerId` dán requestem.
+available_at <= now()`. `message_processing_jobs` má ale **FORCE RLS**
+(§4.3, migrace 0011) vyžadující `app.owner_id` v session — dotaz bez
+scope pod `h2_runtime` **tiše vrátí nula řádků bez ohledu na to, co ve
+frontě skutečně je** (přesně popsáno v Pravidle 9, BUILD-STATUS.md: "RLS
+na owner-scoped tabulkách nehlásí chybu, jen tiše filtruje na nulu").
+Wake endpoint by tak vypadal zdravě (`204`), ale nikdy by nic reálně
+neprobudil.
+
+**Opravený návrh:** enumerace ownerů přes `owners` tabulku, **ne** přes
+`message_processing_jobs` — `owners` RLS nemá vůbec (jen `GRANT`, ověřeno
+`verify-ingestion.ts`'s komentářem: "`owners` RLS nemá (jen GRANT), takže
+single owner lze vyřešit bez scope"), takže `select id from owners` pod
+`h2_runtime` funguje bez jakéhokoli owner scope a nemůže tiše vrátit
+zavádějící prázdný výsledek:
+```
+const owners = await pool.query<{ id: string }>('select id from owners')
+for (const { id: ownerId } of owners.rows) {
+  await processOwnerQueueBounded(pool, registry, credentials, ownerId, deadlineAt)
+}
+```
+Žádná samostatná "má tenhle owner něco ve frontě" kontrola není potřeba —
+`processOwnerQueueBounded()` samo uvnitř volá `claimNextJob()` →
+`withOwnerScope()`, který teprve **správně scoped** nastaví `app.owner_id`
+pro daného ownera a vrátí `null`, pokud je fronta prázdná. Tenhle no-op
+návrat je dost levný na to, aby se volal pro každého ownera při každém
+probuzení (dnes jeden owner — `verify-ingestion.ts`'s komentář — bez
+architektonické změny i pro víc ownerů v budoucnu).
+
+**Readback guard (Pravidlo 9), sdílená oprava přesahující Rozhodnutí 8:**
+`withOwnerScope()` (`h2/db/with-owner-scope.ts`) dnes zavolá `set_config
+('app.owner_id', ...)`, ale **neověřuje readbackem, že se scope skutečně
+nastavil** — přesně ta mezera, kterou Pravidlo 9 opravilo ve
+`verify-ingestion.ts` po incidentu s tichou nulou. Návrh: `withOwnerScope()`
+se rozšíří o `select current_setting('app.owner_id', true)` hned po
+`set_config` a porovná výsledek s `ownerId`; pokud se neshodují, throwne
+explicitní chybu **před** voláním `fn(client)` — stejný vzor jako
+`verify-ingestion.ts`'s guard. `withOwnerScope()` je sdílená
+infrastruktura (BUILD-02/BUILD-03A), kterou dnes používá **každé** volání
+`claimNextJob()`/`commitJobResult()`/`recordJobFailure()`, ne jen wake
+endpoint — oprava tedy chrání celou frontu, ne jen Rozhodnutí 8.
+Doporučeno zařadit do Kroku 1 (nejdřívější krok, který `withOwnerScope()`
+přes `claimNextJob()` volá) — nevyžaduje migraci, nemá důvod čekat na
+Krok 4.
+
+**Wake endpoint musí selhat hlasitě, ne prázdně:** pokud enumerace ownerů
+selže (DB nedostupná, chyba dotazu), nebo pokud `withOwnerScope()`'s
+readback guard výše pro kteréhokoli ownera selže, endpoint **nesmí**
+vrátit `204` jako by nebylo co probudit — musí vrátit `5xx` a založit
+incident. `204` smí znamenat jen "probudil jsem frontu pro všechny
+ownery, žádný neměl co dělat", nikdy "nepodařilo se mi ani zjistit, koho
+probudit". Stejný princip jako Pravidlo 9: mechanismus, co místo chyby
+tiše vrátí "nic", je horší než žádný — vede k falešnému "systém běží v
+pořádku" závěru přesně tam, kde by měl spustit alarm (tenhle endpoint je
+jediný liveness mechanismus mimo `after()`, takže jeho tiché selhání by
+znamenalo, že se karanténa/backoff mezery z Rozhodnutí 8's úvodu vrátí
+neviditelně).
 
 **Autentizace a scope (Pravidlo 11 aktualizace, viz BUILD-STATUS.md):**
 - nový env `H2_QUEUE_WAKE_SECRET` (Vercel Secret, production), scoped
@@ -409,6 +468,45 @@ nemusí, znovupoužít stejný `cron-job.org` účet s jiným endpointem).
    (závisí na plánu — dnes neověřeno) — vstup pro Rozhodnutí 1's
    `deadlineAt` výpočtu, musí se zjistit před implementací Kroku 4, ne
    předpokládat.
+4. **Nové (2026-09-04) — dopad na Neon compute náklady, ověřeno živě proti
+   Neon dokumentaci, ne odhadem:**
+   - Oba Neon projekty (`h2-runtime`, `h2-control`) jsou dnes na **Free**
+     plánu (DEC-003). Wake endpoint čte/píše výhradně `h2-runtime`
+     (`owners`/`message_processing_jobs`/`owner_processing_state`) —
+     `h2-control` tímhle mechanismem není dotčen.
+   - Neon Free: **100 CU-hodin/projekt/měsíc**, scale-to-zero po
+     **5 minutách** neaktivity je na Free **povinné a nejde vypnout**
+     (jen placené plány mohou autosuspend vypnout) — `neon.com/docs/
+     introduction/plans`, `neon.com/docs/introduction/compute-lifecycle`,
+     ověřeno živě 2026-09-04.
+   - Minutový ping resetuje 5minutový idle timer při **každém** volání
+     (interval 1 min < 5 min suspend threshold) — `h2-runtime`'s compute
+     tak nikdy nestihne usnout a běží fakticky nepřetržitě, **~720
+     hodin/měsíc** (30denní měsíc) místo dnešního "spí, dokud nepřijde
+     zpráva" chování.
+   - **Proti limitu:** Neon dokumentace: 100 CU-hodin stačí "run a 0.25
+     CU compute in a project for 400 hours/month" (doslovná citace). Při
+     kontinuálním běhu 720 h/měsíc na téhle minimální/výchozí velikosti
+     (0,25 CU) by spotřeba byla `720 × 0,25 = 180 CU-hodin/měsíc` —
+     **1,8× nad 100CU-hodinovým limitem**, vyčerpáno přibližně za
+     `400 h ÷ 24 h/den ≈ 16,7 dne` kontinuálního běhu, ne za celý měsíc.
+   - **Neověřeno (chybí přístup — žádný `neonctl`/Neon API klíč v tomhle
+     repu/prostředí):** skutečná nakonfigurovaná velikost `h2-runtime`
+     computu (0,25 CU je Neon's dokumentovaná výchozí/minimální hodnota,
+     ne přímo přečtená z live nastavení projektu) a přesné chování Neon
+     po vyčerpání Free limitu uprostřed měsíce (dokumentace jen odkazuje
+     na porovnání "plan allowances", nepopisuje explicitně suspend vs.
+     upgrade-prompt vs. jiné chování).
+   - **Závěr:** minutový budík ve tvaru "ping každou minutu, 24/7"
+     pravděpodobně překročí Free plán limit zhruba v polovině měsíce.
+     **Tohle není důvod měnit architekturu Rozhodnutí 8** — princip
+     "control plane wake" zůstává správný. Je to důvod přehodnotit
+     **interval/rozvrh budíku** (řidší ping, ping jen v očekávaných
+     aktivních hodinách, nebo přijmout náklad/upgrade Neon plánu).
+     Code číslo změřilo, nenavrhuje konkrétní interval bez dalšího
+     Honzíkova zadání — musí se vyřešit **před** Krokem 4 (viz
+     "Implementační strategie" níže), protože Krok 4 je jediný krok,
+     který wake endpoint skutečně zapojí do provozu.
 
 ## Rozhodnutí 9 (nové, z gate — [DEC-008](./DECISIONS.md#dec-008)): deadline sémantika — wall clock vs. ACTIVE/stage processing budget
 
@@ -466,14 +564,35 @@ podmínka beze změny.
   transakci jako `resolveJobFailure()`'s update.
 - **ABANDONED_UNKNOWN** (lease vypršel, `lease.ts`'s reap větev
   reklamuje job po mrtvém procesoru): **nejvýše hard timeout právě
-  běžící stage** — ne doba, po kterou job ležel bez executoru. Konkrétně:
-  pokud existuje `llm_attempts` řádek se `status='CALL_INTENT'` pro
-  reapovaný job (Rozhodnutí 10 — znamená, že volání bylo v letu, když
-  procesor zmrzl/spadl), připočítá se **flat** hodnota rovná té stage's
-  hard timeoutu (`CALL_TIMEOUT_MS = 60_000` pro LLM volání) — nikdy
-  měřená doba od insertu CALL_INTENT řádku do teď, protože ta doba z
-  velké části odráží, jak dlouho job čekal bez executoru (přesně to, co
-  DEC-008 zakazuje účtovat). Pokud žádný `CALL_INTENT` řádek pro daný
+  běžící stage** — ne doba, po kterou job ležel bez executoru.
+
+  **Oprava nálezu (2026-09-04):** v1 tohoto rozhodnutí počítala vždy s
+  **plochou** hodnotou rovnou stage's hard timeoutu, kdykoli existoval
+  `llm_attempts` řádek se `status='CALL_INTENT'` pro reapovaný job. To je
+  špatně — gate rozhodl "**nejvýše** hard timeout stage" (horní mez), ne
+  "**vždy přesně** hard timeout" (plochá hodnota). Plochých 60 000 ms
+  znamená, že dva pokusy, co spadnou prakticky okamžitě po `CALL_INTENT`
+  insertu (např. síťová chyba hned po odeslání requestu, reálná práce
+  ≈ 0 ms), vyčerpají celý 120s TEXT budget (`2 × 60 000 ms = 120 000 ms`)
+  dřív, než padne třetí pokus, aniž kdokoli reálně pracoval — **tatáž
+  asymetrie, kvůli které vzniklo DEC-008** (retry budget by dál neměřil
+  skutečnou práci, jen tentokrát skrz plochý odhad místo wall clocku).
+
+  **Opravený vzorec:** pokud existuje `llm_attempts` řádek se
+  `status='CALL_INTENT'` pro reapovaný job (Rozhodnutí 10 — znamená, že
+  volání bylo v letu, když procesor zmrzl/spadl), připočítá se
+  ```
+  min(reap_time - llm_attempts.created_at, stage_hard_timeout_ms)
+  ```
+  kde `stage_hard_timeout_ms` je `CALL_TIMEOUT_MS = 60_000` pro LLM
+  volání a `reap_time` je okamžik, kdy `lease.ts`'s reap větev job
+  skutečně reklamuje (ne okamžik teoretického vypršení stage). `min()`
+  splňuje obě strany DEC-008's pravidla zároveň: (1) **horní mez** —
+  nikdy se nepřipočítá víc, než kolik mohla stage reálně běžet, ať reap
+  přijde jakkoli pozdě (nikdy doba, po kterou job ležel bez executoru);
+  (2) **žádné nadhodnocení krátkých selhání** — pokud reap přijde brzy po
+  `CALL_INTENT` (rychlý crash), připočítá se ta krátká skutečná doba, ne
+  vynucených 60 000 ms navíc. Pokud žádný `CALL_INTENT` řádek pro daný
   reap neexistuje (procesor spadl dřív, než stihl zavolat cokoliv
   externího), připočítá se `0` — žádný metered náklad nevznikl.
   `llm_attempts` řádek samotný se při reapu přepne na `ABANDONED_UNKNOWN`.
@@ -517,30 +636,32 @@ resolved_at timestamptz null
 Grant pro `h2_runtime` v téže migraci (vzor `0015_prompt_registry_runtime_
 grants.sql`), ne editace `0011_roles_and_rls.sql` přímo.
 
-**Otevřená implementační otázka — co přesně znamená "ve stejné transakci
-jako claim":** Honzíkovo zadání říká "Řádek committed PŘED externím
-voláním, ve stejné transakci jako claim." Dvě čtení:
+**Výklad "ve stejné transakci jako claim" — ROZHODNUTO (Honzík,
+2026-09-04): varianta (b).** Honzíkovo zadání znělo "Řádek committed PŘED
+externím voláním, ve stejné transakci jako claim." — připouštělo dvě
+čtení:
 - (a) doslovně — `claimNextJob()`/`claimSpecificJob()` (`h2/processing/
-  lease.ts`) musí být rozšířené o insert `llm_attempts` řádku uvnitř
-  téže DB transakce, která claimuje job, PŘED commitem. Problém: v
+  lease.ts`) by musely být rozšířené o insert `llm_attempts` řádku uvnitř
+  téže DB transakce, která claimuje job, PŘED commitem. Zavrženo: v
   okamžiku claimu ještě nevíme, kolik/jaká volání proběhnou (extrakce i
-  Buddy response jsou dvě samostatná volání, ne jedno), takže by
-  `claimNextJob()` musel přijmout seznam očekávaných `purpose`ů dopředu.
-- (b) "claim" se tu myslí volněji — insert `llm_attempts` řádku JE svůj
-  vlastní atomický commit, který "claimuje" konkrétní volání, analogicky
-  k tomu, jak `claimNextJob()` claimuje job. Dva nezávislé, ale oba
-  atomické zápisy, každý bezprostředně před akcí, kterou reprezentuje.
+  Buddy response jsou dvě samostatná volání s různým `purpose`, ne
+  jedno), takže by `claimNextJob()` musel přijmout seznam očekávaných
+  `purpose`ů dopředu — mění to signaturu fronty kvůli něčemu, co fronta
+  sama neví.
+- (b) **potvrzeno** — "claim" se tu myslí volněji: insert `llm_attempts`
+  řádku JE svůj vlastní atomický commit, který "claimuje" konkrétní
+  volání, analogicky k tomu, jak `claimNextJob()` claimuje job. Dva
+  nezávislé, ale oba atomické zápisy, každý bezprostředně před akcí,
+  kterou reprezentuje (job claim před zpracováním jobu, `llm_attempt`
+  claim před konkrétním LLM voláním).
 
-**Doporučení:** (b) — přirozenější čtení, nevyžaduje předělat
-`claimNextJob()`'s signaturu kvůli počtu volání, které se ještě neurčily.
 `withLlmAttempt(pool, token, purpose, fn)` helper (viz Rozhodnutí 1's
 pseudokód) insertne `CALL_INTENT` řádek v jedné krátké transakci, pak
 zavolá `fn()` (externí volání MIMO transakci — nedrží se DB transakce
 otevřená přes network round-trip, stejný vzor jako `commitJobResult()`),
 pak podle výsledku updatne řádek na `SUCCEEDED`/`FAILED_CONFIRMED` a
-zapíše `charged_processing_ms` (měřená doba). **Vyžaduje Honzíkovo
-potvrzení výkladu (a) vs. (b) před implementací Kroku 1** — je to jediné
-místo v celém plánu, kde zadání připouští dvě odlišné implementace.
+zapíše `charged_processing_ms` (měřená doba). Žádné další potvrzení
+nepotřeba — implementace Kroku 1 vychází z (b) přímo.
 
 **Vztah k `llm_runs` (BUILD-07, existující tabulka):** `llm_runs` se
 zapisuje **po** volání, jako audit log dokončeného runu (`status`: `OK` /
@@ -643,10 +764,21 @@ taxonomie, deadline sémantika, delivery mechanismus, epoch kontrola), musí
 existovat a být otestované PŘED touhle chvílí, jinak by trigger běžel proti
 neúplné/nekonzistentní fázi vlastní fronty.
 
-**Vyžaduje živé ověření před GO na merge:** Vercel `maxDuration` pro obě
-ingest routes i pro wake endpoint (Rozhodnutí 8's otevřený bod 3) —
-`WORST_CASE_JOB_DURATION_MS` výpočet (Rozhodnutí 1) je bezcenný bez
-skutečného čísla, ne odhadu.
+**Vyžaduje živé ověření před GO na merge:**
+- Vercel `maxDuration` pro obě ingest routes i pro wake endpoint
+  (Rozhodnutí 8's otevřený bod 3) — `WORST_CASE_JOB_DURATION_MS` výpočet
+  (Rozhodnutí 1) je bezcenný bez skutečného čísla, ne odhadu.
+- **Otevřený bod před tímhle krokem (Rozhodnutí 8's otevřený bod 4):**
+  minutový ping v navrženém tvaru (1/min, 24/7) drží `h2-runtime`'s Neon
+  compute fakticky trvale vzhůru (scale-to-zero po 5 min se s 1min pingem
+  nikdy nespustí) — na Free plánu (100 CU-hodin/měsíc) to znamená
+  spotřebu zhruba `720 h × 0,25 CU ≈ 180 CU-hodin/měsíc`, cca 1,8× nad
+  limitem, vyčerpáno přibližně za ~16,7 dne kontinuálního běhu. **Nemění
+  se tím architektura Rozhodnutí 8** — mění se **interval/rozvrh
+  budíku**, a to je Honzíkovo rozhodnutí, ne implementační detail, který
+  by šel mergnout bez GO. Krok 4 nesmí mergnout dřív, než tenhle bod
+  Honzík vyřeší (řidší interval, aktivní hodiny, nebo upgrade Neon
+  plánu).
 
 ### Migrace — souhrn
 
@@ -732,8 +864,13 @@ rozšíření), žádná nepřepisuje ani neodstraňuje existující produkční
    sloupce (vs. ponechat jako nečtený audit trail).
 6. Rozhodnutí 9: **hodnota a tvar stale-age pravidla** — produktové
    rozhodnutí, Code ho nenavrhuje (viz "Co zůstává mimo scope").
-7. Rozhodnutí 10: potvrzení výkladu (a) vs. (b) pro "stejná transakce jako
-   claim" — doporučeno (b), ale je to jediné místo v plánu s otevřenou
-   dvojznačností zadání.
-8. Ověření Vercel `maxDuration` (plán/tier) pro ingest routes i wake
+7. Ověření Vercel `maxDuration` (plán/tier) pro ingest routes i wake
    endpoint — potřeba PŘED implementací Kroku 4, ne teď.
+8. **Nové — Rozhodnutí 8's Neon compute nález (bod 4):** minutový ping v
+   navrženém tvaru (1/min, 24/7) pravděpodobně překročí `h2-runtime`'s
+   Free plán limit (100 CU-hodin/měsíc) zhruba v polovině měsíce —
+   rozhodnutí o intervalu/rozvrhu budíku (nebo přijetí nákladu/upgrade
+   Neon plánu) je Honzíkovo, blokuje Krok 4, ne implementaci Kroků 1–3.
+
+**Rozhodnutí 10's výklad (a) vs. (b) je vyřešeno — Honzík potvrdil (b)
+2026-09-04, viz Rozhodnutí 10 výše. Není to už otevřený bod.**
