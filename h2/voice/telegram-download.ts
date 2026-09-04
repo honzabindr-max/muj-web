@@ -4,7 +4,7 @@ import { H2VoiceDownloadError } from "./errors";
  * Telegram voice download (BUILD-06 plán, Rozhodnutí 6): `getFile` +
  * stažení audio bajtů. `AbortController` timeout 45s na КAŽDÉ síťové
  * volání — rozpočet pro 3 pokusy + backoff musí bezpečně vejít pod 300s
- * voice deadline (BUILD-05 `deadlineSecondsFor('VOICE')`).
+ * voice processing budget (BUILD-05/BUILD-11 `processingBudgetMsFor('VOICE')`).
  *
  * Telegram `message.voice` je vždy OGG/OPUS (na rozdíl od obecného
  * `audio`/`document`), mimeType je proto pevný.

@@ -67,14 +67,13 @@ describe("voice job processing pod rolí h2_runtime", () => {
     return { rawEventId: result.rawEventId, jobId: result.jobId };
   }
 
-  it("AT-04: 3min voice → okamžitý claim s 300s deadline, transcript in-place, přesně jedna odpověď a jeden usage_ledger řádek", async () => {
+  it("AT-04: 3min voice → okamžitý claim s 300000ms processing budget, transcript in-place, přesně jedna odpověď a jeden usage_ledger řádek", async () => {
     const { rawEventId } = await ingestVoice("voice-3min", 180);
 
     const claim = await claimNextJob(runtimePool, ownerId, "processor-voice-a");
     expect(claim).not.toBeNull();
-    const deadlineFromNowMs = claim!.processingDeadlineAt.getTime() - Date.now();
-    expect(deadlineFromNowMs).toBeGreaterThan(250_000);
-    expect(deadlineFromNowMs).toBeLessThan(310_000);
+    expect(claim!.processingBudgetMs).toBe(300_000);
+    expect(claim!.chargedProcessingMs).toBe(0);
 
     const { transcriptText } = await transcribeVoiceJob(runtimePool, TEST_REGISTRY, claim!, CREDENTIALS, {
       download: fakeDownload,
@@ -175,12 +174,11 @@ describe("voice job processing pod rolí h2_runtime", () => {
     expect(usage.rows[0].n).toBe(1);
   });
 
-  it("voice deadline 300s s jedním retry: druhý pokus v rámci deadline uspěje bez karantény", async () => {
+  it("voice processing budget 300000ms s jedním retry: druhý pokus v rámci budgetu uspěje bez karantény", async () => {
     const { jobId } = await ingestVoice("voice-one-retry-in-budget", 30);
 
     const claimA = await claimNextJob(runtimePool, ownerId, "processor-voice-a");
-    const deadlineFromNowMs = claimA!.processingDeadlineAt.getTime() - Date.now();
-    expect(deadlineFromNowMs).toBeGreaterThan(250_000);
+    expect(claimA!.processingBudgetMs).toBe(300_000);
 
     const outcome = await recordJobFailure(runtimePool, claimA!, "WHISPER_HTTP_ERROR", true, "transient");
     expect(outcome).toBe("RETRIED");

@@ -7,24 +7,30 @@ import type { FencingToken } from "./lease";
 
 /**
  * Deadline/retry/backoff/quarantine (Technical Architecture v1.2 §4.3,
- * BUILD-05 plán). Backoff 5s→15s→30s, max 3 pokusy, text deadline 120s /
- * voice deadline 300s (§4.2 processing_deadline_at, počítané od PRVNÍHO
- * pokusu — nemění se mezi retry).
+ * BUILD-05 plán). Backoff 5s→15s→30s, max 3 pokusy.
+ *
+ * BUILD-11 Rozhodnutí 9 (DEC-008): "vyčerpán čas" test se přesunul z
+ * wall-clock `processing_deadline_at` (dřívější BUILD-05 sémantika,
+ * měřilo čas od prvního pokusu včetně čekání na volný executor) na
+ * ACTIVE/stage processing budget (`processing_budget_ms` vs.
+ * `charged_processing_ms`, měřeno přes `llm_attempts` — Rozhodnutí 10).
+ * Lease expiry a backoff/`available_at` zůstávají wall clock beze změny
+ * (§4.3) — DEC-008 mění výhradně tenhle jeden test.
  */
 export const RETRY_BACKOFF_SECONDS: readonly number[] = [5, 15, 30];
 export const MAX_ATTEMPTS = 3;
-export const DEADLINE_SECONDS: Readonly<Record<"TEXT" | "VOICE", number>> = { TEXT: 120, VOICE: 300 };
+export const PROCESSING_BUDGET_MS: Readonly<Record<"TEXT" | "VOICE", number>> = { TEXT: 120_000, VOICE: 300_000 };
 
 export type JobFailureOutcome = "RETRIED" | "QUARANTINED" | "ALREADY_QUARANTINED";
 
-type JobSnapshot = {
-  status: string;
+type JobExhaustionSnapshot = {
   attempt_count: number;
-  processing_deadline_at: Date | null;
+  charged_processing_ms: number;
+  processing_budget_ms: number | null;
 };
 
-export function deadlineSecondsFor(payloadType: string): number {
-  return payloadType === "VOICE" ? DEADLINE_SECONDS.VOICE : DEADLINE_SECONDS.TEXT;
+export function processingBudgetMsFor(payloadType: string): number {
+  return payloadType === "VOICE" ? PROCESSING_BUDGET_MS.VOICE : PROCESSING_BUDGET_MS.TEXT;
 }
 
 /**
@@ -64,10 +70,32 @@ export async function quarantineJob(
   );
 }
 
-export function isJobExhausted(job: JobSnapshot, now: Date): boolean {
+export function isJobExhausted(job: JobExhaustionSnapshot): boolean {
   if (job.attempt_count >= MAX_ATTEMPTS) return true;
-  if (job.processing_deadline_at !== null && now > job.processing_deadline_at) return true;
+  if (job.processing_budget_ms !== null && job.charged_processing_ms >= job.processing_budget_ms) return true;
   return false;
+}
+
+/**
+ * Součet `charged_processing_ms` z `llm_attempts` vzniklých BĚHEM
+ * aktuálního pokusu. `claimSpecificJob()` (`h2/processing/lease.ts`)
+ * nastavuje `started_at = now()` na KAŽDÉM claimu (první i retry), takže
+ * `created_at >= attemptStartedAt` přirozeně odděluje "tenhle pokus" od
+ * předchozích bez potřeby dalšího bookkeeping sloupce na `llm_attempts`.
+ * Jen `SUCCEEDED`/`FAILED_CONFIRMED` — `ABANDONED_UNKNOWN` se účtuje
+ * výhradně v reap větvi (`h2/processing/lease.ts`), ne tady (`CALL_INTENT`
+ * řádek, který by tu `resolveJobFailure()` viděla, patří k PRÁVĚ
+ * běžícímu pokusu, ne dokončenému — `withLlmAttempt()` vždy stihne
+ * volání vyřešit dřív, než chyba propaguje sem).
+ */
+async function sumAttemptChargedMs(client: PoolClient, jobId: string, attemptStartedAt: Date): Promise<number> {
+  const result = await client.query<{ total: string }>(
+    `select coalesce(sum(charged_processing_ms), 0) as total
+     from llm_attempts
+     where job_id = $1 and status in ('SUCCEEDED', 'FAILED_CONFIRMED') and created_at >= $2`,
+    [jobId, attemptStartedAt],
+  );
+  return Number(result.rows[0].total);
 }
 
 /**
@@ -86,6 +114,11 @@ export function isJobExhausted(job: JobSnapshot, now: Date): boolean {
  * karantény zbytečně). `retryAfterSeconds` (z `retry-after` hlavičky
  * 429 odpovědi) přebije `RETRY_BACKOFF_SECONDS` ladder, pokud je
  * přítomný.
+ *
+ * BUILD-11 Rozhodnutí 9 (DEC-008) — `charged_processing_ms` se navýší o
+ * měřenou dobu tohohle pokusu PŘED `isJobExhausted()` kontrolou, a to i
+ * na neretryovatelné/karanténní větvi (práce se stala, i když se
+ * nebude opakovat — accounting má odrážet skutečnou spotřebu).
  */
 async function resolveJobFailure(
   client: PoolClient,
@@ -96,14 +129,34 @@ async function resolveJobFailure(
   retryable: boolean,
   retryAfterSeconds?: number,
 ): Promise<JobFailureOutcome> {
-  const jobResult = await client.query<JobSnapshot>(
-    `select status, attempt_count, processing_deadline_at from message_processing_jobs where id = $1`,
+  const jobResult = await client.query<{
+    status: string;
+    attempt_count: number;
+    charged_processing_ms: string;
+    processing_budget_ms: string | null;
+    started_at: Date | null;
+  }>(
+    `select status, attempt_count, charged_processing_ms, processing_budget_ms, started_at
+     from message_processing_jobs where id = $1`,
     [jobId],
   );
   const job = jobResult.rows[0];
   if (job.status === "QUARANTINED") return "ALREADY_QUARANTINED";
 
-  if (!retryable || isJobExhausted(job, new Date())) {
+  const attemptChargedMs = job.started_at !== null ? await sumAttemptChargedMs(client, jobId, job.started_at) : 0;
+  const newChargedMs = Number(job.charged_processing_ms) + attemptChargedMs;
+  await client.query(`update message_processing_jobs set charged_processing_ms = $2, updated_at = now() where id = $1`, [
+    jobId,
+    newChargedMs,
+  ]);
+
+  const exhausted = isJobExhausted({
+    attempt_count: job.attempt_count,
+    charged_processing_ms: newChargedMs,
+    processing_budget_ms: job.processing_budget_ms !== null ? Number(job.processing_budget_ms) : null,
+  });
+
+  if (!retryable || exhausted) {
     await quarantineJob(client, ownerId, jobId, reasonCode);
     return "QUARANTINED";
   }
