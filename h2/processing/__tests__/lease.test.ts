@@ -77,6 +77,20 @@ describe("claimNextJob() pod rolí h2_runtime", () => {
     expect(claimB?.rawEventId).toBe(second.rawEventId);
   });
 
+  it("MANUALLY_CLEARED (migrace 0016, BUILD-11 prep) je settled stejně jako QUARANTINED/RESPONSE_READY — claimNextJob ho přeskočí", async () => {
+    const cleared = await ingestUserText("cleared-1");
+    const pending = await ingestUserText("pending-2");
+
+    await adminPool.query(
+      `update message_processing_jobs set status = 'MANUALLY_CLEARED', finished_at = now() where id = $1`,
+      [cleared.jobId],
+    );
+
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
+    expect(claim).not.toBeNull();
+    expect(claim?.rawEventId).toBe(pending.rawEventId);
+  });
+
   it("AT-03 / AT-07: crash po ACK (lease vyprší bez commitu) → recovery claim + commit uspěje, existuje přesně jedna response", async () => {
     const { rawEventId, jobId } = await ingestUserText("crash-recovery");
 
