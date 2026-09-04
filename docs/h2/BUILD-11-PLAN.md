@@ -190,6 +190,22 @@ zachycenou chybu (včetně `H2AnthropicCallError.code`) na
 mezera jako BUILD-11 trigger obecně), takže tohle mapování dnes nikde
 neexistuje a vzniká poprvé s Rozhodnutím 1's `processOwnerQueue()`.
 
+**Mezera v meteringu zavedená PR #38 — patří sem, ne jako samostatný
+forward-pointer:** `h2/prompts/anthropic-adapter.ts`'s `callAnthropicModel()`
+throwuje `ANTHROPIC_REFUSAL`/`ANTHROPIC_MAX_TOKENS_TRUNCATED` dřív, než
+`generateBuddyResponse()` stihne zavolat `recordLlmRun()`/
+`recordAnthropicUsage()` — tahle třída chyb tak dnes nemá žádný záznam
+spotřeby. Mid-stream refuz i ořez na `max_tokens` se u Anthropic API ale
+účtují (na rozdíl od pre-output refuzu, který se neúčtuje vůbec), takže
+dnešní kód porušuje disciplínu "zavolalo se, zaplatilo se" (BUILD-07
+AT-34) přesně pro tyhle dva kódy. Obě chybové třídy už v tomhle
+Rozhodnutí figurují jako neretryovatelné (viz adaptér výše) a oprava sahá
+na stejná dvě místa jako zbytek rozhodnutí — adaptér i frontu/volající —
+takže patří do stejného kroku/PR: adaptér musí vracet dost informace
+(alespoň token counts z Anthropic response, pokud jsou u refuzu/ořezu
+přítomné) na to, aby volající mohl zaznamenat spotřebu PŘED tím, než
+chybu znovu vyhodí dál k `recordJobFailure()` klasifikaci výše.
+
 **Rozsah:** tohle je největší jednotlivá komponenta plánu — dotýká se
 adaptéru, fronty i nového trigger kódu zároveň. Navrhuji samostatný krok/PR
 uvnitř BUILD-11 (ne jeden PR pro celý slice), aby šel review a testovat
