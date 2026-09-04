@@ -141,7 +141,7 @@ describe("voice job processing pod rolí h2_runtime", () => {
       }),
     ).rejects.toBeInstanceOf(H2VoiceTranscriptionError);
 
-    const outcome = await recordJobFailure(runtimePool, claimA!, "WHISPER_TIMEOUT", "simulated delayed whisper");
+    const outcome = await recordJobFailure(runtimePool, claimA!, "WHISPER_TIMEOUT", true, "simulated delayed whisper");
     expect(outcome).toBe("RETRIED");
 
     await adminPool.query("update message_processing_jobs set available_at = now() - interval '1 second' where id = $1", [
@@ -182,7 +182,7 @@ describe("voice job processing pod rolí h2_runtime", () => {
     const deadlineFromNowMs = claimA!.processingDeadlineAt.getTime() - Date.now();
     expect(deadlineFromNowMs).toBeGreaterThan(250_000);
 
-    const outcome = await recordJobFailure(runtimePool, claimA!, "WHISPER_HTTP_ERROR", "transient");
+    const outcome = await recordJobFailure(runtimePool, claimA!, "WHISPER_HTTP_ERROR", true, "transient");
     expect(outcome).toBe("RETRIED");
     await adminPool.query("update message_processing_jobs set available_at = now() - interval '1 second' where id = $1", [
       jobId,
