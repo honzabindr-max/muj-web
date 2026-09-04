@@ -10,7 +10,11 @@
     "db:migrate:dev": "tsx h2/db/scripts/migrate-dev.ts",
     "db:migrate:control": "tsx h2/db/scripts/migrate-control-dev.ts",
     "db:migrate:neon:runtime": "tsx h2/db/scripts/migrate-neon-runtime.ts",
+    "db:migrate:neon:runtime:preview": "tsx h2/db/scripts/migrate-neon-runtime.ts preview",
+    "db:migrate:neon:runtime:production": "tsx h2/db/scripts/migrate-neon-runtime.ts production",
     "db:migrate:neon:control": "tsx h2/db/scripts/migrate-neon-control.ts",
+    "db:migrate:neon:control:preview": "tsx h2/db/scripts/migrate-neon-control.ts preview",
+    "db:migrate:neon:control:production": "tsx h2/db/scripts/migrate-neon-control.ts production",
     "db:check:neon:roles": "tsx h2/db/scripts/check-neon-roles.ts",
     "fetch:routes": "node scripts/fetch-soci-routes.mjs",
     "fetch:photos": "node scripts/fetch-soci-photos.mjs"
