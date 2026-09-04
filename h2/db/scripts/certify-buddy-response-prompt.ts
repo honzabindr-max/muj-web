@@ -1,12 +1,12 @@
 import { Pool } from "pg";
 
+import { parseBuddyResponseOutput } from "@/h2/buddy/parse-model-output";
 import { BUDDY_RESPONSE_PROMPT_CONTENT, BUDDY_RESPONSE_OUTPUT_JSON_SCHEMA } from "@/h2/buddy/prompt-content";
 import {
   BUDDY_RESPONSE_FIXTURE_CONTENT_CHECKS,
   BUDDY_RESPONSE_FIXTURES,
   BUDDY_RESPONSE_FIXTURE_SET_VERSION,
 } from "@/h2/buddy/prompt-fixtures";
-import { BuddyResponseOutputSchema } from "@/h2/buddy/stance-intent-schema";
 import { H2_MODELS } from "@/h2/config/models";
 import { callAnthropicModel } from "@/h2/prompts/anthropic-adapter";
 import { loadPromptProviderConfig } from "@/h2/prompts/config";
@@ -33,6 +33,14 @@ const SCHEMA_VERSION = 1;
  * ignored, stejné místo jako ostatní lokální secrety, DEC-005) přijít
  * mimo tuhle konverzaci, ne vložením hodnoty do chatu (Secret Handling
  * pravidlo — hodnota v chatu = kompromitovaná).
+ *
+ * `validateOutput` volá `parseBuddyResponseOutput()` (h2/buddy/parse-
+ * model-output.ts) — STEJNOU funkci, jakou volá `generateBuddyResponse()`
+ * v produkci (Honzíkovo explicitní zadání 2026-09-04: nesmí existovat
+ * dvě různá pravidla toho, co je platný výstup, jinak certifikace ověří
+ * něco jiného, než co poběží). Fixtura, jejíž odpověď parser zachránil
+ * tolerantní extrakcí (próza kolem JSONu), se v tisknutém výsledku
+ * označí `[EXTRAKCE]`.
  *
  * Použití: npx tsx h2/db/scripts/certify-buddy-response-prompt.ts
  * Vyžaduje: .env.verify (DB, viz write-verify-env.sh) + .env.local
@@ -81,6 +89,7 @@ async function main() {
     // nato validateOutput sekvenčně, jedna fixtura po druhé, takže tenhle
     // "poslední input" box je bezpečný.
     const rawResponsesByInput = new Map<string, string>();
+    const extractionUsedByFixtureName = new Map<string, boolean>();
     let lastFixtureName: string | null = null;
     const capturingCallModel = async (modelId: string, promptContent: string, input: string) => {
       lastFixtureName = BUDDY_RESPONSE_FIXTURES.find((f) => f.input === input)?.name ?? null;
@@ -89,6 +98,12 @@ async function main() {
       return result;
     };
 
+    // validateOutput() volá STEJNÝ parseBuddyResponseOutput() (h2/buddy/
+    // parse-model-output.ts), jaký běží v produkci (generateBuddyResponse())
+    // — Honzíkovo explicitní zadání: nesmí existovat dvě různá pravidla
+    // toho, co je platný výstup, jinak certifikace ověřuje jinou parse
+    // cestu, než jaká poběží. Obsahové kontroly (BUDDY_RESPONSE_FIXTURE_
+    // CONTENT_CHECKS) běží AŽ NAD tímhle parsovaným výsledkem, ne místo něj.
     const suite = await runPromptFixtureSuite(pool, ownerId, {
       promptVersionId: draft.id,
       purpose: BUDDY_RESPONSE_PURPOSE,
@@ -99,15 +114,10 @@ async function main() {
       fixtures: BUDDY_RESPONSE_FIXTURES,
       callModel: capturingCallModel,
       validateOutput: (text) => {
-        let parsedJson: unknown;
-        try {
-          parsedJson = JSON.parse(text);
-        } catch {
-          return { valid: false, errorSummary: "výstup není validní JSON" };
-        }
-        const parsed = BuddyResponseOutputSchema.safeParse(parsedJson);
+        const parsed = parseBuddyResponseOutput(text);
+        if (lastFixtureName) extractionUsedByFixtureName.set(lastFixtureName, parsed.extractionUsed);
         if (!parsed.success) {
-          return { valid: false, errorSummary: parsed.error.message.slice(0, 300) };
+          return { valid: false, errorSummary: parsed.errorSummary };
         }
         const contentCheck = lastFixtureName ? BUDDY_RESPONSE_FIXTURE_CONTENT_CHECKS[lastFixtureName] : undefined;
         if (contentCheck) {
@@ -119,10 +129,17 @@ async function main() {
     });
 
     console.log(`\nFixture suite status: ${suite.status} (${suite.results.filter((r) => r.passed).length}/${suite.results.length} passed)\n`);
+    const extractionCount = [...extractionUsedByFixtureName.values()].filter(Boolean).length;
+    if (extractionCount > 0) {
+      console.log(`Tolerantní parser (parse-model-output.ts) zasáhl u ${extractionCount}/${suite.results.length} fixtur.\n`);
+    }
     for (const result of suite.results) {
       const fixture = BUDDY_RESPONSE_FIXTURES.find((f) => f.name === result.name);
       const rawText = fixture ? rawResponsesByInput.get(fixture.input) : undefined;
-      console.log(`[${result.passed ? "PASS" : "FAIL"}] ${result.name} (${result.kind})${result.errorSummary ? ` — ${result.errorSummary}` : ""}`);
+      const extractionUsed = extractionUsedByFixtureName.get(result.name);
+      console.log(
+        `[${result.passed ? "PASS" : "FAIL"}] ${result.name} (${result.kind})${extractionUsed ? " [EXTRAKCE]" : ""}${result.errorSummary ? ` — ${result.errorSummary}` : ""}`,
+      );
       if (fixture) console.log(`  vstup:  ${fixture.input.replace(/\n/g, " ⏎ ")}`);
       if (rawText) console.log(`  výstup: ${rawText}`);
     }
