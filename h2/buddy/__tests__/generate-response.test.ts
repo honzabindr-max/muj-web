@@ -160,6 +160,45 @@ describe("generateBuddyResponse() pod rolí h2_runtime", () => {
     ).rejects.toBeInstanceOf(H2BuddyRuntimeError);
   });
 
+  it("tolerantní parser (Honzíkovo rozhodnutí 2026-09-04): próza kolem JSONu z reálné certifikace → response se přesto commitne, extractionUsed zapsané v llm_runs", async () => {
+    await activateBuddyPrompt();
+    const { rawEventId } = await ingestText("prose-around-json", "Co si myslíš o Markétce?");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    const validOutput = { responseText: "Na tohle nemám podklad.", stance: "EXPLORE", intent: ["QUESTION"] };
+    const rawTextWithProse = `Z jedné epizody ti tohle neřeknu.\n\nCo tě k tomu vede?\n\n${JSON.stringify(validOutput)}`;
+
+    const result = await generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, fakeCallModel(rawTextWithProse));
+    expect(result.reused).toBe(false);
+    if (!result.reused) {
+      expect(result.stance).toBe("EXPLORE");
+      expect(result.intent).toEqual(["QUESTION"]);
+    }
+
+    const responses = await adminPool.query("select count(*)::int as n from responses where source_raw_event_id = $1", [rawEventId]);
+    expect(responses.rows[0].n).toBe(1);
+
+    const llmRuns = await adminPool.query<{ input_reference_manifest: { extractionUsed?: boolean } }>(
+      "select input_reference_manifest from llm_runs where owner_id = $1",
+      [ownerId],
+    );
+    expect(llmRuns.rows[0].input_reference_manifest.extractionUsed).toBe(true);
+  });
+
+  it("tolerantní parser: dva různé JSON objekty v odpovědi → pořád neplatný výstup (extrakce nehádá, který je ten pravý)", async () => {
+    await activateBuddyPrompt();
+    await ingestText("two-json-objects", "Ahoj");
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-a");
+
+    const first = { responseText: "první", stance: "BE_WITH", intent: ["SHARE"] };
+    const second = { responseText: "druhý", stance: "ACT", intent: ["TASK"] };
+    const rawText = `${JSON.stringify(first)}\n\n${JSON.stringify(second)}`;
+
+    await expect(
+      generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, fakeCallModel(rawText)),
+    ).rejects.toBeInstanceOf(H2BuddyRuntimeError);
+  });
+
   it("AT-50: prázdné pole intent (0 hodnot) → stejná explicitní chyba — Product Spec §5 vyžaduje aspoň jeden intent", async () => {
     await activateBuddyPrompt();
     await ingestText("empty-intent", "Ahoj");
