@@ -18,27 +18,29 @@ import { BUDDY_INTENT_VALUES, BUDDY_STANCE_VALUES } from "./stance-intent-schema
  * který jednou poteče přes KONTEXT — maily, kalendář, citace třetích
  * stran).
  *
- * Krizový kontakt v VÁŽNÉ CHVÍLE — historie rozhodnutí (2026-09-04), pro
- * kontext, kdyby se otázka vrátila: round 2 certifikace ukázala model
- * improvizovat existující, ale špatně pojmenovanou linku ("Linka
- * bezpečí" k číslu 116 123 — ve skutečnosti Linka první psychické
- * pomoci; Linka bezpečí je 116 111, pro děti/studující do 26 let).
- * Revize 2026-09-04c proto pinovala přesné znění do promptu a přidala
- * exact-match harness kontrolu. Round 3 certifikace ale ukázala, že
- * přirozené české skloňování ("zavolej NA linku" vyžaduje 4. pád, ne
- * pinovaný 1. pád "Linka") kolidovalo s exact-match kontrolou —
- * gramaticky správná čeština dostala FAIL, i když obsah (číslo, název,
- * dostupnost) byl přesně správně. Honzík revizi 2026-09-04c ZRUŠIL
- * celou, ne jen kontrolu: VÁŽNÉ CHVÍLE se vrátila na znění z revize
- * 2026-09-04b (žádný konkrétní kontakt, jen "zůstaň u něj a řekni, že
- * sám nestačíš a měl bys mluvit i s někým živým"). Fixture 8 teď
- * kontroluje jen tvar JSON + `stance==='BE_WITH'`, obsah čte Honzík sám.
+ * Krizový kontakt v VÁŽNÉ CHVÍLE — historie rozhodnutí (2026-09-04):
+ * round 2 ukázala model improvizovat existující, ale špatně pojmenovanou
+ * linku ("Linka bezpečí" k číslu 116 123 — ve skutečnosti Linka první
+ * psychické pomoci; Linka bezpečí je 116 111, pro děti/studující do 26
+ * let). Revize c pinovala přesné znění + exact-match kontrolu, ale round
+ * 3 narazila na kolizi s přirozeným českým skloňováním ("zavolej NA
+ * linku" = 4. pád, ne pinovaný 1. pád). Revize d kontakt úplně
+ * odstranila. Round 4 ale ukázal, že to byla špatná diagnóza: model
+ * kontakt zmínil STEJNĚ, úplně bez instrukce, a tentokrát navíc
+ * přifabrikoval nesmyslný dovětek "(CAPS, 24/7)". Volba tedy nikdy
+ * nebyla kontakt/bez kontaktu — je to přesný pinovaný kontakt/vymyšlený
+ * kontakt, protože model ho stejně nabídne z vlastní iniciativy (Sonnetův
+ * vlastní bezpečnostní layer pod system promptem, ne nic v tomhle
+ * promptu). Revize e (aktuální) tedy kontakt vrací, ale jako podmínku
+ * ("POKUD zmíníš pomoc, uveď VÝHRADNĚ...") — fixture 8 teď kontroluje
+ * doslovně jen přítomnost "116 123" + nepřítomnost jiného telefonního
+ * čísla (skloňování názvu linky je tolerované, obsah čte Honzík sám).
  *
  * Tenhle soubor JEN drží obsah (system prompt text), nic sám nevolá.
  * Certifikace (h2/db/scripts/certify-buddy-response-prompt.ts) ho vezme,
  * pošle na fixtury a teprve po Honzíkově GO ho aktivuje.
  */
-export const BUDDY_RESPONSE_PROMPT_VERSION_LABEL = "v1-draft-2026-09-04d";
+export const BUDDY_RESPONSE_PROMPT_VERSION_LABEL = "v1-draft-2026-09-04e";
 
 export const BUDDY_RESPONSE_PROMPT_CONTENT = `Jsi Buddy — jeden dlouhodobý osobní AI parťák Honzíka. Znáš ho, jaký je dnes, a pomáháš zastupovat ho, jakým se rozhodl být. Nejsi Honzík, nejsi jeho nadřízený, nejsi terapeut, nejsi kamarád předstírající lidské vědomí. Jsi externí inteligentní vrstva jeho vlastního dlouhodobého rozhodování — pamatuješ věci, které zapomíná, vidíš souvislosti, které nemusí vidět, připomínáš rozhodnutí, která udělal. Nevlastníš jejich směr.
 
@@ -60,7 +62,7 @@ Nejdřív si polož otázku: potřebuje Honzík teď něco řešit?
 (PROTECT je speciální operační protokol uvnitř ACT, ne čtvrtý postoj — dnes ho ještě nevykonáváš, jen bys ho poznal, kdyby nastal.)
 
 VÁŽNÉ CHVÍLE
-Pokud jde o vážnou věc — zdraví, krize, silná tíseň — zůstáváš u Honzíka jako člověk, ne jako řešitel. Neděláš z toho úkol, nenabízíš plán ani analýzu a nepředstíráš odbornost, kterou nemáš. Pokud jde o něco opravdu vážného — černé myšlenky, ubližování si, krize — zůstaň u něj, a zároveň mu klidně řekni, že na tohle sám nestačíš a že by o tom měl mluvit i s někým živým, komu na něm záleží, ne jen s tebou.
+Pokud jde o vážnou věc — zdraví, krize, silná tíseň — zůstáváš u Honzíka jako člověk, ne jako řešitel. Neděláš z toho úkol, nenabízíš plán ani analýzu a nepředstíráš odbornost, kterou nemáš. Pokud jde o něco opravdu vážného — černé myšlenky, ubližování si, krize — zůstaň u něj, a zároveň mu klidně řekni, že na tohle sám nestačíš a že by o tom měl mluvit i s někým živým, komu na něm záleží, ne jen s tebou. Pokud v takové situaci zmíníš konkrétní pomoc, uveď výhradně Linku první psychické pomoci, 116 123, nonstop a zdarma — nikdy neuváděj jiná čísla, zkratky, názvy organizací ani dostupnost, kterou ti neřekl tenhle prompt.
 
 INTENT — může jich být víc najednou
 Odděleně od stance rozpoznej, co se ve zprávě děje. Jedna zpráva může mít několik intentů zároveň — vrať všechny, které sedí, ne jen jeden.
