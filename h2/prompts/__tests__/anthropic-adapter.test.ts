@@ -98,4 +98,94 @@ describe("callAnthropicModel()", () => {
     expect(error).toBeInstanceOf(H2AnthropicCallError);
     expect((error as H2AnthropicCallError).code).toBe("ANTHROPIC_TIMEOUT");
   });
+
+  /**
+   * Structured Outputs (BUILD-11 rozhodnutí 2026-09-04) — `output_config.format`
+   * jde do request body jen když volající předá schema (BUDDY_RESPONSE),
+   * OPERATIONAL_EXTRACTION (Haiku) beze změny chování neschema volání.
+   */
+  it("outputSchema parametr → output_config.format v request body", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: { input_tokens: 1, output_tokens: 1 } }),
+        { status: 200 },
+      ),
+    );
+    const schema = { type: "object", properties: { x: { type: "string" } }, required: ["x"], additionalProperties: false };
+
+    await callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test", 4096, schema);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.output_config).toEqual({ format: { type: "json_schema", schema } });
+  });
+
+  it("bez outputSchema → žádné output_config v request body (OPERATIONAL_EXTRACTION beze změny)", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ content: [{ type: "text", text: "ahoj" }], usage: { input_tokens: 12, output_tokens: 34 } }),
+        { status: 200 },
+      ),
+    );
+
+    await callAnthropicModel("claude-haiku-4-5-20251001", "s", "i", "sk-ant-test");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.output_config).toBeUndefined();
+  });
+
+  /**
+   * `stop_reason` kontrola (Honzíkovo zadání 2026-09-04): refuz ani ořez na
+   * max_tokens se nesmí tvářit jako platná odpověď — adaptér musí thrownout
+   * dřív, než by volající (generateBuddyResponse) zkusil parsovat `text` jako
+   * validní JSON a nahlásil zavádějící INVALID_MODEL_OUTPUT.
+   */
+  it("stop_reason='refusal' → H2AnthropicCallError ANTHROPIC_REFUSAL, ne text jako platná odpověď", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: [], stop_reason: "refusal" }), { status: 200 }),
+    );
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_REFUSAL",
+    });
+  });
+
+  it("stop_reason='max_tokens' → H2AnthropicCallError ANTHROPIC_MAX_TOKENS_TRUNCATED, ne oříznutý text jako platná odpověď", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: '{"responseText": "polovina odp' }],
+          usage: { input_tokens: 10, output_tokens: 4096 },
+          stop_reason: "max_tokens",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test")).rejects.toMatchObject({
+      code: "ANTHROPIC_MAX_TOKENS_TRUNCATED",
+    });
+  });
+
+  it("stop_reason='end_turn' → beze změny chování, normální úspěšný návrat", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "ahoj" }],
+          usage: { input_tokens: 12, output_tokens: 34 },
+          stop_reason: "end_turn",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await callAnthropicModel("claude-sonnet-5", "s", "i", "sk-ant-test");
+    expect(result).toEqual({ text: "ahoj", inputTokens: 12, outputTokens: 34 });
+  });
 });
