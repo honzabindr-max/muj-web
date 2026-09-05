@@ -56,6 +56,11 @@ export const REQUIRED_ENV_VARS: readonly RequiredEnvVar[] = [
     failureMode: "fail-closed",
   },
   {
+    key: "H2_TELEGRAM_BOT_TOKEN",
+    module: "h2/delivery/config.ts (loadDeliveryProviderConfig — Telegram sendMessage outbound, BUILD-11)",
+    failureMode: "fail-closed",
+  },
+  {
     key: "H2_OPENAI_API_KEY",
     module: "h2/voice/config.ts (loadVoiceProviderConfig — Whisper transkripce, BUILD-06)",
     failureMode: "fail-closed",

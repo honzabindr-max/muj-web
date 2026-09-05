@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildTestConnectionString, createRuntimeTestDatabase, dropTestDatabase, TEST_ROLE_PASSWORD } from "../../db/__tests__/helpers";
 import { ingestMessage } from "../../ingestion/ingest-message";
 import { claimNextJob } from "../../processing/lease";
+import { encodeVoiceReferenceHandle } from "../../voice/reference-handle";
+import { commitVoiceTranscript } from "../../voice/commit-transcript";
 import { H2BuddyRuntimeError } from "../errors";
 import { generateBuddyResponse } from "../generate-response";
 import { BUDDY_RESPONSE_JSON_SCHEMA } from "../stance-intent-schema";
@@ -267,5 +269,45 @@ describe("generateBuddyResponse() pod rolí h2_runtime", () => {
     // DEC-007 bod 5 — Command Gate re-detekuje stejnou funkcí a NESMÍ bumpnout znovu.
     const state = await adminPool.query("select owner_control_epoch from owner_processing_state where owner_id = $1", [ownerId]);
     expect(BigInt(state.rows[0].owner_control_epoch)).toBe(BigInt(1));
+  });
+
+  /**
+   * BUILD-11 Rozhodnutí 2 — voice → text handoff. commitVoiceTranscript()
+   * (BUILD-06) přepíše payload_ciphertext na přepis, ale nechává
+   * payload_type='VOICE' (I6 provenance). Před Rozhodnutím 2 by
+   * readMessageText() (WHERE payload_type='TEXT') nenašla nic — po
+   * opravě najde a generateBuddyResponse() zpracuje hlasovku normálně.
+   */
+  it("Rozhodnutí 2: hlasovka po commitVoiceTranscript() → generateBuddyResponse() ji najde a zpracuje", async () => {
+    await activateBuddyPrompt();
+    const ingestResult = await ingestMessage(runtimePool, TEST_REGISTRY, {
+      ownerId,
+      channel: "telegram",
+      speaker: "USER",
+      externalEventId: "voice-handoff",
+      payloadType: "VOICE",
+      payloadPlaintext: encodeVoiceReferenceHandle({ telegramFileId: "tg-file-voice-handoff", durationSeconds: 12 }),
+    });
+    if (ingestResult.duplicate || !ingestResult.jobId) throw new Error("unexpected ingest result in test setup");
+
+    const claim = await claimNextJob(runtimePool, ownerId, "processor-voice-handoff");
+    expect(claim).not.toBeNull();
+
+    await commitVoiceTranscript(runtimePool, TEST_REGISTRY, claim!, Buffer.from("Ahoj, tohle je přepis hlasovky", "utf8"), 12);
+
+    const rawEvent = await adminPool.query("select payload_type from raw_events where id = $1", [ingestResult.rawEventId]);
+    expect(rawEvent.rows[0].payload_type).toBe("VOICE");
+
+    const validOutput = { responseText: "Slyším tě.", stance: "BE_WITH", intent: ["SHARE"] };
+    const result = await generateBuddyResponse(runtimePool, TEST_REGISTRY, CREDENTIALS, claim!, fakeCallModel(JSON.stringify(validOutput)));
+    expect(result.reused).toBe(false);
+    if (!result.reused) {
+      expect(result.stance).toBe("BE_WITH");
+    }
+
+    const responses = await adminPool.query("select count(*)::int as n from responses where source_raw_event_id = $1", [
+      ingestResult.rawEventId,
+    ]);
+    expect(responses.rows[0].n).toBe(1);
   });
 });

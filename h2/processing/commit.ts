@@ -54,11 +54,15 @@ export async function commitJobResult(
       throw new H2FencingError("STALE_FENCING_TOKEN", token.jobId);
     }
 
+    // BUILD-11 Rozhodnutí 4 (Pravidlo 10) — owner_control_epoch je baseline
+    // z okamžiku commitu, ne aktuální hodnota; deliverResponse() ji porovná
+    // s owner_processing_state před odesláním. token.ownerControlEpoch je
+    // stejná hodnota, kterou fencing check výše právě ověřil proti DB.
     const responseInsert = await client.query<{ id: string }>(
-      `insert into responses (owner_id, source_raw_event_id, source_input_sequence, payload_ciphertext, encryption_key_version, stance)
-       values ($1, $2, (select input_sequence from raw_events where id = $2), $3, $4, $5)
+      `insert into responses (owner_id, source_raw_event_id, source_input_sequence, payload_ciphertext, encryption_key_version, stance, owner_control_epoch)
+       values ($1, $2, (select input_sequence from raw_events where id = $2), $3, $4, $5, $6)
        returning id`,
-      [token.ownerId, token.rawEventId, ciphertext, keyVersion, result.stance ?? null],
+      [token.ownerId, token.rawEventId, ciphertext, keyVersion, result.stance ?? null, token.ownerControlEpoch],
     );
 
     await client.query(

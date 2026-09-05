@@ -1,0 +1,25 @@
+-- H2 Buddy — h2-runtime — 0019_response_delivery_epoch
+-- BUILD-11 Rozhodnutí 4 (Pravidlo 10, DEC-007 §8.1 Sovereignty Fast Lane):
+-- commitJobResult() (BUILD-05) fencuje zápis responses řádku atomicky nad
+-- lease_epoch+owner_control_epoch (AT-67/AT-71), ale epoch se nikam
+-- neukládá na responses řádek samotný — response_deliveries tak nemá co
+-- porovnávat před odesláním. Bez baseline z okamžiku commitu by
+-- committed-ale-ještě-nedoručená odpověď šla odeslat i po mezitímním
+-- PAUSE/STOP, přímo proti §8.1 ("jeho výsledek se nesmí commitnout ani
+-- doručit, pokud control epoch zestárl").
+--
+-- Populováno commitJobResult() (h2/processing/commit.ts) z
+-- token.ownerControlEpoch — hodnota už dnes existuje ve FencingToken, jen
+-- se nikam neukládala. deliverResponse() (Rozhodnutí 6) porovná tuhle
+-- hodnotu s aktuálním owner_processing_state.owner_control_epoch PŘED
+-- voláním Telegram/web send API.
+--
+-- POZOR PŘED APLIKACÍ (Pravidlo 5 + nález z Kroku 2, 0018): "responses má
+-- 0 řádků v produkci" byl dosavadní předpoklad, ale message_processing_jobs
+-- ho měl při aplikaci 0018 překvapivě NEplatný (6 stale PENDING řádků).
+-- Ověřit `select count(*) from responses` na production i preview PŘED
+-- touhle migrací, ne předpokladem — pokud tabulka není prázdná, `not null`
+-- bez defaultu migraci shodí a je potřeba se vrátit k Rozhodnutí 4 pro
+-- backfill strategii.
+
+alter table responses add column owner_control_epoch bigint not null;
