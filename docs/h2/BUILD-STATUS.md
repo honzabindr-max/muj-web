@@ -302,15 +302,23 @@ OVĚŘENÍ, ne HOTOVO:
    - `curl -I .../api/h2/health` → `x-vercel-id: fra1::iad1::...` —
      `fra1` je jen edge routing (nejbližší POP), skutečné vykonání
      funkce zůstává `iad1`.
-   - Pravděpodobná příčina: "Redeploy" v Dashboardu recykluje
-     existující build; Function Region setting změněný MEZI
-     originálním deployem a redeployem se možná nepropsal bez
-     ČERSTVÉHO buildu (nový git push, ne redeploy tlačítko).
-   - Commit, který tenhle Evidence blok zapisuje, vyvolá čerstvý
-     git-triggered deploy — Honzík požádal Code, aby po něm region
-     znovu zkontroloval a nahlásil skutečnou hodnotu (viz zpráva
-     v konverzaci, samostatný dodatek k tomuhle zápisu níže/v dalším
-     commitu, pokud se liší).
+   - Hypotéza "redeploy nepropsal změnu" VYVRÁCENA: commit, který
+     tenhle Evidence blok zapisuje, vyvolal ČERSTVÝ git-triggered
+     deploy (dpl_xS5E4fAXHmRNh3FgGwbNHNwpx4mE, source=git, ne redeploy)
+     — Vercel API pořád hlásí `regions: ["iad1"]`, živý curl na
+     přímou deployment URL i alias potvrzuje `x-vercel-id:
+     fra1::iad1::...`. Čerstvý build tedy region nezměnil.
+   - Zbývající hypotézy (neověřeno, žádná potvrzená): (a) Dashboard
+     "Function Region" nastavení se ve skutečnosti neuložilo (chybějící
+     Save klik), (b) nastavení je scoped na jiné prostředí než
+     Production, (c) Hobby plán nemusí custom Function Region
+     podporovat pro Node.js serverless funkce (na rozdíl od Edge
+     Functions) — dokumentace k tomu žádné explicitní omezení
+     nezmiňuje, ale ani ho nevyvrací, (d) repo nemá `vercel.json` —
+     pokud Dashboard nastavení samo o sobě nestačí, `regions: ["fra1"]`
+     v `vercel.json` by byl definitivní fix. Honzíkovo ověření v
+     Dashboardu (Settings → Functions → Function Region — potvrdit,
+     že tam skutečně SVÍTÍ fra1) je další krok, ne Code.
 ```
 **Evidence (BUILD-11 Krok 3 — voice handoff + delivery mechanismus, MERGED, NASAZENO):**
 ```
