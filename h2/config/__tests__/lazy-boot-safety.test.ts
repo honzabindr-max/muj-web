@@ -47,7 +47,7 @@ describe("H2 config: lazy loading, žádný dopad na existující stránky bez H
     }
   });
 
-  it("žádný soubor mimo h2/**, app/api/h2/** a app/honzik2/** neimportuje h2 config/logging/db (app/ i lib/)", () => {
+  it("žádný soubor mimo h2/**, app/api/h2/**, app/api/internal/** a app/honzik2/** neimportuje h2 config/logging/db (app/ i lib/)", () => {
     const scanDirs = ["app", "lib"].map((d) => path.join(REPO_ROOT, d)).filter((d) => {
       try {
         return statSync(d).isDirectory();
@@ -59,11 +59,19 @@ describe("H2 config: lazy loading, žádný dopad na existující stránky bez H
     // app/honzik2/** je vlastní Buddy web surface (BUILD-10 re-auth stránka
     // je první — BUILD-26 přidá zbytek) — komentář nahoře tuhle výjimku
     // předpokládal už od BUILD-01, jen ji kód dosud nekontroloval.
+    //
+    // app/api/internal/** — BUILD-11 Rozhodnutí 8: nezávislý queue-wake
+    // endpoint (POST /api/internal/queue-wakeup, cron-job.org) je čistě H2
+    // interní plumbing (autentizovaný přes H2_QUEUE_WAKE_SECRET, žádná
+    // stránka/uživatelský povrch), ale plán ho záměrně pojmenoval mimo
+    // /api/h2/* prefix (BUILD-11-PLAN.md) — proto vlastní scoped výjimka,
+    // ne přesun pod app/api/h2/internal.
     const offenders: string[] = [];
     for (const dir of scanDirs) {
       for (const file of listSourceFiles(dir)) {
         const relative = path.relative(REPO_ROOT, file);
         if (relative.startsWith(path.join("app", "api", "h2"))) continue;
+        if (relative.startsWith(path.join("app", "api", "internal"))) continue;
         if (relative.startsWith(path.join("app", "honzik2"))) continue;
         const content = readFileSync(file, "utf8");
         if (/from ["']@\/h2\//.test(content) || /from ["']\.\.\/.*\/h2\//.test(content)) {

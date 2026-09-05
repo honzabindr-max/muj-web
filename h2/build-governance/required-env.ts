@@ -71,6 +71,11 @@ export const REQUIRED_ENV_VARS: readonly RequiredEnvVar[] = [
     failureMode: "fail-closed",
   },
   {
+    key: "H2_QUEUE_WAKE_SECRET",
+    module: "h2/internal/wake-auth.ts (verifyQueueWakeSecret — POST /api/internal/queue-wakeup, BUILD-11 Rozhodnutí 8)",
+    failureMode: "fail-closed",
+  },
+  {
     key: "H2_GOOGLE_CLIENT_ID",
     module: "h2/identity/auth-config.ts (buildAuthConfig — chybějící = degradovaný auth, ne crash)",
     failureMode: "degraded",

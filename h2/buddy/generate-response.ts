@@ -53,8 +53,14 @@ export type GenerateBuddyResponseResult =
  * dnešní reprezentace), přepnutí na `'TEXT'` by ten historický fakt
  * smazalo. Po transkripci je `payload_ciphertext` vždy čitelný jako text
  * bez ohledu na `payload_type`.
+ *
+ * Exportovaná (BUILD-11 Krok 4) — `processOwnerQueueBounded()`
+ * (`h2/processing/process-owner-queue.ts`) potřebuje stejnou dekrypci pro
+ * `extractOperationalCandidates()`'s `messageText` vstup, PŘED voláním
+ * `generateBuddyResponse()`. Sdílená implementace, ne druhá kopie stejné
+ * TEXT/VOICE decrypt logiky.
  */
-async function readMessageText(
+export async function readMessageText(
   pool: Pool,
   registry: EncryptionKeyRegistry,
   ownerId: string,

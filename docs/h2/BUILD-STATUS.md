@@ -1,6 +1,8 @@
 # H2 Buddy — Build Status
 
-**Aktuální slice: BUILD-11 Krok 3 (voice handoff + delivery mechanismus + `owner_control_epoch`/Pravidlo 10 + quarantine notice seam) — HOTOVO, MERGED, NASAZENO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 schválen Honzíkem jako celek (2026-09-04, 10 Rozhodnutí, DEC-008). **Krok 0 — HOTOVO:** PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) mergnut, migrace `0016` na production i preview h2-runtime. **Krok 1 — HOTOVO, MERGED, NASAZENO:** PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) mergnut (merge `11d5d34`), deploy `dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL` READY, migrace `0017` na obou větvích. **Krok 2 — HOTOVO, MERGED, NASAZENO:** PR [#44](https://github.com/honzabindr-max/muj-web/pull/44) mergnut (merge `0cf07a3`), deploy `dpl_8iYBXHUs4WxxGtLJCvBsyeuHowHJ` READY, migrace `0018` na obou větvích (proti neprázdné tabulce — viz Evidence blok pro zdůvodnění). Vedlejší tooling PR [#45](https://github.com/honzabindr-max/muj-web/pull/45) mergnut (merge `80f5acc`), deploy `dpl_3XGhYJe39Jo7ZFJgg5sUPtc5c3FL` READY. **Krok 3 — HOTOVO, MERGED, NASAZENO:** PR [#46](https://github.com/honzabindr-max/muj-web/pull/46) mergnut (merge `64df60eb3b8f252e8875c952dc817d8e773fd389`), deploy `dpl_CZHBUqHb5AUWnEovek9unCWdti7M` READY, migrace `0019_response_delivery_epoch.sql` a `0020_system_notice_deliveries.sql` aplikovány a ověřeny na obou větvích h2-runtime (preview `applied_at` 06:17:08.465Z/06:17:08.575Z, production 06:17:43.940Z/06:17:44.069Z, `select count(*) from responses` = 0 na obou PŘED aplikací 0019, ověřeno přímým dotazem). Obsahuje Rozhodnutí 2 voice→text handoff, Rozhodnutí 4 `responses.owner_control_epoch`, Rozhodnutí 5 `system_notice_deliveries`, Rozhodnutí 6 `deliverResponse()`/`sendQuarantineNotice()`. Nic z Kroku 3 nemá dnes produkčního volajícího — Krok 4 to teprve zapojí. 278/278 testů lokálně, `tsc --noEmit` a `npm run build` čisté. Viz Evidence blok níže.
+**Aktuální slice: BUILD-11 Krok 4 (trigger wiring — `processOwnerQueueBounded()`, `after()` fast path, wake endpoint) — IMPLEMENTOVÁNO NA BRANCHI, PR OTEVŘENÝ, NEMERGNUTO. Honzíkovo explicitní GO: NEMERGOVAT, žádný produkční trigger dokud nedá samostatné GO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) Rozhodnutí 1 (`processOwnerQueueBounded()` s rozpočtovanou smyčkou, `WORST_CASE_JOB_DURATION_MS`, `after()` v obou ingest routách) + Rozhodnutí 8 (`POST /api/internal/queue-wakeup`, `H2_QUEUE_WAKE_SECRET`, enumerace `owners` bez RLS → per-owner scoped volání) implementovány na branchi `build/h2-build-11-step4-trigger-wiring`. Vedlejší: `withOwnerScope()` (`h2/db/with-owner-scope.ts`) dostal Pravidlo 9 readback guard (dřív jen doporučený pro Krok 1, teď skutečně implementovaný — chrání KAŽDÉ owner-scoped volání v H2, ne jen wake endpoint). `clear-stale-pending-jobs.ts` NESPUŠTĚN (čeká na Honzíkovo GO bezprostředně před mergem, Rozhodnutí 7). Migrace žádná. 284/284 testů lokálně (6 nových), `tsc --noEmit` a `npm run build` čisté. Viz Evidence blok níže pro plné zdůvodnění `maxDuration=300` a otevřené položky pro Honzíka.
+
+**Předchozí slice: BUILD-11 Krok 3 (voice handoff + delivery mechanismus + `owner_control_epoch`/Pravidlo 10 + quarantine notice seam) — HOTOVO, MERGED, NASAZENO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 schválen Honzíkem jako celek (2026-09-04, 10 Rozhodnutí, DEC-008). **Krok 0 — HOTOVO:** PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) mergnut, migrace `0016` na production i preview h2-runtime. **Krok 1 — HOTOVO, MERGED, NASAZENO:** PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) mergnut (merge `11d5d34`), deploy `dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL` READY, migrace `0017` na obou větvích. **Krok 2 — HOTOVO, MERGED, NASAZENO:** PR [#44](https://github.com/honzabindr-max/muj-web/pull/44) mergnut (merge `0cf07a3`), deploy `dpl_8iYBXHUs4WxxGtLJCvBsyeuHowHJ` READY, migrace `0018` na obou větvích (proti neprázdné tabulce — viz Evidence blok pro zdůvodnění). Vedlejší tooling PR [#45](https://github.com/honzabindr-max/muj-web/pull/45) mergnut (merge `80f5acc`), deploy `dpl_3XGhYJe39Jo7ZFJgg5sUPtc5c3FL` READY. **Krok 3 — HOTOVO, MERGED, NASAZENO:** PR [#46](https://github.com/honzabindr-max/muj-web/pull/46) mergnut (merge `64df60eb3b8f252e8875c952dc817d8e773fd389`), deploy `dpl_CZHBUqHb5AUWnEovek9unCWdti7M` READY, migrace `0019_response_delivery_epoch.sql` a `0020_system_notice_deliveries.sql` aplikovány a ověřeny na obou větvích h2-runtime (preview `applied_at` 06:17:08.465Z/06:17:08.575Z, production 06:17:43.940Z/06:17:44.069Z, `select count(*) from responses` = 0 na obou PŘED aplikací 0019, ověřeno přímým dotazem). Obsahuje Rozhodnutí 2 voice→text handoff, Rozhodnutí 4 `responses.owner_control_epoch`, Rozhodnutí 5 `system_notice_deliveries`, Rozhodnutí 6 `deliverResponse()`/`sendQuarantineNotice()`. Nic z Kroku 3 nemá dnes produkčního volajícího — Krok 4 to teprve zapojí. 278/278 testů lokálně, `tsc --noEmit` a `npm run build` čisté. Viz Evidence blok níže.
 
 **[DEC-007](./DECISIONS.md#dec-007) — Sovereignty fast path retrofit (C2), zásah do uzavřeného BUILD-04:** PR [#32](https://github.com/honzabindr-max/muj-web/pull/32) mergnut do `main` (merge commit `57190c5`), Vercel auto-deploy proběhl (`dpl_9LWiYUkm8Bccatisv8eoR4zjbjQB`), `/api/h2/health` živě ověřen. Po adversarial review přes GPT Honzík změnil svoje doporučení z B na C2 — `ingestMessage()` vždy vytvoří `raw_event`+job i pro control command (I7.6), navíc přesný `/stop`/`/pause`/`/resume` bumpne `owner_control_epoch` ve stejné transakci. 7 sub-invariantů I7.1–I7.7 zapsáno jako závazné. Žádná nová migrace, žádný nový credential. **Pravidlo 10 (viz "Pravidla" níže): BUILD-11 se nesmí uzavřít AT GREEN bez testu, že delivery respektuje `owner_control_epoch`** — nalezená mezera při I7.5 review, dnešní `response_deliveries` schéma tuhle kontrolu nemá vůbec.
 
@@ -33,7 +35,7 @@ Certifikace `BUDDY_RESPONSE` promptu proběhla přes 7 kol proti reálnému Sonn
 6. **Red team nálezy — ZAPSÁNO.** Honzík dodal obsah 2026-09-04 (5 bodů: LLM/kód kontrakt pro BUILD-12, trivial-turn gate pro BUILD-12+, potvrzení "žádné LLM ve scheduleru/zálohách/rotaci/deletion ledgeru", zamítnutí Zapier/Make/n8n, scheduler ledger existence + otevřená volba budíku pro BUILD-23). Zapsáno do [docs/h2/RED-TEAM-FINDINGS.md](./RED-TEAM-FINDINGS.md) — neimplementováno, jen forward-pointery + jedna potvrzená (bod 3) a jedna uzavřená (bod 4, viz Pravidlo 11) položka. Bod 3 a 5 ověřeny přímo proti kódu (grep na volající `callAnthropicModel`, migrace `0009_proactivity_and_jobs.sql`), ne jen tvrzeny.
 7. **BUILD-11 plán v2 — NAPSÁN po adversarial gate, ČEKÁ NA SCHVÁLENÍ, NEIMPLEMENTOVÁNO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) přepsán 2026-09-04 podle rozhodnutí adversarial gate (GPT) nad v1 — 10 rozhodnutí: (1) trigger přes `after()`, revidováno na **rozpočtem času ohraničenou** smyčku (kontrola zbývajícího budgetu PŘED každým dalším `claimNextJob()`, `after()` je jen latency optimization, nikdy liveness), (2) voice→text handoff fix (beze změny oproti v1), (3) retry taxonomie (beze změny oproti v1, PR #38 metering mezera teď řešena Rozhodnutím 10), (4) **nová migrace** — `responses.owner_control_epoch` sloupec + delivery-time kontrola proti Pravidlu 10 (beze změny oproti v1), (5) quarantine notice delivery seam (beze změny oproti v1), (6) Telegram `sendMessage` + web polling delivery mechanismus (beze změny oproti v1), (7) `MANUALLY_CLEARED` (PR #35) — aktualizované pořadí, merge **před** Krokem 1 kvůli číslování migrací, (8) **nové** — nezávislý minutový budík (`cron-job.org` → autentizovaný `/api/internal/queue-wakeup` → `processOwnerQueueBounded()`), řeší chybějící liveness (Vercel Pro cron/GitHub Actions/Neon pg_cron zamítnuty, viz Rozhodnutí 8), (9) **nové, [DEC-008](./DECISIONS.md#dec-008), nová migrace** — deadline sémantika rozdělena na wall-clock (lease/backoff/max_attempts, beze změny) vs. ACTIVE/stage processing budget (`charged_processing_ms`/`processing_budget_ms`, nahrazuje `processing_deadline_at`), stale-age pravidlo vyčleněno jako samostatné budoucí Honzíkovo produktové rozhodnutí, (10) **nové, nová migrace** — `llm_attempts` tabulka s `CALL_INTENT`/`SUCCEEDED`/`FAILED_CONFIRMED`/`ABANDONED_UNKNOWN` stavy, uzavírá PR #38's metering mezeru a dodává vstup pro Rozhodnutí 9's ABANDONED_UNKNOWN accounting. Plán teď explicitně rozdělen na **4 implementační kroky/PR + Krok 0 (PR #35 merge jako prerekvizita)**, po vzoru BUILD-09 — jen poslední krok zapojuje produkční trigger. AT-10, §4.2/§4.3/§4.4/§8.1 ověřeny živě v Notionu (ne jen parafrázovány). Rozhodnutí 4, 5, 9, 10 vyžadují GO na migraci (celkem 4 nové migrace + 1 už existující nemergnutá z PR #35, tři z pěti zasahují uzavřený BUILD-02 blok schématu — viz BUILD-11-PLAN.md "Migrace — souhrn" tabulka).
 
-**Shrnutí závislostí (aktualizace 2026-09-05, po implementaci Kroku 3):** #36 (tolerantní parser) MERGED. #38 (Structured Outputs) MERGED a nasazeno (merge `4709c13`, deploy `dpl_GLJ8YGTZJbVjBNYinetSFse5WBMa`, READY). #37 (re-auth) MERGED a nasazeno (merge `7963deb`, deploy `dpl_FbUuuUFQELFoo4eJdVDapjs2zrMr`, READY). **DRAFT v7** (`id=9483ad27-ac71-4a34-a29a-8682445d331c`) je `ACTIVE` pro `BUDDY_RESPONSE` (aktivováno 2026-09-04T10:09:29.580Z, viz bod 1 výše — **NE v6**, ta zůstala `DRAFT`). [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 — **SCHVÁLENO Honzíkem jako celek (2026-09-04)**, 10 Rozhodnutí, [DEC-008](./DECISIONS.md#dec-008), PR [#42](https://github.com/honzabindr-max/muj-web/pull/42) MERGED. Postup: **Krok 0 — HOTOVO** (PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) MERGED, migrace `0016` na production i preview) → **Krok 1 — HOTOVO, MERGED, NASAZENO** (PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) mergnut, merge `11d5d34`, deploy `dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL` READY; retry taxonomie + `llm_attempts` CALL_INTENT metering; migrace `0017` na production i preview) → **Krok 2 — HOTOVO, MERGED, NASAZENO** (PR [#44](https://github.com/honzabindr-max/muj-web/pull/44) mergnut, merge `0cf07a3`, deploy `dpl_8iYBXHUs4WxxGtLJCvBsyeuHowHJ` READY; deadline sémantika split, [DEC-008](./DECISIONS.md#dec-008); migrace `0018` na production i preview, aplikována proti neprázdné tabulce — viz Evidence blok pro zdůvodnění) → **Krok 3 — HOTOVO, MERGED, NASAZENO** (PR [#46](https://github.com/honzabindr-max/muj-web/pull/46) mergnut, merge `64df60eb3b8f252e8875c952dc817d8e773fd389`, deploy `dpl_CZHBUqHb5AUWnEovek9unCWdti7M` READY; voice handoff, `responses.owner_control_epoch`, `system_notice_deliveries`, `deliverResponse()`/`sendQuarantineNotice()`; migrace `0019`+`0020` aplikovány a ověřeny na obou větvích) → Krok 4 (jediný krok s produkčním dopadem: `after()` trigger ohraničený rozpočtem času + budík `/api/internal/queue-wakeup` s **pevným 30minutovým intervalem** — ROZHODNUTO, viz Rozhodnutí 8 — vyžaduje předem ověřený Vercel `maxDuration` a Honzíkovo GO na `clear-stale-pending-jobs.ts --confirm`). S aktivním promptem a bez triggeru zůstává `generateBuddyResponse()` dál nedosažitelná v produkci až do Kroku 4. Vedlejší tooling PR [#45](https://github.com/honzabindr-max/muj-web/pull/45) (`.env.migrate.preview`/`.env.migrate.production` split, Pravidlo 12) mergnut (merge `80f5acc`).
+**Shrnutí závislostí (aktualizace 2026-09-05, po implementaci Kroku 3):** #36 (tolerantní parser) MERGED. #38 (Structured Outputs) MERGED a nasazeno (merge `4709c13`, deploy `dpl_GLJ8YGTZJbVjBNYinetSFse5WBMa`, READY). #37 (re-auth) MERGED a nasazeno (merge `7963deb`, deploy `dpl_FbUuuUFQELFoo4eJdVDapjs2zrMr`, READY). **DRAFT v7** (`id=9483ad27-ac71-4a34-a29a-8682445d331c`) je `ACTIVE` pro `BUDDY_RESPONSE` (aktivováno 2026-09-04T10:09:29.580Z, viz bod 1 výše — **NE v6**, ta zůstala `DRAFT`). [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 — **SCHVÁLENO Honzíkem jako celek (2026-09-04)**, 10 Rozhodnutí, [DEC-008](./DECISIONS.md#dec-008), PR [#42](https://github.com/honzabindr-max/muj-web/pull/42) MERGED. Postup: **Krok 0 — HOTOVO** (PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) MERGED, migrace `0016` na production i preview) → **Krok 1 — HOTOVO, MERGED, NASAZENO** (PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) mergnut, merge `11d5d34`, deploy `dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL` READY; retry taxonomie + `llm_attempts` CALL_INTENT metering; migrace `0017` na production i preview) → **Krok 2 — HOTOVO, MERGED, NASAZENO** (PR [#44](https://github.com/honzabindr-max/muj-web/pull/44) mergnut, merge `0cf07a3`, deploy `dpl_8iYBXHUs4WxxGtLJCvBsyeuHowHJ` READY; deadline sémantika split, [DEC-008](./DECISIONS.md#dec-008); migrace `0018` na production i preview, aplikována proti neprázdné tabulce — viz Evidence blok pro zdůvodnění) → **Krok 3 — HOTOVO, MERGED, NASAZENO** (PR [#46](https://github.com/honzabindr-max/muj-web/pull/46) mergnut, merge `64df60eb3b8f252e8875c952dc817d8e773fd389`, deploy `dpl_CZHBUqHb5AUWnEovek9unCWdti7M` READY; voice handoff, `responses.owner_control_epoch`, `system_notice_deliveries`, `deliverResponse()`/`sendQuarantineNotice()`; migrace `0019`+`0020` aplikovány a ověřeny na obou větvích) → **Krok 4 — IMPLEMENTOVÁNO NA BRANCHI, PR OTEVŘENÝ, NEMERGNUTO** (`processOwnerQueueBounded()`, `after()` v obou ingest routách, `POST /api/internal/queue-wakeup`; žádná nová migrace; **Honzíkovo GO chybí, žádný produkční trigger dnes** — viz Evidence blok níže pro plný seznam otevřených položek před mergem, včetně neověřeného Vercel `maxDuration`/Fluid Compute stavu a `clear-stale-pending-jobs.ts --confirm`). S aktivním promptem a bez mergnutého Kroku 4 zůstává `generateBuddyResponse()` dál nedosažitelná v produkci. Vedlejší tooling PR [#45](https://github.com/honzabindr-max/muj-web/pull/45) (`.env.migrate.preview`/`.env.migrate.production` split, Pravidlo 12) mergnut (merge `80f5acc`).
 
 **Command Gate scope (BUILD-10, `h2/buddy/command-gate.ts`):** implementován jen exact-match re-detekce `/stop`/`/pause`/`/resume` (DEC-007 bod 5 — I7.3 idempotence, žádný druhý epoch bump). §8.1's širší Command Gate scope (holé "stop"/"pause" v přirozené větě, `IGNORE` s cílem, `DELETE`/`HARD_DELETE`/`RECONSIDER`/`CORRECT`) NENÍ implementován — přesná protokolová syntaxe (I7.7: "control intent má být protokolová struktura, ne odvozený z přirozeného jazyka") existuje jen v uzamčené Notion Technical Architecture §8.1 v plném znění, ne v BUILD-10-PLAN.md ani DECISIONS.md. Hádání syntaxe by riskovalo přesně to, co I7.6 zakazuje (chybná klasifikace nevratně bere zprávě normální zpracování). Forward-pointer pro budoucí slice (BUILD-12 Reconsideration / BUILD-20 Deletion Ledger vlastní hlubokou sémantiku už podle BUILD-10-PLAN.md, ale detekce/routing v Command Gate na ně čeká na doplnění přesné syntaxe z Notionu).
 
@@ -106,6 +108,113 @@ Verified by: Code — CI (test + oba Vercel checky), přímé SQL dotazy na
 Remaining risk: žádné funkční — Krok 1 nemá produkční trigger (Krok 4).
     ABANDONED_UNKNOWN přechod (reap větev) byl Krok 1 scope tabulky, ale
     Krok 2 scope logiky — viz Evidence (BUILD-11 Krok 2) níže.
+```
+**Evidence (BUILD-11 Krok 4 — trigger wiring, PŘED mergem, NEMERGOVAT bez GO):**
+```
+Commit: implementace + testy na branchi build/h2-build-11-step4-trigger-wiring
+Branch: build/h2-build-11-step4-trigger-wiring — pushnutá, PR se otevře po
+    tomto commitu, NEMERGOVAT (Honzíkovo explicitní zadání — žádný
+    produkční trigger dokud nedá samostatné GO).
+DB: žádná nová migrace. clear-stale-pending-jobs.ts (PR #35, Rozhodnutí 7)
+    NESPUŠTĚN — zůstává vázán na "bezprostředně před mergem Kroku 4".
+GHA: poběží až po otevření PR.
+Artifact: N/A
+Deployment: N/A — nemergnuto, žádný produkční dopad. `after()` fast path
+    i wake endpoint existují jen na branchi, nikdo je dnes nevolá.
+Timestamp: 2026-09-05
+Verified by: Code — 284/284 testů lokálně (6 nových: 2 v novém
+    h2/processing/__tests__/process-owner-queue.test.ts pro rozpočtovou
+    smyčku — BUDGET_EXHAUSTED PŘED prvním claimNextJob() i QUEUE_EMPTY na
+    prázdné frontě, bez potřeby mockovat Anthropic/Telegram — a 4 v novém
+    app/api/internal/queue-wakeup/__tests__/route.test.ts pro auth gate
+    (401 bez/se špatnou hlavičkou, žádný DB dopad) a enumeraci ownerů pod
+    RLS (PENDING → QUARANTINED end-to-end přes chybějící ACTIVE prompt v
+    testovací DB, DEAD_LETTER notice bez síťového volání — job dosáhl
+    QUARANTINED je fyzický důkaz, že claimNextJob() proběhlo pod SPRÁVNĚ
+    nastaveným owner scope, ne tichou RLS nulou), `npx tsc --noEmit` čisté,
+    `npm run build` čisté (functions-config-manifest.json potvrzuje
+    maxDuration=300 propsané do buildu pro obě ingest routy i wake
+    endpoint).
+
+    Obsah (Rozhodnutí 1): h2/processing/process-owner-queue.ts's nová
+    processOwnerQueueBounded(pool, registry, credentials, ownerId,
+    deadlineAt) — smyčka kontroluje `deadlineAt.getTime() - Date.now() <
+    WORST_CASE_JOB_DURATION_MS` PŘED KAŽDÝM claimNextJob() (ne jen na
+    začátku). WORST_CASE_JOB_DURATION_MS = 2×CALL_TIMEOUT_MS (extrakce i
+    Buddy response sdílejí 60s Anthropic timeout) + DELIVERY_CALL_TIMEOUT_MS
+    (15s Telegram) + 5s DB overhead rezerva = 140s. Command Gate
+    re-detekce (runCommandGate, čistá/bez LLM) PŘED extrakcí — přeskočí
+    OPERATIONAL_EXTRACTION pro control command zprávy (/stop apod.),
+    nenajito doslovně v plánu, ale odpovídá §7.1 pořadí (Command Gate
+    PŘED Entity/Intent detekcí) a šetří zbytečné Haiku volání. Extrakce je
+    best-effort (try/catch, loguje, nikdy nemapuje na recordJobFailure) —
+    beze změny oproti plánu. h2/buddy/generate-response.ts's readMessageText()
+    exportováno (bylo private) — sdílená TEXT/VOICE decrypt logika mezi
+    generateBuddyResponse() a extrakcí, ne druhá kopie. Delivery se volá
+    jen pro channel='telegram' (design rozhodnutí Kroku 4 — web je čistě
+    pull projekce, GET /api/h2/web/responses nezávisí na
+    response_deliveries, viz Rozhodnutí 6 review), ne z plánu doslovně.
+    H2FencingError (token zestárl) se nemapuje na recordJobFailure (ten by
+    se stejným tokenem selhal identicky) — loguje se a job se nechá tomu,
+    kdo ho aktuálně vlastní.
+
+    Obsah (Rozhodnutí 1, after() wiring): app/api/h2/telegram/webhook/route.ts
+    a app/api/h2/web/messages/route.ts dostaly export const maxDuration = 300
+    a after() volání processOwnerQueueBounded() hned po ACK, přeskočené
+    pro result.duplicate (Telegram/web retry). after() volání samotné je
+    obalené vlastním try/catch (ne jen jeho callback) — after() vyžaduje
+    Next.js request-scoped async context, mimo něj (testy volající route
+    handler přímo) by throwlo synchronně a strhlo by ACK na 500; nalezeno
+    při prvním testovacím běhu (7 selhání), opraveno stejným commitem.
+
+    Obsah (Rozhodnutí 8): nová app/api/internal/queue-wakeup/route.ts —
+    POST, auth přes h2/internal/wake-auth.ts's verifyQueueWakeSecret()
+    (constant-time compare, stejný vzor jako verifyTelegramWebhookSecret()),
+    hlavička X-H2-Wake-Secret. Enumerace ownerů přes `select id from
+    owners` (BEZE scope — owners nemá RLS, jen GRANT), pak pro KAŽDÉHO
+    ownera processOwnerQueueBounded() (ta už sama scoped přes
+    withOwnerScope() uvnitř claimNextJob()). Selhání libovolného ownera
+    zastaví celý request (500 + incident QUEUE_WAKE_OWNER_FAILED,
+    owner_id vyplněný) místo tichého přeskočení — dnes jeden owner,
+    pokračování na dalším by bylo budoucí rozhodnutí. Selhání enumerace
+    samotné (DB nedostupná) → 500 + incident QUEUE_WAKE_ENUMERATION_FAILED
+    s owner_id=null (incidents.owner_id je nullable přesně pro tenhle
+    případ, migrace 0009). Prázdné tělo, 204 bez obsahu na úspěch — nikdy
+    204, když se nepodařilo ani zjistit, koho probudit. H2_QUEUE_WAKE_SECRET
+    přidán do h2/build-governance/required-env.ts (fail-closed).
+
+    Obsah (Pravidlo 9 readback guard, sdílená oprava přesahující tenhle
+    krok): h2/db/with-owner-scope.ts's withOwnerScope() teď PO
+    set_config() ověří `select current_setting('app.owner_id', true)` a
+    porovná s očekávaným ownerId — throwne H2OwnerScopeError PŘED
+    voláním fn(), pokud se neshodují. Tohle bylo Rozhodnutím 8 doporučeno
+    zařadit do Kroku 1 (BUILD-11-PLAN.md), ale nebylo tam skutečně
+    implementováno — ověřeno greppem před touhle prací (žádný "readback"
+    v with-owner-scope.ts). Sdílená infrastruktura, kterou volá KAŽDÉ
+    owner-scoped volání napříč celým H2 (24 volajících míst), ne jen wake
+    endpoint — oprava tak chrání celou frontu zpětně, ne jen Krok 4.
+    Žádný regresní dopad — všech 278 dřívějších testů prochází beze
+    změny (extra SELECT v téže transakci, zanedbatelná latence).
+
+    Vedlejší: h2/config/__tests__/lazy-boot-safety.test.ts's izolační
+    test (H2 config smí importovat jen z h2/**, app/api/h2/**,
+    app/honzik2/**) rozšířen o scoped výjimku app/api/internal/** —
+    POST /api/internal/queue-wakeup je čistě H2 interní plumbing, ale
+    plán ho záměrně pojmenoval mimo /api/h2/* prefix.
+Remaining risk / otevřené pro Honzíka PŘED mergem:
+    1. Vercel maxDuration/Fluid Compute NEOVĚŘEN přes API pro tenhle
+       konkrétní projekt — viz komentář v app/api/internal/queue-wakeup/
+       route.ts a zpráva k tomuto Kroku pro plné zdůvodnění a přesný
+       dashboard postup.
+    2. H2_QUEUE_WAKE_SECRET credential neexistuje ve Vercelu — vyžaduje
+       Honzíkovo GO na nový secret (Pravidlo 4) PŘED mergem, jinak by
+       wake endpoint po deployi vždycky vracel 500 (H2_CONFIG_INVALID).
+    3. cron-job.org účet/konfigurace (Honzíkův krok, mimo repo).
+    4. clear-stale-pending-jobs.ts --confirm nespuštěn (Rozhodnutí 7) —
+       musí proběhnout bezprostředně před mergem, ne dřív.
+    5. Design rozhodnutí "deliverResponse() se volá jen pro
+       channel='telegram'" (viz výše) není v plánu doslovně napsané —
+       Honzíkovo potvrzení/redirekce vítána.
 ```
 **Evidence (BUILD-11 Krok 3 — voice handoff + delivery mechanismus, MERGED, NASAZENO):**
 ```
