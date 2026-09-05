@@ -2,7 +2,7 @@
 
 **BUILD-11 — KOMPLETNÍ. Krok 4 (trigger wiring — `processOwnerQueueBounded()`, `after()` fast path, wake endpoint) — HOTOVO, MERGED, NASAZENO.** PR [#47](https://github.com/honzabindr-max/muj-web/pull/47) mergnut (merge `6a608031bd548e6c27b732d1e1a8b07e71f43ff0`), deploy `dpl_8AnGTD17onGh3xrCfSnZoFFByG6f` READY. [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) Rozhodnutí 1 (`processOwnerQueueBounded()` s rozpočtovanou smyčkou, `WORST_CASE_JOB_DURATION_MS`, `after()` v obou ingest routách) + Rozhodnutí 8 (`POST /api/internal/queue-wakeup`, `H2_QUEUE_WAKE_SECRET`, enumerace `owners` bez RLS → per-owner scoped volání) živě na produkci. Vedlejší: `withOwnerScope()` (`h2/db/with-owner-scope.ts`) dostal Pravidlo 9 readback guard (dřív jen doporučený pro Krok 1, teď skutečně implementovaný — chrání KAŽDÉ owner-scoped volání v H2, ne jen wake endpoint). `clear-stale-pending-jobs.ts --confirm` proběhl PŘED mergem (6 stale PENDING jobů z 2026-09-03 → `MANUALLY_CLEARED`, ověřeno přímým dotazem — 0 PENDING/RETRY_PENDING po odklizení). Migrace žádná. 284/284 testů lokálně (6 nových), `tsc --noEmit` a `npm run build` čisté.
 
-**M1 DOSAŽENO 2026-09-05 — ověřeno přímým dotazem do produkční DB, ne jen tvrzením.** První reálná Buddy odpověď přes Telegram, produkční trigger funkční end-to-end: příchozí zpráva → `message_processing_jobs` (`RESPONSE_READY`) → Sonnet (`responses`, `stance=BE_WITH`) → `response_deliveries` (`channel='telegram'`, `status='DELIVERED'`, reálné Telegram `external_message_id`). 3 zprávy dnes (07:22, 07:28, 07:30), všechny stejný vzor. `cron-job.org` budík **ZAPNUT** (30 min interval, `POST /api/internal/queue-wakeup`, hlavička `X-H2-Wake-Secret`, save responses vypnuto, notifikace při selhání zapnutá — Honzíkovo nastavení, mimo repo). Delivery jen kanálem `telegram`, ne `web` — **potvrzeno Honzíkem** (web polling čte `responses` napřímo, druhý `response_deliveries` řádek by byl bookkeeping bez čtenáře). Viz Evidence blok níže pro plné shrnutí — včetně DVOU položek, které Honzíkovo hlášení tvrdilo jako hotové, ale živé ověření (runtime logy + přímý DB dotaz + Vercel deployment API + `x-vercel-id` header) je NEPOTVRDILO: entity extrakce se v odpovědi neprojevila (žádný aktivní prompt pro `OPERATIONAL_EXTRACTION` v produkci, `operational_extractions` má 0 řádků), a Vercel Function Region pořád hlásí `iad1`, ne `fra1`.
+**M1 DOSAŽENO 2026-09-05 — ověřeno přímým dotazem do produkční DB, ne jen tvrzením.** První reálná Buddy odpověď přes Telegram, produkční trigger funkční end-to-end: příchozí zpráva → `message_processing_jobs` (`RESPONSE_READY`) → Sonnet (`responses`, `stance=BE_WITH`) → `response_deliveries` (`channel='telegram'`, `status='DELIVERED'`, reálné Telegram `external_message_id`). 3 zprávy dnes (07:22, 07:28, 07:30), všechny stejný vzor. `cron-job.org` budík **ZAPNUT** (30 min interval, `POST /api/internal/queue-wakeup`, hlavička `X-H2-Wake-Secret`, save responses vypnuto, notifikace při selhání zapnutá — Honzíkovo nastavení, mimo repo). Delivery jen kanálem `telegram`, ne `web` — **potvrzeno Honzíkem** (web polling čte `responses` napřímo, druhý `response_deliveries` řádek by byl bookkeeping bez čtenáře). **Vercel Function Region — HOTOVO 2026-09-05** (bylo ČEKÁ NA OVĚŘENÍ, viz vlastní Evidence blok níže): Dashboard nastavení se do deploymentů nepropisovalo (ani redeploy, ani čerstvý git build), řešením byl `vercel.json` s `regions: ["fra1"]` (PR [#48](https://github.com/honzabindr-max/muj-web/pull/48), MERGED) — produkce i preview teď potvrzeně `regions: ["fra1"]` a `x-vercel-id: fra1::fra1::...` na obou. **Entity extrakce v odpovědi zůstává NEPOTVRZENÁ** — Honzíkovo hlášení "entity se projevily" živé ověření nepodpořilo (žádný aktivní prompt pro `OPERATIONAL_EXTRACTION` v produkci, `operational_extractions` má 0 řádků). Viz Evidence blok níže pro plné shrnutí.
 
 **Poprvé živě dosažitelné pro reálný provoz:** `after()` v obou ingest routách + budík `/api/internal/queue-wakeup` teď skutečně volají `claimNextJob()` → `generateBuddyResponse()` → `deliverResponse()` na produkci.
 
@@ -294,31 +294,54 @@ OVĚŘENÍ, ne HOTOVO:
      konverzace) proběhla. Ta dnes v produkci neběží vůbec (BUILD-STATUS.md
      forward-pointer od BUILD-10/11 zůstává v platnosti). Vizuálně
      nerozeznatelné z jedné odpovědi, ale mechanismus je jiný.
-2. Vercel Function Region iad1→fra1 — Honzík hlásil přepnutí +
-   redeploy + ověření funkčnosti. Živé ověření (2026-09-05, PŘED
-   commitem, který tenhle blok zapisuje):
-   - Poslední 2 produkční nasazení (vč. "redeploy" spuštěného 4 min
-     před checkem) hlásí přes Vercel API `regions: ["iad1"]`.
-   - `curl -I .../api/h2/health` → `x-vercel-id: fra1::iad1::...` —
-     `fra1` je jen edge routing (nejbližší POP), skutečné vykonání
-     funkce zůstává `iad1`.
-   - Hypotéza "redeploy nepropsal změnu" VYVRÁCENA: commit, který
-     tenhle Evidence blok zapisuje, vyvolal ČERSTVÝ git-triggered
-     deploy (dpl_xS5E4fAXHmRNh3FgGwbNHNwpx4mE, source=git, ne redeploy)
-     — Vercel API pořád hlásí `regions: ["iad1"]`, živý curl na
-     přímou deployment URL i alias potvrzuje `x-vercel-id:
-     fra1::iad1::...`. Čerstvý build tedy region nezměnil.
-   - Zbývající hypotézy (neověřeno, žádná potvrzená): (a) Dashboard
-     "Function Region" nastavení se ve skutečnosti neuložilo (chybějící
-     Save klik), (b) nastavení je scoped na jiné prostředí než
-     Production, (c) Hobby plán nemusí custom Function Region
-     podporovat pro Node.js serverless funkce (na rozdíl od Edge
-     Functions) — dokumentace k tomu žádné explicitní omezení
-     nezmiňuje, ale ani ho nevyvrací, (d) repo nemá `vercel.json` —
-     pokud Dashboard nastavení samo o sobě nestačí, `regions: ["fra1"]`
-     v `vercel.json` by byl definitivní fix. Honzíkovo ověření v
-     Dashboardu (Settings → Functions → Function Region — potvrdit,
-     že tam skutečně SVÍTÍ fra1) je další krok, ne Code.
+```
+**Evidence (Vercel Function Region iad1→fra1 — VYŘEŠENO 2026-09-05, PR [#48](https://github.com/honzabindr-max/muj-web/pull/48) MERGED):**
+```
+Nález: Dashboard "Function Region" nastavení (fra1, uloženo/zaškrtnuto)
+    se NEPROPISOVALO do produkčních deploymentů — ani do "redeploy"
+    tlačítka, ani do ČERSTVÉHO git-triggered buildu (commit
+    2236e5d/dpl_xS5E4fAXHmRNh3FgGwbNHNwpx4mE, viz Evidence M1 výše).
+    Vercel API i živý `x-vercel-id` header opakovaně hlásily
+    `fra1::iad1::...` — edge routing fra1, skutečné vykonání funkce
+    pořád iad1. Dvě nezávislá vyvrácení (redeploy i čerstvý git deploy)
+    ukázala, že Dashboard-only cesta pro tenhle projekt nefunguje —
+    příčina zůstává neznámá (Dashboard save bug, scope na špatné
+    prostředí, nebo Hobby plán vyžaduje explicitní `vercel.json` — nikdy
+    nezjištěno, protože `vercel.json` řešení bylo rychlejší a
+    definitivní).
+Řešení: nový `vercel.json` v kořeni repa, JEN `{"regions": ["fra1"]}` —
+    žádný `functions` blok (ověřeno proti aktuální Vercel dokumentaci,
+    `functions/configuring-functions/region`: top-level `regions` je
+    samostatný, kompletní mechanismus, `functions` blok je potřeba jen
+    pro per-function override; nekoliduje s per-route `export const
+    maxDuration`, nezávislý Next.js Route Segment Config mechanismus).
+    Hobby plán podporuje přesně 1 region (limit) — `["fra1"]` je v něm.
+Commit: d701eb1868fd18616eb7a7919db7f0ccbeb0b49e (implementace),
+    merge 4841b7ad9a5b63f3e6e408fdded7a6f5c276eb9d do main (PR #48)
+Branch: chore/h2-vercel-function-region-fra1 (PR #48, MERGED)
+GHA: run 33954267220 — pass; Vercel + Vercel Preview Comments checky pass
+Deployment: preview dpl_7aY6SvK9qvpdxQEXAKMMJqy9TN76 — Vercel API
+    `regions: ["fra1"]`, živý curl `x-vercel-id: fra1::fra1::...`
+    (POPRVÉ obě strany fra1, ne fra1::iad1) — ověřeno PŘED mergem,
+    přesně jak Honzík požadoval ("chci vidět regions v preview
+    deploymentu dřív, než to půjde do produkce").
+    Produkce po mergi: dpl_BwWFpsg35fy6ALTaNcC32R3z5aRJ, target=production,
+    state READY. Vercel API `regions: ["fra1"]`. Živý curl
+    https://www.good-inventions.work/api/h2/health → `x-vercel-id:
+    fra1::fra1::...`, `{"status":"ok"}` HTTP 200.
+Timestamp: 2026-09-05
+Verified by: Code — Vercel API (get_deployment) na preview i production
+    deploymentu, živý curl + x-vercel-id header na obou, `npm run build`
+    čisté (functions-config-manifest.json potvrzuje maxDuration=300
+    beze změny pro všechny 3 H2 routy — vercel.json regions nekoliduje),
+    284/284 testů lokálně, tsc čisté.
+Remaining risk: žádné funkční. DB round-tripy na Neon h2-runtime
+    (eu-central-1) teď probíhají v rámci EU (fra1→eu-central-1), ne
+    přes Atlantik (iad1→eu-central-1) — latence zlepšení neměřeno
+    číselně, jen kvalitativně očekávané. Příčina, proč Dashboard
+    nastavení samo o sobě nestačilo, zůstává nezjištěná — pokud se
+    tohle v budoucnu bude řešit znovu (nový projekt, jiný region),
+    rovnou použít vercel.json, ne spoléhat na Dashboard.
 ```
 **Evidence (BUILD-11 Krok 3 — voice handoff + delivery mechanismus, MERGED, NASAZENO):**
 ```
