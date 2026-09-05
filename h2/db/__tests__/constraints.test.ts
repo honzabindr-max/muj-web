@@ -105,14 +105,14 @@ describe("h2-runtime — DB constraints (fresh DB jen z migrací, BUILD-02 DoD)"
     // stejné source_input_sequence=3 — testuje se unikátnost na responses,
     // ne na raw_events (ta má vlastní partial unique test výše).
     await pool.query(
-      `insert into responses (owner_id, source_raw_event_id, source_input_sequence, payload_ciphertext, encryption_key_version)
-       values ($1, $2, 3, '\\x00', 1)`,
+      `insert into responses (owner_id, source_raw_event_id, source_input_sequence, payload_ciphertext, encryption_key_version, owner_control_epoch)
+       values ($1, $2, 3, '\\x00', 1, 0)`,
       [ownerId, rawEventA.rows[0].id],
     );
     await expect(
       pool.query(
-        `insert into responses (owner_id, source_raw_event_id, source_input_sequence, payload_ciphertext, encryption_key_version)
-         values ($1, $2, 3, '\\x00', 1)`,
+        `insert into responses (owner_id, source_raw_event_id, source_input_sequence, payload_ciphertext, encryption_key_version, owner_control_epoch)
+         values ($1, $2, 3, '\\x00', 1, 0)`,
         [ownerId, rawEventB.rows[0].id],
       ),
     ).rejects.toThrow(/responses_owner_input_sequence_buddy_unique/);

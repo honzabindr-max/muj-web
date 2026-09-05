@@ -45,6 +45,15 @@ export type GenerateBuddyResponseResult =
       intent: BuddyIntent[] | null;
     };
 
+/**
+ * BUILD-11 Rozhodnutí 2 — přijímá `payload_type IN ('TEXT', 'VOICE')`.
+ * `commitVoiceTranscript()` (BUILD-06) přepíše `payload_ciphertext` na
+ * přepis, ale ZÁMĚRNĚ nechává `payload_type='VOICE'` — je to I6
+ * (Versioned Raw Evidence) provenance ("jak zpráva vznikla", ne jen její
+ * dnešní reprezentace), přepnutí na `'TEXT'` by ten historický fakt
+ * smazalo. Po transkripci je `payload_ciphertext` vždy čitelný jako text
+ * bez ohledu na `payload_type`.
+ */
 async function readMessageText(
   pool: Pool,
   registry: EncryptionKeyRegistry,
@@ -53,12 +62,12 @@ async function readMessageText(
 ): Promise<string> {
   return withOwnerScope(pool, ownerId, async (client) => {
     const result = await client.query<{ payload_ciphertext: Buffer; encryption_key_version: number }>(
-      `select payload_ciphertext, encryption_key_version from raw_events where id = $1 and payload_type = 'TEXT'`,
+      `select payload_ciphertext, encryption_key_version from raw_events where id = $1 and payload_type in ('TEXT', 'VOICE')`,
       [rawEventId],
     );
     const row = result.rows[0];
     if (!row) {
-      throw new Error("H2 buddy: raw_event not found or not TEXT payload_type");
+      throw new Error("H2 buddy: raw_event not found or not TEXT/VOICE payload_type");
     }
     return decryptPayload(row.payload_ciphertext, row.encryption_key_version, registry).toString("utf8");
   });
