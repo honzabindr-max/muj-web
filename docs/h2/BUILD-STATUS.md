@@ -2,7 +2,9 @@
 
 **BUILD-11 — KOMPLETNÍ. Krok 4 (trigger wiring — `processOwnerQueueBounded()`, `after()` fast path, wake endpoint) — HOTOVO, MERGED, NASAZENO.** PR [#47](https://github.com/honzabindr-max/muj-web/pull/47) mergnut (merge `6a608031bd548e6c27b732d1e1a8b07e71f43ff0`), deploy `dpl_8AnGTD17onGh3xrCfSnZoFFByG6f` READY. [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) Rozhodnutí 1 (`processOwnerQueueBounded()` s rozpočtovanou smyčkou, `WORST_CASE_JOB_DURATION_MS`, `after()` v obou ingest routách) + Rozhodnutí 8 (`POST /api/internal/queue-wakeup`, `H2_QUEUE_WAKE_SECRET`, enumerace `owners` bez RLS → per-owner scoped volání) živě na produkci. Vedlejší: `withOwnerScope()` (`h2/db/with-owner-scope.ts`) dostal Pravidlo 9 readback guard (dřív jen doporučený pro Krok 1, teď skutečně implementovaný — chrání KAŽDÉ owner-scoped volání v H2, ne jen wake endpoint). `clear-stale-pending-jobs.ts --confirm` proběhl PŘED mergem (6 stale PENDING jobů z 2026-09-03 → `MANUALLY_CLEARED`, ověřeno přímým dotazem — 0 PENDING/RETRY_PENDING po odklizení). Migrace žádná. 284/284 testů lokálně (6 nových), `tsc --noEmit` a `npm run build` čisté.
 
-**Poprvé živě dosažitelné pro reálný provoz:** `after()` v obou ingest routách + budík `/api/internal/queue-wakeup` teď skutečně volají `claimNextJob()` → `generateBuddyResponse()` → `deliverResponse()` na produkci. `cron-job.org` job existuje (Honzíkovo nastavení, mimo repo), ale je **VYPNUTÝ** — čeká na ruční zapnutí, než bude mít systém i nezávislý liveness budík (do zapnutí je jediný spouštěč `after()` fast path z příchozích zpráv). Viz Evidence blok níže pro plné shrnutí (env stav production i preview, `check-required-env.ts` nález).
+**M1 DOSAŽENO 2026-09-05 — ověřeno přímým dotazem do produkční DB, ne jen tvrzením.** První reálná Buddy odpověď přes Telegram, produkční trigger funkční end-to-end: příchozí zpráva → `message_processing_jobs` (`RESPONSE_READY`) → Sonnet (`responses`, `stance=BE_WITH`) → `response_deliveries` (`channel='telegram'`, `status='DELIVERED'`, reálné Telegram `external_message_id`). 3 zprávy dnes (07:22, 07:28, 07:30), všechny stejný vzor. `cron-job.org` budík **ZAPNUT** (30 min interval, `POST /api/internal/queue-wakeup`, hlavička `X-H2-Wake-Secret`, save responses vypnuto, notifikace při selhání zapnutá — Honzíkovo nastavení, mimo repo). Delivery jen kanálem `telegram`, ne `web` — **potvrzeno Honzíkem** (web polling čte `responses` napřímo, druhý `response_deliveries` řádek by byl bookkeeping bez čtenáře). Viz Evidence blok níže pro plné shrnutí — včetně DVOU položek, které Honzíkovo hlášení tvrdilo jako hotové, ale živé ověření (runtime logy + přímý DB dotaz + Vercel deployment API + `x-vercel-id` header) je NEPOTVRDILO: entity extrakce se v odpovědi neprojevila (žádný aktivní prompt pro `OPERATIONAL_EXTRACTION` v produkci, `operational_extractions` má 0 řádků), a Vercel Function Region pořád hlásí `iad1`, ne `fra1`.
+
+**Poprvé živě dosažitelné pro reálný provoz:** `after()` v obou ingest routách + budík `/api/internal/queue-wakeup` teď skutečně volají `claimNextJob()` → `generateBuddyResponse()` → `deliverResponse()` na produkci.
 
 **Předchozí slice: BUILD-11 Krok 3 (voice handoff + delivery mechanismus + `owner_control_epoch`/Pravidlo 10 + quarantine notice seam) — HOTOVO, MERGED, NASAZENO.** [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) v2 schválen Honzíkem jako celek (2026-09-04, 10 Rozhodnutí, DEC-008). **Krok 0 — HOTOVO:** PR [#35](https://github.com/honzabindr-max/muj-web/pull/35) mergnut, migrace `0016` na production i preview h2-runtime. **Krok 1 — HOTOVO, MERGED, NASAZENO:** PR [#43](https://github.com/honzabindr-max/muj-web/pull/43) mergnut (merge `11d5d34`), deploy `dpl_FDCMD2HVrZXtWWUmi69qSvedGBgL` READY, migrace `0017` na obou větvích. **Krok 2 — HOTOVO, MERGED, NASAZENO:** PR [#44](https://github.com/honzabindr-max/muj-web/pull/44) mergnut (merge `0cf07a3`), deploy `dpl_8iYBXHUs4WxxGtLJCvBsyeuHowHJ` READY, migrace `0018` na obou větvích (proti neprázdné tabulce — viz Evidence blok pro zdůvodnění). Vedlejší tooling PR [#45](https://github.com/honzabindr-max/muj-web/pull/45) mergnut (merge `80f5acc`), deploy `dpl_3XGhYJe39Jo7ZFJgg5sUPtc5c3FL` READY. **Krok 3 — HOTOVO, MERGED, NASAZENO:** PR [#46](https://github.com/honzabindr-max/muj-web/pull/46) mergnut (merge `64df60eb3b8f252e8875c952dc817d8e773fd389`), deploy `dpl_CZHBUqHb5AUWnEovek9unCWdti7M` READY, migrace `0019_response_delivery_epoch.sql` a `0020_system_notice_deliveries.sql` aplikovány a ověřeny na obou větvích h2-runtime (preview `applied_at` 06:17:08.465Z/06:17:08.575Z, production 06:17:43.940Z/06:17:44.069Z, `select count(*) from responses` = 0 na obou PŘED aplikací 0019, ověřeno přímým dotazem). Obsahuje Rozhodnutí 2 voice→text handoff, Rozhodnutí 4 `responses.owner_control_epoch`, Rozhodnutí 5 `system_notice_deliveries`, Rozhodnutí 6 `deliverResponse()`/`sendQuarantineNotice()`. Nic z Kroku 3 nemá dnes produkčního volajícího — Krok 4 to teprve zapojí. 278/278 testů lokálně, `tsc --noEmit` a `npm run build` čisté. Viz Evidence blok níže.
 
@@ -238,22 +240,77 @@ Env stav (check-required-env.ts, PO deployi, 2026-09-05):
       produkci, takže tohle NEBLOKUJE dnešní nasazení. Zapsáno jako
       known gap, ne řešeno teď (Honzíkovo rozhodnutí, jestli má preview
       vůbec mít vlastní wake secret).
-Remaining risk:
-    1. cron-job.org job existuje (Honzíkovo nastavení, mimo repo), ale
-       je VYPNUTÝ — čeká na ruční zapnutí. Do zapnutí je jediný
-       spouštěč zpracování fronty `after()` fast path z příchozích
-       Telegram/web zpráv — bez nezávislého budíku zůstává v mezeře
-       přesně to, co Rozhodnutí 8 řešilo (RETRY_PENDING po backoffu,
-       job čekající na reap po expirovaném leasu — nikdo je nevyzvedne,
-       dokud nedorazí další nová zpráva stejného ownera).
+Remaining risk (stav ke commitu 2026-09-05, PŘED zapnutím cron-job.org):
+    1. ~~cron-job.org job existuje, ale je VYPNUTÝ~~ — VYŘEŠENO,
+       viz Evidence (M1) níže: budík zapnut 2026-09-05, 30min interval.
     2. H2_QUEUE_WAKE_SECRET chybí na preview (viz "Env stav" výše) —
        Honzíkovo rozhodnutí, jestli doplnit.
-    3. Design rozhodnutí "deliverResponse() se volá jen pro
-       channel='telegram'" (viz výše) není v plánu doslovně napsané —
-       Honzíkovo potvrzení/redirekce vítána.
+    3. ~~Design rozhodnutí "deliverResponse() se volá jen pro
+       channel='telegram'"~~ — POTVRZENO Honzíkem, viz Evidence (M1)
+       níže.
     4. `SENDING` stav zaseklý po crashi procesoru (Krok 3 forward-pointer)
        nemá dnes reap mechanismus — teď už relevantní, protože delivery
        může poprvé reálně proběhnout.
+```
+**Evidence (M1 — první reálná Buddy odpověď, produkční trigger end-to-end):**
+```
+DB (ověřeno přímým owner-scoped dotazem, 2026-09-05, ne jen tvrzením):
+    3 reálné Telegram zprávy (07:22:25, 07:28:35, 07:30:20 UTC) —
+    message_processing_jobs.status = RESPONSE_READY (attempt_count=1
+    u všech), responses (stance='BE_WITH' u všech tří, source_input_
+    sequence 7/8/9), response_deliveries (channel='telegram',
+    status='DELIVERED', reálné Telegram external_message_id 8/10/12).
+    Runtime logy (Vercel get_runtime_logs) korespondují: purpose=ingest
+    status=ok pro všechny tři POST /api/h2/telegram/webhook 200.
+Delivery channel: jen 'telegram', ne i 'web' — POTVRZENO Honzíkem
+    2026-09-05 (design rozhodnutí Kroku 4, viz Evidence Krok 4 výše).
+    Web polling (GET /api/h2/web/responses) čte `responses` napřímo,
+    druhý response_deliveries řádek pro channel='web' by byl bookkeeping
+    bez čtenáře.
+cron-job.org: budík ZAPNUT 2026-09-05 (Honzíkovo nastavení, mimo repo).
+    Interval 30 min (Rozhodnutí 8, ROZHODNUTO), POST /api/internal/
+    queue-wakeup, hlavička X-H2-Wake-Secret, "save responses" vypnuto
+    (endpoint stejně vrací 204 bez těla), notifikace při selhání
+    zapnutá. Neověřeno Code přímo (externí služba, žádný API přístup) —
+    Honzíkovo hlášení, konzistentní s tím, že wake endpoint (Rozhodnutí
+    8) je navržený přesně pro tenhle control-plane ping vzor.
+
+NEPOTVRZENO — Honzíkovo hlášení vs. živé ověření, zapsáno jako ČEKÁ NA
+OVĚŘENÍ, ne HOTOVO:
+
+1. Entity extrakce v odpovědi — Honzík hlásil "entity z extrakce se
+   v odpovědi projevily". Živé ověření tohle NEPOTVRZUJE:
+   - operational_extractions má pro ownera 0 řádků CELKEM (ne jen
+     dnes) — ověřeno přímým dotazem.
+   - prompt_versions nemá ŽÁDNOU řádku pro purpose='OPERATIONAL_
+     EXTRACTION' (jen BUDDY_RESPONSE, 7 verzí, v7 ACTIVE) — extrakční
+     prompt nebyl nikdy ani draftnutý.
+   - Runtime logy: všechny 3 zprávy → purpose=extraction_operational
+     status=error errorCode=NO_ACTIVE_PROMPT_VERSION.
+   - Pravděpodobné vysvětlení: Sonnet čte syrový text zprávy přímo
+     (součást promptu) a reaguje na zmíněné entity STEJNĚ, jako by
+     reagoval člověk čtoucí zprávu — nezávisle na tom, jestli
+     strukturovaná Haiku extrakce (persistence entit pro budoucí
+     konverzace) proběhla. Ta dnes v produkci neběží vůbec (BUILD-STATUS.md
+     forward-pointer od BUILD-10/11 zůstává v platnosti). Vizuálně
+     nerozeznatelné z jedné odpovědi, ale mechanismus je jiný.
+2. Vercel Function Region iad1→fra1 — Honzík hlásil přepnutí +
+   redeploy + ověření funkčnosti. Živé ověření (2026-09-05, PŘED
+   commitem, který tenhle blok zapisuje):
+   - Poslední 2 produkční nasazení (vč. "redeploy" spuštěného 4 min
+     před checkem) hlásí přes Vercel API `regions: ["iad1"]`.
+   - `curl -I .../api/h2/health` → `x-vercel-id: fra1::iad1::...` —
+     `fra1` je jen edge routing (nejbližší POP), skutečné vykonání
+     funkce zůstává `iad1`.
+   - Pravděpodobná příčina: "Redeploy" v Dashboardu recykluje
+     existující build; Function Region setting změněný MEZI
+     originálním deployem a redeployem se možná nepropsal bez
+     ČERSTVÉHO buildu (nový git push, ne redeploy tlačítko).
+   - Commit, který tenhle Evidence blok zapisuje, vyvolá čerstvý
+     git-triggered deploy — Honzík požádal Code, aby po něm region
+     znovu zkontroloval a nahlásil skutečnou hodnotu (viz zpráva
+     v konverzaci, samostatný dodatek k tomuhle zápisu níže/v dalším
+     commitu, pokud se liší).
 ```
 **Evidence (BUILD-11 Krok 3 — voice handoff + delivery mechanismus, MERGED, NASAZENO):**
 ```
