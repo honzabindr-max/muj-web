@@ -476,36 +476,3 @@ nissakiboatrental.com; dromeas-rentacar-roda.com; nsk-carrentalcorfu.com;
 infinitycarhire.com/roda-office-corfu/; corfucars.com/contact.php; rodapark.com
 
 Verze po druhém úplném reauditu: 13. 9. 2026.
-
-
----
-
-## 26. SUPERVISOR DIRECTIVE 01 — 2026-09-13 (vydal Outer Project Supervisor)
-Závazné pro všechny role. Řeší riziko R1 z CHECKPOINT-1 (v SOURCE_PACKu nejsou souřadnice).
-Řádky 1–478 tohoto souboru se NEMĚNÍ; tato sekce je pouze doplněk.
-
-### D01-A Souřadnice — výjimka ze zákazu síťového ověřování
-`coords: null` u všech karet je NEPŘIJATELNÉ — DoD vyžaduje funkční mapu s ověřenými body.
-POVOLENO (a jen toto) je dohledat lat/lng přes veřejné OpenStreetMap Nominatim API bez klíče:
-`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=<místo>%2C%20Corfu%2C%20Greece`
-- dodržet rate limit max 1 dotaz/s a poslat vlastní `User-Agent`;
-- dotazy pouštět jednorázově skriptem při buildu dat, NE za běhu webu;
-- výsledek uložit do repa jako statická data, aby web nezávisel na API.
-U každého bodu povinně uložit: `coordsSource: 'osm-nominatim'`, `coordsQuery`,
-`coordsCheckedAt: '2026-09-13'`.
-Pokud dotaz nevrátí jednoznačný výsledek, ponech `coords: null`, `coordsStatus: 'neoveritelne'`,
-pin nevykresluj a „Navigovat" nech jako Google Maps search deep-link podle canonical name.
-Nikdy nevymýšlej ani neodhaduj souřadnice zpaměti.
-
-### D01-B Rozsah výjimky
-Tato výjimka platí VÝHRADNĚ pro geokódování. Ceny, otevírací doby, sezonní provoz, dostupnost
-a program akcí se NEOVĚŘUJÍ — zůstávají se štítkem „ověřit aktuálně" a odkazem na zdroj
-přesně podle částí 3, 10, 11, 12 a 13.
-
-### D01-C Cíl deploymentu — potvrzeno vlastníkem
-Web se nasazuje jako App Router route `app/korfu2026/` v repu muj-web → Vercel →
-https://www.good-inventions.work/korfu2026/ (stejné místo jako lefkada-2026; `www` je CNAME na
-Vercel, Hetzner VPS tuto URL neobsluhuje a nebude se ho dotýkat).
-Implementační vzor je `app/soci/` a `app/cesky-raj-2026/`, NE `app/lefkada-2026/`
-(to je jen route handler pro statické HTML).
-Beze změny platí: NEPUSHOVAT, NEDEPLOYOVAT, neměnit `main`. Checkpoint 4 je konec tohoto běhu.
