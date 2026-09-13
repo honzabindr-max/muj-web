@@ -3,24 +3,43 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect } from "react";
-import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import type { Place } from "../_data/types";
 import { mapsUrl } from "../_data/types";
 
-// Fix Leaflet default marker icons broken by webpack/Next.js asset hashing.
-// Must run client-side only (this file is always 'use client').
-function FixLeafletIcons() {
+// Fallback výřez celého Korfu — používá se, když filtrované body nemají žádné souřadnice.
+const KORFU_BOUNDS: L.LatLngBoundsLiteral = [
+  [39.35, 19.65],
+  [39.85, 20.2],
+];
+
+// SVG pin via L.divIcon — nevyžaduje žádné síťové ani lokální image soubory,
+// takže nedochází k broken-asset-path problému pod Next.js/webpack bundlerem.
+const PIN_ICON = L.divIcon({
+  className: "",
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36" aria-hidden="true" focusable="false"><path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24S24 21 24 12C24 5.373 18.627 0 12 0z" fill="#0d9488"/><circle cx="12" cy="12" r="5" fill="white"/></svg>`,
+  iconSize: [24, 36],
+  iconAnchor: [12, 36],
+  popupAnchor: [0, -36],
+});
+
+interface BoundsUpdaterProps {
+  withCoords: Place[];
+}
+
+/** Reaguje na změnu filtrovaných bodů a nastaví výřez mapy. Musí být uvnitř MapContainer. */
+function BoundsUpdater({ withCoords }: BoundsUpdaterProps) {
+  const map = useMap();
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (L.Icon.Default.prototype as any)._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-      iconRetinaUrl:
-        "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-      shadowUrl:
-        "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-    });
-  }, []);
+    if (withCoords.length === 0) {
+      map.fitBounds(KORFU_BOUNDS);
+      return;
+    }
+    const bounds = L.latLngBounds(
+      withCoords.map((p) => [p.coords!.lat, p.coords!.lon] as [number, number]),
+    );
+    map.fitBounds(bounds, { padding: [48, 48] });
+  }, [withCoords, map]);
   return null;
 }
 
@@ -33,24 +52,20 @@ export default function KorfuMap({ filteredPlaces }: KorfuMapProps) {
   const withCoords = filteredPlaces.filter((p) => p.coords !== null);
   const withoutCoords = filteredPlaces.filter((p) => p.coords === null);
 
-  // Střed Korfu
-  const CENTER: [number, number] = [39.62, 19.92];
-
   return (
     <section
       aria-label="Mapa míst — Korfu 2026"
       className="flex flex-col gap-4"
     >
-      {/* Leaflet mapa */}
+      {/* Leaflet mapa — OSM dlaždice, bez API klíče */}
       <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
         <MapContainer
-          center={CENTER}
-          zoom={10}
+          bounds={KORFU_BOUNDS}
           scrollWheelZoom={false}
           style={{ height: "420px" }}
           className="md:!h-[560px]"
         >
-          <FixLeafletIcons />
+          <BoundsUpdater withCoords={withCoords} />
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> přispěvatelé'
@@ -59,6 +74,7 @@ export default function KorfuMap({ filteredPlaces }: KorfuMapProps) {
             <Marker
               key={place.id}
               position={[place.coords!.lat, place.coords!.lon]}
+              icon={PIN_ICON}
             >
               <Popup>
                 <div className="text-sm" style={{ minWidth: 200 }}>
@@ -120,7 +136,7 @@ export default function KorfuMap({ filteredPlaces }: KorfuMapProps) {
         <strong>{withoutCoords.length}</strong>
       </p>
 
-      {/* Místa bez ověřených souřadnic */}
+      {/* Místa bez ověřených souřadnic — seznam s Google Maps search deep-linkem */}
       {withoutCoords.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h2
