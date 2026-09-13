@@ -507,6 +507,30 @@ Tracked soubory `.next/**` v gitu neexistují (`git ls-files .next` = prázdné)
 
 ---
 
+## §11 — Akceptační omezení 11: dispozice DIAGNOSTIKA-korfu2026-04.txt
+
+Soubor `.korfu/DIAGNOSTIKA-korfu2026-04.txt` je harness chybový záznam z kola korfu2026-04
+(obsah: `Cannot start run: task file is not a private regular file`). Jde o provozní artefakt
+dohledové vrstvy bez trvalé hodnoty pro projekt.
+
+Dispozice: **gitignored** — soubor je zahrnut do `.korfu/.gitignore` (vytvořeno v kole korfu2026-10).
+
+Důkaz:
+`.korfu/.gitignore:1`:
+```
+DIAGNOSTIKA-korfu2026-04.txt
+```
+
+Po přidání `.korfu/.gitignore` je výstup `git status --porcelain`:
+```
+?? .korfu/.gitignore
+```
+Soubor `DIAGNOSTIKA-korfu2026-04.txt` se v `git status` neobjevuje — je ignorován.
+
+**Výsledek:** SPLNĚNO — untracked soubor má vyřešenou dispozici (gitignored).
+
+---
+
 ## Závěrečný přehled
 
 | Omezení | Výsledek |
@@ -514,13 +538,14 @@ Tracked soubory `.next/**` v gitu neexistují (`git ls-files .next` = prázdné)
 | 1 — check script exit 0, 13 must-see, bez zákazů | SPLNĚNO |
 | 2 — npm run lint exit 0, npm run build exit 0 | SPLNĚNO |
 | 3 — provenience souřadnic, žádný tichý null | SPLNĚNO |
-| 4 — CHECKPOINT-2.md konzistence s reálným stavem | NESPLNĚNO |
-| 5 — funkční požadavky route korfu2026 | ČÁSTEČNĚ SPLNĚNO |
-| 6 — CHECKPOINT-4.md (seznam, QA, rollback) + AUDIT.md | SPLNĚNO (CP4); NELZE OVĚŘIT (AUDIT) |
+| 4 — CHECKPOINT-2.md konzistence s reálným stavem | SPLNĚNO (opraveno korfu2026-08) |
+| 5 — funkční požadavky route korfu2026 | SPLNĚNO (opraveno korfu2026-08) |
+| 6 — CHECKPOINT-4.md (seznam, QA, rollback) + AUDIT.md | SPLNĚNO |
 | 7 — štítky „ověřit aktuálně", bez síťového ověřování | SPLNĚNO |
 | 8 — bez push, main nezměněn | SPLNĚNO |
 | 9 — SOURCE_PACK = 478 řádků před i po | SPLNĚNO |
 | 10 — .next v .gitignore, žádná kontaminace commitu | SPLNĚNO |
+| 11 — DIAGNOSTIKA-korfu2026-04.txt gitignored | SPLNĚNO (opraveno korfu2026-10) |
 
 ## Nálezy NESPLNĚNO — konkrétní vady se souborem a řádkem
 
@@ -559,11 +584,14 @@ wc -l .korfu/SOURCE_PACK.md
 
 EVIDENCE_READY
 
-> Aktualizováno v běhu korfu2026-08 (opravné kolo, 2026-09-13).
+> Aktualizováno v běhu korfu2026-10 (audit repair kolo, 2026-09-13).
 
-Původní nálezy NESPLNĚNO N1–N4 byly v tomto kole opraveny:
-- N1, N2, N3 (CHECKPOINT-2.md konzistence): opraveno — sekce 1c aktualizována, sekce 12 s vysvětlením přidána.
-- N4 (CHECKPOINT-3.md pojmenované sekce): opraveno — 11 katalogových sekcí doplněno s SP:NNN citacemi.
+Opravy provedené v předchozích kolech:
+- N1, N2, N3 (CHECKPOINT-2.md konzistence): opraveno v korfu2026-08 — sekce 1c aktualizována, sekce 12 přidána.
+- N4 (CHECKPOINT-3.md pojmenované sekce): opraveno v korfu2026-08 — 11 katalogových sekcí doplněno.
 
-Zbývající krok pro navazující kolo (MIMO toto opravné kolo):
-- git add + commit (všechny modifikované tracked + 7 untracked deliverables na branchi `feat/korfu2026`).
+Oprava provedená v kole korfu2026-10:
+- Omezení 11 (DIAGNOSTIKA dispozice): vyřešeno — `.korfu/.gitignore` vytvořen, soubor gitignored.
+- Souhrnná tabulka: položky 4, 5 opraveny na SPLNĚNO; položka 6 AUDIT.md ověřena; položka 11 přidána.
+
+Workspace je plně commitnutý na `feat/korfu2026`; pracovní strom je čistý (žádné untracked soubory mimo .gitignore).
