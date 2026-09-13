@@ -287,6 +287,105 @@ export const TRANSPORT_OPTIONS: TransportOption[] = [
   },
 ];
 
+// ─── Praktické možnosti v Rodě (část 13, SP:293–300) ─────────────────────────
+
+/** 13 praktických možností v Rodě a okolí — doslova dle SP:293–300. */
+export const RODA_PRAKTIKA = [
+  {
+    id: "roda-beach-aktivita",
+    label: "Roda Beach",
+    freshness: "overit-aktualne" as const,
+    verify: "Provoz a pronájem lehátek/slunečníků ověřit aktuálně.",
+    sp: "SP:293",
+  },
+  {
+    id: "hotelovy-bazen",
+    label: "Hotelový bazén a odpočinek",
+    freshness: null,
+    verify: null,
+    sp: "SP:293",
+  },
+  {
+    id: "katreena-v-rode",
+    label: "Katreena Horse Riding přímo v Rodě",
+    freshness: "overit-aktualne" as const,
+    verify: "Dostupnost, cenu a termín ověřit přímo u Katreeny.",
+    sp: "SP:293–294",
+  },
+  {
+    id: "apollon-roda-loop",
+    label: "Apollónův chrám, Roda Loop a pobřežní procházka do Acharavi",
+    freshness: null,
+    verify: null,
+    sp: "SP:294",
+  },
+  {
+    id: "promenada-pristan",
+    label: "Procházka přístavem a hlavní ulicí",
+    freshness: null,
+    verify: null,
+    sp: "SP:294",
+  },
+  {
+    id: "bary-beach-bary",
+    label: "Bary, beach bary, sportovní přenosy, karaoke a občasná živá hudba",
+    freshness: "overit-aktualne" as const,
+    verify: "Program ověřit na místě (tabule, sociální sítě).",
+    sp: "SP:295",
+  },
+  {
+    id: "vodni-sporty-roda",
+    label:
+      "Vodní sporty: parasailing/paragliding, jet ski, vodní lyže, banana/rings, kánoe, šlapadla, SUP, kajak",
+    freshness: "overit-aktualne" as const,
+    verify: "Sezonu a přístup nehostů ověřit aktuálně.",
+    sp: "SP:295–297",
+  },
+  {
+    id: "skyway-rybareni",
+    label: "Skyway Boats, rybářské výlety a malé pobřežní plavby",
+    freshness: "overit-aktualne" as const,
+    verify: "Dosah, cenu a počasí ověřit aktuálně.",
+    sp: "SP:297–298",
+  },
+  {
+    id: "obchody-supermarkety",
+    label: "Obchody a supermarkety",
+    freshness: null,
+    verify: null,
+    sp: "SP:298",
+  },
+  {
+    id: "pujcovny",
+    label: "Půjčovny aut, skútrů, quadů a kol",
+    freshness: "overit-aktualne" as const,
+    verify: "Cenu, podmínky a dostupnost ověřit aktuálně.",
+    sp: "SP:298",
+  },
+  {
+    id: "wellness-roda-resort",
+    label:
+      "Wellness/masáž — možná day-visitor služba v Roda Beach Resort & Spa",
+    freshness: "overit-aktualne" as const,
+    verify: "Dostupnost pro day-visitora ověřit přímo v resortu.",
+    sp: "SP:298–299",
+  },
+  {
+    id: "spojeni-acharavi-sidari",
+    label: "Spojení do Acharavi, Sidari, Kassiopi a Corfu Town",
+    freshness: "overit-aktualne" as const,
+    verify: "Jízdní řád a frekvenci linek ověřit aktuálně.",
+    sp: "SP:299–300",
+  },
+  {
+    id: "prvni-vecer-tabule",
+    label: "První večer projít tabule podniků a vyfotit aktuální program",
+    freshness: null,
+    verify: null,
+    sp: "SP:300",
+  },
+] as const;
+
 // ─── Večerní podniky v Rodě (část 13, SP:301–306) ────────────────────────────
 
 /** Večerní podniky v Rodě — všechny s freshness 'overit-aktualne'. */
@@ -339,6 +438,33 @@ export const VECERNI_PODNIKY = [
     description: "Koktejly, terasa, klidnější atmosféra.",
     freshness: "overit-aktualne" as const,
     sp: "SP:304–305",
+  },
+] as const;
+
+// ─── Večerní alternativy mimo Rodu (část 13, SP:307–308) ─────────────────────
+
+/** Večerní alternativy mimo Rodu — doslova dle SP:307–308. Všechny 'overit-aktualne'. */
+export const VECERNI_ALTERNATIVY = [
+  {
+    id: "sidari-vecer",
+    name: "Sidari",
+    description: "Živější scéna.",
+    freshness: "overit-aktualne" as const,
+    sp: "SP:307",
+  },
+  {
+    id: "kassiopi-vecer",
+    name: "Kassiopi",
+    description: "Přístavní atmosféra, komornější bary.",
+    freshness: "overit-aktualne" as const,
+    sp: "SP:307–308",
+  },
+  {
+    id: "corfu-town-vecer",
+    name: "Corfu Town",
+    description: "Nejširší kultura, gastronomie, koktejlové bary.",
+    freshness: "overit-aktualne" as const,
+    sp: "SP:308",
   },
 ] as const;
 
