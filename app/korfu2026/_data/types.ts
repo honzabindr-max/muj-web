@@ -19,43 +19,43 @@
  */
 
 /** Klíč pro „Můj výběr" v localStorage. SOURCE_PACK ř. 391–392 a 405–406. */
-export const SELECTION_KEY = 'korfu2026:selection:v1';
+export const SELECTION_KEY = "korfu2026:selection:v1";
 
 /** Kategorie karty. */
 export type Category =
-  | 'plaz'
-  | 'pamatka'
-  | 'vesnice'
-  | 'mesto'
-  | 'priroda'
-  | 'vyhlidka'
-  | 'aktivita'
-  | 'lod'
-  | 'jidlo'
-  | 'vecer'
-  | 'doprava'
-  | 'prakticke'
+  | "plaz"
+  | "pamatka"
+  | "vesnice"
+  | "mesto"
+  | "priroda"
+  | "vyhlidka"
+  | "aktivita"
+  | "lod"
+  | "jidlo"
+  | "vecer"
+  | "doprava"
+  | "prakticke"
   /** Roda jako samostatná kategorie — SOURCE_PACK část 13, ř. 292–308. */
-  | 'zakladna';
+  | "zakladna";
 
 export const CATEGORY_LABEL: Record<Category, string> = {
-  plaz: 'Pláž a koupání',
-  pamatka: 'Památka',
-  vesnice: 'Vesnice',
-  mesto: 'Město',
-  priroda: 'Příroda',
-  vyhlidka: 'Vyhlídka',
-  aktivita: 'Aktivita',
-  lod: 'Loď a moře',
-  jidlo: 'Jídlo',
-  vecer: 'Večer',
-  doprava: 'Doprava',
-  prakticke: 'Praktické',
-  zakladna: 'Základna Roda',
+  plaz: "Pláž a koupání",
+  pamatka: "Památka",
+  vesnice: "Vesnice",
+  mesto: "Město",
+  priroda: "Příroda",
+  vyhlidka: "Vyhlídka",
+  aktivita: "Aktivita",
+  lod: "Loď a moře",
+  jidlo: "Jídlo",
+  vecer: "Večer",
+  doprava: "Doprava",
+  prakticke: "Praktické",
+  zakladna: "Základna Roda",
 };
 
 /** SOURCE_PACK ř. 395–396: "must-see / doporučení / další možnost". */
-export type Tier = 'must-see' | 'doporuceni' | 'dalsi-moznost';
+export type Tier = "must-see" | "doporuceni" | "dalsi-moznost";
 
 /**
  * Oblast ostrova. Hodnoty odpovídají členění, které SOURCE_PACK sám používá
@@ -66,30 +66,30 @@ export type Tier = 'must-see' | 'doporuceni' | 'dalsi-moznost';
  * (typicky celoostrovní aktivity z části 12) — nikdy se nedoplňuje odhadem.
  */
 export type Area =
-  | 'blizko-zakladny'
-  | 'severozapad'
-  | 'zapad'
-  | 'severovychod'
-  | 'jih-jihozapad'
-  | 'corfu-town'
-  | 'vnitrozemi'
-  | 'neurceno';
+  | "blizko-zakladny"
+  | "severozapad"
+  | "zapad"
+  | "severovychod"
+  | "jih-jihozapad"
+  | "corfu-town"
+  | "vnitrozemi"
+  | "neurceno";
 
 export const AREA_LABEL: Record<Area, string> = {
-  'blizko-zakladny': 'Bez přesunu / blízko základny',
-  severozapad: 'Severozápad',
-  zapad: 'Západ',
-  severovychod: 'Severovýchod',
-  'jih-jihozapad': 'Jih a jihozápad',
-  'corfu-town': 'Corfu Town',
-  vnitrozemi: 'Vnitrozemí a hory',
-  neurceno: 'Zdroj oblast neuvádí',
+  "blizko-zakladny": "Bez přesunu / blízko základny",
+  severozapad: "Severozápad",
+  zapad: "Západ",
+  severovychod: "Severovýchod",
+  "jih-jihozapad": "Jih a jihozápad",
+  "corfu-town": "Corfu Town",
+  vnitrozemi: "Vnitrozemí a hory",
+  neurceno: "Zdroj oblast neuvádí",
 };
 
 export const TIER_LABEL: Record<Tier, string> = {
-  'must-see': 'Must-see',
-  doporuceni: 'Doporučení',
-  'dalsi-moznost': 'Další možnost',
+  "must-see": "Must-see",
+  doporuceni: "Doporučení",
+  "dalsi-moznost": "Další možnost",
 };
 
 /**
@@ -97,12 +97,12 @@ export const TIER_LABEL: Record<Tier, string> = {
  * Vyplňuje se JEN tam, kde SOURCE_PACK náročnost výslovně popisuje
  * (např. "strmá kamenitá cesta" ř. 83, "lehký okruh" ř. 109). Jinak `null`.
  */
-export type Difficulty = 'snadny' | 'stredni' | 'narocny';
+export type Difficulty = "snadny" | "stredni" | "narocny";
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
-  snadny: 'Snadné',
-  stredni: 'Střední',
-  narocny: 'Náročné',
+  snadny: "Snadné",
+  stredni: "Střední",
+  narocny: "Náročné",
 };
 
 /**
@@ -110,16 +110,23 @@ export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
  * Vyplňuje se JEN tam, kde SOURCE_PACK způsob dopravy výslovně uvádí
  * (např. "pěší sestup z Afionasu nebo loď" ř. 82–83, "zejména lodí" ř. 85–86).
  */
-export type TransportMode = 'auto' | 'bus' | 'taxi' | 'pesky' | 'lod' | 'skutr' | 'quad';
+export type TransportMode =
+  | "auto"
+  | "bus"
+  | "taxi"
+  | "pesky"
+  | "lod"
+  | "skutr"
+  | "quad";
 
 export const TRANSPORT_LABEL: Record<TransportMode, string> = {
-  auto: 'Auto',
-  bus: 'Autobus',
-  taxi: 'Taxi',
-  pesky: 'Pěšky',
-  lod: 'Lodí',
-  skutr: 'Skútr',
-  quad: 'Quad',
+  auto: "Auto",
+  bus: "Autobus",
+  taxi: "Taxi",
+  pesky: "Pěšky",
+  lod: "Lodí",
+  skutr: "Skútr",
+  quad: "Quad",
 };
 
 /**
@@ -133,16 +140,16 @@ export const TRANSPORT_LABEL: Record<TransportMode, string> = {
  *                                 u Canal d'Amour navíc "za větru a vln opatrnost" (ř. 80)
  */
 export type WeatherFit =
-  | 'dobra-viditelnost'
-  | 'problematicke-za-mokra'
-  | 'vhodne-pri-horsim-pocasi'
-  | 'citlive-na-vitr';
+  | "dobra-viditelnost"
+  | "problematicke-za-mokra"
+  | "vhodne-pri-horsim-pocasi"
+  | "citlive-na-vitr";
 
 export const WEATHER_LABEL: Record<WeatherFit, string> = {
-  'dobra-viditelnost': 'Za dobré viditelnosti',
-  'problematicke-za-mokra': 'Za mokra problematické',
-  'vhodne-pri-horsim-pocasi': 'Možnost při horším počasí',
-  'citlive-na-vitr': 'Citlivé na vítr a vlny',
+  "dobra-viditelnost": "Za dobré viditelnosti",
+  "problematicke-za-mokra": "Za mokra problematické",
+  "vhodne-pri-horsim-pocasi": "Možnost při horším počasí",
+  "citlive-na-vitr": "Citlivé na vítr a vlny",
 };
 
 /**
@@ -161,10 +168,14 @@ export const WEATHER_LABEL: Record<WeatherFit, string> = {
  *
  * Souřadnice se NIKDY nevymýšlejí ani neodhadují zpaměti (D01-A).
  */
-export type CoordsStatus = 'overene' | 'orientacni' | 'neoveritelne' | 'chybi-ve-zdroji';
+export type CoordsStatus =
+  | "overene"
+  | "orientacni"
+  | "neoveritelne"
+  | "chybi-ve-zdroji";
 
 /** Původ souřadnic. Jediná povolená hodnota podle D01-A. */
-export type CoordsSource = 'osm-nominatim';
+export type CoordsSource = "osm-nominatim";
 
 export interface Coords {
   lat: number;
@@ -197,12 +208,12 @@ export interface VerifyItem {
  * a program akcí ověřovat. Každý takový údaj proto nese štítek „ověřit aktuálně" a odkaz
  * na zdroj — nikdy se nepodává jako potvrzený.
  */
-export type FreshnessStatus = 'overit-aktualne' | 'starsi-lead' | 'neovereno';
+export type FreshnessStatus = "overit-aktualne" | "starsi-lead" | "neovereno";
 
 export const FRESHNESS_LABEL: Record<FreshnessStatus, string> = {
-  'overit-aktualne': 'ověřit aktuálně',
-  'starsi-lead': 'starší lead — potvrdit přímo',
-  neovereno: 'neověřeno',
+  "overit-aktualne": "ověřit aktuálně",
+  "starsi-lead": "starší lead — potvrdit přímo",
+  neovereno: "neověřeno",
 };
 
 /**
@@ -350,7 +361,7 @@ export interface Operator {
   id: string;
   name: string;
   /** Role podle SOURCE_PACKu: první volba / alternativa / neověřený lead. */
-  role: 'prvni-volba' | 'alternativa' | 'lead';
+  role: "prvni-volba" | "alternativa" | "lead";
   /** Základna / místo působení, doslova dle zdroje. null = zdroj neuvádí. */
   base: string | null;
   /** Co provozovatel nabízí — doslovné formulace zdroje. */
@@ -386,5 +397,39 @@ export interface PhoneContact {
   phone: string;
   /** Doslovná poznámka ze zdroje, např. „(před použitím ověřit)". */
   note: string | null;
+  sp: string;
+}
+
+/** Událost ze sekce K SOURCE_PACKu (část 15, ř. 323–330). */
+export interface KorfuEvent {
+  id: string;
+  /** Název události — doslova dle zdroje. */
+  title: string;
+  /** Datum nebo rozsah — doslova dle zdroje. */
+  date: string;
+  /** Místo konání — doslova dle zdroje. */
+  location: string;
+  /** Popis — doslova dle zdroje. */
+  description: string;
+  /** Stav ověření — SOURCE_PACK explicitně uvádí, co se má ověřit. */
+  freshness: FreshnessStatus;
+  /** Odkaz na ověření, pokud ho SOURCE_PACK uvádí. */
+  source: SourceRef | null;
+  sp: string;
+}
+
+/** Praktická informace o dopravě — část 16 SOURCE_PACKu (ř. 332–346). */
+export interface TransportOption {
+  id: string;
+  /** Typ dopravy — auto, skútr, autobus, taxi, řízení. */
+  mode: string;
+  /** Popis — doslova dle zdroje. */
+  description: string;
+  /** Dynamické fakty (ceny, jízdní řády). Vždy se štítkem — D01-B. */
+  facts: DynamicFact[];
+  /** Kandidáti / provozovatelé — doslova dle zdroje. */
+  candidates: string[];
+  sources: SourceRef[];
+  warnings: string[];
   sp: string;
 }
