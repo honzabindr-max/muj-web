@@ -445,15 +445,16 @@ AUDIT.md: NELZE OVĚŘIT V TOMTO BĚHU (nezávislost plní auditorské kolo, ne 
 
 ---
 
-## §7 — Akceptační omezení 7: štítky „ověřit aktuálně" a D01-B
+## §7 — Akceptační omezení 7: štítky „ověřit aktuálně" a D01-B + source link
 
 `grep -rn "ověřit aktuálně" app/korfu2026/` — celkem **38 výskytů** v `app/korfu2026/_data/places.ts` a dalších datových souborech.
 
-Příklady z `app/korfu2026/_data/places.ts`:
-- `:150`: `"Orientační cena bezlicenční lodi v Paleokastritse: cca od 100 €, často bez paliva — ověřit aktuálně."`
-- `:368`: `"Orientační cena bezlicenční lodi v Nissaki od 16. 9.: cca 80–170 € podle lodi, často bez paliva — ověřit aktuálně."`
-- `:2050`: `"Dostupnost a místa ověřit aktuálně."`
+Příklady z `app/korfu2026/_data/places.ts` po opravě constraint 12 (round korfu2026-10):
+- `:153`: `"Orientační cena bezlicenční lodi v Paleokastritse: cca od 100 €"` → `source.url: "https://rentaboatcorfu.gr"` (SP:188, SOURCE_PACK ř. 188)
+- `:381`: `"Orientační cena bezlicenční lodi v Nissaki od 16. 9.: cca 80–170 €"` → `source.url: "https://nissakiboatrental.com/prices-reservation-nissaki-boat-rental-corfu/"` (SP:196–197, SOURCE_PACK ř. 196–197)
+- `:2484`: `"Orientační cena organizované plavby Paxos/Antipaxos: cca 49 €/os"` → `source.url: "https://corfutouristservices.gr/activities-in-corfu/"` (SP:290, SOURCE_PACK ř. 290)
 
+Všechny tři položky s cenovými údaji a štítkem „ověřit aktuálně" nyní mají zdrojový odkaz. Zdrojové URL pocházejí výhradně ze SOURCE_PACK.md.
 Síťové ověřování obsahu (ceny, otevírací doby, dostupnost) neproběhlo — fakta jsou statická ze SOURCE_PACKu.
 **Výsledek:** SPLNĚNO.
 

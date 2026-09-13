@@ -1,6 +1,6 @@
 # CHECKPOINT 4 — předdeploymentní předání
 
-Snapshot aktualizován: `2026-09-13` (běh korfu2026-08, opravné kolo; původní čas read-only snapshotu: `2026-09-13T18:09:28+02:00`). Aktualizováno: korfu2026-09 — uzavření dispozice untracked souborů.
+Snapshot aktualizován: `2026-09-13` (běh korfu2026-08, opravné kolo; původní čas read-only snapshotu: `2026-09-13T18:09:28+02:00`). Aktualizováno: korfu2026-09 — uzavření dispozice untracked souborů. Aktualizováno: korfu2026-10 — oprava constraint 12 (3 cenové položky bez zdrojového odkazu).
 
 ## Aktuální Git stav
 
@@ -52,6 +52,17 @@ Původní QA běh v CHECKPOINT-3 proběhl `2026-09-13T17:57:53+02:00` a výsledk
 | `.korfu/CHECKPOINT-3.md` | Přidáno 11 pojmenovaných katalogových sekcí (N4 dle auditora round_002): Pláže, Památky, Koně, Lodě, Aktivity, Roda, Jídlo a večer, Události, Doprava, Praktické, Zdroje a aktuálnost |
 | `.korfu/CHECKPOINT-4.md` | Aktualizován timestamp, seznam untracked souborů (přidán AUDIT.md), QA výsledky |
 | `.korfu/AUDIT.md` | Aktualizovány sekce §4 (N1–N3 opraveny), §5 (N4 opraveno), §0/§1/§2 čerstvé raw výstupy |
+
+### Změny provedené v opravném kole korfu2026-10 (constraint 12)
+
+| Soubor | Typ změny |
+|---|---|
+| `app/korfu2026/_data/places.ts` | Přidány zdrojové URL ke 3 cenovým položkám: `:153` (Paleokastritsa, rentaboatcorfu.gr, SP:188), `:381` (Nissaki, nissakiboatrental.com, SP:196–197), `:2484–2490` (Paxos/Antipaxos, corfutouristservices.gr, SP:290) |
+| `.korfu/evidence/build-output.txt` | Přegenerováno po opravě; EXIT_CODE=0, `/korfu2026` static |
+| `.korfu/evidence/lint-output.txt` | Přegenerováno po opravě; EXIT_CODE=0, 0 errors |
+| `.korfu/evidence/check-output.txt` | Přegenerováno po opravě; EXIT_CODE=0, "Bez nálezů" |
+| `.korfu/AUDIT.md` | Aktualizována sekce §7: nová čísla řádků a evidence zdrojových URL |
+| `.korfu/CHECKPOINT-4.md` | Tento dokument — přidána sekce korfu2026-10 |
 
 ## Deploymentní hranice
 
