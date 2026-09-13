@@ -5,7 +5,7 @@ import type { Place } from "./types";
  * Karta bez mapového bodu. Souřadnice se do karty doplňují výhradně z `coords.generated.ts`,
  * tedy z jednorázového geokódování podle D01-A (zadání korfu2026-02, bod 1).
  * D01-A bylo v sekci 26 SOURCE_PACKu, která byla odstraněna (SOURCE_PACK = 478 ř.);
- * autoritativní text D01-A je v TASK-02. V tomto souboru se souřadnice nikdy nepíšou ručně.
+ * autoritativní text D01-A je v zadání korfu2026-02, bod 1. V tomto souboru se souřadnice nikdy nepíšou ručně.
  */
 type PlaceSeed = Omit<
   Place,

@@ -478,3 +478,45 @@ export const SOURCES_SECTION = {
   ],
   sp: "SP:461–476",
 };
+
+// ─── Počasí — povinná pravidla webu (část 17, SP:348–355) ────────────────────
+
+/**
+ * Pravidla pro `C:PocasiPanel` — doslovně ze SP:351–355.
+ * Web nesmí žádné z těchto pravidel porušit.
+ */
+export const POCASI_PRAVIDLA: string[] = [
+  "Zobrazovat živé počasí jen z reálného zdroje a s timestampem. (SP:351)",
+  "Při chybě nabídnout odkaz na živou předpověď. (SP:351–352)",
+  "Pro loď sledovat vítr a vlny, ne jen teplotu. (SP:352)",
+  "Pantokrator a panoramata doporučit za dobré viditelnosti. (SP:352–353)",
+  "Porto Timoni a Myrtiotissu označit jako problematické za mokra. (SP:353–354)",
+  "Corfu Town, restaurace, případná muzea a hotelový odpočinek označit jako možnosti při horším počasí. (SP:354–355)",
+  "Žádný automatický denní itinerář. (SP:355)",
+];
+
+/** Datovaný snapshot — pouze informativně, nikdy jako předpověď (SP:349–350). */
+export const POCASI_SNAPSHOT = {
+  datum: "13. 9. 2026",
+  text: "Přibližně 27–28 °C přes den a 17–19 °C v noci, s možností přeháněk v několika dnech.",
+  upozorneni: "Není to trvalý údaj. Ověřit živou předpověď.",
+  sp: "SP:349–350",
+} as const;
+
+// ─── Peníze, data a navigace (část 18, SP:371–374) ───────────────────────────
+
+/**
+ * Praktické tipy pro sekci Zdraví a peníze — doslovně ze SP:371–374.
+ * Shoduje se s `CHECKLISTS.predodjezd` položkami (id: "predodjezd").
+ * Ukládáno jako pojmenovaný export pro `C:PraktickeSection` (D:practical.PENIZE_DATA).
+ */
+export const PENIZE_DATA: string[] = [
+  "EHIC a cestovní pojištění platné pro Řecko.",
+  "Pravidelné léky v originálním balení s názvem léčivé látky.",
+  "Kopie dokladů bezpečně uložena online (NE ve veřejném webu).",
+  "Offline mapa Korfu stažena do telefonu.",
+  "Ověřit roamingový limit datové SIM.",
+  "Platební karta + hotovost v eurech.",
+  "Při platbě kartou odmítnout přepočet do Kč, platit v EUR.",
+  "Uložit hotel, nemocnici, půjčovny a nouzová čísla do telefonu.",
+];

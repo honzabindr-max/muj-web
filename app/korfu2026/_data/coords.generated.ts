@@ -1,7 +1,7 @@
 // VYGENEROVÁNO: scripts/korfu2026-geocode.mjs — needituj ručně.
 // Zdroj: OpenStreetMap Nominatim (© OpenStreetMap contributors, ODbL).
 // Povoleno D01-A (zadání korfu2026-02, bod 1). Direktiva byla v sekci 26 SOURCE_PACKu,
-// která byla odstraněna — SOURCE_PACK má 478 řádků; autoritativní text D01-A je v TASK-02.
+// která byla odstraněna — SOURCE_PACK má 478 řádků; autoritativní text D01-A je v zadání korfu2026-02, bod 1.
 // Dohledáno: 2026-09-13. Data jsou statická — web za běhu žádné API nevolá.
 import type { CoordsSource, CoordsStatus } from "./types";
 

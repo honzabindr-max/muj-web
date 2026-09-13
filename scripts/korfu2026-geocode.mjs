@@ -3,7 +3,7 @@
  * Geokódování mapových bodů pro /korfu2026.
  *
  * Implementuje D01-A (zadání korfu2026-02, bod 1 — sekce 26 SOURCE_PACKu s direktivou byla
- * odstraněna; SOURCE_PACK = 478 řádků; autoritativní text D01-A žije v TASK-02):
+ * odstraněna; SOURCE_PACK = 478 řádků; autoritativní text D01-A je v zadání korfu2026-02, bod 1):
  *  - jediný povolený zdroj: veřejné OpenStreetMap Nominatim API bez klíče
  *  - rate limit max 1 dotaz/s, vlastní User-Agent
  *  - jednorázově při buildu dat, NIKDY za běhu webu
@@ -123,7 +123,7 @@ const body = results
 
 const file = `// VYGENEROVÁNO: scripts/korfu2026-geocode.mjs — needituj ručně.
 // Zdroj: OpenStreetMap Nominatim (© OpenStreetMap contributors, ODbL).
-// Povoleno D01-A (zadání korfu2026-02) — direktiva v TASK-02, nikoli v SOURCE_PACKu (478 ř.).
+// Povoleno D01-A (zadání korfu2026-02, bod 1) — direktiva v sekci 26 SOURCE_PACKu, sekce odstraněna, SP = 478 ř.
 // Dohledáno: ${CHECKED_AT}. Data jsou statická — web za běhu žádné API nevolá.
 import type { CoordsSource, CoordsStatus } from './types';
 
