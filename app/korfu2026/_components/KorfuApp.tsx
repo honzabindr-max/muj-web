@@ -25,6 +25,7 @@ import {
   DIVING_OPERATORS,
   QUAD_OPERATORS,
   CHECKLISTS,
+  CONTACT_TEMPLATES,
 } from "../_data/operators";
 import {
   TRIP_FACTS,
@@ -51,6 +52,7 @@ import {
   TRANSPORT_LABEL,
   WEATHER_LABEL,
   FRESHNESS_LABEL,
+  SELECTION_STATUS_LABEL,
 } from "../_data/types";
 import type {
   Category,
@@ -59,6 +61,8 @@ import type {
   TransportMode,
   WeatherFit,
   Tier,
+  SelectionState,
+  SelectionStatus,
 } from "../_data/types";
 import { PlaceCard } from "./PlaceCard";
 import { OperatorCard } from "./OperatorCard";
@@ -85,31 +89,46 @@ const EMPTY_FILTERS: Filters = {
   priority: null,
 };
 
-const TAB_LABELS: Record<Tab, string> = {
-  prehled: "Přehled",
-  moznosti: "Možnosti",
-  mapa: "Mapa",
-  "muj-vyber": "Můj výběr",
-  prakticke: "Praktické",
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function loadSelection(): Set<string> {
+const EMPTY_SELECTION: SelectionState = {
+  oblibene: [],
+  chceme: [],
+  navstiveno: [],
+};
+
+function loadSelection(): SelectionState {
   try {
     const raw = localStorage.getItem(SELECTION_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return new Set(parsed as string[]);
-    return new Set();
+    if (!raw) return EMPTY_SELECTION;
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return {
+        ...EMPTY_SELECTION,
+        chceme: parsed.filter((id): id is string => typeof id === "string"),
+      };
+    }
+    if (!parsed || typeof parsed !== "object") return EMPTY_SELECTION;
+    const candidate = parsed as Partial<SelectionState>;
+    return {
+      oblibene: Array.isArray(candidate.oblibene)
+        ? candidate.oblibene.filter((id): id is string => typeof id === "string")
+        : [],
+      chceme: Array.isArray(candidate.chceme)
+        ? candidate.chceme.filter((id): id is string => typeof id === "string")
+        : [],
+      navstiveno: Array.isArray(candidate.navstiveno)
+        ? candidate.navstiveno.filter((id): id is string => typeof id === "string")
+        : [],
+    };
   } catch {
-    return new Set();
+    return EMPTY_SELECTION;
   }
 }
 
-function saveSelection(ids: Set<string>): void {
+function saveSelection(selection: SelectionState): void {
   try {
-    localStorage.setItem(SELECTION_KEY, JSON.stringify([...ids]));
+    localStorage.setItem(SELECTION_KEY, JSON.stringify(selection));
   } catch {
     // localStorage nedostupné — tiché selhání
   }
@@ -171,22 +190,25 @@ function SelectFilter<T extends string>({
 export function KorfuApp() {
   const [activeTab, setActiveTab] = useState<Tab>("prehled");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Load selection from localStorage on mount
   useEffect(() => {
-    setSelectedIds(loadSelection());
+    const animationFrame = window.requestAnimationFrame(() => {
+      setSelection(loadSelection());
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
   }, []);
 
-  const toggleSelect = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+  const updateSelection = useCallback((id: string, status: SelectionStatus | null) => {
+    setSelection((previous) => {
+      const next: SelectionState = {
+        oblibene: previous.oblibene.filter((savedId) => savedId !== id),
+        chceme: previous.chceme.filter((savedId) => savedId !== id),
+        navstiveno: previous.navstiveno.filter((savedId) => savedId !== id),
+      };
+      if (status) next[status] = [...next[status], id];
       saveSelection(next);
       return next;
     });
@@ -206,7 +228,13 @@ export function KorfuApp() {
   });
 
   const hasActiveFilters = Object.values(filters).some((v) => v !== null);
-  const selectedPlaces = PLACES.filter((p) => selectedIds.has(p.id));
+  const selectionStatusFor = (id: string): SelectionStatus | null => {
+    for (const status of Object.keys(SELECTION_STATUS_LABEL) as SelectionStatus[]) {
+      if (selection[status].includes(id)) return status;
+    }
+    return null;
+  };
+  const selectedPlaces = PLACES.filter((p) => selectionStatusFor(p.id) !== null);
 
   // ── Přehled tab ────────────────────────────────────────────────────────────
   function renderPrehled() {
@@ -327,9 +355,9 @@ export function KorfuApp() {
             {filteredPlaces.map((place) => (
               <PlaceCard
                 key={place.id}
-                isSelected={selectedIds.has(place.id)}
-                onToggleSelect={toggleSelect}
+                onSelectionChange={updateSelection}
                 place={place}
+                selectionStatus={selectionStatusFor(place.id)}
               />
             ))}
           </div>
@@ -450,6 +478,20 @@ export function KorfuApp() {
             </div>
           </section>
         )}
+
+        <section aria-labelledby="templates-heading">
+          <h2 id="templates-heading" className="text-lg font-bold text-slate-900">
+            Kontaktní šablony
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Připravené zprávy pro koně, potápění a quad safari.
+          </p>
+          <div className="mt-3 space-y-4">
+            {CONTACT_TEMPLATES.map((template) => (
+              <CopyTemplate key={template.id} template={template} />
+            ))}
+          </div>
+        </section>
       </div>
     );
   }
@@ -470,8 +512,8 @@ export function KorfuApp() {
         <div className="py-16 text-center">
           <p className="text-slate-500">Zatím žádný výběr.</p>
           <p className="mt-2 text-sm text-slate-400">
-            Na kartách v Přehledu klikněte na <strong>☆ Výběr</strong> a místo
-            se sem přidá.
+            Na kartách vyberte stav <strong>Oblíbené</strong>, <strong>Chceme navštívit</strong>
+            {" "}nebo <strong>Navštíveno</strong>.
           </p>
           <p className="mt-1 text-xs text-slate-400">
             Výběr je uložený v prohlížeči ({SELECTION_KEY}).
@@ -500,7 +542,7 @@ export function KorfuApp() {
               } catch {
                 // localStorage nedostupné
               }
-              setSelectedIds(new Set());
+              setSelection(EMPTY_SELECTION);
             }}
             type="button"
           >
@@ -510,9 +552,9 @@ export function KorfuApp() {
         {selectedPlaces.map((place) => (
           <PlaceCard
             key={place.id}
-            isSelected={true}
-            onToggleSelect={toggleSelect}
+            onSelectionChange={updateSelection}
             place={place}
+            selectionStatus={selectionStatusFor(place.id)}
           />
         ))}
       </div>
@@ -1028,7 +1070,7 @@ export function KorfuApp() {
                   {tab === "moznosti" && "⚓"}
                   {tab === "mapa" && "🗺"}
                   {tab === "muj-vyber" &&
-                    `★${selectedIds.size > 0 ? ` ${selectedIds.size}` : ""}`}
+                    `★${selectedPlaces.length > 0 ? ` ${selectedPlaces.length}` : ""}`}
                   {tab === "prakticke" && "ℹ"}
                 </span>
                 <span>{label}</span>
@@ -1049,11 +1091,14 @@ export function KorfuApp() {
 function CopyButton({ phone }: { phone: string }) {
   const [copied, setCopied] = useState(false);
 
-  function handleCopy() {
-    navigator.clipboard.writeText(phone).then(() => {
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(phone);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    });
+    } catch {
+      // Clipboard může být v omezeném režimu prohlížeče nedostupný.
+    }
   }
 
   return (
@@ -1065,5 +1110,42 @@ function CopyButton({ phone }: { phone: string }) {
     >
       {copied ? "Zkopírováno!" : "Kopírovat číslo"}
     </button>
+  );
+}
+
+function CopyTemplate({
+  template,
+}: {
+  template: (typeof CONTACT_TEMPLATES)[number];
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(template.body);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard může být v omezeném režimu prohlížeče nedostupný.
+    }
+  }
+
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="font-semibold text-slate-900">{template.title}</h3>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+        {template.body}
+      </pre>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          className="inline-flex items-center rounded-lg border border-teal-700 px-2.5 py-1 text-xs font-semibold text-teal-800 hover:bg-teal-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+          onClick={handleCopy}
+          type="button"
+        >
+          {copied ? "Zkopírováno!" : "Kopírovat zprávu"}
+        </button>
+        <span className="text-xs text-slate-400">{template.sp}</span>
+      </div>
+    </article>
   );
 }

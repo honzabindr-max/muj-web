@@ -19,11 +19,14 @@ const ROLE_COLOR: Record<Operator["role"], string> = {
 export function OperatorCard({ op }: { op: Operator }) {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
-  function handleCopy(phone: string, idx: number) {
-    navigator.clipboard.writeText(phone).then(() => {
+  async function handleCopy(phone: string, idx: number) {
+    try {
+      await navigator.clipboard.writeText(phone);
       setCopiedIdx(idx);
       setTimeout(() => setCopiedIdx(null), 1800);
-    });
+    } catch {
+      // Clipboard může být v omezeném režimu prohlížeče nedostupný.
+    }
   }
 
   return (

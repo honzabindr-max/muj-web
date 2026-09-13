@@ -57,6 +57,10 @@ export default function KorfuMap({ filteredPlaces }: KorfuMapProps) {
       aria-label="Mapa míst — Korfu 2026"
       className="flex flex-col gap-4"
     >
+      <p className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
+        Základna: <strong>Silver Beach Hotel, Roda</strong>. Hotel nemá v autoritativních
+        datech samostatně ověřený bod, proto mapa nezobrazuje domyšlený pin.
+      </p>
       {/* Leaflet mapa — OSM dlaždice, bez API klíče */}
       <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
         <MapContainer

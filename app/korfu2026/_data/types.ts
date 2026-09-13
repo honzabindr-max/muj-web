@@ -21,6 +21,20 @@
 /** Klíč pro „Můj výběr" v localStorage. SOURCE_PACK ř. 391–392 a 405–406. */
 export const SELECTION_KEY = "korfu2026:selection:v1";
 
+export type SelectionStatus = "oblibene" | "chceme" | "navstiveno";
+
+export interface SelectionState {
+  oblibene: string[];
+  chceme: string[];
+  navstiveno: string[];
+}
+
+export const SELECTION_STATUS_LABEL: Record<SelectionStatus, string> = {
+  oblibene: "Oblíbené",
+  chceme: "Chceme navštívit",
+  navstiveno: "Navštíveno",
+};
+
 /** Kategorie karty. */
 export type Category =
   | "plaz"
@@ -189,6 +203,19 @@ export interface SourceRef {
 }
 
 /**
+ * Zaznamenává vědomou absenci konkrétního externího odkazu u karty.
+ * Použije se jen tehdy, když SOURCE_PACK uvádí obsah karty v citovaných řádcích,
+ * ale neposkytuje k němu oficiální ani ověřovací URL. Nejde o náhradu zdroje
+ * ani o výsledek dohledávání mimo autoritativní vstupy.
+ */
+export interface SourceException {
+  /** Uživatelsky čitelné vysvětlení, proč karta nemá externí odkaz. */
+  reason: string;
+  /** Citace SOURCE_PACKu, které dokládají obsah karty. */
+  sp: string;
+}
+
+/**
  * Údaj, který se podle SOURCE_PACKu ř. 28–30 musí ověřovat co nejblíže použití.
  * V UI se vykresluje se štítkem „ověřit aktuálně".
  */
@@ -323,6 +350,11 @@ export interface Place {
   mapsQuery: string;
   /** SOURCE_PACK ř. 398–399: "oficiální nebo ověřovací zdroj". */
   sources: SourceRef[];
+  /**
+   * Výslovná výjimka, pokud SOURCE_PACK k obsahu karty nedává konkrétní externí URL.
+   * Právě jedna z hodnot `sources` a `sourceException` musí být vyplněná.
+   */
+  sourceException: SourceException | null;
   /** SOURCE_PACK ř. 399: "aktuálnost" — co je nutné ověřit před použitím. */
   verify: VerifyItem[];
   /** Dynamické údaje karty (ceny, provoz). Vždy se štítkem a zdrojem — D01-B. */
@@ -354,7 +386,7 @@ export interface Combo {
 }
 
 /** Nabídka provozovatele — cena, délka, varianta. Vždy dynamický údaj (D01-B). */
-export interface Offer extends DynamicFact {}
+export type Offer = DynamicFact;
 
 /** Provozovatel (koně, lodě, potápění, quad…) — část 10, 11, 12 SOURCE_PACKu. */
 export interface Operator {

@@ -1,19 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import type { Place } from "../_data/types";
+import type { Place, SelectionStatus } from "../_data/types";
 import {
   AREA_LABEL,
   TIER_LABEL,
   CATEGORY_LABEL,
   FRESHNESS_LABEL,
   mapsUrl,
+  SELECTION_STATUS_LABEL,
 } from "../_data/types";
 
 interface PlaceCardProps {
   place: Place;
-  isSelected: boolean;
-  onToggleSelect: (id: string) => void;
+  selectionStatus: SelectionStatus | null;
+  onSelectionChange: (id: string, status: SelectionStatus | null) => void;
 }
 
 const TIER_COLOR: Record<Place["tier"], string> = {
@@ -24,20 +24,10 @@ const TIER_COLOR: Record<Place["tier"], string> = {
 
 export function PlaceCard({
   place,
-  isSelected,
-  onToggleSelect,
+  selectionStatus,
+  onSelectionChange,
 }: PlaceCardProps) {
   const headingId = `place-${place.id}-title`;
-  const [copied, setCopied] = useState(false);
-
-  function handleCopySource() {
-    if (!place.sources[0]) return;
-    navigator.clipboard.writeText(place.sources[0].url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    });
-  }
-
   return (
     <article
       aria-labelledby={headingId}
@@ -62,23 +52,25 @@ export function PlaceCard({
           >
             {TIER_LABEL[place.tier]}
           </span>
-          <button
-            aria-label={
-              isSelected
-                ? `Odebrat ${place.canonicalName} z Mého výběru`
-                : `Přidat ${place.canonicalName} do Mého výběru`
+          <label className="sr-only" htmlFor={`selection-${place.id}`}>
+            Stav místa {place.canonicalName} v Mém výběru
+          </label>
+          <select
+            aria-label={`Stav místa ${place.canonicalName} v Mém výběru`}
+            className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+            id={`selection-${place.id}`}
+            onChange={(event) =>
+              onSelectionChange(place.id, (event.target.value as SelectionStatus) || null)
             }
-            aria-pressed={isSelected}
-            className={`rounded-full border px-2 py-0.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 ${
-              isSelected
-                ? "border-teal-700 bg-teal-50 text-teal-800"
-                : "border-slate-300 bg-white text-slate-500 hover:border-teal-400 hover:text-teal-700"
-            }`}
-            onClick={() => onToggleSelect(place.id)}
-            type="button"
+            value={selectionStatus ?? ""}
           >
-            {isSelected ? "★ Výběr" : "☆ Výběr"}
-          </button>
+            <option value="">Přidat do výběru</option>
+            {(Object.keys(SELECTION_STATUS_LABEL) as SelectionStatus[]).map((status) => (
+              <option key={status} value={status}>
+                {SELECTION_STATUS_LABEL[status]}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
@@ -194,6 +186,20 @@ export function PlaceCard({
         </div>
       )}
 
+      {place.sourceException && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <h4 className="text-xs font-bold tracking-wide text-slate-700 uppercase">
+            Provenience obsahu
+          </h4>
+          <p className="mt-1 text-sm text-slate-800">
+            {place.sourceException.reason}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Citace: {place.sourceException.sp}
+          </p>
+        </div>
+      )}
+
       {/* ── Coords provenience — constraint 1: never silent null ── */}
       <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
         {place.coords ? (
@@ -204,7 +210,7 @@ export function PlaceCard({
             {place.coordsQuery && (
               <span className="text-slate-600">
                 {" "}
-                · dotaz: „{place.coordsQuery}"
+                · dotaz: „{place.coordsQuery}&quot;
               </span>
             )}
             {place.coordsCheckedAt && (

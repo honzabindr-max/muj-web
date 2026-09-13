@@ -19,11 +19,14 @@ type PlaceSeed = Omit<
   | "transportModes"
   | "difficulty"
   | "facts"
+  | "sourceException"
 > & {
   weatherFit?: Place["weatherFit"];
   transportModes?: Place["transportModes"];
   difficulty?: Place["difficulty"];
   facts?: Place["facts"];
+  /** Autorova výjimka musí být přímo u seedu; doplňování za běhu je zakázané. */
+  sourceException?: Place["sourceException"];
 };
 
 /**
@@ -72,6 +75,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Canal d'Amour, Sidari, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Canal d'Amour u Sidari jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:57, SP:80, SP:116, SP:413",
+    },
     verify: [],
     sp: "SP:57, SP:80, SP:116, SP:413",
   },
@@ -103,6 +110,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Porto Timoni, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Porto Timoni jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:58, SP:82–83, SP:117, SP:200, SP:353, SP:414",
+    },
     verify: [],
     sp: "SP:58, SP:82–83, SP:117, SP:200, SP:353, SP:414",
   },
@@ -130,6 +141,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Paleokastritsa, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Paleokastritsa / Palaiokastritsa jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:59, SP:84–85, SP:101, SP:118, SP:183–185, SP:221, SP:417",
+    },
     verify: [
       {
         what: "Orientační cena bezlicenční lodi v Paleokastritse: cca od 100 €, často bez paliva — ověřit aktuálně.",
@@ -161,6 +176,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kassiopi, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kassiopi Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:61–62, SP:89, SP:98, SP:119, SP:416",
+    },
     verify: [
       {
         what: "Ověřit, zda „Kassiopi Beach“ nejlépe odpovídá Bataria, Kanoni nebo jiné konkrétní pláži — přesný výběr ověřit.",
@@ -194,6 +213,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Rovinia Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Rovinia Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:63, SP:84–85, SP:118, SP:184",
+    },
     verify: [],
     sp: "SP:63, SP:84–85, SP:118, SP:184",
   },
@@ -219,6 +242,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Agios Gordios, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Agios Gordios jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:64, SP:88, SP:102, SP:122",
+    },
     verify: [],
     sp: "SP:64, SP:88, SP:102, SP:122",
   },
@@ -245,6 +272,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Issos Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Issos Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:65, SP:92–93, SP:123",
+    },
     verify: [],
     sp: "SP:65, SP:92–93, SP:123",
   },
@@ -270,6 +301,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Avlaki Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Avlaki Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:66, SP:89, SP:119, SP:413",
+    },
     verify: [],
     sp: "SP:66, SP:89, SP:119, SP:413",
   },
@@ -295,6 +330,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Marathias Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Marathias Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:67, SP:92, SP:124",
+    },
     verify: [],
     sp: "SP:67, SP:92, SP:124",
   },
@@ -320,6 +359,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Nissaki Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Nissaki Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:68, SP:91, SP:120, SP:194–198, SP:221–222",
+    },
     verify: [
       {
         what: "Orientační cena bezlicenční lodi v Nissaki od 16. 9.: cca 80–170 € podle lodi, často bez paliva — ověřit aktuálně.",
@@ -351,6 +394,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Chalikounas Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Chalikounas / Halikounas Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:69, SP:92–93, SP:123",
+    },
     verify: [],
     sp: "SP:69, SP:92–93, SP:123",
   },
@@ -376,6 +423,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Myrtiotissa Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Myrtiotissa Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:70, SP:87–88, SP:122, SP:353",
+    },
     verify: [
       {
         what: "Ověřit přístup, parkování, sestup a aktuální charakter pláže.",
@@ -407,6 +458,10 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Barbati Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Barbati Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:71, SP:91, SP:120, SP:210",
+    },
     verify: [],
     sp: "SP:71, SP:91, SP:120, SP:210",
   },
@@ -417,11 +472,21 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
  * nikdy se nedosazuje odhad (D01-A, zadání korfu2026-02).
  */
 function withGeocode(seed: PlaceSeed): Place {
+  const hasSource = seed.sources.length > 0;
+  const hasException = seed.sourceException !== undefined && seed.sourceException !== null;
+
+  if (hasSource === hasException) {
+    throw new Error(
+      `Neplatná provenience karty ${seed.id}: vyžaduje právě jeden z sources nebo sourceException.`,
+    );
+  }
+
   const base = {
     weatherFit: seed.weatherFit ?? [],
     transportModes: seed.transportModes ?? [],
     difficulty: seed.difficulty ?? null,
     facts: seed.facts ?? [],
+    sourceException: hasException ? seed.sourceException! : null,
   };
   const g = GEOCODED[seed.id];
   if (!g) {
@@ -482,6 +547,10 @@ const BEACH_SEEDS_ZAKLADNA: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Roda Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Roda Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:75, SP:293",
+    },
     verify: [
       {
         what: "Po polovině září ověřit provoz vodních aktivit.",
@@ -519,6 +588,10 @@ const BEACH_SEEDS_ZAKLADNA: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Acharavi Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Acharavi Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:76",
+    },
     verify: [],
     facts: [],
     sp: "SP:76",
@@ -550,6 +623,10 @@ const BEACH_SEEDS_ZAKLADNA: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Almyros Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Almyros Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:77",
+    },
     verify: [],
     facts: [],
     sp: "SP:77",
@@ -579,6 +656,10 @@ const BEACH_SEEDS_ZAKLADNA: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Agios Spiridon Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Agios Spiridon Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:78",
+    },
     verify: [],
     facts: [],
     sp: "SP:78",
@@ -608,6 +689,10 @@ const BEACH_SEEDS_ZAKLADNA: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kalamaki Beach Apraos, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kalamaki / Apraos Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:79",
+    },
     verify: [],
     facts: [],
     sp: "SP:79",
@@ -641,6 +726,10 @@ const BEACH_SEEDS_SEVEROZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Sidari Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Sidari Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:80",
+    },
     verify: [],
     facts: [],
     sp: "SP:80",
@@ -670,6 +759,10 @@ const BEACH_SEEDS_SEVEROZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Cape Drastis, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Cape Drastis jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:81",
+    },
     verify: [
       { what: "Přístup a lodní provoz ověřit.", sp: "SP:81", source: null },
     ],
@@ -701,6 +794,10 @@ const BEACH_SEEDS_SEVEROZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Loggas Sunset Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Loggas / Sunset Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:81",
+    },
     verify: [],
     facts: [],
     sp: "SP:81",
@@ -730,6 +827,10 @@ const BEACH_SEEDS_SEVEROZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Agios Georgios Pagon, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Agios Georgios Pagon jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:82, SP:200",
+    },
     verify: [],
     facts: [],
     sp: "SP:82, SP:200",
@@ -765,6 +866,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Liapades Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Liapades Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:85, SP:193",
+    },
     verify: [],
     facts: [],
     sp: "SP:85, SP:193",
@@ -796,6 +901,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Stelari Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Stelari Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:85",
+    },
     verify: [],
     facts: [],
     sp: "SP:85",
@@ -825,6 +934,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Mikro Stelari Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Mikro Stelari Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:85",
+    },
     verify: [],
     facts: [],
     sp: "SP:85",
@@ -854,6 +967,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Limni Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Limni Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:85",
+    },
     verify: [],
     facts: [],
     sp: "SP:85",
@@ -883,6 +1000,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kastelli Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kastelli Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:86",
+    },
     verify: [],
     facts: [],
     sp: "SP:86",
@@ -912,6 +1033,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Mikro Kastelli Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Mikro Kastelli Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:86",
+    },
     verify: [],
     facts: [],
     sp: "SP:86",
@@ -943,6 +1068,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Paradise Beach Chomi, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Paradise / Chomi Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:86–87",
+    },
     verify: [],
     facts: [],
     sp: "SP:86–87",
@@ -972,6 +1101,10 @@ const BEACH_SEEDS_ZAPAD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Giali Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Giali Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:87",
+    },
     verify: [],
     facts: [],
     sp: "SP:87",
@@ -1005,6 +1138,10 @@ const BEACH_SEEDS_SEVEROVYCHOD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kerasia Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kerasia Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:89",
+    },
     verify: [],
     facts: [],
     sp: "SP:89",
@@ -1034,6 +1171,10 @@ const BEACH_SEEDS_SEVEROVYCHOD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kouloura, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kouloura jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:90",
+    },
     verify: [],
     facts: [],
     sp: "SP:90",
@@ -1063,6 +1204,10 @@ const BEACH_SEEDS_SEVEROVYCHOD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kalami White House, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kalami (White House) jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:90",
+    },
     verify: [],
     facts: [],
     sp: "SP:90",
@@ -1092,6 +1237,10 @@ const BEACH_SEEDS_SEVEROVYCHOD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Agni Bay, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Agni Bay jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:90",
+    },
     verify: [],
     facts: [],
     sp: "SP:90",
@@ -1121,6 +1270,10 @@ const BEACH_SEEDS_SEVEROVYCHOD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kaminaki Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kaminaki Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:91",
+    },
     verify: [],
     facts: [],
     sp: "SP:91",
@@ -1150,6 +1303,10 @@ const BEACH_SEEDS_SEVEROVYCHOD: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Ipsos Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Ipsos Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:91, SP:210",
+    },
     verify: [],
     facts: [],
     sp: "SP:91, SP:210",
@@ -1183,6 +1340,10 @@ const BEACH_SEEDS_JIH: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Lake Korission, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Lake Korission jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:93",
+    },
     verify: [],
     facts: [],
     sp: "SP:93",
@@ -1212,6 +1373,10 @@ const BEACH_SEEDS_JIH: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Boukari Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Boukari Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:94",
+    },
     verify: [],
     facts: [],
     sp: "SP:94",
@@ -1241,6 +1406,10 @@ const BEACH_SEEDS_JIH: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Petriti Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Petriti Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:94",
+    },
     verify: [],
     facts: [],
     sp: "SP:94",
@@ -1270,6 +1439,10 @@ const BEACH_SEEDS_JIH: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Benitses, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Benitses / jihovýchod jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:94",
+    },
     verify: [],
     facts: [],
     sp: "SP:94",
@@ -1304,6 +1477,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Corfu Town, Kerkyra, Greece",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Corfu Town jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:97–98, SP:354–355",
+    },
     verify: [],
     facts: [],
     sp: "SP:97–98, SP:354–355",
@@ -1333,6 +1510,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Kassiopi village, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Kassiopi (vesnice) jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:98",
+    },
     verify: [],
     facts: [],
     sp: "SP:98",
@@ -1362,6 +1543,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Old Perithia, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Old Perithia jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:99",
+    },
     verify: [],
     facts: [],
     sp: "SP:99",
@@ -1394,6 +1579,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Mount Pantokrator, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Mount Pantokrator jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:99–100, SP:352–353",
+    },
     verify: [],
     facts: [],
     sp: "SP:99–100, SP:352–353",
@@ -1423,6 +1612,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Afionas, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Afionas jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:100",
+    },
     verify: [],
     facts: [],
     sp: "SP:100",
@@ -1454,6 +1647,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Angelokastro, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Angelokastro jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:101",
+    },
     verify: [],
     facts: [],
     sp: "SP:101",
@@ -1485,6 +1682,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Lakones viewpoint, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Lakones Viewpoint jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:101–102",
+    },
     verify: [],
     facts: [],
     sp: "SP:101–102",
@@ -1514,6 +1715,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Pelekas Kaiser's Throne, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Pelekas / Kaiser's Throne jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:102–103",
+    },
     verify: [],
     facts: [],
     sp: "SP:102–103",
@@ -1543,6 +1748,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Antinioti Lagoon, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Antinioti Lagoon jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:103",
+    },
     verify: [],
     facts: [],
     sp: "SP:103",
@@ -1572,6 +1781,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Cape Ekaterini, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Cape Ekaterini jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:104",
+    },
     verify: [],
     facts: [],
     sp: "SP:104",
@@ -1601,6 +1814,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Erimitis, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Erimitis jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:104–105",
+    },
     verify: [],
     facts: [],
     sp: "SP:104–105",
@@ -1632,6 +1849,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Paleokastritsa Monastery, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Paleokastritsa Monastery jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:105",
+    },
     verify: [],
     facts: [],
     sp: "SP:105",
@@ -1661,6 +1882,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Agios Ioannis Monastery Sidari, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Agios Ioannis Monastery u Sidari jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:105, SP:327–328",
+    },
     verify: [
       {
         what: "Aktuální průběh a dostupnost slavnosti ověřit.",
@@ -1698,6 +1923,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Temple of Apollo, Roda, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Pozůstatky Apollónova chrámu v Rodě jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:106–108",
+    },
     verify: [
       {
         what: "Vstup a přesnou polohu mapového bodu ověřit na místě.",
@@ -1735,6 +1964,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Roda Loop, Sfakera, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Roda Loop / Sfakera jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:109",
+    },
     verify: [
       { what: "Průchodnost okruhu ověřit.", sp: "SP:109", source: null },
     ],
@@ -1770,6 +2003,10 @@ const HERITAGE_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Acharavi Beach, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Pobřežní procházka Roda–Acharavi jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:110–111",
+    },
     verify: [],
     facts: [],
     sp: "SP:110–111",
@@ -1804,6 +2041,10 @@ const ACTIVITY_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Snorkeling, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Šnorchlování jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:232",
+    },
     verify: [
       {
         what: "Dostupnost a místa ověřit aktuálně.",
@@ -1960,6 +2201,10 @@ const ACTIVITY_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Sunset boat cruise, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Plavba při západu slunce jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:233",
+    },
     verify: [
       {
         what: "Dostupnost a cenu ověřit aktuálně.",
@@ -2069,6 +2314,10 @@ const ACTIVITY_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Corfu Town walking tour",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Historická pěší prohlídka Corfu Town jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:238",
+    },
     verify: [
       {
         what: "Dostupnost guided tour ověřit aktuálně.",
@@ -2104,6 +2353,10 @@ const ACTIVITY_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Aqualand, Korfu",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Aqualand jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:237",
+    },
     verify: [
       {
         what: "Otevírací dobu, cenu a provoz ověřit aktuálně.",
@@ -2147,6 +2400,10 @@ const ACTIVITY_SEEDS: PlaceSeed[] = [
     timeFromHotel: null,
     mapsQuery: "Paxos island, Greece",
     sources: [],
+    sourceException: {
+      reason: "SOURCE_PACK uvádí Paxos / Antipaxos jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
+      sp: "SP:214–218",
+    },
     verify: [
       {
         what: "Transfer, odjezd, délku dne, počasí a kompletní cenu ověřit aktuálně.",

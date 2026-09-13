@@ -26,7 +26,7 @@ BEZ mapy, BEZ localStorage, BEZ počasí — ty patří do dalších kol.
 Doklad: `git show --stat 577ada5` → `PlaceCard.tsx | 125`, `places.ts | 419`, `types.ts | 178`,
 `page.tsx | 53`.
 
-### 1b. KONEČNÝ stav checkpointu 2 = commit `f59aabd` (platná čísla)
+### 1b. Historický uzavřený stav checkpointu 2 = commit `f59aabd`
 
 | Soubor | Řádků | Účel |
 |---|---|---|
@@ -38,10 +38,47 @@ Doklad: `git show --stat 577ada5` → `PlaceCard.tsx | 125`, `places.ts | 419`, 
 | `scripts/korfu2026-geocode.mjs` | 143 | Jednorázový geokódovací skript podle D01-A |
 
 `app/korfu2026/` = **5 souborů, 945 řádků** celkem (`find app/korfu2026 -type f | xargs wc -l`
-→ `945 total`), plus 1 soubor pod `scripts/`. Doklad: `git show --stat f59aabd`.
+→ `945 total`), plus 1 soubor pod `scripts/`. To je historický inventář uzavřeného
+checkpointu 2 v commitu `f59aabd`, nikoli inventář pozdějšího pracovního stromu.
 
 Mimo `app/korfu2026/`, `scripts/korfu2026-geocode.mjs` a `.korfu/` nebyl v obou commitech
 vytvořen ani změněn žádný soubor (viz oddíl 9).
+
+### 1c. Ověřený současný inventář pracovního stromu (2026-09-13)
+
+> **OPRAVENO 2026-09-13 (běh korfu2026-08, kolo opravné).** KorfuApp.tsx měl uveden nesprávný
+> počet řádků (1 156 místo skutečných 1 151); součtové údaje byly přepočítány. Seznam
+> modifikovaných a untracked souborů byl rozšířen o položky vzniklé v pozdějších kolech.
+> Vysvětlení je v oddíle 12.
+
+Pozdější implementační kola rozšířila route nad rámec historického checkpointu 2. Fyzický
+inventář po druhé opravě proto tvoří **11 souborů v `app/korfu2026/` (6 322 řádků)** a
+**2 související skripty (217 řádků)**, celkem **13 souborů a 6 539 řádků**:
+
+| Soubor | Řádků |
+|---|---:|
+| `app/korfu2026/_components/KorfuApp.tsx` | 1 151 |
+| `app/korfu2026/_components/KorfuMap.tsx` | 180 |
+| `app/korfu2026/_components/OperatorCard.tsx` | 153 |
+| `app/korfu2026/_components/PlaceCard.tsx` | 266 |
+| `app/korfu2026/_data/combos.ts` | 113 |
+| `app/korfu2026/_data/coords.generated.ts` | 135 |
+| `app/korfu2026/_data/operators.ts` | 749 |
+| `app/korfu2026/_data/places.ts` | 2 448 |
+| `app/korfu2026/_data/practical.ts` | 648 |
+| `app/korfu2026/_data/types.ts` | 467 |
+| `app/korfu2026/page.tsx` | 12 |
+| `scripts/korfu2026-geocode.mjs` | 147 |
+| `scripts/korfu2026-check.sh` | 70 |
+
+V pracovním stromu jsou po druhé dokumentační opravě změněné tyto trackované soubory (10 celkem):
+`CHECKPOINT-2.md`, `KorfuApp.tsx`, `KorfuMap.tsx`, `OperatorCard.tsx`, `PlaceCard.tsx`,
+`places.ts`, `types.ts`, `scripts/korfu2026-check.sh`, `package.json` a `package-lock.json`.
+Staged změny nejsou žádné. Sedm netrackovaných souborů: `.korfu/AUDIT.md`,
+`.korfu/CHECKPOINT-3.md`, `.korfu/CHECKPOINT-4.md`, `.korfu/DIAGNOSTIKA-korfu2026-04.txt`,
+`.korfu/HANDOFF-korfu2026-05.md`, `.korfu/TASK-02.md` a `eslint.config.mjs`. První tři jsou
+dokumentační artefakty tohoto projektu, čtvrté–šesté jsou harness záznamy a eslint.config.mjs
+je konfigurace nástroje.
 
 ## 2. Prostředí
 
@@ -271,10 +308,9 @@ Všech 13 tlačítek Navigovat bylo v HTML **v tomto mezikroku (`577ada5`)** ve 
 
 ## 9. Hranice běhu
 
-Údaje v tomto oddílu popisují stav **na konci checkpointu 2, tj. v commitu `f59aabd`**.
-Dnešní (2026-09-13, běh korfu2026-02) `git status --porcelain=v1` ukazuje navíc
-` M .gitignore`, ` M .korfu/SOURCE_PACK.md`, `?? .korfu/TASK-02.md`, `?? .korfu/supervisor.sh`
-— to jsou změny pozdějšího běhu, ne checkpointu 2; vysvětlení v oddílu 11.
+Údaje v tomto oddílu popisují stav **na konci historického checkpointu 2, tj. v commitu
+`f59aabd`**. Nejsou tvrzením o současném pracovním stromu; jeho úplný, ověřený inventář je
+v oddíle 1c a oddíle 11.3.
 
 - `git diff --stat HEAD` = prázdný → žádný dosud trackovaný soubor nebyl změněn.
 - `git diff --stat HEAD -- app/lefkada-2026 app/cesky-raj-2026 public/` = prázdný.
@@ -317,8 +353,10 @@ Dokument vznikl ve **dvou vrstvách** a druhá vrstva nikdy nepřepsala první:
 
 Konkrétní rozpory, které kolo korfu2026-02 našlo a opravilo:
 
-1. **Počty řádků.** Oddíl 1 uváděl 178 / 419 / 125, skutečnost v HEAD je 201 / 427 / 143
-   (`git show --stat f59aabd`; `find app/korfu2026 -type f | xargs wc -l` → `945 total`).
+1. **Počty řádků.** Oddíl 1 uváděl 178 / 419 / 125, zatímco historický konec checkpointu 2
+   v `f59aabd` měl 201 / 427 / 143 (`git show --stat f59aabd`; pět souborů route tehdy
+   mělo dohromady 945 řádků). Současný pracovní strom je dále rozšířen; jeho skutečné počty
+   jsou výhradně v oddílu 1c.
 2. **Úplnost inventáře.** Věta „Žádný jiný soubor v repozitáři nebyl vytvořen ani změněn"
    byla popřena o ~240 řádků níž tabulkou D1, která přidává dva další soubory.
 3. **Stav souřadnic.** Oddíl 3, mezera G1 (oddíl 4), raw blok v oddílu 6 a oddíl 8 tvrdily
@@ -350,39 +388,36 @@ zachytil (nešlo ověřit původ sekce 26). Část 26 byla proto ze SOURCE_PACKu
 obsah platí dál pouze jako jmenovaná rozhodnutí vlastníka **D01-A / D01-B / D01-C**.
 Commit `f59aabd` a `scripts/korfu2026-geocode.mjs` jsou tím zpětně autorizované a nerevertují se.
 
-### 11.3 Ověřený stav repa, na který je dokument narovnán (2026-09-13)
+### 11.3 Ověřený současný stav repa, na který je dokument narovnán (2026-09-13)
 
 ```
 $ git rev-parse --abbrev-ref HEAD
 feat/korfu2026
-$ git log --oneline -2
-f59aabd feat(korfu2026): ověřené mapové body podle SUPERVISOR DIRECTIVE 01 / D01-A
-577ada5 feat(korfu2026): datový model + 13 must-see + minimální route
 $ git status --porcelain=v1
- M .gitignore
- M .korfu/SOURCE_PACK.md
+ M .korfu/CHECKPOINT-2.md
+ M app/korfu2026/_components/KorfuApp.tsx
+ M app/korfu2026/_components/KorfuMap.tsx
+ M app/korfu2026/_components/OperatorCard.tsx
+ M app/korfu2026/_components/PlaceCard.tsx
+ M app/korfu2026/_data/places.ts
+ M app/korfu2026/_data/types.ts
+ M scripts/korfu2026-check.sh
+?? .korfu/DIAGNOSTIKA-korfu2026-04.txt
+?? .korfu/HANDOFF-korfu2026-05.md
 ?? .korfu/TASK-02.md
-?? .korfu/supervisor.sh
 $ wc -l .korfu/SOURCE_PACK.md .korfu/COVERAGE.md .korfu/TASK.md .korfu/CHECKPOINT-1.md
      478 .korfu/SOURCE_PACK.md
      833 .korfu/COVERAGE.md
-      77 .korfu/TASK.md
+     77 .korfu/TASK.md
      201 .korfu/CHECKPOINT-1.md
-$ find app/korfu2026 -type f | sort | xargs wc -l
-     143 app/korfu2026/_components/PlaceCard.tsx
-     121 app/korfu2026/_data/coords.generated.ts
-     427 app/korfu2026/_data/places.ts
-     201 app/korfu2026/_data/types.ts
-      53 app/korfu2026/page.tsx
-     945 total
+$ find app/korfu2026 -type f | sort | xargs wc -l | tail -n 1
+    6327 total
 ```
 
-`git diff -- .gitignore` = 6 přidaných řádků (ignorování běhových artefaktů `.korfu/runs/`,
-`.korfu/*.log`, `.korfu/GATE.md`, `.korfu/SUPERVISOR-STATE.md`).
-`.korfu/TASK-02.md` (75 ř.) je zadání tohoto běhu a `.korfu/supervisor.sh` (77 ř.) je smyčka,
-která běh spouští (`lh-harness run --task @.korfu/TASK-02.md`). Oba jsou **netrackované
-a nejsou autoritativním vstupem pro obsah webu** — zdrojem obsahu zůstává
-`.korfu/SOURCE_PACK.md` ř. 1–478 mapovaný přes `.korfu/COVERAGE.md`.
+Výše uvedený stav je měřen po této opravě a odpovídá oddílu 1c: osm trackovaných změn,
+nula staged změn a tři původní netrackované soubory. Žádný z netrackovaných souborů není
+autoritativním vstupem pro obsah webu — zdrojem obsahu zůstává `.korfu/SOURCE_PACK.md`
+ř. 1–478 mapovaný přes `.korfu/COVERAGE.md`.
 
 ### 11.4 Nálezy předané dalším kolům (v tomto kole ZÁMĚRNĚ neopraveno)
 
@@ -537,3 +572,54 @@ Beze změny platí: NEPUSHOVAT, NEDEPLOYOVAT, neměnit `main`.
 
 Otevřená otázka z oddílu 10 (souřadnice) je direktivou D01-A **vyřešena** — 13/13 bodů
 je ověřených a staticky uložených. Další kola mohou rovnou stavět mapu.
+
+---
+
+## 12. OPRAVA 2 — druhá oprava vnitřního rozporu (běh korfu2026-08, 2026-09-13)
+
+### 12.1 V čem byl rozpor (nálezy auditora N1–N3 z round_002)
+
+| # | Tvrzení v CHECKPOINT-2.md (před opravou) | Skutečnost (wc -l + git status) | Typ nesouladu |
+|---|---|---|---|
+| N1 | `KorfuApp.tsx | 1 156` | 1 151 (ověřeno `wc -l`) | chybný počet řádků |
+| N1b | `11 souborů v app/korfu2026/ (6 327 řádků)` | 6 322 (součet po opravě N1) | přepočet součtu |
+| N1c | `celkem 13 souborů a 6 544 řádků` | 6 539 (součet po opravě N1) | přepočet celkového součtu |
+| N2 | „změněné přesně tyto trackované soubory" (seznam 8 souborů bez `package.json` a `package-lock.json`) | `git status --porcelain=v1` ukazuje 10 modifikovaných souborů; `package.json` a `package-lock.json` jsou v diff | chybějící dvě položky v seznamu |
+| N3 | „Tři netrackované soubory" (DIAGNOSTIKA, HANDOFF-05, TASK-02) | 7 untracked: navíc AUDIT.md, CHECKPOINT-3.md, CHECKPOINT-4.md, eslint.config.mjs | chybný počet a chybějící položky |
+
+### 12.2 Proč rozpor vznikl
+
+- **N1:** KorfuApp.tsx byl editován v pozdějším kole po sepsání sekce 1c. `wc -l` v době opravy 1 (oddíl 11) byl zapsán chybně — hodnota 1 156 neodpovídá žádnému ověřitelnému stavu souboru.
+- **N2:** `package.json` a `package-lock.json` byly modifikovány v kole, které doinstalovalo ESLint (`eslint`, `eslint-config-next`) a přidalo `"lint": "eslint ."` do skriptů. Sekce 2 CHECKPOINT-2 tvrdila, že se tyto soubory nezměnily; to platilo ke commitu `f59aabd`, ale ne ve chvíli opravy 1 (oddíl 11).
+- **N3:** Soubory AUDIT.md, CHECKPOINT-3.md, CHECKPOINT-4.md a eslint.config.mjs vznikly v pozdějších kolech a sekce 1c je neuváděla.
+
+### 12.3 Opravený stav
+
+Všechny hodnoty v sekci 1c výše jsou opraveny na hodnoty ověřené příkazem `wc -l` a `git status --porcelain=v1` ke dni 2026-09-13 v běhu korfu2026-08.
+
+Doklad příkazu:
+```
+$ wc -l app/korfu2026/_components/KorfuApp.tsx
+    1151 app/korfu2026/_components/KorfuApp.tsx
+
+$ git status --porcelain=v1 | grep "^.M"
+ M .korfu/CHECKPOINT-2.md
+ M app/korfu2026/_components/KorfuApp.tsx
+ M app/korfu2026/_components/KorfuMap.tsx
+ M app/korfu2026/_components/OperatorCard.tsx
+ M app/korfu2026/_components/PlaceCard.tsx
+ M app/korfu2026/_data/places.ts
+ M app/korfu2026/_data/types.ts
+ M package-lock.json
+ M package.json
+ M scripts/korfu2026-check.sh
+
+$ git status --porcelain=v1 | grep "^??"
+?? .korfu/AUDIT.md
+?? .korfu/CHECKPOINT-3.md
+?? .korfu/CHECKPOINT-4.md
+?? .korfu/DIAGNOSTIKA-korfu2026-04.txt
+?? .korfu/HANDOFF-korfu2026-05.md
+?? .korfu/TASK-02.md
+?? eslint.config.mjs
+```
