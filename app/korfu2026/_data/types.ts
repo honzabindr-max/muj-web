@@ -69,11 +69,24 @@ export const TIER_LABEL: Record<Tier, string> = {
 
 /**
  * Stav mapového bodu.
- * SOURCE_PACK (v. 13. 9. 2026) NEOBSAHUJE ŽÁDNÉ ČÍSELNÉ SOUŘADNICE — viz CHECKPOINT-2, mezera G1.
- * Proto je dnes u všech karet `coords: null` a `coordsStatus: 'chybi-ve-zdroji'`.
- * Souřadnice se doplní až z doloženého zdroje, nikdy z paměti modelu.
+ *
+ * Části 1–25 SOURCE_PACKu neobsahují žádnou číselnou souřadnici (mezera G1, CHECKPOINT-2).
+ * SUPERVISOR DIRECTIVE 01, bod D01-A (SOURCE_PACK ř. 487–498) proto povoluje jedinou výjimku
+ * ze zákazu síťového ověřování: dohledat lat/lng přes veřejné OpenStreetMap Nominatim API
+ * bez klíče, jednorázově skriptem při buildu dat, s výsledkem uloženým staticky do repa.
+ *
+ * - `overene`       — bod dohledaný podle D01-A a ověřený proti bounding boxu Korfu.
+ * - `orientacni`    — bod existuje, ale zdroj ho označuje jako orientační.
+ * - `neoveritelne`  — dotaz nevrátil jednoznačný výsledek (D01-A, ř. 496–497):
+ *                     pin se nevykresluje, „Navigovat" zůstává Google Maps search podle názvu.
+ * - `chybi-ve-zdroji` — hodnota zatím nebyla dohledávána.
+ *
+ * Souřadnice se NIKDY nevymýšlejí ani neodhadují zpaměti (SOURCE_PACK ř. 498).
  */
-export type CoordsStatus = 'overene' | 'orientacni' | 'chybi-ve-zdroji';
+export type CoordsStatus = 'overene' | 'orientacni' | 'neoveritelne' | 'chybi-ve-zdroji';
+
+/** Původ souřadnic. Jediná povolená hodnota podle D01-A (SOURCE_PACK ř. 494). */
+export type CoordsSource = 'osm-nominatim';
 
 export interface Coords {
   lat: number;
@@ -155,6 +168,12 @@ export interface Place {
   coordsStatus: CoordsStatus;
   /** Vysvětlení stavu mapového bodu pro uživatele. */
   coordsNote: string | null;
+  /** D01-A, SOURCE_PACK ř. 494: povinná provenience souřadnic. */
+  coordsSource: CoordsSource | null;
+  /** D01-A, SOURCE_PACK ř. 494: přesný dotaz odeslaný na Nominatim. */
+  coordsQuery: string | null;
+  /** D01-A, SOURCE_PACK ř. 495: datum dohledání (`coordsCheckedAt`). */
+  coordsCheckedAt: string | null;
   /**
    * SOURCE_PACK ř. 398: "navigační odkaz".
    * Dotaz pro Google Maps deep-link. Odvozen DETERMINISTICKY z canonicalName
@@ -169,7 +188,11 @@ export interface Place {
   sp: string;
 }
 
-/** Deterministické pravidlo R-NAV: Google Maps hledání podle názvu, bez souřadnic. */
+/**
+ * Deterministické pravidlo R-NAV.
+ * Je-li k dispozici ověřený bod, Navigovat míří na souřadnice; jinak na Google Maps hledání
+ * podle canonical name (SOURCE_PACK ř. 497).
+ */
 export function mapsUrl(place: Place): string {
   if (place.coords) {
     return `https://www.google.com/maps/search/?api=1&query=${place.coords.lat},${place.coords.lon}`;

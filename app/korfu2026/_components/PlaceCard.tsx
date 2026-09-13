@@ -101,13 +101,31 @@ export function PlaceCard({ place }: { place: Place }) {
         </div>
       )}
 
-      {place.coordsStatus !== 'overene' && place.coordsNote && (
-        <p className="mt-3 text-xs text-slate-600">
-          <span className="font-semibold">Mapový bod: </span>
-          {place.coordsStatus === 'orientacni' ? 'orientační. ' : 've zdroji neuveden. '}
-          {place.coordsNote}
-        </p>
-      )}
+      <p className="mt-3 text-xs text-slate-600">
+        <span className="font-semibold">Mapový bod: </span>
+        {place.coords ? (
+          <>
+            {place.coordsStatus === 'orientacni' ? 'orientační — ' : ''}
+            {place.coords.lat.toFixed(5)}, {place.coords.lon.toFixed(5)}
+            {place.coordsSource === 'osm-nominatim' && (
+              <>
+                {' · zdroj '}
+                <a
+                  className="underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                  href="https://www.openstreetmap.org/copyright"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  OpenStreetMap
+                </a>
+              </>
+            )}
+            {place.coordsCheckedAt && ` · ověřeno ${place.coordsCheckedAt}`}
+          </>
+        ) : (
+          place.coordsNote
+        )}
+      </p>
 
       <div className="mt-4">
         <a

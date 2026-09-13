@@ -1,4 +1,15 @@
+import { GEOCODED } from './coords.generated';
 import type { Place } from './types';
+
+/**
+ * Karta bez mapového bodu. Souřadnice se do karty doplňují výhradně z `coords.generated.ts`,
+ * tedy z jednorázového geokódování podle SUPERVISOR DIRECTIVE 01 / D01-A
+ * (.korfu/SOURCE_PACK.md ř. 487–498). V tomto souboru se souřadnice nikdy nepíšou ručně.
+ */
+type PlaceSeed = Omit<
+  Place,
+  'coords' | 'coordsStatus' | 'coordsNote' | 'coordsSource' | 'coordsQuery' | 'coordsCheckedAt'
+>;
 
 /**
  * Katalog karet — Korfu 2026.
@@ -7,21 +18,23 @@ import type { Place } from './types';
  * Každá karta nese v poli `sp` čísla řádků SOURCE_PACKu, ze kterých je doložená.
  * Hodnota, kterou SOURCE_PACK neuvádí, zůstává `null` / prázdné pole (kontrakt bod 16).
  *
- * MEZERA G1 — SOUŘADNICE:
- * SOURCE_PACK neobsahuje ani jednu číselnou souřadnici (ověřeno grepem na `[0-9]{1,2}\.[0-9]{4,}`
- * a na `°` — jediné zásahy jsou teploty v ř. 349). Část 6 (ř. 55) sice požaduje „ověřený mapový
- * bod", ale konkrétní hodnoty v dokumentu nejsou. Doplnit je z paměti modelu je zakázáno
- * (kontrakt bod 16), proto mají VŠECHNY karty `coords: null` a `coordsStatus: 'chybi-ve-zdroji'`.
+ * MAPOVÉ BODY (mezera G1 → vyřešeno direktivou):
+ * Části 1–25 SOURCE_PACKu neobsahují ani jednu číselnou souřadnici (ověřeno grepem na
+ * `[0-9]{1,2}\.[0-9]{4,}` a na `°` — jediné zásahy jsou teploty v ř. 349).
+ * SUPERVISOR DIRECTIVE 01 / D01-A (ř. 487–498) proto povolila jednorázové geokódování přes
+ * OpenStreetMap Nominatim. Výsledek je staticky uložený v `coords.generated.ts` a doplňuje se
+ * do karet funkcí `withGeocode()` níže. Ručně psané souřadnice jsou v tomto souboru zakázané.
  *
- * PRAVIDLO R-NAV (deterministické, bez vymyšlené polohy):
- * `mapsQuery` = první varianta názvu z části 6 + `, Korfu`. Tlačítko Navigovat tedy otevře
- * v Google Maps VYHLEDÁVÁNÍ podle názvu, ne bod na vymyšlených souřadnicích.
+ * PRAVIDLO R-NAV:
+ * `mapsQuery` = první varianta názvu z části 6 + `, Korfu`. Je-li bod ověřený, Navigovat míří
+ * na souřadnice; u neověřitelného bodu zůstává Google Maps vyhledávání podle názvu
+ * (SOURCE_PACK ř. 497).
  *
  * POŘADÍ: přesně podle číslovaného ručního seznamu v části 6 (ř. 56–71).
  */
 
 /** 13 ručních must-see míst — SOURCE_PACK část 6, ř. 55–72. */
-export const MUST_SEE: Place[] = [
+const MUST_SEE_SEEDS: PlaceSeed[] = [
   {
     id: 'canal-damour',
     canonicalName: "Canal d'Amour u Sidari",
@@ -42,9 +55,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Sidari / Canal d’Amour / Cape Drastis / Loggas'],
     warnings: ['Za větru a vln opatrnost.'],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: "Canal d'Amour, Sidari, Korfu",
     sources: [],
     verify: [],
@@ -73,9 +83,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Afionas / Porto Timoni / Agios Georgios Pagon'],
     warnings: ['Strmá kamenitá cesta.', 'Za mokra označeno jako problematické.'],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Porto Timoni, Korfu',
     sources: [],
     verify: [],
@@ -101,9 +108,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Paleokastritsa / Liapades / Rovinia / Angelokastro nebo Lakones'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Paleokastritsa, Korfu',
     sources: [],
     verify: [
@@ -135,9 +139,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Kassiopi / Avlaki / Kerasia / Kouloura / Kalami / Agni'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden a navíc není určeno, která konkrétní pláž to je — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Kassiopi, Korfu',
     sources: [],
     verify: [
@@ -169,9 +170,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Paleokastritsa / Liapades / Rovinia / Angelokastro nebo Lakones'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Rovinia Beach, Korfu',
     sources: [],
     verify: [],
@@ -197,9 +195,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Myrtiotissa / Pelekas / Agios Gordios'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Agios Gordios, Korfu',
     sources: [],
     verify: [],
@@ -225,9 +220,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Chalikounas / Lake Korission / Issos'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Issos Beach, Korfu',
     sources: [],
     verify: [],
@@ -253,9 +245,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Kassiopi / Avlaki / Kerasia / Kouloura / Kalami / Agni'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Avlaki Beach, Korfu',
     sources: [],
     verify: [],
@@ -281,9 +270,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Marathias / Boukari / Petriti'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Marathias Beach, Korfu',
     sources: [],
     verify: [],
@@ -309,9 +295,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Nissaki / Kaminaki / Barbati / Ipsos'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Nissaki Beach, Korfu',
     sources: [],
     verify: [
@@ -343,9 +326,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Chalikounas / Lake Korission / Issos'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Chalikounas Beach, Korfu',
     sources: [],
     verify: [],
@@ -371,9 +351,6 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Myrtiotissa / Pelekas / Agios Gordios'],
     warnings: ['Za mokra označeno jako problematické.'],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Myrtiotissa Beach, Korfu',
     sources: [],
     verify: [
@@ -405,15 +382,46 @@ export const MUST_SEE: Place[] = [
     combinesWith: ['Nissaki / Kaminaki / Barbati / Ipsos'],
     warnings: [],
     timeFromHotel: null,
-    coords: null,
-    coordsStatus: 'chybi-ve-zdroji',
-    coordsNote: 'Přesný mapový bod není ve zdroji uveden — Navigovat otevře vyhledávání podle názvu.',
     mapsQuery: 'Barbati Beach, Korfu',
     sources: [],
     verify: [],
     sp: 'SP:71, SP:91, SP:120, SP:210',
   },
 ];
+
+/**
+ * Doplní mapový bod z `coords.generated.ts`. Chybí-li záznam, karta zůstane bez bodu —
+ * nikdy se nedosazuje odhad (SOURCE_PACK ř. 498).
+ */
+function withGeocode(seed: PlaceSeed): Place {
+  const g = GEOCODED[seed.id];
+  if (!g) {
+    return {
+      ...seed,
+      coords: null,
+      coordsStatus: 'chybi-ve-zdroji',
+      coordsNote: 'Mapový bod zatím nebyl dohledán.',
+      coordsSource: null,
+      coordsQuery: null,
+      coordsCheckedAt: null,
+    };
+  }
+  return {
+    ...seed,
+    coords: g.coords,
+    coordsStatus: g.coordsStatus,
+    coordsNote:
+      g.coordsStatus === 'overene'
+        ? null
+        : 'Mapový bod se nepodařilo jednoznačně dohledat — Navigovat otevře vyhledávání podle názvu.',
+    coordsSource: g.coordsSource,
+    coordsQuery: g.coordsQuery,
+    coordsCheckedAt: g.coordsCheckedAt,
+  };
+}
+
+/** 13 ručních must-see z části 6 SOURCE_PACKu, s doplněnými mapovými body. */
+export const MUST_SEE: Place[] = MUST_SEE_SEEDS.map(withGeocode);
 
 /** Celý katalog. Zatím obsahuje pouze 13 ručních must-see z části 6; doplní se v dalších krocích. */
 export const PLACES: Place[] = [...MUST_SEE];

@@ -240,3 +240,125 @@ Bez nich bude mapa umět vykreslit jen základnu, nebo žádný bod. Potřebné 
 buď (a) doložený zdroj souřadnic dodat jako vstup, nebo (b) potvrdit, že mapa zobrazí pouze
 body, které vzniknou z budoucího doloženého zdroje, a do té doby zůstane s prázdnou vrstvou
 a vysvětlujícím textem. Executor tuto hodnotu sám nedoplní.
+
+---
+
+# DODATEK k CHECKPOINTU 2 — SUPERVISOR DIRECTIVE 01 / D01-A (souřadnice)
+
+Během tohoto běhu se `.korfu/SOURCE_PACK.md` rozšířil ze 478 na 511 řádků: přibyla
+**část 26 — SUPERVISOR DIRECTIVE 01** (ř. 483–511). Ověřeno, že řádky 1–478 se nezměnily —
+všechny hlavičky `## 1.` až `## 25.` sedí na původních číslech (`## 6.` = ř. 55, `## 19.` = ř. 376,
+`## 21.` = ř. 411, `## 25.` = ř. 461), takže **všechny citace `SP:xxx` výše zůstávají platné**.
+
+Direktiva ruší mezeru G1: `coords: null` u všech karet prohlašuje za nepřijatelné a povoluje
+jedinou výjimku ze zákazu síťového ověřování — geokódování přes veřejné OSM Nominatim.
+Executor to provedl přesně v rozsahu D01-A; D01-B (ceny, otevírací doby, sezonní provoz,
+dostupnost, program akcí) zůstává NEOVĚŘOVÁNO a se štítkem „ověřit aktuálně".
+
+## D1. Nové / změněné soubory
+
+| Soubor | Řádků | Účel |
+|---|---|---|
+| `scripts/korfu2026-geocode.mjs` | 143 | Jednorázový geokódovací skript podle D01-A |
+| `app/korfu2026/_data/coords.generated.ts` | 121 | Statický výsledek geokódování (generovaný, needitovat) |
+| `app/korfu2026/_data/types.ts` | 201 | + `CoordsSource`, `coordsSource`, `coordsQuery`, `coordsCheckedAt`, stav `neoveritelne` |
+| `app/korfu2026/_data/places.ts` | 427 | Karty jsou nyní `PlaceSeed[]`; bod se doplňuje `withGeocode()` z generovaných dat |
+| `app/korfu2026/_components/PlaceCard.tsx` | 143 | Vykresluje souřadnice + atribuci OpenStreetMap + datum ověření |
+
+## D2. Dodržení D01-A bod po bodu
+
+| Požadavek (SP ř.) | Jak je splněn | Důkaz |
+|---|---|---|
+| jen Nominatim bez klíče (489–490) | `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=…` | `scripts/korfu2026-geocode.mjs:60–61` |
+| rate limit max 1 dotaz/s (491) | `await sleep(1100)` mezi dotazy | `scripts/korfu2026-geocode.mjs:84` |
+| vlastní `User-Agent` (491) | `korfu2026-build/1.0 (osobni cestovni web, kontakt pres repo muj-web)` — bez osobních údajů | `scripts/korfu2026-geocode.mjs:21, 63` |
+| jednorázově při buildu dat, NE za běhu (492) | skript je mimo `app/`; `grep -rn 'fetch(' app/korfu2026` → 0 zásahů | grep, oddíl D4 |
+| výsledek staticky v repu (493) | `app/korfu2026/_data/coords.generated.ts` je commitnutý | `git status` |
+| `coordsSource` / `coordsQuery` / `coordsCheckedAt` (494–495) | povinná pole v `Place` i v generovaném souboru | `types.ts:172–176`, `coords.generated.ts` |
+| nejednoznačný výsledek → `null` + `neoveritelne` (496–497) | větev v `geocode()` + kontrola bounding boxu Korfu (39.3–39.9 N, 19.3–20.2 E) | `scripts/korfu2026-geocode.mjs:27, 49–56, 76–78` |
+| nikdy nevymýšlet zpaměti (498) | v `places.ts` nezbyla ani jedna ručně psaná souřadnice; jediné `coords: null` je fallback ve `withGeocode()` | `grep -c "coords: null" places.ts` = 1 |
+
+## D3. Raw výstup geokódování (`node scripts/korfu2026-geocode.mjs`)
+
+```
+OK   canal-damour  39.7974749, 19.6980829  <- Canal d'Amour, Sidari, Municipality of Northern Corfu, Corfu Regional Unit, ...
+OK   porto-timoni  39.7150927, 19.657751  <- Porto Timoni, Afionas, Municipality of Northern Corfu, Corfu Regional Unit, ...
+OK   paleokastritsa  39.6757716, 19.7119035  <- Palaiokastritsa, Municipality of Central Corfu and Diapontia Islands, ...
+OK   kassiopi-beach  39.7891062, 19.9220526  <- Kassiopi, Kassopaia Municipal Unit, Municipality of Northern Corfu, ...
+OK   rovinia-beach  39.6705236, 19.7278861  <- Rovinia, Liapades, Municipality of Central Corfu and Diapontia Islands, ...
+OK   agios-gordios  39.5463723, 19.8535708  <- Agios Gordios, Municipality of Central Corfu and Diapontia Islands, ...
+OK   issos-beach  39.4293085, 19.9393258  <- Issos Beach, Municipal Unit of Meliteieis, Municipality of Southern Corfu, ...
+OK   avlaki-beach  39.7799454, 19.9425103  <- Avlaki Beach, Kariotiko, Kassopaia Municipal Unit, ...
+OK   marathias-beach  39.4141688, 19.9838528  <- Marathias beach, Potamia, Marathias, Municipal Unit of Korissia, ...
+OK   nissaki-beach  39.7240175, 19.8969852  <- Nissaki Beach, Nissaki, Kassopaia Municipal Unit, ...
+OK   chalikounas-beach  39.4475963, 19.8861189  <- Chalikounas Beach, Chalikounas, Municipal Unit of Meliteieis, ...
+OK   myrtiotissa-beach  39.5955325, 19.799522  <- Myrtiotissa Beach, Glyfada, Municipality of Central Corfu ...
+OK   barbati-beach  39.7157285, 19.8672221  <- Barbati Beach, Glyfa, Barbati, Municipality of Central Corfu ...
+
+zapsáno: app/korfu2026/_data/coords.generated.ts  (13/13 bodů)
+```
+
+13/13 bodů dohledáno, všechny uvnitř bounding boxu Korfu, každý `display_name` obsahuje
+„Corfu Regional Unit". Žádný bod nespadl do stavu `neoveritelne`.
+`coordsStatus` je tedy 13× `'overene'`, `coordsSource` 13× `'osm-nominatim'`,
+`coordsCheckedAt` 13× `'2026-09-13'`.
+
+Zbývá otevřené (nejde o souřadnici, ale o výběr místa): u **Kassiopi** SOURCE_PACK ř. 61–62 a 89
+sám žádá ověřit, zda „Kassiopi Beach" znamená Bataria, Kanoni nebo jinou pláž. Bod proto míří na
+obec Kassiopi a karta nese položku „ověřit aktuálně". Nejde o vymyšlenou hodnotu.
+
+## D4. Kontroly po zapracování direktivy (raw)
+
+```
+=== 1a den N / day N ===          0
+=== 1b dny v týdnu ===            0 (pondělí…neděli, víkend)
+=== 1c itinerář/týden/rozvrh ===  0
+=== 2 Albánie/Ksamil ===          0
+=== 3 Paxos ===                   0
+=== 4 Silver Beach + koně ===     0
+=== 5 citlivé/secrets ===         0
+=== 6 telefony/e-maily ===        0
+=== 7 API klíč ===                3 zásahy — všechny React prop `key=` (page.tsx:37,
+                                  PlaceCard.tsx:70, PlaceCard.tsx:83), žádný API klíč
+=== 8 fetch( v app/korfu2026 ===  0 — web za běhu žádné API nevolá
+```
+
+Render z build artefaktu `.next/server/app/korfu2026.html`: 13 karet, 13 tlačítek Navigovat,
+všechna nyní ve tvaru `…/maps/search/?api=1&query=<lat>,<lon>`; žádný zbylý search deep-link
+podle názvu. Atribuce `openstreetmap.org/copyright` a datum `ověřeno 2026-09-13` jsou v HTML
+u každé karty.
+
+## D5. Build po zapracování direktivy
+
+```
+> muj-web-next@0.1.0 build
+> next build
+
+▲ Next.js 16.2.1 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1469ms
+  Running TypeScript ...
+  Finished TypeScript in 1843ms ...
+  ...
+├ ○ /korfu2026
+...
+○  (Static)   prerendered as static content
+```
+
+`exit=0`.
+
+## D6. Dopad D01-C na další kola
+
+Direktiva (ř. 505–511) potvrzuje cíl deploymentu a mění implementační vzor:
+**vzorem je `app/soci/` a `app/cesky-raj-2026/`, NE `app/lefkada-2026/`** (to je jen route handler
+pro statické HTML). `app/soci/` navíc už obsahuje Leaflet mapu přes dynamický import
+(`app/soci/components/GuideMapDynamic.tsx` → `GuideMapClient.tsx`) — to je vzor pro mapu
+v dalším kole. Žádný z těchto adresářů nebyl v tomto běhu měněn.
+
+Beze změny platí: NEPUSHOVAT, NEDEPLOYOVAT, neměnit `main`.
+
+## D7. Zbývající otevřená rozhodnutí
+
+Otevřená otázka z oddílu 10 (souřadnice) je direktivou D01-A **vyřešena** — 13/13 bodů
+je ověřených a staticky uložených. Další kola mohou rovnou stavět mapu.
