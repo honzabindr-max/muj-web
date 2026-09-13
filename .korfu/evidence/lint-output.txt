@@ -1,0 +1,45 @@
+
+> muj-web-next@0.1.0 lint
+> eslint .
+
+
+/Users/janbindr/Projects/korfu2026-build/app/layout.tsx
+  15:9  warning  Custom fonts not added in `pages/_document.js` will only load for a single page. This is discouraged. See: https://nextjs.org/docs/messages/no-page-custom-font  @next/next/no-page-custom-font
+
+/Users/janbindr/Projects/korfu2026-build/app/soci/layout.tsx
+  10:9  warning  Custom fonts not added in `pages/_document.js` will only load for a single page. This is discouraged. See: https://nextjs.org/docs/messages/no-page-custom-font  @next/next/no-page-custom-font
+
+/Users/janbindr/Projects/korfu2026-build/app/suggest/_components/mutations-table.tsx
+  144:7   warning  Expected an assignment or function call and instead saw an expression                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @typescript-eslint/no-unused-expressions
+  202:23  warning  Compilation Skipped: Use of incompatible library
+
+This API returns functions which cannot be memoized without leading to stale UI. To prevent this, by default React Compiler will skip memoizing this component/hook. However, you may see issues if values from this API are passed to other components/hooks that are memoized.
+
+/Users/janbindr/Projects/korfu2026-build/app/suggest/_components/mutations-table.tsx:202:23
+  200 |
+  201 |   // ── virtualizer ──
+> 202 |   const virtualizer = useVirtualizer({
+      |                       ^^^^^^^^^^^^^^ TanStack Virtual's `useVirtualizer()` API returns functions that cannot be memoized safely
+  203 |     count: flatItems.length,
+  204 |     getScrollElement: () => parentRef.current,
+  205 |     estimateSize: (index) => {  react-hooks/incompatible-library
+
+/Users/janbindr/Projects/korfu2026-build/app/suggest3/_components/markets-board.tsx
+  47:9  warning  'cols' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/Users/janbindr/Projects/korfu2026-build/app/suggest3/_hooks/use-suggest3.ts
+  81:6  warning  React Hook useMemo has unnecessary dependencies: 'now' and 'version'. Either exclude them or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/janbindr/Projects/korfu2026-build/h2/logging/logger.ts
+  99:3  warning  Unused eslint-disable directive (no problems were reported from 'no-console')
+
+/Users/janbindr/Projects/korfu2026-build/supabase/functions/trigger-crawl/index.ts
+  6:19  warning  '_req' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/janbindr/Projects/korfu2026-build/supabase/functions/trigger-seznam-crawl/index.ts
+  6:19  warning  '_req' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 9 problems (0 errors, 9 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+
+EXIT_CODE=0
