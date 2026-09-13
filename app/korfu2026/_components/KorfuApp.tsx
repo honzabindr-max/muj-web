@@ -1,6 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useEffect, useCallback } from "react";
+
+const KorfuMap = dynamic(() => import("./KorfuMap"), {
+  ssr: false,
+  loading: () => (
+    <div
+      aria-busy="true"
+      aria-label="Načítám mapu…"
+      className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-400"
+      role="status"
+    >
+      Načítám mapu…
+    </div>
+  ),
+});
 import { PLACES } from "../_data/places";
 import { COMBOS } from "../_data/combos";
 import {
@@ -439,26 +454,11 @@ export function KorfuApp() {
     );
   }
 
-  // ── Mapa tab — empty container for next round ───────────────────────────────
+  // ── Mapa tab ─────────────────────────────────────────────────────────────
   function renderMapa() {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div
-          aria-label="Kontejner pro mapu — bude doplněn v příštím kole"
-          className="flex h-48 w-full max-w-lg flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50"
-          id="mapa-placeholder"
-          role="region"
-        >
-          <p className="font-medium text-slate-500">Mapa</p>
-          <p className="mt-1 text-sm text-slate-400">
-            Interaktivní mapa s OpenStreetMap dlaždicemi a filtry.
-          </p>
-          <p className="mt-1 text-xs text-slate-400">Leaflet · příští kolo.</p>
-        </div>
-        <p className="mt-4 text-sm text-slate-500">
-          Zatím použijte tlačítka <strong>Navigovat</strong> na kartách v
-          Přehledu.
-        </p>
+      <div className="px-1 pb-4">
+        <KorfuMap filteredPlaces={filteredPlaces} />
       </div>
     );
   }
