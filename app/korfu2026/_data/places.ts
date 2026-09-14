@@ -127,7 +127,7 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     subcategory: "zátoky, klášter, jeskyně",
     tier: "must-see",
     area: "zapad",
-    why: "Ruční seznam, priorita č. 3. Zátoky, klášter, jeskyně, krátké plavby i vlastní loď. Nejdramatičtější scenérie a nejvíc jeskyní a boat-only pláží.",
+    why: "Ruční seznam, priorita č. 3. Zátoky, klášter, jeskyně, krátké plavby i vlastní loď. Nejdramatičtější scenérie a nejvíc jeskyní a boat-only pláží — pro jeden lodní den nejlépe hodnocená oblast: Blue Eye Cave, Nausicaa's a St. Nicholas Cave, Chomi/Paradise, Limni, Stelari a Mikro Stelari, Kastelli.",
     wow: null,
     userPriority: "Očíslovaná priorita č. 3 (ruční seznam)",
     visitDuration: null,
@@ -139,14 +139,17 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     combinesWith: [
       "Paleokastritsa / Liapades / Rovinia / Angelokastro nebo Lakones",
     ],
-    warnings: [],
+    warnings: [
+      "Chomi/Paradise Beach: kvůli riziku padajícího kamení může být zakázáno vystoupit na břeh, kotvit dál od útesu podle pokynů půjčovny. (SP:496–511)",
+      "Některé hlubší jeskyně (např. část Blue Eye, Nausicaa's Cave, St. Nicholas Cave) smí navštěvovat jen lodě s místním kapitánem, ne self-drive. (SP:496–511)",
+    ],
     timeFromHotel: null,
     mapsQuery: "Paleokastritsa, Korfu",
     sources: [],
     sourceException: {
       reason:
         "SOURCE_PACK uvádí Paleokastritsa / Palaiokastritsa jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
-      sp: "SP:59, SP:84–85, SP:101, SP:118, SP:183–185, SP:221, SP:417",
+      sp: "SP:59, SP:84–85, SP:101, SP:118, SP:183–185, SP:221, SP:417, SP:486–528",
     },
     verify: [
       {
@@ -157,8 +160,16 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
           url: "https://rentaboatcorfu.gr",
         },
       },
+      {
+        what: "Další kandidátky přímo v Paleokastritse/Alipa/Liapades: Corfu Rent a Boat, Corfu Explore Boats, Blue Lagoon Corfu, Seahorse, Capitano Boats, Ninos Boat Rental — ověřit dostupnost a cenu aktuálně.",
+        sp: "SP:512–528",
+        source: {
+          label: "corfurentaboat.com",
+          url: "https://www.corfurentaboat.com",
+        },
+      },
     ],
-    sp: "SP:59, SP:84–85, SP:101, SP:118, SP:183–185, SP:221, SP:417",
+    sp: "SP:59, SP:84–85, SP:101, SP:118, SP:183–185, SP:221, SP:417, SP:486–528",
   },
   {
     id: "kassiopi-beach",
@@ -357,7 +368,7 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     subcategory: null,
     tier: "must-see",
     area: "severovychod",
-    why: "Ruční seznam. Severovýchodní pobřeží s krátkými vzdálenostmi mezi zátokami — Nissaki, Kaminaki, Agni, Kalami, Kouloura, Kerasia.",
+    why: "Ruční seznam. Severovýchodní pobřeží s krátkými vzdálenostmi mezi zátokami — Nissaki, Kaminaki, Agni, Kalami, Kouloura, Kerasia. Klidnější voda a snazší řízení než na západě — nejlepší lodní den pro začátečníky.",
     wow: null,
     userPriority: null,
     visitDuration: null,
@@ -374,19 +385,27 @@ const MUST_SEE_SEEDS: PlaceSeed[] = [
     sourceException: {
       reason:
         "SOURCE_PACK uvádí Nissaki Beach jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
-      sp: "SP:68, SP:91, SP:120, SP:194–198, SP:221–222",
+      sp: "SP:68, SP:91, SP:120, SP:194–198, SP:221–222, SP:529–539",
     },
     verify: [
       {
-        what: "Orientační cena bezlicenční lodi v Nissaki od 16. 9.: cca 80–170 € podle lodi, často bez paliva — ověřit aktuálně.",
-        sp: "SP:220–223",
+        what: "Orientační cena bezlicenční lodi v Nissaki: 14.–15. 9. cca 100–190 €/den, od 16. 9. (nízká sezona) cca 90–170 €/den, podle lodi, často bez paliva — ověřit aktuálně.",
+        sp: "SP:220–223, SP:529–539",
         source: {
           label: "nissakiboatrental.com — ceny",
           url: "https://nissakiboatrental.com/prices-reservation-nissaki-boat-rental-corfu/",
         },
       },
+      {
+        what: "Další předávací místa severovýchodu: Agni, Kalami, Kouloura, Kerasia, Agios Stefanos NE, Avlaki, Kassiopi — ověřit aktuálně.",
+        sp: "SP:529–539",
+        source: {
+          label: "eostravel.com — o půjčení lodí",
+          url: "https://www.eostravel.com/more-info/about-boat-hire",
+        },
+      },
     ],
-    sp: "SP:68, SP:91, SP:120, SP:194–198, SP:221–222",
+    sp: "SP:68, SP:91, SP:120, SP:194–198, SP:221–222, SP:529–539",
   },
   {
     id: "chalikounas-beach",
@@ -858,11 +877,20 @@ const BEACH_SEEDS_SEVEROZAPAD: PlaceSeed[] = [
     sourceException: {
       reason:
         "SOURCE_PACK uvádí Agios Georgios Pagon jako katalogovou položku v citovaných řádcích; nepřiřazuje mu však konkrétní oficiální ani ověřovací URL, proto nebyl odkaz doplněn odhadem.",
-      sp: "SP:82, SP:200",
+      sp: "SP:82, SP:200, SP:548–552",
     },
-    verify: [],
+    verify: [
+      {
+        what: "Porto Timoni Boat Hire (hodnocení 4,9/381) a Sun Fun Club (bezlicenční 30HP, GPS, mapa oblasti) jako kandidáti pro výjezd bez pěšího sestupu — ověřit aktuálně.",
+        sp: "SP:548–552",
+        source: {
+          label: "sunfunclub-boathire.com",
+          url: "https://sunfunclub-boathire.com",
+        },
+      },
+    ],
     facts: [],
-    sp: "SP:82, SP:200",
+    sp: "SP:82, SP:200, SP:548–552",
   },
 ];
 
@@ -2492,8 +2520,52 @@ const ACTIVITY_SEEDS: PlaceSeed[] = [
         note: "Ověřit kompletní cenu včetně transferu z Rody.",
         sp: "SP:218",
       },
+      {
+        label: "Velká organizovaná loď (Blue Caves + Antipaxos + Gaios/Lakka)",
+        value: "cca 40–65 €/os — nejlevnější, pevný program, hodně lidí",
+        freshness: "overit-aktualne" as const,
+        checkedAt: null,
+        source: {
+          label: "checkyeti.com",
+          url: "https://www.checkyeti.com/en/boat-tours/greece/corfu-city/boat-trips-to-paxos",
+        },
+        sp: "SP:540–547",
+      },
+      {
+        label: "Semi-private plavba",
+        value: "cca 120–190 €/os — méně lidí, lepší koupání",
+        freshness: "overit-aktualne" as const,
+        checkedAt: null,
+        source: {
+          label: "viator.com",
+          url: "https://www.viator.com/Corfu-tours/Day-Cruises/d4279-g3-c7",
+        },
+        sp: "SP:540–547",
+      },
+      {
+        label: "Soukromý RIB se skipperem",
+        value: "cca 800–1400 €/loď — volná trasa, menší zátoky",
+        freshness: "overit-aktualne" as const,
+        checkedAt: null,
+        source: {
+          label: "seadreamers.gr",
+          url: "https://seadreamers.gr/corfu-boat-tour-prices-2026/",
+        },
+        sp: "SP:540–547",
+      },
+      {
+        label: "Luxusní charter",
+        value: "od cca 2200–2700 € — smysluplné jen pro skupinu",
+        freshness: "overit-aktualne" as const,
+        checkedAt: null,
+        source: {
+          label: "ioniancatamarans.com",
+          url: "https://www.ioniancatamarans.com/private-day-cruises-from-corfu/",
+        },
+        sp: "SP:540–547",
+      },
     ],
-    sp: "SP:214–218",
+    sp: "SP:214–218, SP:540–547",
   },
 ];
 

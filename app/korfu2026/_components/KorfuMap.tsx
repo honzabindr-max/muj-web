@@ -57,12 +57,15 @@ export default function KorfuMap({ filteredPlaces }: KorfuMapProps) {
       aria-label="Mapa míst — Korfu 2026"
       className="flex flex-col gap-4"
     >
-      <p className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
+      <p className="kf-card !py-2 !px-3 text-sm" style={{ color: "var(--acc)" }}>
         Základna: <strong>Silver Beach Hotel, Roda</strong>. Hotel nemá v autoritativních
         datech samostatně ověřený bod, proto mapa nezobrazuje domyšlený pin.
       </p>
       {/* Leaflet mapa — OSM dlaždice, bez API klíče */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+      <div
+        className="overflow-hidden rounded-[15px] border shadow-sm"
+        style={{ borderColor: "var(--line)" }}
+      >
         <MapContainer
           bounds={KORFU_BOUNDS}
           scrollWheelZoom={false}
@@ -134,42 +137,36 @@ export default function KorfuMap({ filteredPlaces }: KorfuMapProps) {
       </div>
 
       {/* Počítadlo pinů */}
-      <p className="text-xs text-slate-500">
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
         Na mapě: <strong>{withCoords.length}</strong> míst s ověřenými
-        souřadnicemi (OSM Nominatim) · bez souřadnic:{" "}
-        <strong>{withoutCoords.length}</strong>
+        souřadnicemi · bez souřadnic: <strong>{withoutCoords.length}</strong>
       </p>
 
-      {/* Místa bez ověřených souřadnic — seznam s Google Maps search deep-linkem */}
+      {/* Místa bez ověřených souřadnic — jen odkaz, žádný červený blok */}
       {withoutCoords.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h2
-            className="mb-2 text-sm font-semibold text-amber-900"
-            id="bez-souradnic-nadpis"
-          >
-            Bez ověřených souřadnic — pin na mapě chybí
+        <div className="kf-card">
+          <h2 className="mb-2 text-sm font-semibold" id="bez-souradnic-nadpis" style={{ color: "var(--ink)" }}>
+            Bez pinu na mapě
           </h2>
-          <p className="mb-3 text-xs text-amber-700">
-            Souřadnice se nepodařilo jednoznačně dohledat přes OSM Nominatim
-            (D01-A). Odkaz otevře Google Maps vyhledávání podle názvu.
+          <p className="mb-3 text-xs" style={{ color: "var(--muted)" }}>
+            Odkaz otevře Google Maps vyhledávání podle názvu.
           </p>
           <ul
             aria-labelledby="bez-souradnic-nadpis"
-            className="space-y-1"
+            className="flex flex-wrap gap-2"
             role="list"
           >
             {withoutCoords.map((place) => (
-              <li key={place.id} className="flex items-center gap-2">
+              <li key={place.id}>
                 <a
                   aria-label={`Hledat ${place.canonicalName} na Google Maps`}
-                  className="text-sm font-medium text-teal-800 underline decoration-teal-400 underline-offset-2 hover:text-teal-600 focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                  className="kf-pill"
                   href={mapsUrl(place)}
                   rel="noreferrer"
                   target="_blank"
                 >
                   {place.canonicalName}
                 </a>
-                <span className="text-xs text-amber-600">({place.area})</span>
               </li>
             ))}
           </ul>

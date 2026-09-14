@@ -51,3 +51,8 @@ crawler_state_emergency_*.json
 .korfu/*.log
 .korfu/GATE.md
 .korfu/SUPERVISOR-STATE.md
+
+# Celý .korfu/ (source pack, coverage, checkpointy, audit, evidence) je
+# artefakt vývojového procesu, ne web. Zůstává na disku a v archivu
+# ~/Projects/korfu2026-supervisor/korfu-artefakty/, ale do repa muj-web nepatří.
+.korfu/
