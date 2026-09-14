@@ -1,0 +1,15 @@
+fe36757 chore(korfu2026): uzavření dispozice untracked artefaktů + CHECKPOINT-4 aktuál
+eb84077 feat(korfu2026): plná funkční verze — katalog A–T, mapa, výběr, QA
+ca325f7 chore(korfu2026): scripts/korfu2026-check.sh — QA kontroly itinerář/Albánie/citlivé údaje/must-see
+bb66d75 fix(korfu2026): mapa — L.divIcon SVG pin bez CDN, BoundsUpdater z filtrovaných bodů, fallback Korfu
+e211c11 feat(korfu2026): Leaflet mapa přes next/dynamic — OSM dlaždice, filtry, provenience souřadnic
+e405f34 feat(korfu2026): UI vrstva — katalog A–T, filtry, výběr, akce, navigace
+1683cbb feat(korfu2026): ČÁST I datová vrstva — RODA_PRAKTIKA (SP:293–300) + VECERNI_ALTERNATIVY (SP:307–308)
+a2bb38f feat(korfu2026): úplná datová vrstva dle skutečného rozsahu COVERAGE + citační hygiena
+cae5de5 feat(korfu2026): plná datová vrstva katalogu — části C-Q COVERAGE.md
+398b4db chore(korfu2026): baseline feat/korfu2026 — autorizované modifikace uzavřeny
+59250da docs(korfu2026): CHECKPOINT-2 narovnán na skutečný stav repa (zadání korfu2026-02, bod 6)
+f59aabd feat(korfu2026): ověřené mapové body podle SUPERVISOR DIRECTIVE 01 / D01-A
+577ada5 feat(korfu2026): datový model + 13 must-see + minimální route
+6f4f4ae docs(h2): Vercel Function Region — HOTOVO (vercel.json fix, PR #48)
+4841b7a Merge pull request #48 from honzabindr-max/chore/h2-vercel-function-region-fra1

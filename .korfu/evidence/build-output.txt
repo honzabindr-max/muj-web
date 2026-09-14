@@ -1,0 +1,51 @@
+
+> muj-web-next@0.1.0 build
+> next build
+
+▲ Next.js 16.2.1 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1423ms
+  Running TypeScript ...
+  Finished TypeScript in 2.2s ...
+  Collecting page data using 14 workers ...
+  Generating static pages using 14 workers (0/16) ...
+  Generating static pages using 14 workers (4/16) 
+  Generating static pages using 14 workers (8/16) 
+  Generating static pages using 14 workers (12/16) 
+✓ Generating static pages using 14 workers (16/16) in 138ms
+  Finalizing page optimization ...
+
+Route (app)                         Revalidate  Expire
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/auth/[...nextauth]
+├ ƒ /api/h2/health
+├ ƒ /api/h2/telegram/webhook
+├ ƒ /api/h2/web/messages
+├ ƒ /api/h2/web/responses
+├ ƒ /api/internal/queue-wakeup
+├ ƒ /api/suggest/dashboard-rows
+├ ƒ /api/suggest/dashboard-state
+├ ƒ /api/suggest/new-phrases-24h
+├ ƒ /api/suggest/new-phrases-today
+├ ƒ /api/suggest/seznam-status
+├ ○ /cesky-raj-2026
+├ ○ /dovolena-072026
+├ ○ /honzik2/o-projektu
+├ ƒ /honzik2/reauth
+├ ○ /korfu2026
+├ ○ /lefkada-2026
+├ ○ /robots.txt
+├ ○ /soci
+├ ○ /suggest
+├ ○ /suggest2
+├ ○ /suggest3
+├ ○ /tisnov                                10m      1y
+└ ○ /zlutak
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+EXIT_CODE=0
