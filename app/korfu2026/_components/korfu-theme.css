@@ -1,0 +1,271 @@
+/**
+ * Design language převzatý z public/lefkada-2026.html, scoped pod .korfu2026-root,
+ * aby neuniklo do zbytku muj-web (globals.css sdílí celá aplikace).
+ */
+
+.korfu2026-root {
+  --bg: #f6f7f5;
+  --card: #ffffff;
+  --ink: #1a2420;
+  --muted: #63706a;
+  --line: #e4e8e4;
+  --chip: #eef1ee;
+  --acc: #0e7c66;
+  --acc2: #1189b6;
+  --ok: #2f8f5b;
+  --warn: #b7791f;
+  --bad: #c0483a;
+  --sun: #e08a2b;
+  --shadow:
+    0 1px 2px rgba(20, 40, 30, 0.05),
+    0 6px 20px rgba(20, 40, 30, 0.06);
+
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+  font-feature-settings: "kern";
+}
+
+@media (prefers-color-scheme: dark) {
+  .korfu2026-root {
+    --bg: #0f1512;
+    --card: #161d19;
+    --ink: #e8efe9;
+    --muted: #95a49c;
+    --line: #232c27;
+    --chip: #1c2521;
+    --acc: #3fb79b;
+    --acc2: #4fb6d9;
+    --sun: #e8a24e;
+    --shadow:
+      0 1px 2px rgba(0, 0, 0, 0.3),
+      0 8px 26px rgba(0, 0, 0, 0.35);
+  }
+}
+
+.korfu2026-root a {
+  color: var(--acc2);
+}
+
+/* ── Sea hero ─────────────────────────────────────────────────────────── */
+.kf-seahero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  margin-bottom: -2px;
+}
+.kf-seahero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(120% 90% at 82% -10%, rgba(255, 245, 210, 0.55), rgba(255, 245, 210, 0) 45%),
+    linear-gradient(180deg, #8fe0ee 0%, #33c1dd 26%, #12a5d0 46%, #0d81be 66%, #0a5f9c 100%);
+}
+.kf-seahero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 40% at 20% 78%, rgba(255, 255, 255, 0.16), transparent 60%),
+    repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 26px);
+}
+.kf-seahero-text {
+  color: #fff;
+  text-shadow: 0 1px 14px rgba(6, 40, 70, 0.35);
+}
+.kf-kicker {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #eafcff;
+}
+.kf-seahero-text h1 {
+  color: #fff;
+  text-shadow: 0 2px 20px rgba(6, 40, 70, 0.4);
+}
+.kf-tagline {
+  color: #f2fbff;
+  opacity: 0.95;
+  font-weight: 600;
+}
+.kf-seahero-text .kf-sub {
+  color: #eefaff;
+  opacity: 0.96;
+  text-shadow: 0 1px 10px rgba(6, 40, 70, 0.4);
+}
+.kf-seahero-text .kf-fact {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  backdrop-filter: blur(3px);
+}
+.kf-wave path {
+  fill: var(--bg);
+}
+
+/* ── Fact chips (hero factrow) ────────────────────────────────────────── */
+.kf-factrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kf-fact {
+  background: var(--chip);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* ── Section headers ───────────────────────────────────────────────────── */
+.kf-sectionhdr {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+.kf-secttl {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 800;
+  margin: 8px 2px 0;
+}
+
+/* ── Chips (filters + toggles) ────────────────────────────────────────── */
+.kf-chip {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.kf-chip[aria-pressed="true"] {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #fff;
+}
+.kf-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(8px);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+.kf-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.kf-tag {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--acc);
+  background: var(--chip);
+  border-radius: 6px;
+  padding: 3px 8px;
+  display: inline-block;
+}
+.kf-pill {
+  background: var(--chip);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  display: inline-block;
+}
+.kf-pill-acc {
+  color: var(--acc);
+  font-weight: 700;
+}
+
+/* ── Warnings — inline strip, not a boxy panel ────────────────────────── */
+.kf-warn {
+  background: linear-gradient(90deg, var(--chip), transparent);
+  border-left: 3px solid var(--sun);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.kf-warn b {
+  color: var(--sun);
+}
+
+/* ── Verify (ověřit aktuálně) — one compact line, no gray panel ─────────── */
+.kf-verify-chip {
+  background: color-mix(in srgb, var(--sun) 16%, var(--chip));
+  color: var(--warn);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.kf-btn {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--acc);
+  text-decoration: none;
+}
+.kf-btn:hover {
+  text-decoration: none;
+  filter: brightness(1.08);
+}
+.kf-btn-ghost {
+  color: var(--ink);
+  background: var(--chip);
+  border-color: var(--line);
+}
+.kf-btn-ghost:hover {
+  border-color: var(--acc);
+}
+
+/* ── Footer + sources toggle ──────────────────────────────────────────── */
+.kf-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 14px 0;
+}
+.kf-sp {
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.8;
+}

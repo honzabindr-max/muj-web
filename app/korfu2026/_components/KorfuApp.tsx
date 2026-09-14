@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState, useEffect, useCallback } from "react";
+import "./korfu-theme.css";
 
 const KorfuMap = dynamic(() => import("./KorfuMap"), {
   ssr: false,
@@ -9,7 +10,8 @@ const KorfuMap = dynamic(() => import("./KorfuMap"), {
     <div
       aria-busy="true"
       aria-label="Načítám mapu…"
-      className="flex h-64 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-400"
+      className="kf-card flex h-64 items-center justify-center text-sm"
+      style={{ color: "var(--muted)" }}
       role="status"
     >
       Načítám mapu…
@@ -134,7 +136,7 @@ function saveSelection(selection: SelectionState): void {
   }
 }
 
-// ─── Filter selects ───────────────────────────────────────────────────────────
+// ─── Filter data ──────────────────────────────────────────────────────────────
 
 const UNIQUE_CATEGORIES = [...new Set(PLACES.map((p) => p.category))].sort();
 const UNIQUE_AREAS = [...new Set(PLACES.map((p) => p.area))].sort();
@@ -149,7 +151,23 @@ const UNIQUE_WEATHERS = [
 ].sort() as WeatherFit[];
 const TIERS: Tier[] = ["must-see", "doporuceni", "dalsi-moznost"];
 
-// ─── FilterBar ────────────────────────────────────────────────────────────────
+const CATEGORY_EMOJI: Partial<Record<Category, string>> = {
+  plaz: "🏖️",
+  pamatka: "🏛️",
+  vesnice: "🏘️",
+  mesto: "🏙️",
+  priroda: "🥾",
+  vyhlidka: "🌄",
+  aktivita: "✨",
+  lod: "⛵",
+  jidlo: "🍽️",
+  vecer: "🌙",
+  doprava: "🚗",
+  prakticke: "ℹ️",
+  zakladna: "🏨",
+};
+
+// ─── Small shared UI ──────────────────────────────────────────────────────────
 
 function SelectFilter<T extends string>({
   label,
@@ -166,11 +184,12 @@ function SelectFilter<T extends string>({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <label className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+      <label className="text-xs font-semibold tracking-wide uppercase" style={{ color: "var(--muted)" }}>
         {label}
       </label>
       <select
-        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+        className="rounded-lg border px-2 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+        style={{ borderColor: "var(--line)", background: "var(--card)", color: "var(--ink)" }}
         value={value ?? ""}
         onChange={(e) => onChange((e.target.value as T) || null)}
       >
@@ -185,6 +204,11 @@ function SelectFilter<T extends string>({
   );
 }
 
+function SpLine({ sp, show }: { sp: string; show: boolean }) {
+  if (!show) return null;
+  return <p className="kf-sp">{sp}</p>;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function KorfuApp() {
@@ -192,8 +216,8 @@ export function KorfuApp() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showSources, setShowSources] = useState(false);
 
-  // Load selection from localStorage on mount
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
       setSelection(loadSelection());
@@ -214,7 +238,6 @@ export function KorfuApp() {
     });
   }, []);
 
-  // Filtered places
   const filteredPlaces = PLACES.filter((p) => {
     if (filters.category && p.category !== filters.category) return false;
     if (filters.area && p.area !== filters.area) return false;
@@ -227,7 +250,12 @@ export function KorfuApp() {
     return true;
   });
 
-  const hasActiveFilters = Object.values(filters).some((v) => v !== null);
+  const hasSecondaryFilters =
+    filters.area !== null ||
+    filters.difficulty !== null ||
+    filters.transport !== null ||
+    filters.weather !== null ||
+    filters.priority !== null;
   const selectionStatusFor = (id: string): SelectionStatus | null => {
     for (const status of Object.keys(SELECTION_STATUS_LABEL) as SelectionStatus[]) {
       if (selection[status].includes(id)) return status;
@@ -239,69 +267,51 @@ export function KorfuApp() {
   // ── Přehled tab ────────────────────────────────────────────────────────────
   function renderPrehled() {
     return (
-      <div className="space-y-4">
-        {/* Trip summary from TRIP_FACTS (parts O) */}
-        <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4">
-          <p className="text-xs font-semibold tracking-wide text-teal-700 uppercase">
-            {TRIP_FACTS.termin}
-          </p>
-          <p className="text-sm text-teal-900">{TRIP_FACTS.hotel}</p>
-          <p className="mt-1 text-xs text-teal-700">
-            {TRIP_FACTS.strava} · {TRIP_FACTS.transfer}
-          </p>
-          <p className="mt-1 text-xs text-teal-700">
-            Let tam: {TRIP_FACTS.letTam}
-          </p>
-          <p className="text-xs text-teal-700">
-            Let zpět: {TRIP_FACTS.letZpet}
-          </p>
-          <p className="mt-1 text-xs text-amber-700">
-            {TRIP_FACTS.praktickyDopad}
-          </p>
-          <p className="text-xs text-slate-500">{TRIP_FACTS.sp}</p>
-        </div>
-
-        {/* Filters toggle */}
-        <div>
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-600">
-              Zobrazeno {filteredPlaces.length} z {PLACES.length} míst
-              {hasActiveFilters && (
-                <button
-                  className="ml-2 text-teal-700 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
-                  onClick={() => setFilters(EMPTY_FILTERS)}
-                  type="button"
-                >
-                  Zrušit filtry
-                </button>
-              )}
-            </p>
+      <>
+        {/* Sticky category chip toolbar */}
+        <div className="kf-toolbar -mx-4 mb-4 px-4 sm:-mx-6 sm:px-6">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              aria-pressed={filters.category === null}
+              className="kf-chip"
+              onClick={() => setFilters((f) => ({ ...f, category: null }))}
+              type="button"
+            >
+              Vše
+            </button>
+            {UNIQUE_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                aria-pressed={filters.category === cat}
+                className="kf-chip"
+                onClick={() =>
+                  setFilters((f) => ({ ...f, category: f.category === cat ? null : cat }))
+                }
+                type="button"
+              >
+                {CATEGORY_EMOJI[cat] ?? ""} {CATEGORY_LABEL[cat]}
+              </button>
+            ))}
             <button
               aria-expanded={filtersOpen}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+              aria-pressed={hasSecondaryFilters}
+              className="kf-chip"
               onClick={() => setFiltersOpen((v) => !v)}
               type="button"
             >
-              {filtersOpen ? "Skrýt filtry" : "Filtry"}
-              {hasActiveFilters && " ●"}
+              Další filtry{hasSecondaryFilters ? " ●" : ""}
             </button>
+            <span className="ml-auto text-xs" style={{ color: "var(--muted)" }}>
+              {filteredPlaces.length} z {PLACES.length}
+            </span>
           </div>
 
           {filtersOpen && (
             <div
-              aria-label="Filtry katalogu"
-              className="mt-3 grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3"
+              aria-label="Další filtry katalogu"
+              className="kf-card mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3"
               role="group"
             >
-              {/* Kategorie */}
-              <SelectFilter
-                label="Kategorie"
-                labelMap={CATEGORY_LABEL}
-                onChange={(v) => setFilters((f) => ({ ...f, category: v }))}
-                options={UNIQUE_CATEGORIES}
-                value={filters.category}
-              />
-              {/* Oblast */}
               <SelectFilter
                 label="Oblast"
                 labelMap={AREA_LABEL}
@@ -309,7 +319,6 @@ export function KorfuApp() {
                 options={UNIQUE_AREAS}
                 value={filters.area}
               />
-              {/* Priorita */}
               <SelectFilter
                 label="Priorita"
                 labelMap={TIER_LABEL}
@@ -317,7 +326,6 @@ export function KorfuApp() {
                 options={TIERS}
                 value={filters.priority}
               />
-              {/* Náročnost */}
               <SelectFilter
                 label="Náročnost"
                 labelMap={DIFFICULTY_LABEL}
@@ -325,7 +333,6 @@ export function KorfuApp() {
                 options={UNIQUE_DIFFICULTIES}
                 value={filters.difficulty}
               />
-              {/* Doprava */}
               <SelectFilter
                 label="Doprava"
                 labelMap={TRANSPORT_LABEL}
@@ -333,7 +340,6 @@ export function KorfuApp() {
                 options={UNIQUE_TRANSPORTS}
                 value={filters.transport}
               />
-              {/* Počasí */}
               <SelectFilter
                 label="Počasí"
                 labelMap={WEATHER_LABEL}
@@ -341,13 +347,23 @@ export function KorfuApp() {
                 options={UNIQUE_WEATHERS}
                 value={filters.weather}
               />
+              {(hasSecondaryFilters || filters.category) && (
+                <div className="flex items-end">
+                  <button
+                    className="kf-btn kf-btn-ghost"
+                    onClick={() => setFilters(EMPTY_FILTERS)}
+                    type="button"
+                  >
+                    Zrušit filtry
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Place cards */}
         {filteredPlaces.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
+          <p className="py-10 text-center" style={{ color: "var(--muted)" }}>
             Žádné výsledky. Zkuste změnit nebo zrušit filtry.
           </p>
         ) : (
@@ -358,11 +374,12 @@ export function KorfuApp() {
                 onSelectionChange={updateSelection}
                 place={place}
                 selectionStatus={selectionStatusFor(place.id)}
+                showSources={showSources}
               />
             ))}
           </div>
         )}
-      </div>
+      </>
     );
   }
 
@@ -370,109 +387,92 @@ export function KorfuApp() {
   function renderMoznosti() {
     return (
       <div className="space-y-8">
-        {/* Geografické balíčky (část E, combos) */}
         <section aria-labelledby="combos-heading">
-          <h2 id="combos-heading" className="text-lg font-bold text-slate-900">
-            Geografické balíčky
+          <h2 id="combos-heading" className="kf-sectionhdr">
+            🧩 Geografické balíčky
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Co lze přirozeně spojit (SP:113–127). Nejde o dny — jen geografická
-            blízkost.
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            Co lze přirozeně spojit. Nejde o dny — jen geografická blízkost.
           </p>
           <ul className="mt-3 space-y-2">
             {COMBOS.map((combo) => (
-              <li
-                key={combo.id}
-                className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-              >
-                <span className="text-xs font-bold text-teal-700">
-                  {combo.id}
-                </span>
-                <p className="mt-0.5 text-sm text-slate-800">{combo.title}</p>
-                <p className="mt-0.5 text-xs text-slate-400">{combo.sp}</p>
+              <li key={combo.id} className="kf-card !p-3">
+                <p className="text-sm" style={{ color: "var(--ink)" }}>
+                  {combo.title}
+                </p>
+                <SpLine show={showSources} sp={combo.sp} />
               </li>
             ))}
           </ul>
         </section>
 
-        {/* Koně — první volby (část F) */}
         <section aria-labelledby="horses-heading">
-          <h2 id="horses-heading" className="text-lg font-bold text-slate-900">
-            Jízda na koni
+          <h2 id="horses-heading" className="kf-sectionhdr">
+            🐴 Jízda na koni
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            SP:129–179. Ceny a termíny ověřit aktuálně.
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            Katreena — první volba přímo v Rodě. Ceny a termíny ověřit aktuálně.
           </p>
           <div className="mt-3 space-y-4">
             {[...HORSE_OPERATORS, ...HORSE_LEADS].map((op) => (
-              <OperatorCard key={op.id} op={op} />
+              <OperatorCard key={op.id} op={op} showSources={showSources} />
             ))}
           </div>
         </section>
 
-        {/* Lodě (část G) */}
         <section aria-labelledby="boats-heading">
-          <h2 id="boats-heading" className="text-lg font-bold text-slate-900">
-            Lodě a mořské možnosti
+          <h2 id="boats-heading" className="kf-sectionhdr">
+            ⛵ Lodě a mořské možnosti
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            SP:181–229. Ceny, termíny a počasí ověřit aktuálně.
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            Ceny, termíny a počasí ověřit aktuálně.
           </p>
           <div className="mt-3 space-y-4">
             {BOAT_OPERATORS.map((op) => (
-              <OperatorCard key={op.id} op={op} />
+              <OperatorCard key={op.id} op={op} showSources={showSources} />
             ))}
           </div>
         </section>
 
-        {/* Potápění (část H) */}
         <section aria-labelledby="diving-heading">
-          <h2 id="diving-heading" className="text-lg font-bold text-slate-900">
-            Potápění
+          <h2 id="diving-heading" className="kf-sectionhdr">
+            🤿 Potápění
           </h2>
-          <p className="mt-1 text-sm text-slate-500">SP:231–290.</p>
           <div className="mt-3 space-y-4">
             {DIVING_OPERATORS.map((op) => (
-              <OperatorCard key={op.id} op={op} />
+              <OperatorCard key={op.id} op={op} showSources={showSources} />
             ))}
           </div>
         </section>
 
-        {/* Quad (část H) */}
         <section aria-labelledby="quad-heading">
-          <h2 id="quad-heading" className="text-lg font-bold text-slate-900">
-            Quad a terénní aktivity
+          <h2 id="quad-heading" className="kf-sectionhdr">
+            🏍️ Quad a terénní aktivity
           </h2>
-          <p className="mt-1 text-sm text-slate-500">SP:231–290.</p>
           <div className="mt-3 space-y-4">
             {QUAD_OPERATORS.map((op) => (
-              <OperatorCard key={op.id} op={op} />
+              <OperatorCard key={op.id} op={op} showSources={showSources} />
             ))}
           </div>
         </section>
 
-        {/* Kontaktní šablony (část F) */}
         {CHECKLISTS.length > 0 && (
           <section aria-labelledby="checklists-heading">
-            <h2
-              id="checklists-heading"
-              className="text-lg font-bold text-slate-900"
-            >
-              Checklisty
+            <h2 id="checklists-heading" className="kf-sectionhdr">
+              ✅ Checklisty
             </h2>
             <div className="mt-3 space-y-4">
               {CHECKLISTS.map((cl) => (
-                <div
-                  key={cl.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <h3 className="font-semibold text-slate-900">{cl.title}</h3>
-                  <ul className="mt-2 list-disc pl-4 text-sm text-slate-800">
+                <div key={cl.id} className="kf-card">
+                  <h3 className="font-semibold" style={{ color: "var(--ink)" }}>
+                    {cl.title}
+                  </h3>
+                  <ul className="mt-2 list-disc pl-4 text-sm" style={{ color: "var(--ink)" }}>
                     {cl.items.map((item) => (
                       <li key={item}>{item}</li>
                     ))}
                   </ul>
-                  <p className="mt-1 text-xs text-slate-400">{cl.sp}</p>
+                  <SpLine show={showSources} sp={cl.sp} />
                 </div>
               ))}
             </div>
@@ -480,15 +480,15 @@ export function KorfuApp() {
         )}
 
         <section aria-labelledby="templates-heading">
-          <h2 id="templates-heading" className="text-lg font-bold text-slate-900">
-            Kontaktní šablony
+          <h2 id="templates-heading" className="kf-sectionhdr">
+            ✉️ Kontaktní šablony
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
             Připravené zprávy pro koně, potápění a quad safari.
           </p>
           <div className="mt-3 space-y-4">
             {CONTACT_TEMPLATES.map((template) => (
-              <CopyTemplate key={template.id} template={template} />
+              <CopyTemplate key={template.id} showSources={showSources} template={template} />
             ))}
           </div>
         </section>
@@ -499,7 +499,7 @@ export function KorfuApp() {
   // ── Mapa tab ─────────────────────────────────────────────────────────────
   function renderMapa() {
     return (
-      <div className="px-1 pb-4">
+      <div className="pb-4">
         <KorfuMap filteredPlaces={filteredPlaces} />
       </div>
     );
@@ -510,12 +510,12 @@ export function KorfuApp() {
     if (selectedPlaces.length === 0) {
       return (
         <div className="py-16 text-center">
-          <p className="text-slate-500">Zatím žádný výběr.</p>
-          <p className="mt-2 text-sm text-slate-400">
+          <p style={{ color: "var(--muted)" }}>Zatím žádný výběr.</p>
+          <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
             Na kartách vyberte stav <strong>Oblíbené</strong>, <strong>Chceme navštívit</strong>
             {" "}nebo <strong>Navštíveno</strong>.
           </p>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
             Výběr je uložený v prohlížeči ({SELECTION_KEY}).
           </p>
         </div>
@@ -525,7 +525,7 @@ export function KorfuApp() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
             {selectedPlaces.length}{" "}
             {selectedPlaces.length === 1
               ? "místo"
@@ -535,7 +535,7 @@ export function KorfuApp() {
             ve výběru
           </p>
           <button
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+            className="kf-btn kf-btn-ghost"
             onClick={() => {
               try {
                 localStorage.removeItem(SELECTION_KEY);
@@ -555,6 +555,7 @@ export function KorfuApp() {
             onSelectionChange={updateSelection}
             place={place}
             selectionStatus={selectionStatusFor(place.id)}
+            showSources={showSources}
           />
         ))}
       </div>
@@ -565,12 +566,10 @@ export function KorfuApp() {
   function renderPrakticke() {
     return (
       <div className="space-y-8">
-        {/* Locked fakta o zájezdu (část O) */}
         <section aria-labelledby="trip-heading">
-          <h2 id="trip-heading" className="text-lg font-bold text-slate-900">
-            Fakta o zájezdu
+          <h2 id="trip-heading" className="kf-sectionhdr">
+            🧳 Fakta o zájezdu
           </h2>
-          <p className="mt-0.5 text-xs text-slate-400">{TRIP_FACTS.sp}</p>
           <dl className="mt-3 space-y-1.5 text-sm">
             {(
               [
@@ -587,120 +586,97 @@ export function KorfuApp() {
               ] as [string, string][]
             ).map(([k, v]) => (
               <div key={k} className="flex gap-2">
-                <dt className="w-36 shrink-0 font-semibold text-slate-600">
+                <dt className="w-36 shrink-0 font-semibold" style={{ color: "var(--muted)" }}>
                   {k}:
                 </dt>
-                <dd className="text-slate-800">{v}</dd>
+                <dd style={{ color: "var(--ink)" }}>{v}</dd>
               </div>
             ))}
           </dl>
-          <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-            {TRIP_FACTS.praktickyDopad}
-          </div>
+          <div className="kf-warn mt-3">{TRIP_FACTS.praktickyDopad}</div>
+          <SpLine show={showSources} sp={TRIP_FACTS.sp} />
         </section>
 
-        {/* Roda jako základna (část I) */}
         <section aria-labelledby="roda-heading">
-          <h2 id="roda-heading" className="text-lg font-bold text-slate-900">
-            Roda — co dělat ze základny
+          <h2 id="roda-heading" className="kf-sectionhdr">
+            🏘️ Roda — co dělat ze základny
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            SP:293–300. Aktivity dostupné bez přesunu.
-          </p>
           <ul className="mt-3 space-y-2">
             {RODA_PRAKTIKA.map((item) => (
-              <li
-                key={item.id}
-                className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm"
-              >
-                <span className="font-semibold text-slate-900">
+              <li key={item.id} className="kf-card !p-3 text-sm">
+                <span className="font-semibold" style={{ color: "var(--ink)" }}>
                   {item.label}
                 </span>
                 {item.freshness && (
-                  <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                    {FRESHNESS_LABEL[item.freshness]}
-                  </span>
+                  <span className="kf-verify-chip ml-2">{FRESHNESS_LABEL[item.freshness]}</span>
                 )}
                 {item.verify && (
-                  <p className="mt-0.5 text-xs text-slate-500">{item.verify}</p>
+                  <p className="mt-0.5 text-xs" style={{ color: "var(--muted)" }}>
+                    {item.verify}
+                  </p>
                 )}
-                <p className="mt-0.5 text-xs text-slate-400">{item.sp}</p>
+                <SpLine show={showSources} sp={item.sp} />
               </li>
             ))}
           </ul>
 
-          {/* Večerní podniky v Rodě (část I) */}
-          <h3 className="mt-5 font-semibold text-slate-900">
+          <h3 className="mt-5 font-semibold" style={{ color: "var(--ink)" }}>
             Večerní podniky v Rodě
           </h3>
-          <p className="mt-0.5 text-xs text-slate-400">SP:301–306</p>
           <ul className="mt-2 space-y-2">
             {VECERNI_PODNIKY.map((p) => (
-              <li
-                key={p.id}
-                className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm"
-              >
-                <span className="font-semibold text-slate-900">{p.name}</span>
-                {" — "}
-                <span className="text-slate-700">{p.description}</span>{" "}
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                  {FRESHNESS_LABEL[p.freshness]}
+              <li key={p.id} className="kf-card !p-3 text-sm">
+                <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                  {p.name}
                 </span>
-                <p className="mt-0.5 text-xs text-slate-400">{p.sp}</p>
+                {" — "}
+                <span style={{ color: "var(--ink)" }}>{p.description}</span>{" "}
+                <span className="kf-verify-chip">{FRESHNESS_LABEL[p.freshness]}</span>
+                <SpLine show={showSources} sp={p.sp} />
               </li>
             ))}
           </ul>
 
-          {/* Večerní alternativy mimo Rodu (část I) */}
-          <h3 className="mt-5 font-semibold text-slate-900">
+          <h3 className="mt-5 font-semibold" style={{ color: "var(--ink)" }}>
             Večerní alternativy mimo Rodu
           </h3>
-          <p className="mt-0.5 text-xs text-slate-400">SP:307–308</p>
           <ul className="mt-2 space-y-2">
             {VECERNI_ALTERNATIVY.map((p) => (
-              <li
-                key={p.id}
-                className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm"
-              >
-                <span className="font-semibold text-slate-900">{p.name}</span>
-                {" — "}
-                <span className="text-slate-700">{p.description}</span>{" "}
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                  {FRESHNESS_LABEL[p.freshness]}
+              <li key={p.id} className="kf-card !p-3 text-sm">
+                <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                  {p.name}
                 </span>
-                <p className="mt-0.5 text-xs text-slate-400">{p.sp}</p>
+                {" — "}
+                <span style={{ color: "var(--ink)" }}>{p.description}</span>{" "}
+                <span className="kf-verify-chip">{FRESHNESS_LABEL[p.freshness]}</span>
+                <SpLine show={showSources} sp={p.sp} />
               </li>
             ))}
           </ul>
         </section>
 
-        {/* Jídlo a pití (část J) */}
         <section aria-labelledby="jidlo-heading">
-          <h2 id="jidlo-heading" className="text-lg font-bold text-slate-900">
-            Jídlo a pití
+          <h2 id="jidlo-heading" className="kf-sectionhdr">
+            🍽️ Jídlo a pití
           </h2>
 
-          <h3 className="mt-3 font-semibold text-slate-900">
+          <h3 className="mt-3 font-semibold" style={{ color: "var(--ink)" }}>
             Restaurace v Rodě
           </h3>
-          <p className="mt-0.5 text-xs text-slate-400">SP:313–321</p>
           <ul className="mt-2 space-y-2">
             {RESTAURACE_RODA.map((r) => (
-              <li
-                key={r.id}
-                className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm"
-              >
-                <span className="font-semibold text-slate-900">{r.name}</span>
-                {" — "}
-                <span className="text-slate-700">{r.description}</span>{" "}
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                  {FRESHNESS_LABEL[r.freshness]}
+              <li key={r.id} className="kf-card !p-3 text-sm">
+                <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                  {r.name}
                 </span>
+                {" — "}
+                <span style={{ color: "var(--ink)" }}>{r.description}</span>{" "}
+                <span className="kf-verify-chip">{FRESHNESS_LABEL[r.freshness]}</span>
                 {"source" in r && r.source && (
                   <>
                     {" "}
                     <a
-                      className="text-xs text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                      className="text-xs underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                       href={r.source.url}
                       rel="noopener noreferrer"
                       target="_blank"
@@ -709,61 +685,56 @@ export function KorfuApp() {
                     </a>
                   </>
                 )}
-                <p className="mt-0.5 text-xs text-slate-400">{r.sp}</p>
+                <SpLine show={showSources} sp={r.sp} />
               </li>
             ))}
           </ul>
 
-          <h3 className="mt-5 font-semibold text-slate-900">Co ochutnat</h3>
-          <p className="mt-0.5 text-xs text-slate-400">SP:317–318</p>
+          <h3 className="mt-5 font-semibold" style={{ color: "var(--ink)" }}>
+            Co ochutnat
+          </h3>
           <ul className="mt-2 flex flex-wrap gap-2">
             {WHAT_TO_TRY.map((item) => (
-              <li
-                key={item}
-                className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-sm text-teal-900"
-              >
+              <li key={item} className="kf-fact">
                 {item}
               </li>
             ))}
           </ul>
 
-          <h3 className="mt-5 font-semibold text-slate-900">Zásoby a tipy</h3>
-          <p className="mt-0.5 text-xs text-slate-400">SP:320–321</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-800">
+          <h3 className="mt-5 font-semibold" style={{ color: "var(--ink)" }}>
+            Zásoby a tipy
+          </h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm" style={{ color: "var(--ink)" }}>
             {ZASOBY_TIPY.map((tip) => (
               <li key={tip}>{tip}</li>
             ))}
           </ul>
         </section>
 
-        {/* Události (část K) */}
         <section aria-labelledby="events-heading">
-          <h2 id="events-heading" className="text-lg font-bold text-slate-900">
-            Události
+          <h2 id="events-heading" className="kf-sectionhdr">
+            🎉 Události
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            SP:323–330. Program ověřit aktuálně.
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            Program ověřit aktuálně.
           </p>
           <div className="mt-3 space-y-3">
             {EVENTS.map((ev) => (
-              <div
-                key={ev.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <h3 className="font-semibold text-slate-900">{ev.title}</h3>
-                <p className="mt-0.5 text-xs text-slate-500">
+              <div key={ev.id} className="kf-card">
+                <h3 className="font-semibold" style={{ color: "var(--ink)" }}>
+                  {ev.title}
+                </h3>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--muted)" }}>
                   {ev.date} · {ev.location}
                 </p>
-                <p className="mt-1.5 text-sm text-slate-800">
+                <p className="mt-1.5 text-sm" style={{ color: "var(--ink)" }}>
                   {ev.description}
                 </p>
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                    {FRESHNESS_LABEL[ev.freshness]}
-                  </span>
+                  <span className="kf-verify-chip">{FRESHNESS_LABEL[ev.freshness]}</span>
                   {ev.source && (
                     <a
-                      className="text-xs text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                      className="text-xs underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                       href={ev.source.url}
                       rel="noopener noreferrer"
                       target="_blank"
@@ -772,85 +743,71 @@ export function KorfuApp() {
                     </a>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-slate-400">{ev.sp}</p>
+                <SpLine show={showSources} sp={ev.sp} />
               </div>
             ))}
           </div>
         </section>
 
-        {/* Doprava (část L) */}
         <section aria-labelledby="transport-heading">
-          <h2
-            id="transport-heading"
-            className="text-lg font-bold text-slate-900"
-          >
-            Doprava a půjčovny
+          <h2 id="transport-heading" className="kf-sectionhdr">
+            🚗 Doprava a půjčovny
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            SP:332–346. Ceny a dostupnost ověřit aktuálně.
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            Ceny a dostupnost ověřit aktuálně.
           </p>
           <div className="mt-3 space-y-4">
             {TRANSPORT_OPTIONS.map((opt) => (
-              <div
-                key={opt.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <h3 className="font-semibold text-slate-900">{opt.mode}</h3>
-                <p className="mt-1 text-sm text-slate-800">{opt.description}</p>
+              <div key={opt.id} className="kf-card">
+                <h3 className="font-semibold" style={{ color: "var(--ink)" }}>
+                  {opt.mode}
+                </h3>
+                <p className="mt-1 text-sm" style={{ color: "var(--ink)" }}>
+                  {opt.description}
+                </p>
                 {opt.facts.length > 0 && (
                   <ul className="mt-2 space-y-1">
                     {opt.facts.map((fact) => (
                       <li key={fact.label} className="text-sm">
-                        <span className="font-medium text-slate-700">
+                        <span className="font-medium" style={{ color: "var(--ink)" }}>
                           {fact.label}:
                         </span>{" "}
-                        {fact.source ? (
-                          <>
-                            <span className="text-slate-700">{fact.value}</span>{" "}
-                            <span className="rounded bg-amber-100 px-1 py-0.5 text-xs text-amber-800">
-                              {FRESHNESS_LABEL[fact.freshness]}
-                            </span>{" "}
-                            <a
-                              className="text-xs text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
-                              href={fact.source.url}
-                              rel="noopener noreferrer"
-                              target="_blank"
-                            >
-                              {fact.source.label}
-                            </a>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-slate-500 italic">
-                              {fact.value}
-                            </span>{" "}
-                            <span className="rounded bg-amber-100 px-1 py-0.5 text-xs text-amber-800">
-                              {FRESHNESS_LABEL[fact.freshness]}
-                            </span>
-                          </>
+                        <span style={{ color: "var(--ink)" }}>{fact.value}</span>{" "}
+                        <span className="kf-verify-chip">{FRESHNESS_LABEL[fact.freshness]}</span>{" "}
+                        {fact.source && (
+                          <a
+                            className="text-xs underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                            href={fact.source.url}
+                            rel="noopener noreferrer"
+                            target="_blank"
+                          >
+                            {fact.source.label}
+                          </a>
                         )}
                       </li>
                     ))}
                   </ul>
                 )}
                 {opt.candidates.length > 0 && (
-                  <p className="mt-2 text-xs text-slate-500">
+                  <p className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
                     Kandidáti: {opt.candidates.join(", ")}
                   </p>
                 )}
                 {opt.warnings.length > 0 && (
-                  <ul className="mt-2 list-disc pl-4 text-xs text-amber-800">
-                    {opt.warnings.map((w) => (
-                      <li key={w}>{w}</li>
-                    ))}
-                  </ul>
+                  <div className="kf-warn mt-2">
+                    <ul className="list-disc pl-4">
+                      {opt.warnings.map((w) => (
+                        <li key={w}>{stripSp(w)}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {opt.sources.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {opt.sources.map((s) => (
                       <a
                         key={s.url}
-                        className="text-xs text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                        className="text-xs underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                         href={s.url}
                         rel="noopener noreferrer"
                         target="_blank"
@@ -860,96 +817,88 @@ export function KorfuApp() {
                     ))}
                   </div>
                 )}
-                <p className="mt-1 text-xs text-slate-400">{opt.sp}</p>
+                <SpLine show={showSources} sp={opt.sp} />
               </div>
             ))}
           </div>
         </section>
 
-        {/* Počasí (část M) */}
         <section aria-labelledby="pocasi-heading">
-          <h2 id="pocasi-heading" className="text-lg font-bold text-slate-900">
-            Počasí — pravidla
+          <h2 id="pocasi-heading" className="kf-sectionhdr">
+            ☀️ Počasí — pravidla
           </h2>
-          <p className="mt-1 text-sm text-slate-500">SP:348–355.</p>
-          <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
-            <p className="text-sm font-semibold text-sky-900">
+          <div className="kf-card mt-3">
+            <p className="text-sm font-semibold" style={{ color: "var(--acc2)" }}>
               Snapshot {POCASI_SNAPSHOT.datum}: {POCASI_SNAPSHOT.text}
             </p>
-            <p className="mt-1 text-xs text-amber-700">
+            <p className="mt-1 text-xs" style={{ color: "var(--warn)" }}>
               {POCASI_SNAPSHOT.upozorneni}
             </p>
-            <p className="mt-0.5 text-xs text-slate-400">
-              {POCASI_SNAPSHOT.sp}
-            </p>
+            <SpLine show={showSources} sp={POCASI_SNAPSHOT.sp} />
           </div>
-          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-800">
+          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm" style={{ color: "var(--ink)" }}>
             {POCASI_PRAVIDLA.map((rule) => (
               <li key={rule}>{rule}</li>
             ))}
           </ul>
         </section>
 
-        {/* Zdraví, nouze a peníze (část N) */}
         <section aria-labelledby="nouze-heading">
-          <h2 id="nouze-heading" className="text-lg font-bold text-slate-900">
-            Nouzové kontakty
+          <h2 id="nouze-heading" className="kf-sectionhdr">
+            🚨 Nouzové kontakty
           </h2>
-          <p className="mt-1 text-sm text-slate-500">SP:357–374.</p>
           <ul className="mt-3 space-y-2">
             {EMERGENCY_CONTACTS.map((c) => (
-              <li
-                key={c.phone}
-                className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-              >
-                <span className="text-sm font-semibold text-slate-900">
+              <li key={c.phone} className="kf-card flex flex-wrap items-center gap-2 !p-3">
+                <span className="text-sm font-semibold" style={{ color: "var(--ink)" }}>
                   {c.label}
                 </span>
                 {c.note && (
-                  <span className="text-xs text-amber-700">{c.note}</span>
+                  <span className="text-xs" style={{ color: "var(--warn)" }}>
+                    {c.note}
+                  </span>
                 )}
                 <div className="ml-auto flex gap-1.5">
-                  {/* Volat */}
                   <a
                     aria-label={`Zavolat na ${c.phone} — ${c.label}`}
-                    className="inline-flex items-center rounded-lg bg-teal-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                    className="kf-btn !px-2.5 !py-1 !text-xs"
                     href={`tel:${c.phone.replace(/\s/g, "")}`}
                   >
                     Volat {c.phone}
                   </a>
                   <CopyButton phone={c.phone} />
                 </div>
-                <p className="w-full text-xs text-slate-400">{c.sp}</p>
+                <SpLine show={showSources} sp={c.sp} />
               </li>
             ))}
           </ul>
 
-          <h3 className="mt-5 font-semibold text-slate-900">
+          <h3 className="mt-5 font-semibold" style={{ color: "var(--ink)" }}>
             Peníze, data a zdraví
           </h3>
-          <p className="mt-0.5 text-xs text-slate-400">SP:371–374</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-800">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm" style={{ color: "var(--ink)" }}>
             {PENIZE_DATA.map((tip) => (
               <li key={tip}>{tip}</li>
             ))}
           </ul>
         </section>
 
-        {/* Zdroje (část R) */}
         <section aria-labelledby="zdroje-heading">
-          <h2 id="zdroje-heading" className="text-lg font-bold text-slate-900">
-            Zdroje a aktuálnost
+          <h2 id="zdroje-heading" className="kf-sectionhdr">
+            🔗 Zdroje a aktuálnost
           </h2>
-          <p className="mt-1 text-sm text-slate-500">{SOURCES_SECTION.sp}</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            {SOURCES_SECTION.sp}
+          </p>
 
-          <h3 className="mt-4 font-semibold text-slate-800">
+          <h3 className="mt-4 font-semibold" style={{ color: "var(--ink)" }}>
             Autoritativní zdroje
           </h3>
           <ul className="mt-2 space-y-1">
             {SOURCES_SECTION.autoritativni.map((s) => (
               <li key={s.url}>
                 <a
-                  className="text-sm text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                  className="text-sm underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                   href={s.url}
                   rel="noopener noreferrer"
                   target="_blank"
@@ -960,12 +909,14 @@ export function KorfuApp() {
             ))}
           </ul>
 
-          <h3 className="mt-4 font-semibold text-slate-800">Koně a aktivity</h3>
+          <h3 className="mt-4 font-semibold" style={{ color: "var(--ink)" }}>
+            Koně a aktivity
+          </h3>
           <ul className="mt-2 space-y-1">
             {SOURCES_SECTION.koneAktivity.map((s) => (
               <li key={s.url}>
                 <a
-                  className="text-sm text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                  className="text-sm underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                   href={s.url}
                   rel="noopener noreferrer"
                   target="_blank"
@@ -976,14 +927,14 @@ export function KorfuApp() {
             ))}
           </ul>
 
-          <h3 className="mt-4 font-semibold text-slate-800">
+          <h3 className="mt-4 font-semibold" style={{ color: "var(--ink)" }}>
             Lodě, auta a gastronomie
           </h3>
           <ul className="mt-2 space-y-1">
             {SOURCES_SECTION.lodeAutaGastronomie.map((s) => (
               <li key={s.url}>
                 <a
-                  className="text-sm text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                  className="text-sm underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                   href={s.url}
                   rel="noopener noreferrer"
                   target="_blank"
@@ -994,19 +945,6 @@ export function KorfuApp() {
             ))}
           </ul>
         </section>
-
-        {/* Footer note */}
-        <div className="rounded-xl bg-slate-100 p-4 text-sm text-slate-700">
-          <p>
-            Dynamické údaje (ceny, otevírací doby, sezonní provoz) jsou označeny
-            štítkem
-            <span className="mx-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-              {FRESHNESS_LABEL["overit-aktualne"]}
-            </span>
-            — před použitím je ověřte u provozovatele. Zdroj pravidla: SP:28–30,
-            SP:407.
-          </p>
-        </div>
       </div>
     );
   }
@@ -1014,24 +952,43 @@ export function KorfuApp() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      {/* Main scrollable content — pb-20 leaves room for bottom nav */}
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-6 pb-24 sm:px-6">
-        {/* Page header */}
-        <header className="mb-6">
-          <p className="text-xs font-semibold tracking-[0.2em] text-teal-800 uppercase">
-            {TRIP_FACTS.termin} · {TRIP_FACTS.hotel.split(",")[1]?.trim()}
-          </p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Korfu 2026
-          </h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            Katalog možností, ne hotový plán. Nic tu není přidělené ke
-            konkrétnímu dni.
-          </p>
-        </header>
+    <div className="korfu2026-root flex min-h-screen flex-col">
+      {/* Sea hero — bez osobní fotografie, jen text a fakta o zájezdu */}
+      <header className="kf-seahero">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-10 pb-16 sm:px-6">
+          <div className="kf-seahero-text">
+            <div className="kf-kicker">Katalog možností · Good Inventions</div>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-5xl">
+              Korfu 2026
+            </h1>
+            <p className="kf-tagline mt-1 text-base sm:text-lg">
+              Léto na Silver Beach Hotel, Roda 🌊
+            </p>
+            <p className="kf-sub mt-2 text-sm leading-relaxed sm:text-base">
+              Katalog možností, ne hotový plán. Nic tu není přidělené ke
+              konkrétnímu dni — skládejte program modulárně podle chuti a
+              počasí.
+            </p>
+            <div className="kf-factrow mt-4">
+              <span className="kf-fact">🏨 {TRIP_FACTS.hotel}</span>
+              <span className="kf-fact">🍽️ {TRIP_FACTS.strava}</span>
+              <span className="kf-fact">🚌 {TRIP_FACTS.transfer}</span>
+              <span className="kf-fact">📅 {TRIP_FACTS.termin}</span>
+            </div>
+          </div>
+        </div>
+        <svg
+          aria-hidden="true"
+          className="kf-wave"
+          preserveAspectRatio="none"
+          viewBox="0 0 1440 64"
+        >
+          <path d="M0,32 C240,64 480,64 720,40 C960,16 1200,16 1440,40 L1440,64 L0,64 Z" />
+        </svg>
+      </header>
 
-        {/* Tab content */}
+      {/* Main scrollable content — pb-28 leaves room for footer + bottom nav */}
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-4 pb-28 sm:px-6">
         {activeTab === "prehled" && renderPrehled()}
         {activeTab === "moznosti" && renderMoznosti()}
         {activeTab === "mapa" && renderMapa()}
@@ -1039,10 +996,29 @@ export function KorfuApp() {
         {activeTab === "prakticke" && renderPrakticke()}
       </main>
 
+      {/* ── Patička s přepínačem Zdroje, nad spodní navigací ── */}
+      <div
+        className="fixed right-0 bottom-[52px] left-0 z-20 border-t"
+        style={{ borderColor: "var(--line)", background: "var(--bg)" }}
+      >
+        <div className="kf-footer mx-auto flex max-w-3xl items-center justify-between px-4 py-1.5 sm:px-6">
+          <span>Katalog — ne itinerář. Ceny a časy ověřujte u provozovatele.</span>
+          <button
+            aria-pressed={showSources}
+            className="kf-chip !py-1 !text-xs"
+            onClick={() => setShowSources((v) => !v)}
+            type="button"
+          >
+            Zdroje{showSources ? " ✓" : ""}
+          </button>
+        </div>
+      </div>
+
       {/* ── Bottom mobile navigation — fixed at bottom ── */}
       <nav
         aria-label="Hlavní navigace"
-        className="fixed right-0 bottom-0 left-0 z-30 border-t border-slate-200 bg-white shadow-[0_-2px_8px_rgba(0,0,0,0.06)]"
+        className="fixed right-0 bottom-0 left-0 z-30 border-t"
+        style={{ borderColor: "var(--line)", background: "var(--card)" }}
       >
         <ul className="mx-auto flex max-w-3xl" role="list">
           {(
@@ -1057,11 +1033,8 @@ export function KorfuApp() {
             <li key={tab} className="flex-1">
               <button
                 aria-current={activeTab === tab ? "page" : undefined}
-                className={`flex w-full flex-col items-center justify-center gap-0.5 py-2.5 text-[0.6rem] font-semibold tracking-wide uppercase transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-700 ${
-                  activeTab === tab
-                    ? "text-teal-800"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
+                className="flex w-full flex-col items-center justify-center gap-0.5 py-2.5 text-[0.6rem] font-semibold tracking-wide uppercase transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-700"
+                style={{ color: activeTab === tab ? "var(--acc)" : "var(--muted)" }}
                 onClick={() => setActiveTab(tab)}
                 type="button"
               >
@@ -1075,7 +1048,7 @@ export function KorfuApp() {
                 </span>
                 <span>{label}</span>
                 {activeTab === tab && (
-                  <span className="mt-0.5 h-0.5 w-4 rounded-full bg-teal-700" />
+                  <span className="mt-0.5 h-0.5 w-4 rounded-full" style={{ background: "var(--acc)" }} />
                 )}
               </button>
             </li>
@@ -1084,6 +1057,12 @@ export function KorfuApp() {
       </nav>
     </div>
   );
+}
+
+// ─── Local helper (inline SP strip for free-standing warning strings) ─────────
+
+function stripSp(text: string): string {
+  return text.replace(/\s*\(SP:[\d–\-, ]+\)\s*$/i, "").trim();
 }
 
 // ─── Helper: Kopírovat číslo standalone button ────────────────────────────────
@@ -1104,7 +1083,7 @@ function CopyButton({ phone }: { phone: string }) {
   return (
     <button
       aria-label={`Kopírovat číslo ${phone}`}
-      className="inline-flex items-center rounded-lg border border-teal-700 px-2.5 py-1 text-xs font-semibold text-teal-800 hover:bg-teal-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+      className="kf-btn kf-btn-ghost !px-2.5 !py-1 !text-xs"
       onClick={handleCopy}
       type="button"
     >
@@ -1115,8 +1094,10 @@ function CopyButton({ phone }: { phone: string }) {
 
 function CopyTemplate({
   template,
+  showSources,
 }: {
   template: (typeof CONTACT_TEMPLATES)[number];
+  showSources: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -1131,20 +1112,21 @@ function CopyTemplate({
   }
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="font-semibold text-slate-900">{template.title}</h3>
-      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+    <article className="kf-card">
+      <h3 className="font-semibold" style={{ color: "var(--ink)" }}>
+        {template.title}
+      </h3>
+      <pre
+        className="mt-2 overflow-x-auto rounded-lg p-3 text-sm whitespace-pre-wrap"
+        style={{ background: "var(--chip)", color: "var(--ink)" }}
+      >
         {template.body}
       </pre>
       <div className="mt-3 flex items-center gap-3">
-        <button
-          className="inline-flex items-center rounded-lg border border-teal-700 px-2.5 py-1 text-xs font-semibold text-teal-800 hover:bg-teal-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
-          onClick={handleCopy}
-          type="button"
-        >
+        <button className="kf-btn kf-btn-ghost" onClick={handleCopy} type="button">
           {copied ? "Zkopírováno!" : "Kopírovat zprávu"}
         </button>
-        <span className="text-xs text-slate-400">{template.sp}</span>
+        <SpLine show={showSources} sp={template.sp} />
       </div>
     </article>
   );

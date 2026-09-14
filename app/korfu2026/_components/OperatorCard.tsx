@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Operator } from "../_data/types";
 import { FRESHNESS_LABEL, isRenderableFact } from "../_data/types";
+import { stripSpNote } from "../_lib/format";
 
 const ROLE_LABEL: Record<Operator["role"], string> = {
   "prvni-volba": "První volba",
@@ -10,13 +11,19 @@ const ROLE_LABEL: Record<Operator["role"], string> = {
   lead: "Lead — ověřit",
 };
 
-const ROLE_COLOR: Record<Operator["role"], string> = {
-  "prvni-volba": "bg-teal-800 text-white",
-  alternativa: "bg-sky-700 text-white",
-  lead: "bg-slate-400 text-white",
+const ROLE_STYLE: Record<Operator["role"], string> = {
+  "prvni-volba": "bg-[var(--acc)] text-white",
+  alternativa: "bg-[var(--acc2)] text-white",
+  lead: "bg-[var(--muted)] text-white",
 };
 
-export function OperatorCard({ op }: { op: Operator }) {
+export function OperatorCard({
+  op,
+  showSources,
+}: {
+  op: Operator;
+  showSources: boolean;
+}) {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const renderableOffers = op.offers.filter(isRenderableFact);
 
@@ -31,36 +38,34 @@ export function OperatorCard({ op }: { op: Operator }) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <header className="flex flex-wrap items-start justify-between gap-2">
-        <h4 className="text-base font-semibold text-slate-900">{op.name}</h4>
-        <span
-          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ROLE_COLOR[op.role]}`}
-        >
+    <div className="kf-card flex flex-col gap-2.5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h4 className="text-base font-bold" style={{ color: "var(--ink)" }}>
+          {op.name}
+        </h4>
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ROLE_STYLE[op.role]}`}>
           {ROLE_LABEL[op.role]}
         </span>
-      </header>
+      </div>
 
-      {op.base && <p className="mt-1 text-xs text-slate-500">{op.base}</p>}
+      {op.base && (
+        <p className="-mt-1.5 text-xs" style={{ color: "var(--muted)" }}>
+          {op.base}
+        </p>
+      )}
 
-      {/* Offers */}
+      {/* Offers — cena/nabídka + kompaktní štítek ověření, žádný SP v textu */}
       {renderableOffers.length > 0 && (
-        <ul className="mt-3 space-y-2">
+        <ul className="space-y-1.5">
           {renderableOffers.map((offer) => (
-            <li
-              key={offer.label}
-              className="rounded-lg bg-slate-50 px-3 py-2 text-sm"
-            >
-              <span className="font-semibold text-slate-900">
+            <li key={offer.label} className="kf-pill flex flex-wrap items-baseline gap-x-2 gap-y-0.5 !py-1.5">
+              <span className="font-semibold" style={{ color: "var(--ink)" }}>
                 {offer.label}
               </span>
-              {" · "}
-              <span className="text-slate-700">{offer.value}</span>{" "}
-              <span className="rounded bg-amber-100 px-1 py-0.5 text-xs text-amber-800">
-                {FRESHNESS_LABEL[offer.freshness]}
-              </span>{" "}
+              <span>{offer.value}</span>
+              <span className="kf-verify-chip">{FRESHNESS_LABEL[offer.freshness]}</span>
               <a
-                className="text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                className="underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
                 href={offer.source.url}
                 rel="noopener noreferrer"
                 target="_blank"
@@ -68,9 +73,10 @@ export function OperatorCard({ op }: { op: Operator }) {
                 {offer.source.label}
               </a>
               {offer.note && (
-                <p className="mt-0.5 text-xs text-slate-500">{offer.note}</p>
+                <span className="basis-full text-xs" style={{ color: "var(--muted)" }}>
+                  {offer.note}
+                </span>
               )}
-              <span className="ml-1 text-xs text-slate-400">{offer.sp}</span>
             </li>
           ))}
         </ul>
@@ -78,38 +84,36 @@ export function OperatorCard({ op }: { op: Operator }) {
 
       {/* Warnings */}
       {op.warnings.length > 0 && (
-        <div className="mt-3 rounded-xl bg-amber-50 p-3">
-          <h5 className="text-xs font-bold tracking-wide text-amber-900 uppercase">
-            Upozornění
-          </h5>
-          <ul className="mt-1 list-disc pl-4 text-sm text-amber-950">
+        <div className="kf-warn">
+          <b>Upozornění</b>
+          <ul className="mt-1 list-disc pl-4">
             {op.warnings.map((w) => (
-              <li key={w}>{w}</li>
+              <li key={w}>{stripSpNote(w)}</li>
             ))}
           </ul>
         </div>
       )}
 
+      {showSources && <p className="kf-sp">{op.sp}</p>}
+
       {/* Action buttons */}
-      <div className="mt-4 flex flex-wrap gap-2">
-        {/* Volat — only when phones exist */}
+      <div className="mt-1 flex flex-wrap gap-2">
         {op.phones.map((phone, i) => (
           <a
             key={phone}
             aria-label={`Zavolat na ${phone}`}
-            className="inline-flex items-center rounded-xl bg-teal-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+            className="kf-btn"
             href={`tel:${phone.replace(/\s/g, "")}`}
           >
             Volat{op.phones.length > 1 ? ` (${i + 1})` : ""}
           </a>
         ))}
 
-        {/* Kopírovat číslo — only when phones exist */}
         {op.phones.map((phone, i) => (
           <button
             key={`copy-${phone}`}
             aria-label={`Kopírovat číslo ${phone}`}
-            className="inline-flex items-center rounded-xl border border-teal-700 px-3 py-1.5 text-sm font-semibold text-teal-800 hover:bg-teal-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+            className="kf-btn kf-btn-ghost"
             onClick={() => handleCopy(phone, i)}
             type="button"
           >
@@ -119,12 +123,11 @@ export function OperatorCard({ op }: { op: Operator }) {
           </button>
         ))}
 
-        {/* Otevřít zdroj — only when sources exist */}
         {op.sources.map((src) => (
           <a
             key={src.url}
             aria-label={`Otevřít zdroj ${src.label} (nové okno)`}
-            className="inline-flex items-center rounded-xl border border-slate-400 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+            className="kf-btn kf-btn-ghost"
             href={src.url}
             rel="noopener noreferrer"
             target="_blank"
@@ -133,8 +136,6 @@ export function OperatorCard({ op }: { op: Operator }) {
           </a>
         ))}
       </div>
-
-      <p className="mt-2 text-xs text-slate-400">{op.sp}</p>
     </div>
   );
 }
