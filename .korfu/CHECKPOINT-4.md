@@ -90,7 +90,7 @@ V tomto QA kroku neproběhl push, deployment, GitHub Actions, změna DB, secrets
 
 ## Rollback poznámka
 
-Rollback nebyl proveden. Po commitu korfu2026-18 je HEAD `[commit SHA korfu2026-18]`; při schváleném rollbacku zpět na `20c691931d2e72557b9779f803686826197e20b1` platí:
+Rollback nebyl proveden. Po commitu korfu2026-18 je HEAD `d38382e7...`; při schváleném rollbacku zpět na `20c691931d2e72557b9779f803686826197e20b1` platí:
 
 ```
 git reset --hard 20c691931d2e72557b9779f803686826197e20b1
