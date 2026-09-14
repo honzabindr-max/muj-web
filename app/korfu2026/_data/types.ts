@@ -270,7 +270,7 @@ export interface DynamicFact {
  * Dynamický údaj se smí zobrazit jen tehdy, když je k němu ověřovací odkaz
  * (SOURCE_PACK ř. 30 a 407). Bez zdroje se hodnota nevykresluje vůbec.
  */
-export function isRenderableFact(fact: DynamicFact): boolean {
+export function isRenderableFact(fact: DynamicFact): fact is DynamicFact & { source: SourceRef } {
   return fact.source !== null;
 }
 

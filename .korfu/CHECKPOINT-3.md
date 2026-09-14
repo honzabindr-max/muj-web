@@ -51,7 +51,7 @@ Citace dat: `app/korfu2026/_data/places.ts:1420–1950`.
 
 Sekce odpovídá SP:129–179 (část 10 „Jízda na koni").
 
-Operátoři jsou v `app/korfu2026/_data/operators.ts:10–300`. Katreena Horse Riding (SP:138–151) je `HORSE_OPERATORS[0]` s rolí `'prvni-volba'`; Arena Horse Riding (SP:153–160) je `HORSE_OPERATORS[1]` s rolí `'alternativa'`; Angel's Horses (SP:165–166) je v `HORSE_LEADS` s rolí `'lead'` a freshness `'neovereno'`. Ceníky, kontakty a checklisty jsou dynamická data se štítkem „ověřit aktuálně" a `verifyUrl` (D01-B). Bezpečnostní checklist pro rezervaci jízdy je `CHECKLISTS[0]` (SP:168–173) v `operators.ts:641`. Kontaktní šablona je `CONTACT_TEMPLATES[0]` (SP:175–179) v `operators.ts:718`. KorfuApp renderuje koně jako výraznou sekci dle SP:421–422 (`app/korfu2026/_components/KorfuApp.tsx:380–450`).
+Operátoři jsou v `app/korfu2026/_data/operators.ts:10–300`. Katreena Horse Riding (SP:138–151) je `HORSE_OPERATORS[0]` s rolí `'prvni-volba'`; Arena Horse Riding (SP:153–160) je `HORSE_OPERATORS[1]` s rolí `'alternativa'`; Angel's Horses (SP:165–166) je v `HORSE_LEADS` s rolí `'lead'` a freshness `'neovereno'`. Renderovatelné ceníky jsou dynamická data se štítkem „ověřit aktuálně" a povinným polem `source` (D01-B); fakta bez `source` filtruje `isRenderableFact()`. Bezpečnostní checklist pro rezervaci jízdy je `CHECKLISTS[0]` (SP:168–173) v `operators.ts:641`. Kontaktní šablona je `CONTACT_TEMPLATES[0]` (SP:175–179) v `operators.ts:718`. KorfuApp renderuje koně jako výraznou sekci dle SP:421–422 (`app/korfu2026/_components/KorfuApp.tsx:380–450`).
 
 ## Katalog — Lodě
 
@@ -75,7 +75,7 @@ Sekce odpovídá SP:292–308 (část 13 „Roda jako kategorie").
 
 Sekce odpovídá SP:310–321 (část 14 „Jídlo a pití") a SP:295–308 (večerní program z části 13).
 
-Restaurace v Rodě: `app/korfu2026/_data/practical.ts:473` (`RESTAURACE_RODA`) — Oscar's, Nikos a další (SP:313–316). Místní speciality: `WHAT_TO_TRY` v `practical.ts:507` (SP:317–321). Zásobovací tipy: `ZASOBY_TIPY` v `practical.ts:519`. Večerní podniky: `VECERNI_PODNIKY` v `practical.ts:392` (7 podniků, SP:301–306) a `VECERNI_ALTERNATIVY` v `practical.ts:447` (Sidari, Kassiopi, Corfu Town, SP:307–308). Všechna otevírací doba, ceny a aktuální programy nesou freshness `'overit-aktualne'` s `verifyUrl` (D01-B, SP:28–30).
+Restaurace v Rodě: `app/korfu2026/_data/practical.ts:473` (`RESTAURACE_RODA`) — Oscar's, Nikos a další (SP:313–316). Místní speciality: `WHAT_TO_TRY` v `practical.ts:507` (SP:317–321). Zásobovací tipy: `ZASOBY_TIPY` v `practical.ts:519`. Večerní podniky: `VECERNI_PODNIKY` v `practical.ts:392` (7 podniků, SP:301–306) a `VECERNI_ALTERNATIVY` v `practical.ts:447` (Sidari, Kassiopi, Corfu Town, SP:307–308). Všechna otevírací doba, ceny a aktuální programy nesou freshness `'overit-aktualne'`; dynamická fakta mají povinný zdroj v poli `source` (D01-B, SP:28–30).
 
 ## Katalog — Události
 
@@ -99,7 +99,7 @@ Sekce odpovídá SP:357–374 (část 18 „Zdraví / nouze / peníze"), SP:35�
 
 Sekce odpovídá SP:461–476 (část 25 „Klíčové zdroje").
 
-`app/korfu2026/_data/practical.ts:527` (`SOURCES_SECTION`) obsahuje strukturovaný přehled zdrojů: autoritativní (Silver Beach Hotel, Ionian Music Festival, Green Buses, řecká nouzová čísla, Visit Greece), koně a aktivity (katreenahorseriding, arenahorseriding, roda-beach, divecorfu, quadcorfu a další), lodě a auta (seahorsecorfu, bluelagooncorfu, corfuboatrental a 10 dalších), viz SP:462–476. Každý dynamický údaj (cena, otevírací doba, jízdní řád, program) nese `freshness.verifyUrl` s odkazem na příslušný zdroj a badge „ověřit aktuálně" (SP:28–30, SP:407).
+`app/korfu2026/_data/practical.ts:527` (`SOURCES_SECTION`) obsahuje strukturovaný přehled zdrojů: autoritativní (Silver Beach Hotel, Ionian Music Festival, Green Buses, řecká nouzová čísla, Visit Greece), koně a aktivity (katreenahorseriding, arenahorseriding, roda-beach, divecorfu, quadcorfu a další), lodě a auta (seahorsecorfu, bluelagooncorfu, corfuboatrental a 10 dalších), viz SP:462–476. Každý renderovaný dynamický údaj (cena, otevírací doba, jízdní řád, program) nese `freshness` a povinný odkaz na příslušný zdroj v poli `source`; UI zobrazuje badge „ověřit aktuálně" (SP:28–30, SP:407).
 
 ---
 

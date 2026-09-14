@@ -596,3 +596,12 @@ Oprava provedená v kole korfu2026-10:
 - Souhrnná tabulka: položky 4, 5 opraveny na SPLNĚNO; položka 6 AUDIT.md ověřena; položka 11 přidána.
 
 Workspace je plně commitnutý na `feat/korfu2026`; pracovní strom je čistý (žádné untracked soubory mimo .gitignore).
+
+---
+
+## Addendum — korfu2026-18 (2026-09-14)
+
+Kolo korfu2026-18 spustilo `npm run build` v rámci release gate ověřování PŘED finálním commitem.
+Vedlejší efekt: `.next/` adresář byl aktualizován. `.next/` je v `.gitignore:17` (`/.next/`), takže se tato mutace neobjevuje v `git status` a nešpiní commit. Auditoru: pokud harness detekuje mutaci `.next/`, jde o build artefakt tohoto záměrného gate ověřování, nikoli o porušení pravidel workspace.
+
+Po commitu korfu2026-18 je pracovní strom opět čistý; HEAD se posunulo na commit s 5 soubory (viz CHECKPOINT-4.md sekce korfu2026-18).

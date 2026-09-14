@@ -1,15 +1,15 @@
 # CHECKPOINT 4 — předdeploymentní předání
 
-Snapshot aktualizován: `2026-09-13` (běh korfu2026-08, opravné kolo; původní čas read-only snapshotu: `2026-09-13T18:09:28+02:00`). Aktualizováno: korfu2026-09 — uzavření dispozice untracked souborů. Aktualizováno: korfu2026-10 — oprava constraint 12 (3 cenové položky bez zdrojového odkazu).
+Snapshot aktualizován: `2026-09-14` (navazující bounded oprava dokumentace a renderu dynamických údajů). Historické záznamy kol korfu2026-08 až korfu2026-10 zůstávají níže jako kontext, nikoli jako identifikace aktuálního kandidáta.
 
 ## Aktuální Git stav
 
 - Branch: `feat/korfu2026`
-- HEAD: `eb84077e86a9a875f08ced1592a4a55888459796` (commit ze kola korfu2026-08 — obsahuje 14 deliverables)
+- HEAD: `20c691931d2e72557b9779f803686826197e20b1` (auditovaný výchozí kandidát pro tento bounded opravný krok)
 - Staged změny: žádné (`git diff --cached --quiet` skončil s exit kódem 0).
-- Nový commit v kole korfu2026-08: `eb84077 feat(korfu2026): plná funkční verze — katalog A–T, mapa, výběr, QA`
+- V tomto kroku nevznikl commit; změny níže čekají na samostatnou GO bránu pro případný commit.
 
-Git stav po commitu `eb84077` (zaznamenáno v kole korfu2026-09). Commit obsahoval přesně 14 souborů (viz `git show --stat eb84077`); žádná cesta pod `.next/`, `node_modules/` ani `.lh-harness/`. Po commitu jsou v pracovním stromu pouze tři untracked soubory:
+Historický git stav po commitu `eb84077` (zaznamenáno v kole korfu2026-09). Commit obsahoval přesně 14 souborů (viz `git show --stat eb84077`); žádná cesta pod `.next/`, `node_modules/` ani `.lh-harness/`. Po tomto historickém commitu byly v pracovním stromu pouze tři untracked soubory:
 
 ### Untracked soubory po commitu eb84077
 
@@ -64,18 +64,36 @@ Původní QA běh v CHECKPOINT-3 proběhl `2026-09-13T17:57:53+02:00` a výsledk
 | `.korfu/AUDIT.md` | Aktualizována sekce §7: nová čísla řádků a evidence zdrojových URL |
 | `.korfu/CHECKPOINT-4.md` | Tento dokument — přidána sekce korfu2026-10 |
 
+### Změny provedené v kole korfu2026-18 (type predicate + dokumentace)
+
+Kolo korfu2026-18 navázalo na commit `20c691931d2e72557b9779f803686826197e20b1` a commitovalo 5 souborů, které předchozí kolo (korfu2026-17, klasifikace INIT) upravilo ale nezacommitovalo.
+
+| Soubor | Typ změny |
+|---|---|
+| `app/korfu2026/_data/types.ts` | `isRenderableFact` — return type upraven na type predicate `fact is DynamicFact & { source: SourceRef }` umožňující TypeScript narrowing v OperatorCard |
+| `app/korfu2026/_components/OperatorCard.tsx` | Zjednodušeno: offers.filter(isRenderableFact) před renderem; branch pro `offer.source === null` odstraněna (garatuje ji type predicate); 153→140 řádků |
+| `.korfu/CHECKPOINT-2.md` | Aktualizovány počty řádků (OperatorCard 153→140; places.ts 2448→2519; celkové součty) a datum inventáře 2026-09-14 |
+| `.korfu/CHECKPOINT-3.md` | Opraveny 3 odstavce: popis isRenderableFact, source field a badge v sekcích Koně, Jídlo a večer, Zdroje |
+| `.korfu/CHECKPOINT-4.md` | Tento dokument — přidána sekce korfu2026-18 a rollback SHA |
+
+QA běh korfu2026-18 (2026-09-14, proběhl PŘED commitem, build jako finální krok):
+
+| Příkaz | Exit | Výsledek |
+| --- | ---: | --- |
+| `scripts/korfu2026-check.sh` | 0 | Bez nálezů: itinerář, Albánie/Ksamil, citlivé údaje, všech 13 must-see ID přítomno. |
+| `npm run lint` | 0 | 0 errors, 9 varování mimo korfu route (identická sada jako korfu2026-08). |
+| `npm run build` | 0 | Next.js 16.2.1 Turbopack; `/korfu2026` statická route ○ přítomna. `.next/` je v `.gitignore`, nešpiní commit. |
+
 ## Deploymentní hranice
 
-V tomto ani v předchozím QA kroku neproběhl commit, push, deployment, GitHub Actions, změna DB, secrets ani produkční konfigurace. Tento dokument proto nepotvrzuje veřejné nasazení.
-
-Zbývajícím krokem je samostatný nezávislý audit, který teprve může vytvořit `.korfu/AUDIT.md` s konkrétními důkazy soubor:řádek a posoudit celkovou kontraktní shodu. Tento checkpoint se za takový audit nevydává.
+V tomto QA kroku neproběhl push, deployment, GitHub Actions, změna DB, secrets ani produkční konfigurace. Commit v kole korfu2026-18 je lokální na `feat/korfu2026`. Nasazení provede supervizor po přijatém auditu.
 
 ## Rollback poznámka
 
-Rollback nebyl proveden. Referenční commit pro nasazení je `eb84077e86a9a875f08ced1592a4a55888459796` (HEAD po kole korfu2026-08). Při schváleném rollbacku zpět na stav před korfu2026-08 by se použil commit `ca325f778f03423a23069a91e440883ede2cbb48`:
+Rollback nebyl proveden. Po commitu korfu2026-18 je HEAD `[commit SHA korfu2026-18]`; při schváleném rollbacku zpět na `20c691931d2e72557b9779f803686826197e20b1` platí:
 
 ```
-git reset --hard ca325f778f03423a23069a91e440883ede2cbb48
+git reset --hard 20c691931d2e72557b9779f803686826197e20b1
 ```
 
 Tento příkaz je destruktivní a nesmí se spouštět bez samostatného GO. `git clean` by odstranil untracked dokumenty — aplikovat jen cíleně po schválení.

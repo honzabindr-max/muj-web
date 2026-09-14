@@ -44,7 +44,7 @@ checkpointu 2 v commitu `f59aabd`, nikoli inventář pozdějšího pracovního s
 Mimo `app/korfu2026/`, `scripts/korfu2026-geocode.mjs` a `.korfu/` nebyl v obou commitech
 vytvořen ani změněn žádný soubor (viz oddíl 9).
 
-### 1c. Ověřený současný inventář pracovního stromu (2026-09-13)
+### 1c. Ověřený současný inventář pracovního stromu (2026-09-14)
 
 > **OPRAVENO 2026-09-13 (běh korfu2026-08, kolo opravné).** KorfuApp.tsx měl uveden nesprávný
 > počet řádků (1 156 místo skutečných 1 151); součtové údaje byly přepočítány. Seznam
@@ -52,19 +52,19 @@ vytvořen ani změněn žádný soubor (viz oddíl 9).
 > Vysvětlení je v oddíle 12.
 
 Pozdější implementační kola rozšířila route nad rámec historického checkpointu 2. Fyzický
-inventář po druhé opravě proto tvoří **11 souborů v `app/korfu2026/` (6 322 řádků)** a
-**2 související skripty (217 řádků)**, celkem **13 souborů a 6 539 řádků**:
+inventář po navazující opravě proto tvoří **11 souborů v `app/korfu2026/` (6 380 řádků)** a
+**2 související skripty (217 řádků)**, celkem **13 souborů a 6 597 řádků**:
 
 | Soubor | Řádků |
 |---|---:|
 | `app/korfu2026/_components/KorfuApp.tsx` | 1 151 |
 | `app/korfu2026/_components/KorfuMap.tsx` | 180 |
-| `app/korfu2026/_components/OperatorCard.tsx` | 153 |
+| `app/korfu2026/_components/OperatorCard.tsx` | 140 |
 | `app/korfu2026/_components/PlaceCard.tsx` | 266 |
 | `app/korfu2026/_data/combos.ts` | 113 |
 | `app/korfu2026/_data/coords.generated.ts` | 135 |
 | `app/korfu2026/_data/operators.ts` | 749 |
-| `app/korfu2026/_data/places.ts` | 2 448 |
+| `app/korfu2026/_data/places.ts` | 2 519 |
 | `app/korfu2026/_data/practical.ts` | 648 |
 | `app/korfu2026/_data/types.ts` | 467 |
 | `app/korfu2026/page.tsx` | 12 |

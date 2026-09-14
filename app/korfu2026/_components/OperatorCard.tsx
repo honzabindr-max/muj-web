@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Operator } from "../_data/types";
-import { FRESHNESS_LABEL } from "../_data/types";
+import { FRESHNESS_LABEL, isRenderableFact } from "../_data/types";
 
 const ROLE_LABEL: Record<Operator["role"], string> = {
   "prvni-volba": "První volba",
@@ -18,6 +18,7 @@ const ROLE_COLOR: Record<Operator["role"], string> = {
 
 export function OperatorCard({ op }: { op: Operator }) {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const renderableOffers = op.offers.filter(isRenderableFact);
 
   async function handleCopy(phone: string, idx: number) {
     try {
@@ -43,9 +44,9 @@ export function OperatorCard({ op }: { op: Operator }) {
       {op.base && <p className="mt-1 text-xs text-slate-500">{op.base}</p>}
 
       {/* Offers */}
-      {op.offers.length > 0 && (
+      {renderableOffers.length > 0 && (
         <ul className="mt-3 space-y-2">
-          {op.offers.map((offer) => (
+          {renderableOffers.map((offer) => (
             <li
               key={offer.label}
               className="rounded-lg bg-slate-50 px-3 py-2 text-sm"
@@ -53,33 +54,19 @@ export function OperatorCard({ op }: { op: Operator }) {
               <span className="font-semibold text-slate-900">
                 {offer.label}
               </span>
-              {offer.source ? (
-                <>
-                  {" · "}
-                  <span className="text-slate-700">{offer.value}</span>{" "}
-                  <span className="rounded bg-amber-100 px-1 py-0.5 text-xs text-amber-800">
-                    {FRESHNESS_LABEL[offer.freshness]}
-                  </span>{" "}
-                  <a
-                    className="text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
-                    href={offer.source.url}
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    {offer.source.label}
-                  </a>
-                </>
-              ) : (
-                <>
-                  {" · "}
-                  <span className="text-slate-500 italic">
-                    {offer.value}
-                  </span>{" "}
-                  <span className="rounded bg-amber-100 px-1 py-0.5 text-xs text-amber-800">
-                    {FRESHNESS_LABEL[offer.freshness]}
-                  </span>
-                </>
-              )}
+              {" · "}
+              <span className="text-slate-700">{offer.value}</span>{" "}
+              <span className="rounded bg-amber-100 px-1 py-0.5 text-xs text-amber-800">
+                {FRESHNESS_LABEL[offer.freshness]}
+              </span>{" "}
+              <a
+                className="text-teal-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                href={offer.source.url}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                {offer.source.label}
+              </a>
               {offer.note && (
                 <p className="mt-0.5 text-xs text-slate-500">{offer.note}</p>
               )}
