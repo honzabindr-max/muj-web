@@ -6,6 +6,7 @@ import {
   TIER_LABEL,
   CATEGORY_LABEL,
   FRESHNESS_LABEL,
+  isRenderableFact,
   mapsUrl,
   SELECTION_STATUS_LABEL,
 } from "../_data/types";
@@ -121,6 +122,34 @@ export function PlaceCard({
             ))}
           </ul>
         </div>
+      )}
+
+      {/* Dynamické fakty (ceny, varianty) — jen s odkazem na zdroj (D01-B) */}
+      {place.facts.filter(isRenderableFact).length > 0 && (
+        <ul className="space-y-1.5">
+          {place.facts.filter(isRenderableFact).map((fact) => (
+            <li key={fact.label} className="kf-pill flex flex-wrap items-baseline gap-x-2 gap-y-0.5 !py-1.5">
+              <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                {fact.label}
+              </span>
+              <span>{fact.value}</span>
+              <span className="kf-verify-chip">{FRESHNESS_LABEL[fact.freshness]}</span>
+              <a
+                className="underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                href={fact.source.url}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                {fact.source.label}
+              </a>
+              {fact.note && (
+                <span className="basis-full text-xs" style={{ color: "var(--muted)" }}>
+                  {fact.note}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* Verify — one compact line per item, no separate gray panel */}
