@@ -1,6 +1,33 @@
 import type { NextConfig } from "next";
 
+const SAM_BYT_IMG_SRC = "img-src 'self' data: d18-a.sdn.cz api.bezrealitky.cz t.rmcl.cz www.bazos.cz";
+
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/sam-byt",
+        headers: [
+          { key: "Content-Security-Policy", value: SAM_BYT_IMG_SRC },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/sam-byt/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: SAM_BYT_IMG_SRC },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/api/sam-byt/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       // H2 Buddy DEC-002: /honzik2 root je uvolněný pro Today (BUILD-26).
