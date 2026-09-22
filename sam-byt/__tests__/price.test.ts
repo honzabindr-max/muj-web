@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { getListingById } from "../data/listings";
-import { computePricePerM2, formatMonthlyPriceRange, formatPricePerM2, sortPricePerM2Value } from "../data/price";
+import { getAllListings, getListingById } from "../data/listings";
+import {
+  computePricePerM2,
+  formatMonthlyPriceRange,
+  formatPricePerM2,
+  formatRent,
+  formatTotalCostsLabel,
+  priceCompletenessNote,
+  sortPricePerM2Value,
+} from "../data/price";
 
 describe("cenová logika (zadání bod 5)", () => {
   it("sam-05 má rozmezí 24 400–24 900 Kč a 407–415 Kč/m² (ne 20 900 / 348 Kč/m²)", () => {
@@ -44,5 +52,30 @@ describe("cenová logika (zadání bod 5)", () => {
   it("výchozí řazení dá sam-11 (bez plochy) vždy za byty s vypočítatelným Kč/m²", () => {
     const withArea = getListingById("sam-01")!;
     expect(sortPricePerM2Value(getListingById("sam-11")!)).toBeGreaterThan(sortPricePerM2Value(withArea));
+  });
+
+  it("velké číslo na kartě je nájem (rent_czk), ne celkové náklady", () => {
+    const sam01 = getListingById("sam-01")!;
+    expect(formatRent(sam01).replace(/ /g, " ")).toBe("19 000 Kč");
+  });
+
+  it("malé číslo je 'celkem X Kč vč. záloh', u sam-05 jako rozsah", () => {
+    const sam05 = getListingById("sam-05")!;
+    const label = formatTotalCostsLabel(sam05).replace(/ /g, " ");
+    expect(label).toBe("celkem 24 400–24 900 Kč vč. záloh");
+  });
+
+  it("sam-11 má v celkové částce dovětek 'pro 2 osoby'", () => {
+    const sam11 = getListingById("sam-11")!;
+    expect(formatTotalCostsLabel(sam11)).toMatch(/pro 2 osoby$/);
+  });
+
+  it("10 z 11 bytů (vše kromě sam-11) má viditelné označení neúplnosti u celkové ceny", () => {
+    const incomplete = getAllListings().filter((l) => l.id !== "sam-11");
+    expect(incomplete).toHaveLength(10);
+    for (const listing of incomplete) {
+      expect(priceCompletenessNote(listing)).toMatch(/známé náklady/i);
+    }
+    expect(priceCompletenessNote(getListingById("sam-11")!)).toMatch(/úplná/i);
   });
 });

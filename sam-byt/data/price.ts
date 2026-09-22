@@ -28,6 +28,26 @@ export function priceCompletenessNote(listing: Listing): string {
   return "Známé náklady; další platby k ověření.";
 }
 
+/** Velké číslo na kartě/detailu — samotný nájem, bez služeb a záloh. */
+export function formatRent(listing: Listing): string {
+  return formatCzk(listing.rent_czk);
+}
+
+/**
+ * Malé číslo pod nájmem: "celkem 24 000 Kč vč. záloh" (u sam-05 jako
+ * rozsah, u sam-11 s dovětkem "pro 2 osoby"). Zdroj pořád display_monthly_price,
+ * nikdy known_monthly_total_czk.
+ */
+export function formatTotalCostsLabel(listing: Listing): string {
+  const { known_min_czk, known_max_czk } = listing.display_monthly_price;
+  const amount =
+    known_min_czk === known_max_czk
+      ? formatCzk(known_min_czk)
+      : `${czk.format(known_min_czk)}–${czk.format(known_max_czk)} Kč`;
+  const forTwo = listing.id === "sam-11" ? " pro 2 osoby" : "";
+  return `celkem ${amount} vč. záloh${forTwo}`;
+}
+
 /**
  * Kč/m² pro řazení a zobrazení. Pokud zdroj dodává rozsah přímo
  * (price_per_m2_from/to_czk, např. sam-05), použije se ten. Jinak se

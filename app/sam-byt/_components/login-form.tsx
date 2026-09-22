@@ -35,8 +35,8 @@ export function LoginForm() {
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center gap-6 px-4">
       <div>
-        <h1 className="font-serif text-3xl">SAM-BYT</h1>
-        <p className="mt-1 text-sm text-zinc-500">Soukromý výběr bytu pro Sama a Honzíka.</p>
+        <h1 className="text-3xl font-extrabold text-zinc-950">SAM-BYT</h1>
+        <p className="mt-1 text-sm font-medium text-zinc-600">Soukromý výběr bytu pro Sama a Honzíka.</p>
       </div>
       <form onSubmit={onSubmit} className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5">
         <div className="flex gap-2">

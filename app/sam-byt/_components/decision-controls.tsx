@@ -113,7 +113,7 @@ export function DecisionControls({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {RATING_FIELDS.map(({ key, label }) => (
               <div key={key} className="flex flex-col items-center gap-1">
-                <span className="text-xs text-zinc-500">{label}</span>
+                <span className="text-xs font-medium text-zinc-600">{label}</span>
                 <div className="flex gap-0.5">
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
@@ -138,7 +138,7 @@ export function DecisionControls({
 
 function SaveIndicator({ status }: { status: "idle" | "saving" | "saved" | "error" }) {
   if (status === "idle") return null;
-  if (status === "saving") return <span className="text-xs text-zinc-400">Ukládám…</span>;
+  if (status === "saving") return <span className="text-xs font-medium text-zinc-600">Ukládám…</span>;
   if (status === "saved") return <span className="text-xs text-emerald-600">Uloženo</span>;
   return <span className="text-xs text-red-600">Chyba při ukládání — zkus to znovu</span>;
 }
