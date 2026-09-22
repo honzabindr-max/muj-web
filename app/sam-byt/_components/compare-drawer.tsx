@@ -40,7 +40,7 @@ export function CompareDrawer({
     <div className="fixed inset-0 z-50 flex flex-col bg-black/40 p-3 sm:items-center sm:justify-center">
       <div className="flex max-h-[85vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-zinc-200 p-3">
-          <h2 className="font-serif text-lg">Porovnání ({listings.length})</h2>
+          <h2 className="text-lg font-bold text-zinc-950">Porovnání ({listings.length})</h2>
           <button onClick={onClose} className="rounded-full bg-zinc-100 px-3 py-1 text-sm">
             Zavřít
           </button>
@@ -59,7 +59,7 @@ export function CompareDrawer({
                       className="h-24 w-32 rounded-lg object-cover"
                     />
                     <p className="mt-1 font-medium">{l.street ?? l.district}</p>
-                    <p className="text-xs text-zinc-500">{l.district}</p>
+                    <p className="text-xs font-medium text-zinc-600">{l.district}</p>
                   </th>
                 ))}
               </tr>
@@ -67,9 +67,9 @@ export function CompareDrawer({
             <tbody>
               {ROWS.map((row) => (
                 <tr key={row.label} className="border-t border-zinc-100">
-                  <th className="p-2 text-left align-top text-xs font-medium text-zinc-500">{row.label}</th>
+                  <th className="p-2 text-left align-top text-xs font-medium text-zinc-600">{row.label}</th>
                   {listings.map((l) => (
-                    <td key={l.id} className="p-2 align-top text-xs">
+                    <td key={l.id} className="p-2 align-top text-xs tabular-nums text-zinc-800">
                       {row.render(l, statesFor(l.id))}
                     </td>
                   ))}

@@ -58,8 +58,8 @@ export function AppShell({
     <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="font-serif text-3xl">SAM-BYT</h1>
-          <p className="text-sm text-zinc-500">Přihlášen: {displayName}</p>
+          <h1 className="text-3xl font-extrabold text-zinc-950">SAM-BYT</h1>
+          <p className="text-sm font-medium text-zinc-600">Přihlášen: {displayName}</p>
         </div>
         <div className="flex items-center gap-2">
           {compareIds.length >= 2 && (

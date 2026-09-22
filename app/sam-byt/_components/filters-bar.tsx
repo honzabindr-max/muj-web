@@ -49,7 +49,7 @@ export function FiltersBar({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium text-zinc-700">{resultCount} z {listings.length} bytů</span>
         <div className="flex items-center gap-2">
-          <label className="text-xs text-zinc-500" htmlFor="sam-byt-sort">
+          <label className="text-xs font-medium text-zinc-600" htmlFor="sam-byt-sort">
             Řadit:
           </label>
           <select

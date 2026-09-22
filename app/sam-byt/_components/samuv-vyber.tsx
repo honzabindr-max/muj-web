@@ -26,7 +26,7 @@ export function SamuvVyber({ listings, samState }: { listings: Listing[]; samSta
 
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-4">
-      <h2 className="font-serif text-xl">Samův výběr</h2>
+      <h2 className="text-xl font-bold text-zinc-950">Samův výběr</h2>
       <ul className="mt-3 divide-y divide-zinc-100">
         {listings.map((l) => {
           const s = samState[l.id];
@@ -45,7 +45,7 @@ export function SamuvVyber({ listings, samState }: { listings: Listing[]; samSta
       </ul>
       {listings.some((l) => samState[l.id]?.notes) && (
         <details className="mt-3 text-sm">
-          <summary className="cursor-pointer text-zinc-500">Samovy poznámky</summary>
+          <summary className="cursor-pointer font-medium text-zinc-600">Samovy poznámky</summary>
           <ul className="mt-2 flex flex-col gap-2">
             {listings
               .filter((l) => samState[l.id]?.notes)
