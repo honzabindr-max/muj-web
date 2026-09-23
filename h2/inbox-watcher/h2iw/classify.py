@@ -1,0 +1,140 @@
+"""Single Haiku call per new Inbox item, strict JSON via Structured Outputs.
+
+The model only proposes. validate.py decides what is allowed; render.py and
+apply.py map enums to labels/emoji deterministically.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+import anthropic
+
+from . import config
+
+TYPES = ["TASK", "WAITING", "EVENT", "INFO", "BLOCK", "UNKNOWN"]
+CONTEXTS = ["telefon", "doma", "venku"]
+AREAS = [
+    "prace",
+    "projekty",
+    "zdravi",
+    "rodina",
+    "vztah",
+    "domacnost",
+    "zvirata",
+    "urady",
+    "finance",
+    "pohyb",
+]
+
+
+def _nullable(schema: dict) -> dict:
+    return {"anyOf": [schema, {"type": "null"}]}
+
+
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": TYPES},
+        "title": {"type": "string"},
+        "context": _nullable({"type": "string", "enum": CONTEXTS}),
+        "area": _nullable({"type": "string", "enum": AREAS}),
+        "due_date": _nullable({"type": "string"}),
+        "due_time": _nullable({"type": "string"}),
+        "deadline_date": _nullable({"type": "string"}),
+        "start": _nullable({"type": "string"}),
+        "end": _nullable({"type": "string"}),
+        "all_day_date": _nullable({"type": "string"}),
+        "reason": {"type": "string"},
+    },
+    "required": [
+        "type",
+        "title",
+        "context",
+        "area",
+        "due_date",
+        "due_time",
+        "deadline_date",
+        "start",
+        "end",
+        "all_day_date",
+        "reason",
+    ],
+    "additionalProperties": False,
+}
+
+SYSTEM_PROMPT = """Třídíš jednu položku z Todoist Doručených podle H2 Planning OS v0.3. Vstup je často diktovaný, česky, může obsahovat překlepy. Vrať jen JSON podle schématu.
+
+TYPY
+- TASK: něco, co mám udělat já. Bez pevného času.
+- WAITING: čekám na někoho/něco („čekám až…", „až pošle…", „ozve se…").
+- EVENT: můj pevný termín s konkrétním časem (lékař, schůzka, hovor v 15:00). Musí mít datum I čas začátku.
+- INFO: plány jiných lidí, které nejsou moje aktivita (Markétka má firemní akci, děti mají výlet). Nezabírá můj čas.
+- BLOCK: vyhrazuji si čas na práci na úkolu („v sobotu 10–12 dělám na…", „zablokuj mi…").
+- UNKNOWN: nesrozumitelné, nesmyslné, víc nesouvisejících věcí najednou, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
+
+POLE
+- title: krátký český název v rozkazovacím/věcném tvaru, bez emoji, bez data a času, velké první písmeno, max 80 znaků. Oprav zjevné překlepy diktování.
+- context: telefon (volat i psát zprávu), doma, venku — jen když pomáhá rozhodnout, kde/jak to udělat; jinak null. U WAITING vždy null.
+- area: jen když je oblast jasná, jinak null. prace = placená práce/klienti; projekty = vlastní projekty a vývoj; zdravi; rodina; vztah = partnerka Markétka; domacnost = byt, nákupy, opravy; zvirata; urady = úřady a administrativa; finance; pohyb = sport.
+- due_date (YYYY-MM-DD): JEN když vstup výslovně říká den, kdy to chci dělat („zítra", „v pondělí"). Jinak null. U WAITING = den follow-upu, pokud je uveden.
+- due_time (HH:MM): jen u TASK/WAITING, když je výslovně uveden čas a jde o úkol, ne schůzku. Jinak null.
+- deadline_date (YYYY-MM-DD): JEN výslovný termín „do…" („do pátku", „nejpozději 30. 9."). „Do pátku" je deadline, ne due_date.
+- start/end (YYYY-MM-DDTHH:MM, místní čas Praha): u EVENT, BLOCK a časovaného INFO. end jen když je uveden konec nebo délka.
+- all_day_date (YYYY-MM-DD): jen u INFO bez času (celodenní).
+- Nikdy si nevymýšlej datum ani čas, které ve vstupu nejsou. Relativní dny přepočítej podle tabulky níže.
+- Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
+- Telefonát nebo zpráva s časem („zítra v 8 zavolat do školky") je TASK s due_date + due_time a context telefon, ne EVENT. EVENT je jen schůzka, návštěva nebo termín u někoho.
+- reason: jedna krátká česká věta, proč tento typ."""
+
+
+def date_context(now: datetime) -> str:
+    names = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
+    local = now.astimezone(config.TZ)
+    rows = []
+    for i in range(15):
+        d = (local + timedelta(days=i)).date()
+        label = {0: " (dnes)", 1: " (zítra)", 2: " (pozítří)"}.get(i, "")
+        rows.append(f"{d.isoformat()} {names[d.weekday()]}{label}")
+    return f"Teď je {local.strftime('%Y-%m-%d %H:%M')} ({names[local.weekday()]}), Praha.\n" + "\n".join(rows)
+
+
+@dataclass
+class ClassifyResult:
+    data: dict | None
+    in_tokens: int
+    out_tokens: int
+    error: str | None
+
+
+def build_user_message(text: str, description: str, now: datetime) -> str:
+    body = f"POLOŽKA:\n{text.strip()}"
+    if description and description.strip():
+        body += f"\n\nPOPIS:\n{description.strip()}"
+    return f"{date_context(now)}\n\n{body}"
+
+
+def classify(
+    client: anthropic.Anthropic, text: str, description: str, now: datetime
+) -> ClassifyResult:
+    resp = client.messages.create(
+        model=config.MODEL,
+        max_tokens=600,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": build_user_message(text, description, now)}],
+        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+    )
+    usage = resp.usage
+    in_tok, out_tok = usage.input_tokens, usage.output_tokens
+    if resp.stop_reason != "end_turn":
+        return ClassifyResult(None, in_tok, out_tok, f"stop_reason={resp.stop_reason}")
+    text_blocks = [b.text for b in resp.content if b.type == "text"]
+    if not text_blocks:
+        return ClassifyResult(None, in_tok, out_tok, "no text block")
+    try:
+        data = json.loads(text_blocks[0])
+    except json.JSONDecodeError:
+        return ClassifyResult(None, in_tok, out_tok, "invalid JSON")
+    return ClassifyResult(data, in_tok, out_tok, None)

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run H2 Inbox Watcher every minute
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=1s
+Persistent=false
+Unit=h2-inbox-watcher.service
+
+[Install]
+WantedBy=timers.target
