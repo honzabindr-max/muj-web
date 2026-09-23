@@ -28,6 +28,7 @@ TYPE_ICON = {
     "INFO": "ℹ️",
     "BLOCK": "🟪",
     "NOTE": "📝",
+    "COMMAND": "⚠️",
 }
 NOTE_SUBTYPE_LABEL = {"idea": "nápad", "journal": "deník", "person": "o lidech", "other": "jiné"}
 
@@ -72,6 +73,11 @@ def when(v: Valid) -> str:
         d = v.deadline_date
         parts.append(f"⚠️ do {d.day}. {d.month}.")
     return " ".join(parts)
+
+
+def command_line(source_text: str) -> str:
+    text = " ".join(source_text.split())[:200]
+    return f"⚠️ příkaz ke změně neprovádím: {text} — napiš to do chatu s Claudem"
 
 
 def summary_line(v: Valid) -> str:

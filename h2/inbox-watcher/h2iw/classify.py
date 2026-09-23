@@ -14,7 +14,7 @@ import anthropic
 
 from . import config
 
-TYPES = ["TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "UNKNOWN"]
+TYPES = ["TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "COMMAND", "UNKNOWN"]
 NOTE_SUBTYPES = ["idea", "journal", "person", "other"]
 CONTEXTS = ["telefon", "doma", "venku"]
 AREAS = [
@@ -75,9 +75,10 @@ SYSTEM_PROMPT = """Třídíš jednu položku z Todoist Doručených podle H2 Pla
 TYPY
 - TASK: něco, co mám udělat já. Bez pevného času.
 - WAITING: čekám na někoho/něco („čekám až…", „až pošle…", „ozve se…").
-- EVENT: můj pevný termín s konkrétním časem (lékař, schůzka, hovor v 15:00). Musí mít datum I čas začátku.
-- INFO: plány jiných lidí, které nejsou moje aktivita (Markétka má firemní akci, děti mají výlet). Nezabírá můj čas.
+- EVENT: MŮJ pevný závazek s konkrétním časem — já jsem aktér („mám", „jdu", „jedu", „schůzka s…", lékař, kontrola). Musí mít datum I čas začátku.
+- INFO: plán nebo pohyb JINÉ osoby, kde já nejsem aktér — podmětem je někdo jiný („Markétka přijede v 19:30", „děti odjíždí", „mamka bude pryč", „Markétka má akci"). I když je uveden přesný čas, je to INFO, ne EVENT.
 - BLOCK: vyhrazuji si čas na práci na úkolu („v sobotu 10–12 dělám na…", „zablokuj mi…").
+- COMMAND: pokyn ke změně něčeho, co už existuje v Todoistu, kalendáři nebo H2 („smaž…", „přesuň úkol…", „přejmenuj…", „zruš…", „posuň…", „hotovo…", „označ jako hotové"). Nikdy z toho nedělej TASK. Pozor: „přesunout gauč do obýváku" je fyzický úkol (TASK), ne změna existující položky.
 - NOTE: poznámka bez akce a bez termínu — nápad (idea), deník/pocity (journal), informace o člověku (person), jiná informace k zapamatování (other). Nic k vykonání, nic do kalendáře.
 - UNKNOWN: nesrozumitelné, nesmyslné, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
 - Dvě a více samostatných akcí nebo termínů v jednom vstupu („vyzvednout léky a v pátek v 17:00 kadeřník"): multiple_items = true a type UNKNOWN. Nikdy nevybírej jen první věc. Jinak multiple_items = false.

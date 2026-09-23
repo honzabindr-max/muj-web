@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from h2iw import config  # noqa: E402
 from h2iw.apply import Applier  # noqa: E402
 from h2iw.classify import ClassifyResult  # noqa: E402
+from h2iw.crypto import Key  # noqa: E402
 from h2iw.main import Runner  # noqa: E402
 from h2iw.store import Store  # noqa: E402
 from h2iw.todoist import NotInInboxError  # noqa: E402
@@ -19,6 +20,7 @@ from h2iw.todoist import NotInInboxError  # noqa: E402
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "inputs.json").read_text())
 NOW = datetime.fromisoformat(FIXTURES["now"])
 INBOX = "inbox-1"
+TEST_KEY = Key("h2iw", bytes(range(32)))
 
 
 def case(case_id: str) -> dict:
@@ -102,7 +104,7 @@ class FakeClassifier:
 
 @pytest.fixture
 def env(tmp_path):
-    store = Store(str(tmp_path / "state.db"))
+    store = Store(str(tmp_path / "state.db"), TEST_KEY)
     store.set_meta("baseline_done", "test")
     todoist, gcal, clf = FakeTodoist(), FakeGCal(), FakeClassifier()
     runner = Runner(store, todoist, Applier(store, todoist, gcal), clf)
@@ -112,4 +114,5 @@ def env(tmp_path):
 
     e = Env()
     e.store, e.todoist, e.gcal, e.clf, e.runner = store, todoist, gcal, clf, runner
+    e.db_path = tmp_path / "state.db"
     return e

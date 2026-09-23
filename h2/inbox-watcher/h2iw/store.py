@@ -7,6 +7,23 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from . import config
+from .crypto import Key, encrypt
+
+NOTES_DDL = """create table if not exists notes (
+    id integer primary key autoincrement,
+    todoist_task_id text not null unique,
+    subtype text not null check (subtype in ('idea','journal','person','other')),
+    ciphertext blob not null,
+    key_id text not null,
+    created_at text not null
+)"""
+COMMANDS_DDL = """create table if not exists commands (
+    id integer primary key autoincrement,
+    todoist_task_id text not null unique,
+    ciphertext blob not null,
+    key_id text not null,
+    created_at text not null
+)"""
 
 SCHEMA = """
 create table if not exists items (
@@ -36,20 +53,18 @@ create table if not exists llm_calls (
     out_tokens integer not null,
     cost_usd real not null
 );
--- NOTE items (ideas, journal, people). Kept permanently: this is the product
--- of the NOTE type, unlike items.raw_text which is purged after 30 days.
-create table if not exists notes (
-    id integer primary key autoincrement,
-    todoist_task_id text not null unique,
-    subtype text not null check (subtype in ('idea','journal','person','other')),
-    raw_text text not null,
-    created_at text not null
-);
+-- NOTE items (ideas, journal, people) and COMMAND items (change requests the
+-- watcher refuses to execute). Kept permanently, AES-256-GCM encrypted
+-- (h2iw/crypto.py); the plaintext copy in `items` is scrubbed after insert.
+{notes_ddl};
+{commands_ddl};
 create table if not exists meta (
     key text primary key,
     value text not null
 );
-"""
+""".replace("{notes_ddl}", NOTES_DDL).replace("{commands_ddl}", COMMANDS_DDL)
+
+REDACTED_TITLE = "[šifrováno]"
 
 # Statuses in which an item still needs work on a later run.
 RESUMABLE = ("RECEIVED", "CLASSIFIED", "FAILED_RETRYABLE", "SKIPPED_CAP")
@@ -66,11 +81,45 @@ def _iso(dt: datetime) -> str:
 
 
 class Store:
-    def __init__(self, path: str):
+    def __init__(self, path: str, key: Key | None = None):
+        self.key = key
         self.conn = sqlite3.connect(path, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
+        # Zero freed content so scrubbed plaintext does not linger in free pages.
+        self.conn.execute("pragma secure_delete=on")
         self.conn.execute("pragma journal_mode=wal")
+        self._migrate_plaintext_notes()
         self.conn.executescript(SCHEMA)
+
+    # --- encryption migration (v1 notes had a plaintext raw_text column) ---
+    def _migrate_plaintext_notes(self) -> None:
+        cols = {r["name"] for r in self.conn.execute("pragma table_info(notes)")}
+        if "raw_text" not in cols:
+            return
+        if self.key is None:
+            raise RuntimeError("plaintext notes present but no encryption key loaded")
+        rows = self.conn.execute(
+            "select todoist_task_id, subtype, raw_text, created_at from notes").fetchall()
+        self.conn.execute("begin")
+        self.conn.execute("alter table notes rename to notes_plain_v1")
+        self.conn.execute(NOTES_DDL)
+        for r in rows:
+            self.conn.execute(
+                "insert into notes(todoist_task_id, subtype, ciphertext, key_id, created_at) "
+                "values(?,?,?,?,?)",
+                (r["todoist_task_id"], r["subtype"], encrypt(self.key, r["raw_text"]),
+                 self.key.key_id, r["created_at"]),
+            )
+            self._scrub_item(r["todoist_task_id"])
+        self.conn.execute("drop table notes_plain_v1")
+        self.conn.execute("commit")
+        self.purge_file_remnants()
+
+    def purge_file_remnants(self) -> None:
+        """Rewrite the file so no old plaintext page survives in the DB or WAL."""
+        self.conn.execute("pragma wal_checkpoint(truncate)")
+        self.conn.execute("vacuum")
+        self.conn.execute("pragma wal_checkpoint(truncate)")
 
     # --- meta -------------------------------------------------------------
     def get_meta(self, key: str) -> str | None:
@@ -132,14 +181,46 @@ class Store:
         self.conn.execute("update items set attempts=attempts+1 where task_id=?", (task_id,))
         return self.get(task_id)["attempts"]
 
-    # --- notes ------------------------------------------------------------
+    # --- notes / commands (encrypted) ---------------------------------------
+    def _require_key(self) -> Key:
+        if self.key is None:
+            raise RuntimeError("encryption key not loaded")
+        return self.key
+
     def insert_note(self, task_id: str, subtype: str, raw_text: str) -> None:
-        """Idempotent per Todoist task id."""
+        """Idempotent per Todoist task id. Stores ciphertext only."""
+        key = self._require_key()
         self.conn.execute(
-            "insert or ignore into notes(todoist_task_id, subtype, raw_text, created_at) "
-            "values(?,?,?,?)",
-            (task_id, subtype, raw_text, _iso(utcnow())),
+            "insert or ignore into notes(todoist_task_id, subtype, ciphertext, key_id, "
+            "created_at) values(?,?,?,?,?)",
+            (task_id, subtype, encrypt(key, raw_text), key.key_id, _iso(utcnow())),
         )
+
+    def insert_command(self, task_id: str, raw_text: str) -> None:
+        key = self._require_key()
+        self.conn.execute(
+            "insert or ignore into commands(todoist_task_id, ciphertext, key_id, created_at) "
+            "values(?,?,?,?)",
+            (task_id, encrypt(key, raw_text), key.key_id, _iso(utcnow())),
+        )
+
+    def _scrub_item(self, task_id: str) -> None:
+        row = self.get(task_id)
+        if row is None:
+            return
+        cls = json.loads(row["classification_json"]) if row["classification_json"] else None
+        if cls is not None:
+            cls["title"] = REDACTED_TITLE
+            cls["reason"] = ""
+        self.conn.execute(
+            "update items set raw_text=null, raw_description=null, classification_json=? "
+            "where task_id=?",
+            (json.dumps(cls, ensure_ascii=False) if cls is not None else None, task_id),
+        )
+
+    def scrub_item(self, task_id: str) -> None:
+        """Drop the plaintext copy of an item once its encrypted row exists."""
+        self._scrub_item(task_id)
 
     # --- steps ------------------------------------------------------------
     def step_done(self, task_id: str, step: str) -> bool:

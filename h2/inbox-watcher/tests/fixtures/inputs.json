@@ -561,6 +561,266 @@
     "multiple_items": false,
     "reason": "Poznámka bez akce."
    }
+  },
+  {
+   "id": "info_partner_arrives_tonight",
+   "text": "dnes 19:30 přijede Markétka",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Markétka přijede",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-23T19:30",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "info_partner_away_allday",
+   "text": "Markétka bude v pátek celý den pryč",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Markétka pryč",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-25",
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "info_kids_leave_camp",
+   "text": "děti odjíždí v neděli v 9 na tábor",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Děti odjíždí na tábor",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-27T09:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "info_mum_party",
+   "text": "mamka má v sobotu ve tři oslavu",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Mamka má oslavu",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T15:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "info_inlaws_land",
+   "text": "tchýně přiletí ve čtvrtek v 16:40",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Tchýně přiletí",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T16:40",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "event_i_have_meeting",
+   "text": "mám v pondělí v 10 schůzku s účetní",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Schůzka s účetní",
+    "context": null,
+    "area": "finance",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-28T10:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "event_i_go_beer",
+   "text": "jdu v pátek v 18 s Petrem na pivo",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Pivo s Petrem",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T18:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "event_i_travel",
+   "text": "jedu zítra v 7 do Prahy",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Cesta do Prahy",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T07:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "command_delete_event",
+   "text": "Smaž zítřejší událost v kalendáři která se jmenuje zubař",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Smazat zítřejší událost Zubař",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "command_move_task",
+   "text": "přesuň úkol zavolat do servisu na pátek",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Přesunout úkol na pátek",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "command_done",
+   "text": "hotovo, zavolal jsem do servisu",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Označit hotovo",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "command_cancel",
+   "text": "zruš zítřejšího zubaře",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Zrušit zubaře",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_move_sofa_not_command",
+   "text": "přesunout gauč do obýváku",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Přesunout gauč do obýváku",
+    "context": "doma",
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
   }
  ]
 }

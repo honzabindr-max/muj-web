@@ -60,6 +60,16 @@ Dry run prints item titles to the terminal (not to journald) and does cost LLM c
 The first real run marks every item already in Doručené as `BASELINE` (ids only, no text, no LLM)
 and processes only items added afterwards.
 
+## Encryption key
+
+`H2IW_ENCRYPTION_KEY` (dedicated, preferred) or `H2_ENCRYPTION_KEY_V1` (H2 Buddy key v1): 32 bytes, base64. Each row records its `key_id`.
+Generate a dedicated key on the VPS itself (the value never leaves the server):
+
+```bash
+ssh hz 'openssl rand -base64 32 | /opt/h2-inbox-watcher/deploy/set-secret.sh H2IW_ENCRYPTION_KEY'
+```
+There is no re-encryption tool yet: replacing the key makes existing rows unreadable. Keep a copy of the key in the password manager.
+
 ## Secret rotation
 
 One key at a time; the next minutely run picks it up (no restart, the service is oneshot).
@@ -93,7 +103,8 @@ cd ~/Projects/muj-web/h2/inbox-watcher && rsync -a --delete --exclude .venv --ex
   calendar events use deterministic ids so they are never duplicated).
 - Items the model cannot classify stay in Doručené with a `❓ důvod` comment and are never retried.
 - Raw item text is deleted from SQLite 30 days after it was first seen.
-- NOTE items (ideas, journal, people) are kept in the `notes` table permanently, in plaintext. They are not purged.
+- NOTE items (ideas, journal, people) and COMMAND items are kept in the `notes` / `commands` tables permanently, AES-256-GCM encrypted (`h2iw/crypto.py`, same byte layout as H2 Buddy's envelope). Their plaintext copy in `items` is scrubbed right after the encrypted insert, and the DB file is checkpointed and vacuumed (`secure_delete=on`).
+- COMMAND items („smaž…", „přesuň…", „hotovo…") are never executed: the item is closed with „→ příkaz, proveď v chatu" and Telegram says so. A text that opens with a change verb but was not classified COMMAND stays in Doručené.
 
 ## Hard bans (enforced in code, covered by tests)
 
