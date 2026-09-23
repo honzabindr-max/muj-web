@@ -63,7 +63,8 @@ Same command with `ANTHROPIC_API_KEY`, `H2_TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_I
 After rotating, revoke the old value at its source (Todoist settings → Integrations, Anthropic Console,
 BotFather `/revoke`, Google Cloud Console).
 
-Google refresh token (from the owner's Mac, repo checkout of `h2/inbox-watcher`):
+Google refresh token (from the owner's Mac, macOS system `python3` 3.9+, standard library only, no venv).
+The script reads `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from the VPS env file over ssh (never printed) and asks only if they are missing. `--self-test` checks everything except the browser and the token exchange.
 
 ```bash
 python3 deploy/google_oauth_bootstrap.py | ssh hz /opt/h2-inbox-watcher/deploy/set-secret.sh GOOGLE_REFRESH_TOKEN
