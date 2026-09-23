@@ -18,6 +18,14 @@ class GCalError(RuntimeError):
     pass
 
 
+class CalendarMissingError(GCalError):
+    """The target calendar does not exist (or its name is not unique)."""
+
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.name = name
+
+
 def event_id_for(task_id: str, kind: str) -> str:
     """Deterministic event id (base32hex alphabet: 0-9a-v). Re-insert -> 409."""
     return hashlib.sha1(f"h2iw:{task_id}:{kind}".encode()).hexdigest()
@@ -63,7 +71,7 @@ class GCalClient:
             raise GCalError(f"calendarList -> {r.status_code}")
         matches = [c["id"] for c in r.json().get("items", []) if c.get("summary") == name]
         if len(matches) != 1:
-            raise GCalError(f"calendar '{name}' not found exactly once")
+            raise CalendarMissingError(name)
         return matches[0]
 
     def insert_event(self, calendar_id: str, event: dict) -> str:

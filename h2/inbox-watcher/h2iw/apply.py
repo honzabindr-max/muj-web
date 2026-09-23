@@ -50,19 +50,22 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
         body["end"] = {"date": (d + timedelta(days=1)).isoformat()}
 
     original = (task.get("content") or "").strip()
-    if kind == "EVENT":
-        body["description"] = f"Z Todoist Doručených: {original}"
-        body["transparency"] = "opaque"
-        body["reminders"] = {
-            "useDefault": False,
-            "overrides": [{"method": "popup", "minutes": config.EVENT_REMINDER_MINUTES}],
-        }
-    elif kind == "INFO":
+    if kind == "INFO":
+        # Someone else's plan: FREE, no notification (Planning OS v0.4 §2).
         body["description"] = f"Z Todoist Doručených: {original}"
         body["transparency"] = "transparent"
         body["reminders"] = {"useDefault": False, "overrides": []}
-    elif kind == "BLOCK":
+        return body
+    # Every life calendar is BUSY; 60 min reminder only for povinnost, else 15.
+    minutes = (config.EVENT_REMINDER_MINUTES if v.life == "povinnost"
+               else config.LIFE_REMINDER_MINUTES)
+    body["transparency"] = "opaque"
+    body["reminders"] = {"useDefault": False,
+                         "overrides": [{"method": "popup", "minutes": minutes}]}
+    if kind == "BLOCK":
         body["description"] = f"Úkol: {TODOIST_TASK_URL.format(id=task['id'])}"
+    else:
+        body["description"] = f"Z Todoist Doručených: {original}"
     return body
 
 
@@ -85,6 +88,15 @@ class Applier:
             self._cal_ids[name] = self.gcal.calendar_id_by_name(name)
         return self._cal_ids[name]
 
+    def calendar_for(self, v: Valid) -> tuple[str, str]:
+        """(calendar id, display name). Raises CalendarMissingError before any write."""
+        if v.type == "INFO":
+            return self._cal(config.INFO_CALENDAR_NAME), config.INFO_CALENDAR_NAME
+        _, name, display = config.LIFE_CALENDARS[v.life]
+        if name is None:
+            return config.PRIMARY_CALENDAR_ID, display
+        return self._cal(name), display
+
     def _project(self, name: str) -> str:
         if name not in self._project_ids:
             self._project_ids[name] = self.todoist.project_id_by_name(name)
@@ -99,6 +111,10 @@ class Applier:
     def apply(self, v: Valid, task: dict) -> None:
         tid = task["id"]
         s = self._step
+        if v.type in ("EVENT", "BLOCK", "INFO"):
+            # Resolve the target first: a missing calendar must not leave a
+            # half-applied item (e.g. a renamed task) behind.
+            cal_id, cal_display = self.calendar_for(v)
         if v.type in ("TASK", "WAITING"):
             s(tid, "todoist_update", lambda: self.todoist.update_task(tid, _task_fields(v, task)))
             if v.reminder:
@@ -107,12 +123,13 @@ class Applier:
         elif v.type == "BLOCK":
             s(tid, "todoist_update", lambda: self.todoist.update_task(tid, _task_fields(v, task)))
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(
-                self._cal(config.BLOCK_CALENDAR_NAME), _event_body(v, task, "BLOCK")))
+                cal_id, _event_body(v, task, "BLOCK")))
             s(tid, "todoist_move", lambda: self.todoist.move_task(tid, config.H2_PROJECT_ID))
         elif v.type == "EVENT":
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(
-                config.PRIMARY_CALENDAR_ID, _event_body(v, task, "EVENT")))
-            s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, "→ kalendář"))
+                cal_id, _event_body(v, task, "EVENT")))
+            comment = "→ kalendář" if cal_id == config.PRIMARY_CALENDAR_ID else f"→ {cal_display}"
+            s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, comment))
             s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
         elif v.type == "NOTE":
             s(tid, "note_insert", lambda: self.store.insert_note(
@@ -130,7 +147,7 @@ class Applier:
                 tid, self._project(config.COMMANDS_PROJECT_NAME)))
         elif v.type == "INFO":
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(
-                self._cal(config.INFO_CALENDAR_NAME), _event_body(v, task, "INFO")))
+                cal_id, _event_body(v, task, "INFO")))
             s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, "→ H2 · Info"))
             s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
         else:  # pragma: no cover - validate() never yields another type

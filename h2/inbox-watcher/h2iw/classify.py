@@ -16,6 +16,7 @@ from . import config
 
 TYPES = ["TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "COMMAND", "UNKNOWN"]
 NOTE_SUBTYPES = ["idea", "journal", "person", "other"]
+LIVES = ["povinnost", "fokus", "regenerace", "lide", "domov", "zazitky"]
 CONTEXTS = ["telefon", "doma", "venku"]
 AREAS = [
     "prace",
@@ -49,6 +50,7 @@ OUTPUT_SCHEMA = {
         "end": _nullable({"type": "string"}),
         "all_day_date": _nullable({"type": "string"}),
         "note_subtype": _nullable({"type": "string", "enum": NOTE_SUBTYPES}),
+        "life": _nullable({"type": "string", "enum": LIVES}),
         "multiple_items": {"type": "boolean"},
         "reason": {"type": "string"},
     },
@@ -64,6 +66,7 @@ OUTPUT_SCHEMA = {
         "end",
         "all_day_date",
         "note_subtype",
+        "life",
         "multiple_items",
         "reason",
     ],
@@ -77,9 +80,10 @@ TYPY
 - WAITING: čekám na někoho/něco („čekám až…", „až pošle…", „ozve se…").
 - EVENT: MŮJ pevný závazek s konkrétním časem — já jsem aktér („mám", „jdu", „jedu", „schůzka s…", lékař, kontrola). Musí mít datum I čas začátku.
 - INFO: plán nebo pohyb JINÉ osoby, kde já nejsem aktér — podmětem je někdo jiný („Markétka přijede v 19:30", „děti odjíždí", „mamka bude pryč", „Markétka má akci"). I když je uveden přesný čas, je to INFO, ne EVENT.
-- BLOCK: vyhrazuji si čas na práci na úkolu („v sobotu 10–12 dělám na…", „zablokuj mi…").
+- BLOCK: vyhrazuji si čas na práci na úkolu, který by jinak byl v seznamu úkolů („v sobotu 10–12 dělám na…", „zítra 14–16 vyřídit papíry", „odnést sedačku", „opravit skříň", „zablokuj mi…").
+- EVENT vs BLOCK: EVENT = samotná naplánovaná činnost nebo závazek (lékař, schůzka, večeře, kolo, jóga, kino, výlet); BLOCK = vyhrazený čas na odpracování úkolu.
 - Nová věc + žádost o připomenutí („připomeň mi…", „přidej připomenutí", „upozorni mě…") je TASK (s due_date a due_time, pokud je čas uveden), NIKDY COMMAND. „Přidej připomenutí" k nové věci není změna existující položky.
-- COMMAND: (a) pokyn ke změně něčeho, co už existuje v Todoistu, kalendáři nebo H2 („smaž…", „přesuň úkol…", „přejmenuj…", „zruš…", „posuň…", „odlož…", „označ jako hotové"); (b) stavová aktualizace existujícího úkolu — hlášení, co se stalo s něčím, co už řeším („hotovo…", „nedovolal jsem se X, napsal jsem mu a čekám", „zavolal jsem do servisu, auto bude v pátek", „nestihl jsem…, přesuň to"), i když obsahuje „čekám" nebo „připomeň mi to". COMMAND jen když se text týká něčeho, co už existuje (odkazuje na dřívější úkol, událost nebo to, co se už stalo). Celé hlášení je JEDEN COMMAND, multiple_items = false. Nikdy z toho nedělej TASK ani WAITING. Pozor: „přesunout gauč do obýváku" je nový fyzický úkol (TASK) a „čekám až mi Petr pošle smlouvu" bez hlášení o proběhlé akci je nové WAITING.
+- COMMAND: (a) pokyn ke změně něčeho, co už existuje v Todoistu, kalendáři nebo H2 („smaž…", „přesuň úkol…", „přejmenuj…", „zruš…", „posuň…", „odlož…", „označ jako hotové"); (b) stavová aktualizace existujícího úkolu — hlášení, co se stalo s něčím, co už řeším („hotovo…", „nedovolal jsem se X, napsal jsem mu a čekám", „zavolal jsem do servisu, auto bude v pátek", „nestihl jsem…, přesuň to", „účetní se neozvala, zkusím to znovu ve čtvrtek"), i když obsahuje „čekám" nebo „připomeň mi to". COMMAND jen když se text týká něčeho, co už existuje (odkazuje na dřívější úkol, událost nebo to, co se už stalo). Celé hlášení je JEDEN COMMAND, multiple_items = false. Nikdy z toho nedělej TASK ani WAITING. Pozor: „přesunout gauč do obýváku" je nový fyzický úkol (TASK) a „čekám až mi Petr pošle smlouvu" bez hlášení o proběhlé akci je nové WAITING.
 - NOTE: poznámka bez akce a bez termínu — nápad (idea), deník/pocity (journal), informace o člověku (person), jiná informace k zapamatování (other). Nic k vykonání, nic do kalendáře.
 - UNKNOWN: nesrozumitelné, nesmyslné, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
 - Dvě a více samostatných akcí nebo termínů v jednom vstupu („vyzvednout léky a v pátek v 17:00 kadeřník"): multiple_items = true a type UNKNOWN. Nikdy nevybírej jen první věc. Jinak multiple_items = false.
@@ -94,8 +98,19 @@ POLE
 - start/end (YYYY-MM-DDTHH:MM, místní čas Praha): u EVENT, BLOCK a časovaného INFO. end jen když je uveden konec nebo délka.
 - all_day_date (YYYY-MM-DD): jen u INFO bez času (celodenní).
 - Nikdy si nevymýšlej datum ani čas, které ve vstupu nejsou. Relativní dny přepočítej podle tabulky níže.
+- Den v týdnu („v pátek", „ve čtvrtek") = NEJBLIŽŠÍ takový den z tabulky od zítřka dál (dnešní den jen se slovem „dnes"); „příští pátek" = o týden později. Datum vždy ověř v tabulce.
+- title: jen samotná činnost, bez dne a času („Pivo s Petrem", ne „Jít v pátek v 18 s Petrem na pivo").
 - Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
 - Telefonát nebo zpráva s časem („zítra v 8 zavolat do školky") je TASK s due_date + due_time a context telefon, ne EVENT. EVENT je jen schůzka, návštěva nebo termín u někoho.
+- life: jen u EVENT a BLOCK, jinak null. Rozhoduje, co v tom čase SKUTEČNĚ DĚLÁM, ne čeho se věc týká:
+  povinnost = svět určuje můj čas, musím tam být (lékař, rehabilitace, úřad, STK, povinná pracovní schůzka, vlak, pevný termín s jinými lidmi kvůli povinnosti);
+  fokus = pracuji hlavou (telefonáty, deep work, papíry, finance, rešerše, e-maily, „najít sedačku na internetu");
+  regenerace = pečuji o tělo a energii (sport, kolo, procházka, jóga, sauna, odpočinek, meditace);
+  lide = skutečně věnuji čas lidem (večeře s Markétkou, oběd s dětmi, kamarádi, popřát k narozeninám);
+  domov = fyzicky pečuji o byt rukama (odnést sedačku, opravit skříň, sklep, stěhování);
+  zazitky = žiju, cestuji, bavím se (výlet, kino, koncert, restaurace, dovolená, Burčákový pochod).
+  Když je hlavní náplní čas s konkrétním člověkem (pivo s Petrem, večeře s Markétkou, oběd s dětmi, návštěva kamaráda), je to lide, i když se odehrává v hospodě nebo restauraci. zazitky jen když je hlavní náplní samotný zážitek (kino, pochod, výlet, koncert, cesta).
+  Plánování zážitku nebo administrativa kvůli lidem (zavolat, zarezervovat) = fokus. Program jiných lidí = INFO, ne life.
 - note_subtype: jen u NOTE (idea | journal | person | other), jinak null. NOTE nemá žádné datum ani čas.
 - reason: jedna krátká česká věta, proč tento typ."""
 
