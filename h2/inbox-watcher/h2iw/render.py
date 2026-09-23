@@ -85,5 +85,7 @@ def summary_line(v: Valid) -> str:
         return f"📝 poznámka uložena ({NOTE_SUBTYPE_LABEL[v.note_subtype]}): {v.title}"
     title = task_title(v) if v.type in ("TASK", "WAITING", "BLOCK") else calendar_title(v)
     extra = when(v)
+    if v.reminder:
+        extra = f"{extra} 🔔"
     notes = f" ({'; '.join(v.notes)})" if v.notes else ""
     return _join([TYPE_ICON[v.type], v.type, title, f"· {extra}" if extra else None]) + notes

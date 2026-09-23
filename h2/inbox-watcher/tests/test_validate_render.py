@@ -256,3 +256,23 @@ def test_status_update_misread_as_waiting_stays_in_inbox():
     as_waiting = dict(case("waiting_followup")["mock_output"], title="Patrik odpoví")
     v = validate(as_waiting, NOW, c["text"])
     assert isinstance(v, Invalid) and "stavová aktualizace" in v.reason
+
+
+# --- reminders (owner requirement 2026-09-23) -------------------------------
+
+def test_reminder_with_time_sets_flag_and_bell():
+    c = case("task_reminder_imbus")
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.type == "TASK" and v.reminder and v.due_time.isoformat() == "20:15:00"
+    assert render.summary_line(v).endswith("🔔")
+
+
+def test_reminder_without_time_is_date_only():
+    c = case("task_reminder_no_time")
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.type == "TASK" and not v.reminder and v.due_time is None and v.due_date
+
+
+def test_time_without_reminder_phrase_has_no_reminder():
+    c = case("task_due_time")
+    assert not validate(c["mock_output"], NOW, c["text"]).reminder

@@ -16,7 +16,7 @@ def test_gcal_client_has_no_mutating_methods_for_existing_events():
 def test_todoist_client_surface_has_no_delete():
     public = {m for m in dir(TodoistClient) if not m.startswith("_")}
     assert public == {"inbox_id", "project_id_by_name", "list_inbox", "get_task", "update_task",
-                      "move_task", "close_task", "add_comment"}
+                      "move_task", "close_task", "add_reminder", "add_comment"}
 
 
 def test_event_id_uses_base32hex_alphabet():
@@ -42,7 +42,7 @@ def _projects_or(task_project, posts):
     return handler
 
 
-@pytest.mark.parametrize("op", ["close", "update", "move", "comment"])
+@pytest.mark.parametrize("op", ["close", "update", "move", "comment", "reminder"])
 def test_writes_refused_outside_inbox(op):
     posts = []
     c = _todoist(_projects_or(config.H2_PROJECT_ID, posts))
@@ -50,7 +50,8 @@ def test_writes_refused_outside_inbox(op):
         {"close": lambda: c.close_task("t"),
          "update": lambda: c.update_task("t", {"content": "x"}),
          "move": lambda: c.move_task("t", config.H2_PROJECT_ID),
-         "comment": lambda: c.add_comment("t", "x")}[op]()
+         "comment": lambda: c.add_comment("t", "x"),
+         "reminder": lambda: c.add_reminder("t")}[op]()
     assert posts == []
 
 
@@ -147,3 +148,20 @@ def test_crypto_envelope_matches_h2_layout_and_rejects_bad_keys():
     with pytest.raises(CryptoError) as e:
         load_key({})
     assert "H2IW_ENCRYPTION_KEY" in str(e.value)
+
+
+def test_reminder_body_is_relative_zero_push():
+    import json as _json
+    bodies = []
+
+    def handler(req):
+        if req.url.path == "/api/v1/projects":
+            return httpx.Response(200, json={"results": [{"id": "INBOX", "inbox_project": True}]})
+        if req.method == "GET":
+            return httpx.Response(200, json={"id": "t", "project_id": "INBOX", "checked": False})
+        bodies.append((req.url.path, _json.loads(req.content)))
+        return httpx.Response(200, json={"id": "r1"})
+
+    _todoist(handler).add_reminder("t")
+    assert bodies == [("/api/v1/reminders", {"task_id": "t", "type": "relative",
+                                             "minute_offset": 0, "service": "push"})]

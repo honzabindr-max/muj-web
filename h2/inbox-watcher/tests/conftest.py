@@ -73,6 +73,10 @@ class FakeTodoist:
         self.calls.append(("close", tid))
         t["project_id"] = "closed"
 
+    def add_reminder(self, tid):
+        self._guard(tid, "reminder")
+        self.calls.append(("reminder", tid))
+
     def add_comment(self, tid, content):
         self._guard(tid, "comment")
         self.calls.append(("comment", tid, content))

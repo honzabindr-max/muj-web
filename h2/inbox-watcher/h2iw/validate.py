@@ -55,6 +55,10 @@ COMMAND_VERB_RE = re.compile(
 )
 COMMAND_GUARD_REASON = "vypadá jako příkaz nebo stavová aktualizace — neprovádím, napiš to do chatu s Claudem"
 
+# Explicit reminder request in the text. A TASK/WAITING with an explicit time
+# then gets a Todoist push reminder at due time; without a time only the date.
+REMINDER_RE = re.compile(r"\b(připom[eě]\w*|připomín\w*|upozorn\w*)", re.IGNORECASE)
+
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
 
@@ -72,6 +76,7 @@ class Valid:
     end: datetime | None = None
     all_day_date: date | None = None
     note_subtype: str | None = None
+    reminder: bool = False
     reason: str = ""
     notes: list[str] = field(default_factory=list)  # e.g. defaulted end time
 
@@ -122,7 +127,10 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
             return Invalid(COMMAND_GUARD_REASON)
         v = _check_time_is_stated(v, source_text)
         if isinstance(v, Valid):
-            return _check_nothing_dropped(v, source_text)
+            v = _check_nothing_dropped(v, source_text)
+        if isinstance(v, Valid):
+            v.reminder = (v.type in ("TASK", "WAITING") and v.due_time is not None
+                          and REMINDER_RE.search(source_text) is not None)
     return v
 
 

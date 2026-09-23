@@ -389,3 +389,17 @@ def test_missing_key_refuses_to_store_notes(tmp_path):
     s = Store(str(tmp_path / "k.db"))
     with pytest.raises(RuntimeError):
         s.insert_note("t", "idea", "x")
+
+
+def test_reminder_is_added_before_move(env):
+    c = case("task_reminder_imbus")
+    env.todoist.add("r", c["text"])
+    _run(env)
+    assert [x[0] for x in env.todoist.calls] == ["update", "reminder", "move"]
+    assert env.todoist.calls[0][2]["due_datetime"] == "2026-09-23T18:15:00Z"
+
+
+def test_no_reminder_call_without_time(env):
+    env.todoist.add("r", case("task_reminder_no_time")["text"])
+    _run(env)
+    assert [x[0] for x in env.todoist.calls] == ["update", "move"]
