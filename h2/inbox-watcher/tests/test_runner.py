@@ -246,6 +246,7 @@ def test_one_telegram_message_for_whole_run(env):
     text = format_summary(r)
     assert text.count("\n") >= 6
     assert "6 položek" in text
+    assert "neodpovídej" not in text
 
 
 def test_summary_none_when_nothing_done():
