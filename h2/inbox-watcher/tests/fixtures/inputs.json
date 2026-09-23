@@ -2122,8 +2122,115 @@
     "duration_min": 30,
     "multiple_items": false,
     "reason": "x"
+   }
+  },
+  {
+   "id": "event_car_to_doctor",
+   "text": "zítra v 10 jedu autem k doktorovi",
+   "expected_type": "EVENT",
+   "expected_life": "povinnost",
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Doktor",
+    "context": null,
+    "area": "zdravi",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T10:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "povinnost",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
    },
-   "expected_life": "domov"
+   "expected_pinned": false
+  },
+  {
+   "id": "block_car_bedroom",
+   "text": "zítra od 13 do 14 jedu na barák rozdělat ložnici",
+   "expected_type": "BLOCK",
+   "expected_life": "domov",
+   "accept_types": [
+    "BLOCK",
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Rozdělat ložnici na baráku",
+    "context": null,
+    "area": "domacnost",
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T13:00",
+    "end": "2026-09-24T14:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "event_trip_mikulov",
+   "text": "v sobotu jedeme autem na výlet do Mikulova",
+   "expected_type": "EVENT",
+   "expected_life": "zazitky",
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Výlet do Mikulova",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-26",
+    "note_subtype": null,
+    "life": "zazitky",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_pinned": true
+  },
+  {
+   "id": "event_dinner_marketka_sat",
+   "text": "v sobotu večeře s Markétkou v 19",
+   "expected_type": "EVENT",
+   "expected_life": "lide",
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Večeře s Markétkou",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T19:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_pinned": true
   }
  ]
 }

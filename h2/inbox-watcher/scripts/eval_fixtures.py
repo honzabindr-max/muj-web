@@ -47,6 +47,10 @@ def main() -> int:
         hit = final in c.get("accept_types", [c["expected_type"]])
         if hit and c.get("expected_life"):
             hit = getattr(v, "life", None) == c["expected_life"]
+        if hit and "expected_pinned" in c and not isinstance(v, Invalid):
+            if render.is_pinned(v) != c["expected_pinned"]:
+                hit = False
+                shown += " [📌 nesedí]"
         # Dates must match the reference answer (a wrong day is worse than a wrong type).
         mo = c["mock_output"]
         if hit and not isinstance(v, Invalid):

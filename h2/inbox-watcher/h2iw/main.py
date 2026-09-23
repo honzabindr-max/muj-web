@@ -160,6 +160,22 @@ class Runner:
                 res = self.classifier(task.get("content") or "", task.get("description") or "", now)
             except Exception as e:
                 log.warning("item %s classify error: %s", tid, type(e).__name__)
+                if is_llm_unavailable(e):
+                    # Account-level outage (credit exhausted): not the item's fault.
+                    # Keep it waiting in the Inbox without burning an attempt, so it
+                    # is processed automatically once the account works again.
+                    if not self.dry:
+                        self.store.conn.execute(
+                            "update items set attempts = max(attempts - 1, 0) where task_id=?", (tid,))
+                    self._status(tid, "SKIPPED_CAP", "LLM_UNAVAILABLE")
+                    day = now.astimezone(config.TZ).date().isoformat()
+                    if self.store.get_meta("llm_unavailable_notice_day") != day:
+                        if not self.dry:
+                            self.store.set_meta("llm_unavailable_notice_day", day)
+                        report.lines.append("⛔ Anthropic API nedostupné (došel kredit) — "
+                                            "položky čekají v Doručených, zpracují se samy")
+                    report.errors.append(f"{tid}: LLM unavailable")
+                    return
                 if attempts >= config.MAX_CLASSIFY_ATTEMPTS:
                     self._unknown(task, "klasifikace opakovaně selhala", report)
                 else:
@@ -218,6 +234,12 @@ def quiet_http_loggers() -> None:
     token. Keep HTTP client loggers at WARNING so no secret reaches journald."""
     for name in ("httpx", "httpx2", "httpcore", "anthropic"):
         logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def is_llm_unavailable(e: Exception) -> bool:
+    """Anthropic 400 'credit balance is too low' (and similar billing errors)."""
+    msg = str(e).lower()
+    return "credit balance" in msg or "billing" in msg
 
 
 def format_summary(report: Report) -> str | None:

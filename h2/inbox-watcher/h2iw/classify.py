@@ -120,7 +120,7 @@ POLE
   domov = fyzicky pečuji o byt rukama (odnést sedačku, opravit skříň, sklep, stěhování);
   zazitky = žiju, cestuji, bavím se (výlet, kino, koncert, restaurace, dovolená, Burčákový pochod).
   Když je hlavní náplní čas s konkrétním člověkem (pivo s Petrem, večeře s Markétkou, oběd s dětmi, houby se Sašenkou, výlet s dětmi, návštěva kamaráda), je to lide, i když je to výlet, hospoda nebo restaurace. „Mám kluky" (děti jsou u mě) = lide, NE INFO. zazitky jen bez důrazu na konkrétní osobu (kino, pochod, koncert, dovolená).
-  Jízda autem a pochůzky („jedu autem na barák", „zajet na poštu", „vrátit knihu do knihovny") = domov.
+  🚗 jízda autem nebo pochůzka NENÍ kategorie — life určuje její ÚČEL: k lékaři / na úřad / na STK = povinnost; na barák pracovat, stěhovat, rozdělat ložnici = domov; výlet = zazitky (s konkrétním člověkem lide).
   „Vymyslet / objednat / prodat / najít online / podívat se po" = fokus (hlava); fyzické provedení = domov (ruce).
   Plánování zážitku nebo administrativa kvůli lidem (zavolat, zarezervovat, domluvit) = fokus. Program jiných lidí = INFO, ne life.
   Příklady úkolů: „najít sedačku online" = fokus, „odnést sedačku" = domov, „vyčistit pračku" = domov, „zarezervovat hotel" = fokus, „jít si zaběhat" = regenerace, „popřát mámě k narozeninám" = lide, „jít do kina" = zazitky, „objednat se k lékaři" = povinnost, „domluvit s Petrem pivo" = fokus (domlouvání je administrativa, ne čas s ním), „schůzka s Honzou z Optimia" = povinnost.
