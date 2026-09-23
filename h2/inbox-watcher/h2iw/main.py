@@ -249,7 +249,7 @@ def format_summary(report: Report) -> str | None:
     head = f"📥 H2 Doručené — {len(report.lines)} " + (
         "položka" if len(report.lines) == 1 else "položky" if len(report.lines) < 5 else "položek"
     )
-    return "\n".join([head, *report.lines, "", "(automat — na tuhle zprávu neodpovídej)"])
+    return "\n".join([head, *report.lines])
 
 
 def _build(dry_run: bool):
