@@ -42,6 +42,20 @@ MODEL = "claude-haiku-4-5"
 # Anthropic first-party pricing for Claude Haiku 4.5, USD per million tokens.
 PRICE_INPUT_PER_MTOK = 1.00
 PRICE_OUTPUT_PER_MTOK = 5.00
+# Prompt caching multipliers on the input price (5-minute TTL) and batch discount.
+CACHE_WRITE_MULT = 1.25
+CACHE_READ_MULT = 0.10
+BATCH_DISCOUNT = 0.50
+
+
+def cost_usd(in_tok: int, out_tok: int, cache_write: int = 0, cache_read: int = 0,
+             batch: bool = False) -> float:
+    """Real cost from API usage. `in_tok` is the uncached input (usage.input_tokens)."""
+    usd = (in_tok * PRICE_INPUT_PER_MTOK
+           + cache_write * PRICE_INPUT_PER_MTOK * CACHE_WRITE_MULT
+           + cache_read * PRICE_INPUT_PER_MTOK * CACHE_READ_MULT
+           + out_tok * PRICE_OUTPUT_PER_MTOK) / 1_000_000
+    return usd * (BATCH_DISCOUNT if batch else 1.0)
 
 DAILY_LLM_CALL_CAP = 200
 MONTHLY_USD_CAP = 3.00

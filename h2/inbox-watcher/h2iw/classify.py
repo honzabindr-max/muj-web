@@ -120,7 +120,7 @@ POLE
   domov = fyzicky pečuji o byt rukama (odnést sedačku, opravit skříň, sklep, stěhování);
   zazitky = žiju, cestuji, bavím se (výlet, kino, koncert, restaurace, dovolená, Burčákový pochod).
   Když je hlavní náplní čas s konkrétním člověkem (pivo s Petrem, večeře s Markétkou, oběd s dětmi, houby se Sašenkou, výlet s dětmi, návštěva kamaráda), je to lide, i když je to výlet, hospoda nebo restaurace. „Mám kluky" (děti jsou u mě) = lide, NE INFO. zazitky jen bez důrazu na konkrétní osobu (kino, pochod, koncert, dovolená).
-  Jízda autem a pochůzky („jedu autem na barák", „zajet na poštu", „vrátit knihu do knihovny") = domov.
+  🚗 jízda autem nebo pochůzka NENÍ kategorie — life určuje její ÚČEL: k lékaři / na úřad / na STK = povinnost; na barák pracovat, stěhovat, rozdělat ložnici = domov; výlet = zazitky (s konkrétním člověkem lide).
   „Vymyslet / objednat / prodat / najít online / podívat se po" = fokus (hlava); fyzické provedení = domov (ruce).
   Plánování zážitku nebo administrativa kvůli lidem (zavolat, zarezervovat, domluvit) = fokus. Program jiných lidí = INFO, ne life.
   Příklady úkolů: „najít sedačku online" = fokus, „odnést sedačku" = domov, „vyčistit pračku" = domov, „zarezervovat hotel" = fokus, „jít si zaběhat" = regenerace, „popřát mámě k narozeninám" = lide, „jít do kina" = zazitky, „objednat se k lékaři" = povinnost, „domluvit s Petrem pivo" = fokus (domlouvání je administrativa, ne čas s ním), „schůzka s Honzou z Optimia" = povinnost.
@@ -146,6 +146,42 @@ class ClassifyResult:
     in_tokens: int
     out_tokens: int
     error: str | None
+    cache_write: int = 0
+    cache_read: int = 0
+
+
+# The static part (rules + schema) is identical for every call, so it is cached.
+# Haiku 4.5 only caches prefixes of >= 4096 tokens; the system prompt plus the
+# output schema is above that (measured with count_tokens, see DEC-009 add. 10).
+SYSTEM_BLOCKS = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+
+
+def request_params(text: str, description: str, now: datetime) -> dict:
+    """Shared by the live watcher and the batch eval, so both hit the same cache."""
+    return {
+        "model": config.MODEL,
+        "max_tokens": 600,
+        "system": SYSTEM_BLOCKS,
+        "messages": [{"role": "user", "content": build_user_message(text, description, now)}],
+        "output_config": {"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+    }
+
+
+def parse_response(resp) -> ClassifyResult:
+    usage = resp.usage
+    in_tok, out_tok = usage.input_tokens, usage.output_tokens
+    cw = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cr = getattr(usage, "cache_read_input_tokens", 0) or 0
+    if resp.stop_reason != "end_turn":
+        return ClassifyResult(None, in_tok, out_tok, f"stop_reason={resp.stop_reason}", cw, cr)
+    text_blocks = [b.text for b in resp.content if b.type == "text"]
+    if not text_blocks:
+        return ClassifyResult(None, in_tok, out_tok, "no text block", cw, cr)
+    try:
+        data = json.loads(text_blocks[0])
+    except json.JSONDecodeError:
+        return ClassifyResult(None, in_tok, out_tok, "invalid JSON", cw, cr)
+    return ClassifyResult(data, in_tok, out_tok, None, cw, cr)
 
 
 def build_user_message(text: str, description: str, now: datetime) -> str:
@@ -158,22 +194,4 @@ def build_user_message(text: str, description: str, now: datetime) -> str:
 def classify(
     client: anthropic.Anthropic, text: str, description: str, now: datetime
 ) -> ClassifyResult:
-    resp = client.messages.create(
-        model=config.MODEL,
-        max_tokens=600,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": build_user_message(text, description, now)}],
-        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
-    )
-    usage = resp.usage
-    in_tok, out_tok = usage.input_tokens, usage.output_tokens
-    if resp.stop_reason != "end_turn":
-        return ClassifyResult(None, in_tok, out_tok, f"stop_reason={resp.stop_reason}")
-    text_blocks = [b.text for b in resp.content if b.type == "text"]
-    if not text_blocks:
-        return ClassifyResult(None, in_tok, out_tok, "no text block")
-    try:
-        data = json.loads(text_blocks[0])
-    except json.JSONDecodeError:
-        return ClassifyResult(None, in_tok, out_tok, "invalid JSON")
-    return ClassifyResult(data, in_tok, out_tok, None)
+    return parse_response(client.messages.create(**request_params(text, description, now)))

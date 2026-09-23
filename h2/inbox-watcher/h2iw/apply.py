@@ -71,9 +71,13 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
     overrides = [] if v.start is None else [{"method": "popup", "minutes": minutes}]
     body["reminders"] = {"useDefault": False, "overrides": overrides}
     if kind == "BLOCK":
+        # v0.6 §6: the block links the task it was created with (one line per task).
         body["description"] = f"Úkol: {TODOIST_TASK_URL.format(id=task['id'])}"
     else:
         body["description"] = f"Z Todoist Doručených: {original}"
+        if render.is_pinned(v):
+            # v0.6 §4: first line marks the event PEVNÉ for the Planner.
+            body["description"] = f"{render.PINNED_LINE}\n{body['description']}"
     return body
 
 

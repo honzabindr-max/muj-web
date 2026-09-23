@@ -41,6 +41,13 @@ Daily calls and USD are in the `h2iw.status` output above.
 Hard caps (in `h2iw/config.py`): 200 LLM calls per day, 3 USD per calendar month (Europe/Prague).
 When a cap is hit, new items stay in Doručené with status `SKIPPED_CAP` and Telegram says so once per day.
 
+## Live eval (costs money)
+
+```bash
+cd ~/Projects/muj-web-h2iw/h2/inbox-watcher && H2_ANTHROPIC_API_KEY="$(grep -E '^H2_ANTHROPIC_API_KEY=' ~/Projects/muj-web/.env.local | cut -d= -f2-)" .venv/bin/python scripts/eval_fixtures.py --changed
+```
+`--changed` runs only cases changed against `origin/main`; `--full` (the whole set) only before a deploy. Batch API + prompt cache; every report prints the round's real cost from API usage.
+
 ## Credential preflight (read-only)
 
 ```bash

@@ -516,3 +516,85 @@ def test_every_timed_task_path_adds_reminder(env):
     _run(env)
     reminded = {c[1] for c in env.todoist.calls if c[0] == "reminder"}
     assert reminded == {"a", "b", "c"}
+
+
+# --- Planning OS v0.6 -------------------------------------------------------
+
+@pytest.mark.parametrize("cid,pinned", [
+    ("event_dinner_marketka_sat", True),    # lide
+    ("event_trip_mikulov", True),           # zazitky, all-day
+    ("event_mushrooms_sasenka", True),      # lide, all-day
+    ("event_car_to_doctor", False),         # povinnost -> primary, no pin
+])
+def test_pinned_first_line_on_events_outside_primary(env, cid, pinned):
+    env.todoist.add("e", case(cid)["text"])
+    r = _run(env)
+    ev = next(iter(env.gcal.events.values()))
+    assert ev["description"].startswith("📌 pevné\n") is pinned
+    assert ("📌" in r.lines[0]) is pinned
+
+
+def test_block_never_pinned_and_links_its_task(env):
+    env.todoist.add("blk1", case("block_car_bedroom")["text"])
+    _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == "cal-domov"
+    assert "📌" not in ev["description"]
+    assert ev["description"] == "Úkol: https://app.todoist.com/app/task/blk1"
+    # the linked task really is the one moved to H2
+    assert env.todoist.tasks["blk1"]["project_id"] == config.H2_PROJECT_ID
+
+
+def test_watcher_never_touches_anything_outside_the_inbox(env):
+    """v0.6 §1: only creates; never changes or deletes existing tasks/events."""
+    import copy
+
+    existing_tasks = {
+        "old-h2": {"id": "old-h2", "content": "Starý úkol", "project_id": config.H2_PROJECT_ID,
+                   "labels": ["fokus"], "description": ""},
+        "old-cmd": {"id": "old-cmd", "content": "Starý příkaz", "project_id": "proj-prikazy",
+                    "labels": [], "description": ""},
+    }
+    env.todoist.tasks.update(copy.deepcopy(existing_tasks))
+    pre_event_key = ("cal-lide", "preexisting")
+    env.gcal.events[pre_event_key] = {"id": "preexisting", "summary": "Moje událost"}
+    snapshot_event = copy.deepcopy(env.gcal.events[pre_event_key])
+
+    inbox_ids = []
+    for i, c in enumerate(FIXTURES["cases"]):
+        tid = f"in{i}"
+        inbox_ids.append(tid)
+        env.todoist.add(tid, c["text"])
+    _run(env)
+    _run(env)  # a second run must not touch anything either
+
+    touched = {c[1] for c in env.todoist.calls}
+    assert touched <= set(inbox_ids), touched - set(inbox_ids)
+    for tid, t in existing_tasks.items():
+        assert env.todoist.tasks[tid] == t
+    assert env.gcal.events[pre_event_key] == snapshot_event
+    # every calendar write is an insert of a new, deterministic id
+    assert all(k[1] != "preexisting" for k in env.gcal.events if k != pre_event_key)
+    assert env.gcal.insert_calls == len(env.gcal.events) - 1
+
+
+def test_credit_exhausted_keeps_items_waiting_without_burning_attempts(env):
+    class CreditError(Exception):
+        pass
+
+    def broke(text, desc, now):
+        raise CreditError("Error code: 400 - Your credit balance is too low to access the Anthropic API")
+
+    env.runner.classifier = broke
+    env.todoist.add("t", case("task_sport")["text"])
+    r1 = _run(env)
+    for _ in range(5):
+        _run(env)
+    row = env.store.get("t")
+    assert row["status"] == "SKIPPED_CAP" and row["attempts"] == 0
+    assert env.todoist.calls == []  # nothing written, no ❓ comment
+    assert any("došel kredit" in line for line in r1.lines)
+    # credit topped up -> processed automatically
+    env.runner.classifier = env.clf
+    _run(env)
+    assert env.store.get("t")["status"] == "APPLIED"

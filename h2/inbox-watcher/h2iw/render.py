@@ -84,6 +84,16 @@ def command_line(source_text: str) -> str:
     return f"➡️ předáno Plánovači: {text}"
 
 
+PINNED_LINE = "📌 pevné"
+
+
+def is_pinned(v: Valid) -> bool:
+    """Planning OS v0.6 §4: every dictated EVENT outside the primary calendar is
+    PEVNÉ (including all-day). povinnost (primary) is fixed by its calendar;
+    BLOCK is always FLEX."""
+    return v.type == "EVENT" and v.life is not None and v.life != "povinnost"
+
+
 def calendar_prefix(v: Valid) -> str | None:
     """Colour + calendar name for calendar items (Planning OS v0.4 §2)."""
     from . import config
@@ -113,5 +123,7 @@ def summary_line(v: Valid) -> str:
         icon = config.LIFE_CALENDARS[v.life][0]
     else:
         icon = TYPE_ICON[v.type]
+    if is_pinned(v):
+        extra = _join([extra, "📌"])
     line = _join([icon, v.type, title, f"· {extra}" if extra else None]) + notes
     return f"{prefix} · {line}" if prefix else line
