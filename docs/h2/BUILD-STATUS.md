@@ -789,8 +789,10 @@ Pilotní nástroj pro *H2 Planning OS v0.3* (Notion, pilot 23.–29. 9. 2026). K
 | Doplněk: typ NOTE + pojistka více záměrů (DEC-009 doplněk) | HOTOVO | `pytest` 161/161; eval kolo 3: **28/28** (20 původních + 6 NOTE + 2 víc-záměrové), 0,0776 USD |
 | Commit + PR | HOTOVO (GO 2026-09-23) | commit `d6f4153`, [PR #54](https://github.com/honzabindr-max/muj-web/pull/54) (nemergnuto) |
 | Nasazení na VPS (bez timeru) | HOTOVO (GO 2026-09-23, 14:00 UTC) | `/opt/h2-inbox-watcher`, `install.sh`, user `h2iw` uid 990, timer `disabled`/`inactive`, `systemd-analyze verify` OK, `ANTHROPIC_API_KEY` zkopírován z `.env.local` rourou (hodnota nezobrazena) |
-| Secrets ownera (Todoist, Telegram, Google) | ČEKÁ NA OWNERA | `set-secret.sh`, `google_oauth_bootstrap.py` |
-| Dry run nad aktuálními Doručenými | TODO | |
+| Secrets ownera | HOTOVO | všech 6 klíčů v `/etc/h2-inbox-watcher/env` (jen názvy ověřeny) |
+| Preflight (read-only) | HOTOVO 2026-09-23 15:04 UTC | Todoist Inbox `6hc8xGCWPWPc5PPm`, Google token + H2 · Info + H2 · Bloky, Telegram `@H2_buddy_hb_bot`, Anthropic `claude-haiku-4-5-20251001` — vše OK (první pokus Todoist 1× přechodně FAIL, další 3 OK) |
+| Dry run nad aktuálními Doručenými | HOTOVO — Doručené prázdné (0 položek, 0 LLM volání); Todoist API v1 tvar odpovědi + `inbox_project` potvrzeny živě | |
+| Nález z dry runu: `httpx` loguje celé URL na INFO → Telegram bot token by šel do journald | OPRAVENO před prvním ostrým během | `quiet_http_loggers()`, test; journald `api.telegram.org/bot` = 0 výskytů |
 | Zapnutí timeru (GO-4) — **předtím vypnout dočasnou hodinovou Claude úlohu třídící Doručené** | ČEKÁ NA GO | |
 | E2E (3 nadiktované položky + Telegram) | TODO | — |
 

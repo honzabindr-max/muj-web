@@ -40,6 +40,14 @@ Daily calls and USD are in the `h2iw.status` output above.
 Hard caps (in `h2iw/config.py`): 200 LLM calls per day, 3 USD per calendar month (Europe/Prague).
 When a cap is hit, new items stay in Doručené with status `SKIPPED_CAP` and Telegram says so once per day.
 
+## Credential preflight (read-only)
+
+```bash
+ssh hz 'systemd-run --wait --pipe --quiet -p User=h2iw -p EnvironmentFile=/etc/h2-inbox-watcher/env -p Environment=H2IW_DB=/var/lib/h2-inbox-watcher/state.db -p StateDirectory=h2-inbox-watcher -p WorkingDirectory=/opt/h2-inbox-watcher /opt/h2-inbox-watcher/.venv/bin/python -m h2iw.preflight'
+```
+Checks Todoist, Google token + both H2 calendars, Telegram `getMe` and the Anthropic model. Prints OK/FAIL, never values.
+HTTP client loggers (`httpx`, `httpcore`, `anthropic`) are kept at WARNING: at INFO httpx would log the Telegram URL, which contains the bot token.
+
 ## Manual dry run (reads + classifies, writes nothing)
 
 ```bash

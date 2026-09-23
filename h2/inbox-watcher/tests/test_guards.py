@@ -118,3 +118,13 @@ def test_missing_secrets_report_names_only():
         config.load_secrets({"TODOIST_API_TOKEN": "secret-value"})
     assert "secret-value" not in str(e.value)
     assert "ANTHROPIC_API_KEY" in str(e.value)
+
+
+def test_http_client_loggers_cannot_leak_urls():
+    import logging
+
+    from h2iw.main import quiet_http_loggers
+
+    quiet_http_loggers()
+    for name in ("httpx", "httpcore", "anthropic"):
+        assert not logging.getLogger(name).isEnabledFor(logging.INFO)

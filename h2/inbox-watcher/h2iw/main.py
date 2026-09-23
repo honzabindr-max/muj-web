@@ -197,6 +197,13 @@ class Runner:
         report.lines.append(render.summary_line(v))
 
 
+def quiet_http_loggers() -> None:
+    """httpx logs full request URLs at INFO; the Telegram URL contains the bot
+    token. Keep HTTP client loggers at WARNING so no secret reaches journald."""
+    for name in ("httpx", "httpcore", "anthropic"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def format_summary(report: Report) -> str | None:
     if not report.lines:
         return None
@@ -234,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s",
                         stream=sys.stderr)
+    quiet_http_loggers()
 
     lock_path = config.db_path() + ".lock"
     os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
