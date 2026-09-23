@@ -208,6 +208,8 @@ class Runner:
         self._status(tid, "APPLIED")
         if v.type in ("NOTE", "COMMAND"):
             report.sensitive_written = True
+        if v.type != "COMMAND":
+            line = render.summary_line(v)  # apply may add notes (e.g. dropped duration)
         report.lines.append(line)
 
 

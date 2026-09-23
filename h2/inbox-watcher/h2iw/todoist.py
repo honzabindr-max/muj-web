@@ -84,7 +84,8 @@ class TodoistClient:
         return r.json() if r.content else None
 
     def update_task(self, task_id: str, fields: dict) -> None:
-        allowed = {"content", "description", "labels", "due_date", "due_datetime", "deadline_date"}
+        allowed = {"content", "description", "labels", "due_date", "due_datetime", "deadline_date",
+                   "duration", "duration_unit"}
         extra = set(fields) - allowed
         if extra:
             raise TodoistError(f"update_task: forbidden fields {sorted(extra)}")

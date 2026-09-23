@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from . import config, render
 from .gcal import GCalClient, event_id_for
 from .store import Store
-from .todoist import TodoistClient
+from .todoist import TodoistClient, TodoistError
 from .validate import Valid
 
 TODOIST_TASK_URL = "https://app.todoist.com/app/task/{id}"
@@ -23,8 +23,12 @@ def _task_fields(v: Valid, task: dict) -> dict:
     desc = f"Původně: {original}"
     if existing_desc:
         desc += f"\n\n{existing_desc}"
-    labels = list(dict.fromkeys([*(task.get("labels") or []), *render.task_labels(v)]))
+    ours = [lb for lb in render.task_labels(v) if lb not in config.NEVER_ASSIGNED_LABELS]
+    labels = list(dict.fromkeys([*(task.get("labels") or []), *ours]))
     fields: dict = {"content": render.task_title(v), "description": desc, "labels": labels}
+    if v.duration_min:
+        fields["duration"] = v.duration_min
+        fields["duration_unit"] = "minute"
     if v.due_date is not None:
         if v.due_time is not None:
             local = datetime.combine(v.due_date, v.due_time, tzinfo=config.TZ)
@@ -102,6 +106,20 @@ class Applier:
             self._project_ids[name] = self.todoist.project_id_by_name(name)
         return self._project_ids[name]
 
+    def _update_task(self, tid: str, v: Valid, task: dict) -> None:
+        fields = _task_fields(v, task)
+        try:
+            self.todoist.update_task(tid, fields)
+        except TodoistError as e:
+            # Duration is an estimate, never worth losing the task over: if
+            # Todoist rejects it (e.g. no due date), write everything else.
+            if "duration" not in fields or "-> 400" not in str(e):
+                raise
+            fields.pop("duration")
+            fields.pop("duration_unit")
+            v.notes.append("odhad délky Todoist odmítl")
+            self.todoist.update_task(tid, fields)
+
     def _step(self, task_id: str, step: str, fn) -> None:
         if self.store.step_done(task_id, step):
             return
@@ -116,7 +134,7 @@ class Applier:
             # half-applied item (e.g. a renamed task) behind.
             cal_id, cal_display = self.calendar_for(v)
         if v.type in ("TASK", "WAITING"):
-            s(tid, "todoist_update", lambda: self.todoist.update_task(tid, _task_fields(v, task)))
+            s(tid, "todoist_update", lambda: self._update_task(tid, v, task))
             if v.reminder:
                 s(tid, "todoist_reminder", lambda: self.todoist.add_reminder(tid))
             s(tid, "todoist_move", lambda: self.todoist.move_task(tid, config.H2_PROJECT_ID))

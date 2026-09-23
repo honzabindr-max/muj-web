@@ -103,6 +103,7 @@ class Valid:
     note_subtype: str | None = None
     reminder: bool = False
     life: str | None = None
+    duration_min: int | None = None
     reason: str = ""
     notes: list[str] = field(default_factory=list)  # e.g. defaulted end time
 
@@ -237,8 +238,15 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     life = raw.get("life")
     if life is not None and life not in LIVES:
         raise _Reject("neplatný druh času")
+    duration = raw.get("duration_min")
+    if duration is not None and duration not in config.TASK_DURATIONS_MIN:
+        raise _Reject("neplatný odhad délky")
     v = Valid(type=t, title=title, area=area, reason=reason,
-              life=life if t in ("EVENT", "BLOCK") else None)
+              life=life if t in ("TASK", "EVENT", "BLOCK") else None,
+              duration_min=duration if t == "TASK" else None)
+    if t == "TASK" and v.life is None:
+        v.life = "fokus"
+        v.notes.append("druh času nezadán → fokus")
     v.due_date = _date(raw.get("due_date"), "due_date", today)
     v.deadline_date = _date(raw.get("deadline_date"), "deadline_date", today)
     v.all_day_date = _date(raw.get("all_day_date"), "all_day_date", today)

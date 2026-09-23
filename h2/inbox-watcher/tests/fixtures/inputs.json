@@ -20,7 +20,8 @@
     "reason": "Úkol bez termínu.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -41,7 +42,8 @@
     "reason": "Nákup.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -62,7 +64,8 @@
     "reason": "Výslovný deadline.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -83,7 +86,8 @@
     "reason": "Úkol na zítřek.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -104,7 +108,8 @@
     "reason": "Hovor s časem, ne schůzka.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -125,7 +130,8 @@
     "reason": "Zpráva.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -146,7 +152,8 @@
     "reason": "Jen zachytit.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -167,7 +174,8 @@
     "reason": "Pohyb.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -188,7 +196,8 @@
     "reason": "Čekám na Petra, follow-up čtvrtek.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -209,7 +218,8 @@
     "reason": "Čekám.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -230,7 +240,8 @@
     "reason": "Pevný termín s časem.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": "povinnost"
+    "life": "povinnost",
+    "duration_min": null
    },
    "expected_life": "povinnost"
   },
@@ -252,7 +263,8 @@
     "reason": "Schůzka.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": "povinnost"
+    "life": "povinnost",
+    "duration_min": null
    },
    "expected_life": "povinnost"
   },
@@ -274,7 +286,8 @@
     "reason": "Pevný termín, ale chybí čas.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -295,7 +308,8 @@
     "reason": "Plán jiného člověka.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -316,7 +330,8 @@
     "reason": "Plán jiných, celý den.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -337,7 +352,8 @@
     "reason": "Vyhrazený čas.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": "fokus"
+    "life": "fokus",
+    "duration_min": null
    },
    "expected_life": "fokus"
   },
@@ -359,7 +375,8 @@
     "reason": "Blok na práci.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": "fokus"
+    "life": "fokus",
+    "duration_min": null
    },
    "expected_life": "fokus"
   },
@@ -381,7 +398,8 @@
     "reason": "Nesrozumitelné diktování.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -402,7 +420,8 @@
     "reason": "Nesmyslný text.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -423,7 +442,8 @@
     "note_subtype": null,
     "multiple_items": true,
     "reason": "Dvě nesouvisející věci v jedné položce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -444,7 +464,8 @@
     "note_subtype": null,
     "multiple_items": true,
     "reason": "Dvě samostatné akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -465,7 +486,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Jeden nákup.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -486,7 +508,8 @@
     "note_subtype": "idea",
     "multiple_items": false,
     "reason": "Poznámka bez akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -507,7 +530,8 @@
     "note_subtype": "idea",
     "multiple_items": false,
     "reason": "Poznámka bez akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -528,7 +552,8 @@
     "note_subtype": "journal",
     "multiple_items": false,
     "reason": "Poznámka bez akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -549,7 +574,8 @@
     "note_subtype": "person",
     "multiple_items": false,
     "reason": "Poznámka bez akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -570,7 +596,8 @@
     "note_subtype": "person",
     "multiple_items": false,
     "reason": "Poznámka bez akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -591,7 +618,8 @@
     "note_subtype": "other",
     "multiple_items": false,
     "reason": "Poznámka bez akce.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -612,7 +640,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -633,7 +662,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -654,7 +684,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -675,7 +706,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -696,7 +728,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -717,7 +750,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": "povinnost"
+    "life": "povinnost",
+    "duration_min": null
    },
    "expected_life": "povinnost"
   },
@@ -739,7 +773,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": "lide"
+    "life": "lide",
+    "duration_min": null
    },
    "expected_life": "lide"
   },
@@ -761,7 +796,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": "zazitky"
+    "life": "zazitky",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -786,7 +822,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -807,7 +844,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -828,7 +866,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -849,7 +888,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -870,7 +910,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "x",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -891,7 +932,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -912,7 +954,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -933,7 +976,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -954,7 +998,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -975,7 +1020,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -996,7 +1042,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1017,7 +1064,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Nový úkol s připomenutím.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1038,7 +1086,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Nový úkol s připomenutím.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1059,7 +1108,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Nový úkol s připomenutím.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1080,7 +1130,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Nový úkol s připomenutím.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1101,7 +1152,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Nový úkol s připomenutím.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1122,7 +1174,8 @@
     "note_subtype": null,
     "multiple_items": false,
     "reason": "Nový úkol s připomenutím.",
-    "life": null
+    "life": null,
+    "duration_min": null
    }
   },
   {
@@ -1144,7 +1197,8 @@
     "note_subtype": null,
     "life": "povinnost",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    }
   },
   {
@@ -1166,7 +1220,8 @@
     "note_subtype": null,
     "life": "povinnost",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    }
   },
   {
@@ -1188,7 +1243,8 @@
     "note_subtype": null,
     "life": "fokus",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "BLOCK",
@@ -1214,7 +1270,8 @@
     "note_subtype": null,
     "life": "fokus",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "BLOCK",
@@ -1240,7 +1297,8 @@
     "note_subtype": null,
     "life": "regenerace",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -1266,7 +1324,8 @@
     "note_subtype": null,
     "life": "regenerace",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -1292,7 +1351,8 @@
     "note_subtype": null,
     "life": "lide",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -1318,7 +1378,8 @@
     "note_subtype": null,
     "life": "lide",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -1344,7 +1405,8 @@
     "note_subtype": null,
     "life": "domov",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "BLOCK",
@@ -1370,7 +1432,8 @@
     "note_subtype": null,
     "life": "domov",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "BLOCK",
@@ -1396,7 +1459,8 @@
     "note_subtype": null,
     "life": "zazitky",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -1422,7 +1486,8 @@
     "note_subtype": null,
     "life": "zazitky",
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "duration_min": null
    },
    "accept_types": [
     "EVENT",
@@ -1447,7 +1512,8 @@
     "note_subtype": null,
     "life": null,
     "multiple_items": false,
-    "reason": "Program jiné osoby."
+    "reason": "Program jiné osoby.",
+    "duration_min": null
    }
   },
   {
@@ -1469,7 +1535,8 @@
     "note_subtype": null,
     "life": "fokus",
     "multiple_items": false,
-    "reason": "Rezervovaný čas s rozsahem."
+    "reason": "Rezervovaný čas s rozsahem.",
+    "duration_min": null
    }
   },
   {
@@ -1491,7 +1558,8 @@
     "note_subtype": null,
     "life": "fokus",
     "multiple_items": false,
-    "reason": "Rezervovaný čas s rozsahem."
+    "reason": "Rezervovaný čas s rozsahem.",
+    "duration_min": null
    }
   },
   {
@@ -1512,7 +1580,284 @@
     "note_subtype": null,
     "life": null,
     "multiple_items": false,
-    "reason": "Jeden časový bod."
+    "reason": "Jeden časový bod.",
+    "duration_min": null
+   }
+  },
+  {
+   "id": "task_find_sofa_online",
+   "text": "najít sedačku online",
+   "expected_type": "TASK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Najít sedačku online",
+    "context": null,
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "duration_min": 60,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_carry_sofa",
+   "text": "odnést sedačku do sklepa",
+   "expected_type": "TASK",
+   "expected_life": "domov",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Odnést sedačku do sklepa",
+    "context": "doma",
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_book_doctor",
+   "text": "objednat se k lékaři",
+   "expected_type": "TASK",
+   "expected_life": "povinnost",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Objednat se k lékaři",
+    "context": "telefon",
+    "area": "zdravi",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "povinnost",
+    "duration_min": 15,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_clean_washer",
+   "text": "vyčistit pračku",
+   "expected_type": "TASK",
+   "expected_life": "domov",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Vyčistit pračku",
+    "context": "doma",
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_book_hotel",
+   "text": "zarezervovat hotel na Korfu",
+   "expected_type": "TASK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zarezervovat hotel na Korfu",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_birthday_mum",
+   "text": "popřát mámě k narozeninám",
+   "expected_type": "TASK",
+   "expected_life": "lide",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Popřát mámě k narozeninám",
+    "context": "telefon",
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": 15,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_stretch",
+   "text": "protáhnout se a zacvičit si",
+   "expected_type": "TASK",
+   "expected_life": "regenerace",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Protáhnout se a zacvičit si",
+    "context": "doma",
+    "area": "pohyb",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "regenerace",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_cinema",
+   "text": "jít do kina na nový film",
+   "expected_type": "TASK",
+   "expected_life": "zazitky",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Jít do kina na nový film",
+    "context": "venku",
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "zazitky",
+    "duration_min": 120,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_id_card",
+   "text": "zajít na úřad pro nový občanský průkaz",
+   "expected_type": "TASK",
+   "expected_life": "povinnost",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zajít na úřad pro občanský průkaz",
+    "context": "venku",
+    "area": "urady",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "povinnost",
+    "duration_min": 60,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_arrange_beer",
+   "text": "domluvit s Petrem pivo",
+   "expected_type": "TASK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Domluvit s Petrem pivo",
+    "context": "telefon",
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "duration_min": 15,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_evening_marketka",
+   "text": "strávit večer s Markétkou bez mobilu",
+   "expected_type": "TASK",
+   "expected_life": "lide",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Večer s Markétkou bez mobilu",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": 120,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "task_walk",
+   "text": "jít na procházku",
+   "expected_type": "TASK",
+   "expected_life": "regenerace",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Jít na procházku",
+    "context": "venku",
+    "area": "pohyb",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "regenerace",
+    "duration_min": 60,
+    "multiple_items": false,
+    "reason": "x"
    }
   }
  ]

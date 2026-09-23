@@ -81,7 +81,7 @@ def test_non_dict_output():
 def test_task_title_order_context_then_area():
     v = validate(case("task_phone_finance")["mock_output"], NOW)
     assert render.task_title(v) == "📞 💰 Zavolat účetní kvůli DPH"
-    assert render.task_labels(v) == ["telefon"]
+    assert render.task_labels(v) == ["telefon", "fokus"]
 
 
 def test_waiting_uses_hourglass_and_ceka_label():
@@ -93,7 +93,7 @@ def test_waiting_uses_hourglass_and_ceka_label():
 def test_no_emoji_when_no_context_or_area():
     v = validate(dict(_base(), context=None, area=None), NOW)
     assert render.task_title(v) == "Zavolat účetní kvůli DPH"
-    assert render.task_labels(v) == []
+    assert render.task_labels(v) == ["fokus"]
 
 
 def test_calendar_title_is_area_only():
@@ -102,11 +102,12 @@ def test_calendar_title_is_area_only():
 
 
 @pytest.mark.parametrize("c", FIXTURES["cases"], ids=lambda c: c["id"])
-def test_never_star_or_focus(c):
+def test_never_star_top_or_focus(c):
     v = validate(c["mock_output"], NOW)
     if isinstance(v, Valid):
         assert "⭐" not in render.task_title(v)
         assert "focus" not in render.task_labels(v)
+        assert "top" not in render.task_labels(v)
         render.summary_line(v)  # renders without error
 
 
@@ -264,7 +265,7 @@ def test_reminder_with_time_sets_flag_and_bell():
     c = case("task_reminder_imbus")
     v = validate(c["mock_output"], NOW, c["text"])
     assert v.type == "TASK" and v.reminder and v.due_time.isoformat() == "20:15:00"
-    assert render.summary_line(v).endswith("🔔")
+    assert "🔔" in render.summary_line(v)
 
 
 def test_reminder_without_time_is_date_only():
@@ -292,9 +293,10 @@ def test_invalid_life_rejected():
     assert isinstance(validate(d, NOW), Invalid)
 
 
-def test_life_ignored_outside_event_block():
-    d = dict(case("task_errand")["mock_output"], life="domov")
+def test_life_ignored_outside_task_event_block():
+    d = dict(case("waiting_no_date")["mock_output"], life="domov")
     assert validate(d, NOW).life is None
+    assert render.task_labels(validate(d, NOW)) == ["ceka"]
 
 
 def test_life_fixture_coverage():
@@ -346,3 +348,37 @@ def test_range_misread_as_task_stays_in_inbox():
 def test_time_range_detection(text, is_range):
     from h2iw.validate import is_time_range
     assert is_time_range(text) is is_range
+
+
+# --- TASK life label + duration (owner requirement 2026-09-23) --------------
+
+def test_task_life_label_and_colour_line():
+    c = case("task_clean_washer")
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.life == "domov" and "domov" in render.task_labels(v)
+    line = render.summary_line(v)
+    assert line.startswith("🟤 TASK ") and "⏱ 30 min" in line
+
+
+def test_task_without_life_defaults_to_fokus():
+    d = dict(case("task_sport")["mock_output"], life=None)
+    v = validate(d, NOW)
+    assert v.life == "fokus" and v.notes
+
+
+def test_invalid_duration_rejected():
+    d = dict(case("task_sport")["mock_output"], duration_min=45)
+    assert isinstance(validate(d, NOW), Invalid)
+
+
+def test_duration_only_on_task():
+    d = dict(case("waiting_no_date")["mock_output"], duration_min=30)
+    assert validate(d, NOW).duration_min is None
+
+
+def test_task_life_fixture_coverage():
+    lives = [c.get("expected_life") for c in FIXTURES["cases"]
+             if c["expected_type"] == "TASK" and c.get("expected_life")]
+    assert len(lives) >= 10
+    for life in ["povinnost", "fokus", "regenerace", "lide", "domov", "zazitky"]:
+        assert life in lives, life

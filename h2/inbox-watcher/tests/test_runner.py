@@ -116,13 +116,13 @@ def test_task_due_time_goes_as_utc_datetime(env):
     _run(env)
     fields = env.todoist.calls[0][2]
     assert fields["due_datetime"] == "2026-09-24T06:00:00Z"
-    assert fields["labels"] == ["telefon"]
+    assert fields["labels"] == ["telefon", "fokus"]
 
 
 def test_existing_labels_are_kept(env):
-    env.todoist.add("t", case("task_errand")["text"], labels=["focus"])
+    env.todoist.add("t", case("task_errand")["text"], labels=["top"])
     _run(env)
-    assert env.todoist.calls[0][2]["labels"] == ["focus", "venku"]
+    assert env.todoist.calls[0][2]["labels"] == ["top", "venku", "fokus"]
 
 
 def test_waiting_gets_ceka_and_followup(env):
@@ -452,3 +452,48 @@ def test_event_in_life_calendar_comment_names_it(env):
     env.todoist.add("d", case("event_dinner_marketka")["text"])
     _run(env)
     assert ("comment", "d", "→ H2 · Lidé") in env.todoist.calls
+
+
+# --- TASK life label + duration --------------------------------------------
+
+def test_task_gets_life_label_and_duration(env):
+    c = case("task_clean_washer")
+    env.todoist.add("w", c["text"])
+    r = _run(env)
+    f = env.todoist.calls[0][2]
+    assert f["labels"] == ["doma", "domov"]
+    assert f["duration"] == 30 and f["duration_unit"] == "minute"
+    assert r.lines[0].startswith("🟤 TASK 🏠 🏡 Vyčistit pračku")
+
+
+def test_duration_rejected_by_todoist_is_dropped_not_fatal(env):
+    from h2iw.todoist import TodoistError
+
+    real = env.todoist.update_task
+
+    def picky(tid, fields):
+        if "duration" in fields:
+            raise TodoistError("POST /tasks/w -> 400")
+        return real(tid, fields)
+
+    env.todoist.update_task = picky
+    env.todoist.add("w", case("task_clean_washer")["text"])
+    r = _run(env)
+    assert "duration" not in env.todoist.calls[0][2]
+    assert env.store.get("w")["status"] == "APPLIED"
+    assert "odhad délky Todoist odmítl" in r.lines[0]
+
+
+def test_block_task_also_gets_life_label(env):
+    env.todoist.add("b", case("block_carry_sofa")["text"])
+    _run(env)
+    assert "domov" in env.todoist.calls[0][2]["labels"]
+
+
+def test_top_label_never_added(env):
+    d = dict(case("task_sport")["mock_output"], context="top")  # invalid context -> rejected
+    env.clf.by_text["x"] = d
+    env.todoist.add("x", "x")
+    _run(env)
+    assert all("top" not in (c[2].get("labels", []) if len(c) > 2 and isinstance(c[2], dict) else [])
+               for c in env.todoist.calls)
