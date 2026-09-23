@@ -162,7 +162,8 @@ def test_info_is_free_without_reminders(env):
 def test_block_creates_task_and_linked_event(env):
     env.todoist.add("b", case("block_project")["text"])
     _run(env)
-    assert [c[0] for c in env.todoist.calls] == ["update", "move"]
+    assert [c[0] for c in env.todoist.calls] == ["update", "reminder", "move"]
+    assert env.todoist.calls[0][2]["due_datetime"] == "2026-09-26T08:00:00Z"  # block start
     (cal, _), ev = next(iter(env.gcal.events.items()))
     assert cal == "cal-fokus"
     assert ev["description"] == "Úkol: https://app.todoist.com/app/task/b"
@@ -497,3 +498,21 @@ def test_top_label_never_added(env):
     _run(env)
     assert all("top" not in (c[2].get("labels", []) if len(c) > 2 and isinstance(c[2], dict) else [])
                for c in env.todoist.calls)
+
+
+def test_all_day_life_event_busy_without_popup(env):
+    env.todoist.add("h", case("event_mushrooms_sasenka")["text"])
+    r = _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == "cal-lide" and ev["transparency"] == "opaque"
+    assert ev["start"] == {"date": "2026-09-28"} and ev["reminders"]["overrides"] == []
+    assert r.lines[0].startswith("🩷 H2 · Lidé · ")
+
+
+def test_every_timed_task_path_adds_reminder(env):
+    for tid, cid in [("a", "task_on_the_way_bulbs"), ("b", "task_due_time"),
+                     ("c", "block_car_to_house")]:
+        env.todoist.add(tid, case(cid)["text"])
+    _run(env)
+    reminded = {c[1] for c in env.todoist.calls if c[0] == "reminder"}
+    assert reminded == {"a", "b", "c"}

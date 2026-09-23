@@ -29,7 +29,10 @@ def _task_fields(v: Valid, task: dict) -> dict:
     if v.duration_min:
         fields["duration"] = v.duration_min
         fields["duration_unit"] = "minute"
-    if v.due_date is not None:
+    if v.type == "BLOCK" and v.start is not None:
+        # The task behind a block is due at the block start (reminder at that time).
+        fields["due_datetime"] = v.start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif v.due_date is not None:
         if v.due_time is not None:
             local = datetime.combine(v.due_date, v.due_time, tzinfo=config.TZ)
             fields["due_datetime"] = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -64,8 +67,9 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
     minutes = (config.EVENT_REMINDER_MINUTES if v.life == "povinnost"
                else config.LIFE_REMINDER_MINUTES)
     body["transparency"] = "opaque"
-    body["reminders"] = {"useDefault": False,
-                         "overrides": [{"method": "popup", "minutes": minutes}]}
+    # All-day events: a popup N minutes before midnight is noise, so none.
+    overrides = [] if v.start is None else [{"method": "popup", "minutes": minutes}]
+    body["reminders"] = {"useDefault": False, "overrides": overrides}
     if kind == "BLOCK":
         body["description"] = f"Úkol: {TODOIST_TASK_URL.format(id=task['id'])}"
     else:
@@ -140,6 +144,8 @@ class Applier:
             s(tid, "todoist_move", lambda: self.todoist.move_task(tid, config.H2_PROJECT_ID))
         elif v.type == "BLOCK":
             s(tid, "todoist_update", lambda: self.todoist.update_task(tid, _task_fields(v, task)))
+            if v.reminder:
+                s(tid, "todoist_reminder", lambda: self.todoist.add_reminder(tid))
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(
                 cal_id, _event_body(v, task, "BLOCK")))
             s(tid, "todoist_move", lambda: self.todoist.move_task(tid, config.H2_PROJECT_ID))

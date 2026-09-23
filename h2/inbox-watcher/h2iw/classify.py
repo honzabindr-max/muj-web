@@ -84,10 +84,16 @@ TYPY
 - INFO: plán nebo pohyb JINÉ osoby, kde já nejsem aktér — podmětem je někdo jiný („Markétka přijede v 19:30", „děti odjíždí", „mamka bude pryč", „Markétka má akci"). I když je uveden přesný čas, je to INFO, ne EVENT.
 - BLOCK: vyhrazuji si čas na práci na úkolu, který by jinak byl v seznamu úkolů („v sobotu 10–12 dělám na…", „zítra 14–16 vyřídit papíry", „odnést sedačku", „opravit skříň", „zablokuj mi…").
 - Časový ROZSAH („od 10 do 11", „10–12", „9 až 10") u mé vlastní činnosti = BLOCK s start i end, nikdy TASK („Zítra od 10 do 11 volám Patrikovi" = BLOCK, life fokus). TASK s due_time jen při jednom časovém bodu („v 10 zavolat Patrikovi").
-- EVENT a BLOCK jen s výslovným časem začátku. Bez času („strávit večer s Markétkou bez mobilu", „někdy si zajít do kina") je to TASK.
+- EVENT a BLOCK jen s výslovným časem začátku. Bez času („strávit večer s Markétkou bez mobilu", „někdy si zajít do kina") je to TASK. Výjimka: celodenní činnost s lidmi nebo zážitek s daným dnem („v pondělí jedu se Sašenkou na houby") = EVENT s all_day_date a life (lide / zazitky); pevný termín (lékař, úřad) bez času je dál UNKNOWN.
+- Čas bez dne („ve 14") = dnes; pokud dnes už ten čas minul, zítra.
+- Věci „cestou" („cestou z baráku koupit žárovky ve 14") = TASK s časem (připomenutí se přidá samo), NIKDY BLOCK ani EVENT.
+- „Podívat se", „nezapomenout", „připomeň mi" = TASK s datem (a časem, pokud zazní), NIKDY kalendář (EVENT/BLOCK/INFO).
+- Rituály a oběd (cigaretka, kafe, oběd — bez konkrétního člověka) nezakládej, ani když zazní čas: type UNKNOWN, reason „rituál spravuje Plánovač". Oběd s konkrétním člověkem („oběd s dětmi", „oběd s tátou") je EVENT lide.
 - EVENT vs BLOCK: EVENT = samotná naplánovaná činnost nebo závazek (lékař, schůzka, večeře, kolo, jóga, kino, výlet); BLOCK = vyhrazený čas na odpracování úkolu.
 - Nová věc + žádost o připomenutí („připomeň mi…", „přidej připomenutí", „upozorni mě…") je TASK (s due_date a due_time, pokud je čas uveden), NIKDY COMMAND. „Přidej připomenutí" k nové věci není změna existující položky.
 - COMMAND: (a) pokyn ke změně něčeho, co už existuje v Todoistu, kalendáři nebo H2 („smaž…", „přesuň úkol…", „přejmenuj…", „zruš…", „posuň…", „odlož…", „označ jako hotové"); (b) stavová aktualizace existujícího úkolu — hlášení, co se stalo s něčím, co už řeším („hotovo…", „nedovolal jsem se X, napsal jsem mu a čekám", „zavolal jsem do servisu, auto bude v pátek", „nestihl jsem…, přesuň to", „účetní se neozvala, zkusím to znovu ve čtvrtek"), i když obsahuje „čekám" nebo „připomeň mi to". COMMAND jen když se text týká něčeho, co už existuje (odkazuje na dřívější úkol, událost nebo to, co se už stalo). Celé hlášení je JEDEN COMMAND, multiple_items = false. Nikdy z toho nedělej TASK ani WAITING. Pozor: „přesunout gauč do obýváku" je nový fyzický úkol (TASK) a „čekám až mi Petr pošle smlouvu" bez hlášení o proběhlé akci je nové WAITING.
+- Obyčejný úkol bez dne a času je v pořádku („koupit mléko, chleba a vajíčka") = TASK bez due_date, NE UNKNOWN.
+- „Napadlo mě…", „nápad:", „co kdyby…" bez výslovného pokynu něco udělat = NOTE idea, ne TASK. TASK jen když vstup říká, že to mám udělat („vymyslet krytí balkónu").
 - NOTE: poznámka bez akce a bez termínu — nápad (idea), deník/pocity (journal), informace o člověku (person), jiná informace k zapamatování (other). Nic k vykonání, nic do kalendáře.
 - UNKNOWN: nesrozumitelné, nesmyslné, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
 - Dvě a více samostatných akcí nebo termínů v jednom vstupu („vyzvednout léky a v pátek v 17:00 kadeřník"): multiple_items = true a type UNKNOWN. Nikdy nevybírej jen první věc. Jinak multiple_items = false.
@@ -113,7 +119,9 @@ POLE
   lide = skutečně věnuji čas lidem (večeře s Markétkou, oběd s dětmi, kamarádi, popřát k narozeninám);
   domov = fyzicky pečuji o byt rukama (odnést sedačku, opravit skříň, sklep, stěhování);
   zazitky = žiju, cestuji, bavím se (výlet, kino, koncert, restaurace, dovolená, Burčákový pochod).
-  Když je hlavní náplní čas s konkrétním člověkem (pivo s Petrem, večeře s Markétkou, oběd s dětmi, návštěva kamaráda), je to lide, i když se odehrává v hospodě nebo restauraci. zazitky jen když je hlavní náplní samotný zážitek (kino, pochod, výlet, koncert, cesta).
+  Když je hlavní náplní čas s konkrétním člověkem (pivo s Petrem, večeře s Markétkou, oběd s dětmi, houby se Sašenkou, výlet s dětmi, návštěva kamaráda), je to lide, i když je to výlet, hospoda nebo restaurace. „Mám kluky" (děti jsou u mě) = lide, NE INFO. zazitky jen bez důrazu na konkrétní osobu (kino, pochod, koncert, dovolená).
+  Jízda autem a pochůzky („jedu autem na barák", „zajet na poštu", „vrátit knihu do knihovny") = domov.
+  „Vymyslet / objednat / prodat / najít online / podívat se po" = fokus (hlava); fyzické provedení = domov (ruce).
   Plánování zážitku nebo administrativa kvůli lidem (zavolat, zarezervovat, domluvit) = fokus. Program jiných lidí = INFO, ne life.
   Příklady úkolů: „najít sedačku online" = fokus, „odnést sedačku" = domov, „vyčistit pračku" = domov, „zarezervovat hotel" = fokus, „jít si zaběhat" = regenerace, „popřát mámě k narozeninám" = lide, „jít do kina" = zazitky, „objednat se k lékaři" = povinnost, „domluvit s Petrem pivo" = fokus (domlouvání je administrativa, ne čas s ním), „schůzka s Honzou z Optimia" = povinnost.
 - duration_min: jen u TASK odhad, kolik čistého času úkol zabere: 15, 30, 60 nebo 120 minut (nejbližší). Jinak null.

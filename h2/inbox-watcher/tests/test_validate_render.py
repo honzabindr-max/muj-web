@@ -274,9 +274,9 @@ def test_reminder_without_time_is_date_only():
     assert v.type == "TASK" and not v.reminder and v.due_time is None and v.due_date
 
 
-def test_time_without_reminder_phrase_has_no_reminder():
-    c = case("task_due_time")
-    assert not validate(c["mock_output"], NOW, c["text"]).reminder
+def test_task_with_time_always_has_reminder_v05():
+    c = case("task_due_time")  # "zítra v 8 zavolat do školky", no reminder phrase
+    assert validate(c["mock_output"], NOW, c["text"]).reminder
 
 
 # --- life -----------------------------------------------------------------
@@ -382,3 +382,68 @@ def test_task_life_fixture_coverage():
     assert len(lives) >= 10
     for life in ["povinnost", "fokus", "regenerace", "lide", "domov", "zazitky"]:
         assert life in lives, life
+
+
+# --- Planning OS v0.5 rules --------------------------------------------------
+
+def test_on_the_way_never_calendar():
+    c = case("task_on_the_way_bulbs")
+    as_block = dict(case("block_carry_sofa")["mock_output"], start="2026-09-23T14:00",
+                    end="2026-09-23T15:00")
+    v = validate(as_block, NOW, c["text"])
+    assert isinstance(v, Invalid) and "cestou" in v.reason
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.type == "TASK" and v.life == "domov" and v.reminder
+
+
+def test_look_remind_never_calendar():
+    c = case("task_look_for_shell")
+    as_event = dict(case("event_burcak")["mock_output"], all_day_date="2026-09-30", start=None)
+    assert isinstance(validate(as_event, NOW, c["text"]), Invalid)
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.type == "TASK" and v.due_date.isoformat() == "2026-09-30" and not v.reminder
+
+
+def test_ritual_is_unknown_but_lunch_with_person_is_lide():
+    cig = case("ritual_cigarette")
+    as_event = dict(case("event_yoga")["mock_output"], title="Cigaretka", start="2026-09-24T07:00")
+    v = validate(as_event, NOW, cig["text"])
+    assert isinstance(v, Invalid) and "rituál" in v.reason
+    lunch = case("event_lunch_dad")
+    assert validate(lunch["mock_output"], NOW, lunch["text"]).life == "lide"
+
+
+def test_all_day_event_with_people_is_valid_but_not_for_povinnost():
+    c = case("event_mushrooms_sasenka")
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.type == "EVENT" and v.life == "lide" and v.all_day_date.isoformat() == "2026-09-28"
+    doctor = dict(c["mock_output"], life="povinnost")
+    assert isinstance(validate(doctor, NOW), Invalid)
+
+
+def test_all_day_with_invented_time_keeps_all_day():
+    c = case("event_mushrooms_sasenka")
+    d = dict(c["mock_output"], start="2026-09-28T08:00")
+    v = validate(d, NOW, c["text"])
+    assert v.type == "EVENT" and v.start is None and v.all_day_date.isoformat() == "2026-09-28"
+
+
+@pytest.mark.parametrize("text,is_person", [
+    ("jdu v pátek v 18 s Petrem na pivo", True),
+    ("v pondělí jedu se Sašenkou na houby", True),
+    ("zítra ve 12 oběd s tátou", True),
+    ("v pátek od 16 mám kluky", True),
+    ("v sobotu 10–12 kolo", False),
+    ("v pátek ve 20 kino", False),
+    ("koupit mléko s sebou", False),
+])
+def test_with_person_regex(text, is_person):
+    from h2iw.validate import WITH_PERSON_RE
+    assert bool(WITH_PERSON_RE.search(text)) is is_person
+
+
+def test_person_overrides_zazitky_to_lide():
+    c = case("event_i_go_beer")
+    d = dict(c["mock_output"], life="zazitky")
+    v = validate(d, NOW, c["text"])
+    assert v.life == "lide" and "s konkrétním člověkem → lide" in v.notes

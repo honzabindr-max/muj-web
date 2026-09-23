@@ -84,6 +84,25 @@ COMMAND_GUARD_REASON = "vypadá jako příkaz nebo stavová aktualizace — nepr
 # then gets a Todoist push reminder at due time; without a time only the date.
 REMINDER_RE = re.compile(r"\b(připom[eě]\w*|připomín\w*|upozorn\w*)", re.IGNORECASE)
 
+# Planning OS v0.5 guards (never trust the model alone for these):
+# - things done "cestou" are a TASK with a time, never a calendar item
+# - "podívat se / nezapomenout / připomeň" are Todoist reminders, never calendar
+# - rituals and lunch (cigaretka, kafe, oběd) are managed by the Planner: ❓
+ON_THE_WAY_RE = re.compile(r"\bcestou\b", re.IGNORECASE)
+LOOK_REMIND_RE = re.compile(r"\b(podívat\s+se|se\s+podívat|podívej\s+se|mrknout|nezapomen\w*|připom[eě]\w*|upozorn\w*)",
+                            re.IGNORECASE)
+RITUAL_RE = re.compile(r"\b(cigaret\w*|cigár\w*|kaf[eí]\w*|kafíčk\w*|oběd\w*)", re.IGNORECASE)
+# v0.5: time spent WITH a specific person is lide, even a trip or a pub.
+WITH_PERSON_RE = re.compile(
+    r"\b(se?|spolu\s+s)\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+"
+    r"|\bs(e)?\s+(dětmi|dětma|klukama|kluky|holkama|tátou|taťkou|mámou|mamkou|babičkou|dědou|"
+    r"rodinou|kamarád\w*|kámo\w*|přítel\w*)\b"
+    r"|\bmám\s+kluky\b",
+)
+ON_THE_WAY_REASON = "věc „cestou\" patří do úkolu s časem, ne do kalendáře — zkontrolovat"
+LOOK_REMIND_REASON = "připomínka patří do úkolu s datem, ne do kalendáře — zkontrolovat"
+RITUAL_REASON = "rituál / oběd do kalendáře nezakládám — spravuje Plánovač"
+
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
 
@@ -145,6 +164,10 @@ def _dt(value, name: str, today: date) -> datetime | None:
 
 
 def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | Invalid:
+    if (isinstance(raw, dict) and source_text and raw.get("all_day_date") and raw.get("start")
+            and TIME_SIGNAL_RE.search(source_text) is None):
+        # Model gave an all-day date AND an invented time: keep the all-day date.
+        raw = dict(raw, start=None, end=None)
     try:
         v = _validate(raw, now)
     except _Reject as e:
@@ -160,8 +183,30 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
         if isinstance(v, Valid):
             v = _check_nothing_dropped(v, source_text)
         if isinstance(v, Valid):
-            v.reminder = (v.type in ("TASK", "WAITING") and v.due_time is not None
-                          and REMINDER_RE.search(source_text) is not None)
+            v = _check_v05_rules(v, source_text)
+        if isinstance(v, Valid):
+            # v0.5 §5: a task with a time ALWAYS gets a reminder at that time,
+            # including the task behind a BLOCK (due = block start).
+            v.reminder = ((v.type in ("TASK", "WAITING") and v.due_time is not None)
+                          or (v.type == "BLOCK" and v.start is not None))
+    return v
+
+
+def _check_v05_rules(v: Valid, text: str) -> Valid | Invalid:
+    calendar = v.type in ("EVENT", "BLOCK", "INFO")
+    if (v.type in ("EVENT", "BLOCK", "TASK") and v.life in ("zazitky", "regenerace")
+            and WITH_PERSON_RE.search(text)):
+        v.life = "lide"
+        v.notes.append("s konkrétním člověkem → lide")
+    if v.type in ("EVENT", "BLOCK") and ON_THE_WAY_RE.search(text):
+        return Invalid(ON_THE_WAY_REASON)
+    if calendar and LOOK_REMIND_RE.search(text):
+        return Invalid(LOOK_REMIND_REASON)
+    if RITUAL_RE.search(text):
+        if v.type in ("EVENT", "BLOCK") and v.life != "lide":  # "oběd s dětmi" stays
+            return Invalid(RITUAL_REASON)
+        if v.type == "TASK" and v.life == "regenerace":
+            return Invalid(RITUAL_REASON)
     return v
 
 
@@ -284,6 +329,14 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
 def _validate_calendar(v: Valid) -> Valid | Invalid:
     t = v.type
     if t in ("TASK", "WAITING", "NOTE"):
+        return v
+
+    if (t == "EVENT" and v.start is None and v.all_day_date is not None
+            and v.life is not None and v.life != "povinnost"):
+        # v0.5: a day-long activity with people / experience without a time
+        # ("v pondělí jedu se Sašenkou na houby") is an all-day event. A fixed
+        # appointment (povinnost) without a time stays UNKNOWN.
+        v.due_date = v.due_time = v.deadline_date = None
         return v
 
     if t in ("EVENT", "BLOCK"):
