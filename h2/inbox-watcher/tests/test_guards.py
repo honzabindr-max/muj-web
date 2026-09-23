@@ -15,8 +15,8 @@ def test_gcal_client_has_no_mutating_methods_for_existing_events():
 
 def test_todoist_client_surface_has_no_delete():
     public = {m for m in dir(TodoistClient) if not m.startswith("_")}
-    assert public == {"inbox_id", "list_inbox", "get_task", "update_task", "move_task",
-                      "close_task", "add_comment"}
+    assert public == {"inbox_id", "project_id_by_name", "list_inbox", "get_task", "update_task",
+                      "move_task", "close_task", "add_comment"}
 
 
 def test_event_id_uses_base32hex_alphabet():

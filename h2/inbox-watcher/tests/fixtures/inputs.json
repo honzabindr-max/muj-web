@@ -821,6 +821,126 @@
     "multiple_items": false,
     "reason": "x"
    }
+  },
+  {
+   "id": "command_status_patrik",
+   "text": "Nedovolal jsem se Patrikovi, tak jsem mu napsal zprávu a čekám. Připomeň mi to zítra",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Patrik — nedovolal, napsal, čekám, připomenout zítra",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Stavová aktualizace existujícího úkolu."
+   }
+  },
+  {
+   "id": "command_status_done",
+   "text": "hotovo, žárovky koupené",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Žárovky koupené — hotovo",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Stavová aktualizace existujícího úkolu."
+   }
+  },
+  {
+   "id": "command_postpone",
+   "text": "odlož sedačku na příští týden",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Odložit sedačku na příští týden",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Stavová aktualizace existujícího úkolu."
+   }
+  },
+  {
+   "id": "command_status_service",
+   "text": "zavolal jsem do servisu, auto bude hotové v pátek",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Servis zavolán, auto hotové v pátek",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Stavová aktualizace existujícího úkolu."
+   }
+  },
+  {
+   "id": "command_status_accountant",
+   "text": "účetní se neozvala, zkusím to znovu ve čtvrtek",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Účetní se neozvala, znovu ve čtvrtek",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Stavová aktualizace existujícího úkolu."
+   }
+  },
+  {
+   "id": "command_status_missed_run",
+   "text": "nestihl jsem dneska zaběhat, přesuň to na zítra",
+   "expected_type": "COMMAND",
+   "mock_output": {
+    "type": "COMMAND",
+    "title": "Běh nestihnut, přesunout na zítra",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Stavová aktualizace existujícího úkolu."
+   }
   }
  ]
 }

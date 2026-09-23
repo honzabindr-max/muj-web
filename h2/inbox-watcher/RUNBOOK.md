@@ -104,7 +104,7 @@ cd ~/Projects/muj-web/h2/inbox-watcher && rsync -a --delete --exclude .venv --ex
 - Items the model cannot classify stay in Doručené with a `❓ důvod` comment and are never retried.
 - Raw item text is deleted from SQLite 30 days after it was first seen.
 - NOTE items (ideas, journal, people) and COMMAND items are kept in the `notes` / `commands` tables permanently, AES-256-GCM encrypted (`h2iw/crypto.py`, same byte layout as H2 Buddy's envelope). Their plaintext copy in `items` is scrubbed right after the encrypted insert, and the DB file is checkpointed and vacuumed (`secure_delete=on`).
-- COMMAND items („smaž…", „přesuň…", „hotovo…") are never executed: the item is closed with „→ příkaz, proveď v chatu" and Telegram says so. A text that opens with a change verb but was not classified COMMAND stays in Doručené.
+- COMMAND items (change requests „smaž…", „přesuň…", „odlož…" and status updates „hotovo…", „nedovolal jsem se…, čekám") are never executed. The item is moved unchanged and open to the Todoist project „H2 · Příkazy" for the Planner (chat with Claude); Telegram says „➡️ předáno Plánovači: …". A text that opens with a change/status verb but was not classified COMMAND stays in Doručené.
 
 ## Hard bans (enforced in code, covered by tests)
 

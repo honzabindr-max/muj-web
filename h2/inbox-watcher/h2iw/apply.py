@@ -78,11 +78,17 @@ class Applier:
         self.todoist = todoist
         self.gcal = gcal
         self._cal_ids: dict[str, str] = {}
+        self._project_ids: dict[str, str] = {}
 
     def _cal(self, name: str) -> str:
         if name not in self._cal_ids:
             self._cal_ids[name] = self.gcal.calendar_id_by_name(name)
         return self._cal_ids[name]
+
+    def _project(self, name: str) -> str:
+        if name not in self._project_ids:
+            self._project_ids[name] = self.todoist.project_id_by_name(name)
+        return self._project_ids[name]
 
     def _step(self, task_id: str, step: str, fn) -> None:
         if self.store.step_done(task_id, step):
@@ -113,12 +119,13 @@ class Applier:
             s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, "→ H2 poznámky"))
             s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
         elif v.type == "COMMAND":
-            # Hard ban stays: the command is recorded and refused, never executed.
+            # Hard ban stays: the watcher never executes a command or touches the
+            # task it refers to. It records it (encrypted) and hands the item,
+            # unchanged and open, to the Planner's project.
             s(tid, "command_insert", lambda: self.store.insert_command(tid, _note_text(task)))
             s(tid, "scrub", lambda: self.store.scrub_item(tid))
-            s(tid, "todoist_comment", lambda: self.todoist.add_comment(
-                tid, "→ příkaz, proveď v chatu"))
-            s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
+            s(tid, "todoist_move", lambda: self.todoist.move_task(
+                tid, self._project(config.COMMANDS_PROJECT_NAME)))
         elif v.type == "INFO":
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(
                 self._cal(config.INFO_CALENDAR_NAME), _event_body(v, task, "INFO")))

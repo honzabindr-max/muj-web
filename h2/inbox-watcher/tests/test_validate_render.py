@@ -231,7 +231,7 @@ def test_command_verb_never_becomes_task():
     c = case("command_delete_event")
     as_task = dict(case("task_errand")["mock_output"], title="Smazat událost zubař")
     v = validate(as_task, NOW, c["text"])
-    assert isinstance(v, Invalid) and "příkaz ke změně" in v.reason
+    assert isinstance(v, Invalid) and "příkaz nebo stavová aktualizace" in v.reason
 
 
 def test_infinitive_move_is_a_normal_task():
@@ -241,5 +241,18 @@ def test_infinitive_move_is_a_normal_task():
 
 def test_command_summary_line():
     line = render.command_line("Smaž zítřejší událost   v kalendáři")
-    assert line == ("⚠️ příkaz ke změně neprovádím: Smaž zítřejší událost v kalendáři"
-                    " — napiš to do chatu s Claudem")
+    assert line == "➡️ předáno Plánovači: Smaž zítřejší událost v kalendáři"
+
+
+def test_status_update_with_waiting_and_reminder_is_one_command():
+    c = case("command_status_patrik")
+    d = dict(c["mock_output"], multiple_items=True, due_date="2026-09-24")
+    v = validate(d, NOW, c["text"])
+    assert v.type == "COMMAND"
+
+
+def test_status_update_misread_as_waiting_stays_in_inbox():
+    c = case("command_status_patrik")
+    as_waiting = dict(case("waiting_followup")["mock_output"], title="Patrik odpoví")
+    v = validate(as_waiting, NOW, c["text"])
+    assert isinstance(v, Invalid) and "stavová aktualizace" in v.reason

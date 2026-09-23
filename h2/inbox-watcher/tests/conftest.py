@@ -42,6 +42,9 @@ class FakeTodoist:
         self.tasks[tid] = t
         return t
 
+    def project_id_by_name(self, name):
+        return {config.COMMANDS_PROJECT_NAME: "proj-prikazy"}[name]
+
     def list_inbox(self):
         self.list_calls += 1
         return [dict(t) for t in self.tasks.values() if t["project_id"] == INBOX]

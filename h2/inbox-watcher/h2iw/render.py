@@ -28,7 +28,7 @@ TYPE_ICON = {
     "INFO": "ℹ️",
     "BLOCK": "🟪",
     "NOTE": "📝",
-    "COMMAND": "⚠️",
+    "COMMAND": "➡️",
 }
 NOTE_SUBTYPE_LABEL = {"idea": "nápad", "journal": "deník", "person": "o lidech", "other": "jiné"}
 
@@ -77,7 +77,7 @@ def when(v: Valid) -> str:
 
 def command_line(source_text: str) -> str:
     text = " ".join(source_text.split())[:200]
-    return f"⚠️ příkaz ke změně neprovádím: {text} — napiš to do chatu s Claudem"
+    return f"➡️ předáno Plánovači: {text}"
 
 
 def summary_line(v: Valid) -> str:

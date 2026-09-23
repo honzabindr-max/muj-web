@@ -49,11 +49,11 @@ DAY_RE = re.compile(
 # Change requests addressed to the assistant ("smaž…", "přesuň…"). If the text
 # opens with one and the model did not say COMMAND, nothing is written.
 COMMAND_VERB_RE = re.compile(
-    r"^\W*(smaž|smazat|vymaž|přesuň|přejmenuj|zruš|posuň|odškrtni|označ|hotovo|splněno|"
-    r"uprav|změň)\b",
+    r"^\W*(smaž|smazat|vymaž|přesuň|přejmenuj|zruš|posuň|odlož|odškrtni|označ|hotovo|splněno|"
+    r"vyřízeno|uprav|změň|nedovolal|nedovolala|nestihl|nestihla|nezvládl|nezvládla)\b",
     re.IGNORECASE,
 )
-COMMAND_GUARD_REASON = "vypadá jako příkaz ke změně — neprovádím, napiš to do chatu s Claudem"
+COMMAND_GUARD_REASON = "vypadá jako příkaz nebo stavová aktualizace — neprovádím, napiš to do chatu s Claudem"
 
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
@@ -170,16 +170,17 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     t = raw.get("type")
     if t not in TYPES:
         raise _Reject("neznámý typ")
-    if raw.get("multiple_items") is True:
-        return Invalid(MULTI_REASON)
     reason = raw.get("reason") if isinstance(raw.get("reason"), str) else ""
     reason = reason.strip()[:200]
-    if t == "UNKNOWN":
-        return Invalid(reason or "model položku nerozpoznal")
     if t == "COMMAND":
-        # Never executed: dates/times inside a command describe the target, not a plan.
+        # Never executed, only handed to the Planner as one item: dates, times and
+        # several changes inside it describe targets, not plans of the watcher.
         title = raw.get("title") if isinstance(raw.get("title"), str) else ""
         return Valid(type="COMMAND", title=" ".join(title.split())[:120], reason=reason)
+    if raw.get("multiple_items") is True:
+        return Invalid(MULTI_REASON)
+    if t == "UNKNOWN":
+        return Invalid(reason or "model položku nerozpoznal")
 
     title = raw.get("title")
     if not isinstance(title, str) or not title.strip():
