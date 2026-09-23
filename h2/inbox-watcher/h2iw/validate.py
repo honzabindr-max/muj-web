@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 
 from . import config
-from .classify import AREAS, CONTEXTS, TYPES
+from .classify import AREAS, CONTEXTS, NOTE_SUBTYPES, TYPES
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{2}:\d{2}$")
@@ -28,6 +28,23 @@ TIME_SIGNAL_RE = re.compile(
     re.IGNORECASE,
 )
 MIDNIGHT_RE = re.compile(r"půlnoc|\b0?0[:.]00\b|\b24[:.]00\b", re.IGNORECASE)
+
+# Multi-intent guard (owner requirement 2026-09-23). Live eval round 2 showed
+# "vyzvednout léky … a v pátek v 17:00 kadeřník" -> TASK "Vyzvednout léky",
+# silently dropping the second item. If the text states an explicit clock time
+# or a day, but the accepted classification uses no time / no date at all,
+# something was dropped -> UNKNOWN, never a partial write.
+MULTI_REASON = "více věcí najednou — rozdělit"
+CLOCK_RE = re.compile(
+    r"(?<!\w)([01]?\d|2[0-3])[:.][0-5]\d(?![\d.])"
+    r"|\b(v|ve|od|do|kolem|před|po)\s+([01]?\d|2[0-3])(?![\d.:\w])",
+    re.IGNORECASE,
+)
+DAY_RE = re.compile(
+    r"\b(dnes|dneska|zítra|pozítří|pondělí|úterý|středa|středu|čtvrtek|pátek|sobota|sobotu|"
+    r"neděle|neděli)\b|(?<!\w)\d{1,2}\.\s?\d{1,2}\.",
+    re.IGNORECASE,
+)
 
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
@@ -45,6 +62,7 @@ class Valid:
     start: datetime | None = None  # tz-aware, Europe/Prague
     end: datetime | None = None
     all_day_date: date | None = None
+    note_subtype: str | None = None
     reason: str = ""
     notes: list[str] = field(default_factory=list)  # e.g. defaulted end time
 
@@ -91,7 +109,23 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
     except _Reject as e:
         return Invalid(str(e))
     if isinstance(v, Valid) and source_text:
-        return _check_time_is_stated(v, source_text)
+        v = _check_time_is_stated(v, source_text)
+        if isinstance(v, Valid):
+            return _check_nothing_dropped(v, source_text)
+    return v
+
+
+def _check_nothing_dropped(v: Valid, text: str) -> Valid | Invalid:
+    if v.type == "NOTE":
+        return v  # journal/person notes mention days naturally; nothing is scheduled
+    uses_time = v.start is not None or v.due_time is not None
+    uses_date = uses_time or any(
+        d is not None for d in (v.due_date, v.deadline_date, v.all_day_date)
+    )
+    if CLOCK_RE.search(text) and not uses_time:
+        return Invalid(f"{MULTI_REASON} (čas ze vstupu nebyl použit)")
+    if DAY_RE.search(text) and not uses_date:
+        return Invalid(f"{MULTI_REASON} (den ze vstupu nebyl použit)")
     return v
 
 
@@ -125,6 +159,8 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     t = raw.get("type")
     if t not in TYPES:
         raise _Reject("neznámý typ")
+    if raw.get("multiple_items") is True:
+        return Invalid(MULTI_REASON)
     reason = raw.get("reason") if isinstance(raw.get("reason"), str) else ""
     reason = reason.strip()[:200]
     if t == "UNKNOWN":
@@ -167,12 +203,21 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
 
     if t in ("TASK", "WAITING") and (v.start or v.end or v.all_day_date):
         raise _Reject("úkol nesmí mít kalendářní čas")
+    if t == "NOTE":
+        if any(x is not None for x in (v.due_date, v.due_time, v.deadline_date, v.start,
+                                       v.end, v.all_day_date)):
+            raise _Reject("poznámka s termínem — zkontrolovat")
+        sub = raw.get("note_subtype")
+        if sub is not None and sub not in NOTE_SUBTYPES:
+            raise _Reject("neplatný typ poznámky")
+        v.note_subtype = sub or "other"
+        v.context = v.area = None
     return _validate_calendar(v)
 
 
 def _validate_calendar(v: Valid) -> Valid | Invalid:
     t = v.type
-    if t in ("TASK", "WAITING"):
+    if t in ("TASK", "WAITING", "NOTE"):
         return v
 
     if t in ("EVENT", "BLOCK"):

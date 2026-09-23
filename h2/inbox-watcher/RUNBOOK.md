@@ -32,7 +32,7 @@ ssh hz 'systemctl list-timers h2-inbox-watcher.timer --no-pager; journalctl -u h
 ```bash
 ssh hz H2IW_DB=/var/lib/h2-inbox-watcher/state.db /opt/h2-inbox-watcher/.venv/bin/python -m h2iw.status
 ```
-Shows item counts per status, the last 10 items (ids and types only), LLM calls and USD per day.
+Shows item counts per status, notes per subtype, the last 10 items (ids and types only), LLM calls and USD per day.
 
 ## Costs
 
@@ -84,10 +84,12 @@ cd ~/Projects/muj-web/h2/inbox-watcher && rsync -a --delete --exclude .venv --ex
   calendar events use deterministic ids so they are never duplicated).
 - Items the model cannot classify stay in Doručené with a `❓ důvod` comment and are never retried.
 - Raw item text is deleted from SQLite 30 days after it was first seen.
+- NOTE items (ideas, journal, people) are kept in the `notes` table permanently, in plaintext. They are not purged.
 
 ## Hard bans (enforced in code, covered by tests)
 
 - Calendar client can only list calendars and insert events — no update/delete exists.
 - Todoist writes re-check that the task is still an open Inbox task; nothing outside Doručené is touched.
+- An input with two or more separate actions/appointments is never partly applied: it stays in Doručené with „❓ více věcí najednou — rozdělit".
 - `focus` / ⭐ is never assigned; deadlines only from an explicit „do …" in the item itself.
 - No LLM call when nothing is new.

@@ -256,3 +256,32 @@ def test_runner_rejects_invented_time_end_to_end(env):
     _run(env)
     assert env.gcal.events == {}
     assert env.store.get("k")["status"] == "UNKNOWN_MARKED"
+
+
+def test_note_is_stored_commented_and_closed_nothing_else(env):
+    c = case("note_person_colleague")
+    env.todoist.add("n", c["text"], description="potkali jsme se na firemní akci")
+    r = _run(env)
+    row = env.store.conn.execute("select * from notes").fetchone()
+    assert row["todoist_task_id"] == "n" and row["subtype"] == "person"
+    assert row["raw_text"] == c["text"] + "\n\npotkali jsme se na firemní akci"
+    assert env.todoist.calls == [("comment", "n", "→ H2 poznámky"), ("close", "n")]
+    assert env.gcal.insert_calls == 0
+    assert r.lines == ["📝 poznámka uložena (o lidech): Petr z práce — děti Adam a Eva, kolo"]
+    assert env.store.get("n")["status"] == "APPLIED"
+
+
+def test_note_resume_does_not_duplicate(env):
+    env.todoist.add("n", case("note_idea_app")["text"])
+    env.todoist.fail_once.add("close")
+    _run(env)
+    _run(env)
+    assert env.store.conn.execute("select count(*) c from notes").fetchone()["c"] == 1
+    assert [c[0] for c in env.todoist.calls] == ["comment", "close"]
+
+
+def test_multi_item_stays_in_inbox_with_split_comment(env):
+    env.todoist.add("m", case("multiple_items")["text"])
+    _run(env)
+    assert env.todoist.calls == [("comment", "m", "❓ více věcí najednou — rozdělit")]
+    assert env.todoist.tasks["m"]["project_id"] == "inbox-1"

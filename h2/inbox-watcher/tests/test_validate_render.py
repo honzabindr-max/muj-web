@@ -9,8 +9,9 @@ def test_fixture_set_is_big_enough_and_covers_every_type():
     cases = FIXTURES["cases"]
     assert len(cases) >= 15
     assert {c["expected_type"] for c in cases} == {
-        "TASK", "WAITING", "EVENT", "INFO", "BLOCK", "UNKNOWN"
+        "TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "UNKNOWN"
     }
+    assert sum(c["expected_type"] == "NOTE" for c in cases) >= 5
 
 
 @pytest.mark.parametrize("c", FIXTURES["cases"], ids=lambda c: c["id"])
@@ -157,3 +158,61 @@ def test_task_with_invented_time_keeps_only_date():
 def test_fixture_expectations_hold_with_source_text(c):
     v = validate(c["mock_output"], NOW, c["text"])
     assert (isinstance(v, Invalid) and c["expected_type"] == "UNKNOWN") or v.type == c["expected_type"]
+
+
+# --- multi-intent guard (owner requirement 2026-09-23) ---------------------
+
+def test_model_flag_multiple_items_is_unknown_with_owner_wording():
+    v = validate(case("multiple_items")["mock_output"], NOW, case("multiple_items")["text"])
+    assert isinstance(v, Invalid) and v.reason == "více věcí najednou — rozdělit"
+
+
+def test_partial_classification_observed_in_eval_is_caught():
+    # Live eval round 2: model returned only the first item and dropped "v pátek v 17:00 kadeřník".
+    c = case("multiple_items")
+    partial = dict(case("task_errand")["mock_output"], title="Vyzvednout léky v lékárně",
+                   area="zdravi", multiple_items=False)
+    v = validate(partial, NOW, c["text"])
+    assert isinstance(v, Invalid) and v.reason.startswith("více věcí najednou — rozdělit")
+
+
+def test_dropped_day_is_caught():
+    partial = dict(case("task_phone_finance")["mock_output"], title="Zavolat instalatérovi")
+    v = validate(partial, NOW, case("multi_call_and_gift")["text"])
+    assert isinstance(v, Invalid) and "více věcí" in v.reason
+
+
+def test_single_shopping_list_is_not_multi():
+    c = case("task_shopping_list_is_one")
+    assert validate(c["mock_output"], NOW, c["text"]).type == "TASK"
+
+
+# --- NOTE ------------------------------------------------------------------
+
+def test_note_subtypes_and_summary():
+    for cid, sub in [("note_idea_app", "idea"), ("note_journal", "journal"),
+                     ("note_person_partner", "person"), ("note_other_wifi", "other")]:
+        c = case(cid)
+        v = validate(c["mock_output"], NOW, c["text"])
+        assert v.type == "NOTE" and v.note_subtype == sub
+        assert render.summary_line(v).startswith("📝 poznámka uložena")
+
+
+def test_note_with_date_is_rejected():
+    d = dict(case("note_idea_app")["mock_output"], due_date="2026-09-24")
+    assert isinstance(validate(d, NOW), Invalid)
+
+
+def test_note_missing_subtype_defaults_to_other():
+    d = dict(case("note_idea_app")["mock_output"], note_subtype=None)
+    assert validate(d, NOW).note_subtype == "other"
+
+
+def test_note_invalid_subtype_rejected():
+    d = dict(case("note_idea_app")["mock_output"], note_subtype="diary")
+    assert isinstance(validate(d, NOW), Invalid)
+
+
+def test_journal_note_mentioning_today_is_not_multi():
+    c = case("note_journal")
+    assert validate(c["mock_output"], NOW, c["text"]).type == "NOTE"

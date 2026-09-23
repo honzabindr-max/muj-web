@@ -36,6 +36,15 @@ create table if not exists llm_calls (
     out_tokens integer not null,
     cost_usd real not null
 );
+-- NOTE items (ideas, journal, people). Kept permanently: this is the product
+-- of the NOTE type, unlike items.raw_text which is purged after 30 days.
+create table if not exists notes (
+    id integer primary key autoincrement,
+    todoist_task_id text not null unique,
+    subtype text not null check (subtype in ('idea','journal','person','other')),
+    raw_text text not null,
+    created_at text not null
+);
 create table if not exists meta (
     key text primary key,
     value text not null
@@ -122,6 +131,15 @@ class Store:
     def bump_attempts(self, task_id: str) -> int:
         self.conn.execute("update items set attempts=attempts+1 where task_id=?", (task_id,))
         return self.get(task_id)["attempts"]
+
+    # --- notes ------------------------------------------------------------
+    def insert_note(self, task_id: str, subtype: str, raw_text: str) -> None:
+        """Idempotent per Todoist task id."""
+        self.conn.execute(
+            "insert or ignore into notes(todoist_task_id, subtype, raw_text, created_at) "
+            "values(?,?,?,?)",
+            (task_id, subtype, raw_text, _iso(utcnow())),
+        )
 
     # --- steps ------------------------------------------------------------
     def step_done(self, task_id: str, step: str) -> bool:

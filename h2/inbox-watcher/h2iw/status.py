@@ -16,6 +16,9 @@ def main() -> int:
     print("items by status:")
     for status, n in conn.execute("select status, count(*) from items group by 1 order by 1"):
         print(f"  {status:<16} {n}")
+    print("notes by subtype:")
+    for sub, n in conn.execute("select subtype, count(*) from notes group by 1 order by 1"):
+        print(f"  {sub:<16} {n}")
     print("last 10 items (id, status, type, updated_at):")
     for tid, status, cls, upd in conn.execute(
         "select task_id, status, json_extract(classification_json,'$.type'), updated_at "

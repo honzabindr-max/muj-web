@@ -27,7 +27,9 @@ TYPE_ICON = {
     "EVENT": "📅",
     "INFO": "ℹ️",
     "BLOCK": "🟪",
+    "NOTE": "📝",
 }
+NOTE_SUBTYPE_LABEL = {"idea": "nápad", "journal": "deník", "person": "o lidech", "other": "jiné"}
 
 
 def _join(parts: list[str | None]) -> str:
@@ -73,6 +75,8 @@ def when(v: Valid) -> str:
 
 
 def summary_line(v: Valid) -> str:
+    if v.type == "NOTE":
+        return f"📝 poznámka uložena ({NOTE_SUBTYPE_LABEL[v.note_subtype]}): {v.title}"
     title = task_title(v) if v.type in ("TASK", "WAITING", "BLOCK") else calendar_title(v)
     extra = when(v)
     notes = f" ({'; '.join(v.notes)})" if v.notes else ""

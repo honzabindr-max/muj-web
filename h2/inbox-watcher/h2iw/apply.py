@@ -66,6 +66,12 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
     return body
 
 
+def _note_text(task: dict) -> str:
+    content = (task.get("content") or "").strip()
+    desc = (task.get("description") or "").strip()
+    return f"{content}\n\n{desc}" if desc else content
+
+
 class Applier:
     def __init__(self, store: Store, todoist: TodoistClient, gcal: GCalClient):
         self.store = store
@@ -99,6 +105,11 @@ class Applier:
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(
                 config.PRIMARY_CALENDAR_ID, _event_body(v, task, "EVENT")))
             s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, "→ kalendář"))
+            s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
+        elif v.type == "NOTE":
+            s(tid, "note_insert", lambda: self.store.insert_note(
+                tid, v.note_subtype, _note_text(task)))
+            s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, "→ H2 poznámky"))
             s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
         elif v.type == "INFO":
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(

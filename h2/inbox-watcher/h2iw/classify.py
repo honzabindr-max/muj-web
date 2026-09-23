@@ -14,7 +14,8 @@ import anthropic
 
 from . import config
 
-TYPES = ["TASK", "WAITING", "EVENT", "INFO", "BLOCK", "UNKNOWN"]
+TYPES = ["TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "UNKNOWN"]
+NOTE_SUBTYPES = ["idea", "journal", "person", "other"]
 CONTEXTS = ["telefon", "doma", "venku"]
 AREAS = [
     "prace",
@@ -47,6 +48,8 @@ OUTPUT_SCHEMA = {
         "start": _nullable({"type": "string"}),
         "end": _nullable({"type": "string"}),
         "all_day_date": _nullable({"type": "string"}),
+        "note_subtype": _nullable({"type": "string", "enum": NOTE_SUBTYPES}),
+        "multiple_items": {"type": "boolean"},
         "reason": {"type": "string"},
     },
     "required": [
@@ -60,6 +63,8 @@ OUTPUT_SCHEMA = {
         "start",
         "end",
         "all_day_date",
+        "note_subtype",
+        "multiple_items",
         "reason",
     ],
     "additionalProperties": False,
@@ -73,7 +78,9 @@ TYPY
 - EVENT: můj pevný termín s konkrétním časem (lékař, schůzka, hovor v 15:00). Musí mít datum I čas začátku.
 - INFO: plány jiných lidí, které nejsou moje aktivita (Markétka má firemní akci, děti mají výlet). Nezabírá můj čas.
 - BLOCK: vyhrazuji si čas na práci na úkolu („v sobotu 10–12 dělám na…", „zablokuj mi…").
-- UNKNOWN: nesrozumitelné, nesmyslné, víc nesouvisejících věcí najednou, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
+- NOTE: poznámka bez akce a bez termínu — nápad (idea), deník/pocity (journal), informace o člověku (person), jiná informace k zapamatování (other). Nic k vykonání, nic do kalendáře.
+- UNKNOWN: nesrozumitelné, nesmyslné, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
+- Dvě a více samostatných akcí nebo termínů v jednom vstupu („vyzvednout léky a v pátek v 17:00 kadeřník"): multiple_items = true a type UNKNOWN. Nikdy nevybírej jen první věc. Jinak multiple_items = false.
 
 POLE
 - title: krátký český název v rozkazovacím/věcném tvaru, bez emoji, bez data a času, velké první písmeno, max 80 znaků. Oprav zjevné překlepy diktování.
@@ -87,6 +94,7 @@ POLE
 - Nikdy si nevymýšlej datum ani čas, které ve vstupu nejsou. Relativní dny přepočítej podle tabulky níže.
 - Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
 - Telefonát nebo zpráva s časem („zítra v 8 zavolat do školky") je TASK s due_date + due_time a context telefon, ne EVENT. EVENT je jen schůzka, návštěva nebo termín u někoho.
+- note_subtype: jen u NOTE (idea | journal | person | other), jinak null. NOTE nemá žádné datum ani čas.
 - reason: jedna krátká česká věta, proč tento typ."""
 
 

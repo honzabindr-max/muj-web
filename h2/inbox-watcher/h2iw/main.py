@@ -108,7 +108,7 @@ class Runner:
             # succeeded but the process died before recording it.
             any_step = any(
                 self.store.step_done(tid, s)
-                for s in ("todoist_update", "gcal_insert", "todoist_comment")
+                for s in ("todoist_update", "gcal_insert", "todoist_comment", "note_insert")
             )
             self._status(tid, "APPLIED" if any_step else "GONE")
 
