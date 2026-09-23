@@ -25,12 +25,13 @@ def main() -> int:
         "from items order by updated_at desc limit 10"
     ):
         print(f"  {tid}  {status:<16} {cls or '-':<8} {upd}")
-    print("LLM calls per day (last 14):")
-    for d, calls, usd in conn.execute(
-        "select date(at), count(*), round(sum(cost_usd), 4) from llm_calls "
+    print("LLM calls per day (last 14): calls, input, cache write, cache read, output, USD")
+    for d, calls, i, cw, cr, o, usd in conn.execute(
+        "select date(at), count(*), sum(in_tokens), sum(cache_write_tokens), "
+        "sum(cache_read_tokens), sum(out_tokens), round(sum(cost_usd), 4) from llm_calls "
         "group by 1 order by 1 desc limit 14"
     ):
-        print(f"  {d}  {calls:>4} calls  {usd:.4f} USD")
+        print(f"  {d}  {calls:>4}  in {i}  cw {cw}  cr {cr}  out {o}  {usd:.4f} USD")
     for key, value in conn.execute("select key, value from meta order by key"):
         print(f"meta {key} = {value}")
     return 0

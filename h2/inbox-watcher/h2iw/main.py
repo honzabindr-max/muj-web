@@ -182,7 +182,8 @@ class Runner:
                     self._status(tid, "FAILED_RETRYABLE", type(e).__name__)
                     report.errors.append(f"{tid}: classify {type(e).__name__}")
                 return
-            self.store.record_llm_call(tid, config.MODEL, res.in_tokens, res.out_tokens)
+            self.store.record_llm_call(tid, config.MODEL, res.in_tokens, res.out_tokens,
+                                       res.cache_write, res.cache_read)
             report.llm_calls += 1
             if res.data is None:
                 self._unknown(task, f"model nevrátil platný výstup ({res.error})", report)

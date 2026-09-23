@@ -51,7 +51,9 @@ create table if not exists llm_calls (
     model text not null,
     in_tokens integer not null,
     out_tokens integer not null,
-    cost_usd real not null
+    cost_usd real not null,
+    cache_write_tokens integer not null default 0,
+    cache_read_tokens integer not null default 0
 );
 -- NOTE items (ideas, journal, people) and COMMAND items (change requests the
 -- watcher refuses to execute). Kept permanently, AES-256-GCM encrypted
@@ -90,6 +92,11 @@ class Store:
         self.conn.execute("pragma journal_mode=wal")
         self._migrate_plaintext_notes()
         self.conn.executescript(SCHEMA)
+        cols = {r["name"] for r in self.conn.execute("pragma table_info(llm_calls)")}
+        for col in ("cache_write_tokens", "cache_read_tokens"):
+            if col not in cols:  # v1-v8 ledgers
+                self.conn.execute(
+                    f"alter table llm_calls add column {col} integer not null default 0")
 
     # --- encryption migration (v1 notes had a plaintext raw_text column) ---
     def _migrate_plaintext_notes(self) -> None:
@@ -238,14 +245,13 @@ class Store:
         )
 
     # --- LLM ledger -------------------------------------------------------
-    def record_llm_call(self, task_id: str, model: str, in_tok: int, out_tok: int) -> float:
-        cost = (
-            in_tok * config.PRICE_INPUT_PER_MTOK + out_tok * config.PRICE_OUTPUT_PER_MTOK
-        ) / 1_000_000
+    def record_llm_call(self, task_id: str, model: str, in_tok: int, out_tok: int,
+                        cache_write: int = 0, cache_read: int = 0) -> float:
+        cost = config.cost_usd(in_tok, out_tok, cache_write, cache_read)
         self.conn.execute(
-            "insert into llm_calls(task_id, at, model, in_tokens, out_tokens, cost_usd) "
-            "values(?,?,?,?,?,?)",
-            (task_id, _iso(utcnow()), model, in_tok, out_tok, cost),
+            "insert into llm_calls(task_id, at, model, in_tokens, out_tokens, cost_usd, "
+            "cache_write_tokens, cache_read_tokens) values(?,?,?,?,?,?,?,?)",
+            (task_id, _iso(utcnow()), model, in_tok, out_tok, cost, cache_write, cache_read),
         )
         return cost
 

@@ -165,3 +165,40 @@ def test_reminder_body_is_relative_zero_push():
     _todoist(handler).add_reminder("t")
     assert bodies == [("/api/v1/reminders", {"task_id": "t", "type": "relative",
                                              "minute_offset": 0, "service": "push"})]
+
+
+def test_cost_formula_uses_cache_and_batch_multipliers():
+    from h2iw import config as c
+    assert abs(c.cost_usd(1_000_000, 0) - 1.0) < 1e-9
+    assert abs(c.cost_usd(0, 0, cache_write=1_000_000) - 1.25) < 1e-9
+    assert abs(c.cost_usd(0, 0, cache_read=1_000_000) - 0.10) < 1e-9
+    assert abs(c.cost_usd(0, 1_000_000) - 5.0) < 1e-9
+    assert abs(c.cost_usd(1_000_000, 1_000_000, batch=True) - 3.0) < 1e-9
+
+
+def test_system_prompt_is_cacheable_and_shared_with_eval():
+    from datetime import datetime
+    from h2iw.classify import SYSTEM_PROMPT, request_params
+    p = request_params("x", "", datetime(2026, 9, 23, 10, 0))
+    assert p["system"] == [{"type": "text", "text": SYSTEM_PROMPT,
+                            "cache_control": {"type": "ephemeral"}}]
+    # nothing volatile (date, item) may sit in the cached prefix
+    assert "2026-09-23" not in SYSTEM_PROMPT and "x" not in p["system"][0]["text"][-5:]
+
+
+def test_old_ledger_gets_cache_columns(tmp_path):
+    import sqlite3
+    from h2iw.store import Store
+    db = tmp_path / "old.db"
+    c = sqlite3.connect(db)
+    c.execute("create table llm_calls (id integer primary key autoincrement, task_id text not null,"
+              " at text not null, model text not null, in_tokens integer not null,"
+              " out_tokens integer not null, cost_usd real not null)")
+    c.execute("insert into llm_calls(task_id, at, model, in_tokens, out_tokens, cost_usd)"
+              " values('t','2026-09-23T10:00:00+00:00','m',10,1,0.1)")
+    c.commit(); c.close()
+    s = Store(str(db))
+    s.record_llm_call("u", "m", 100, 10, cache_write=0, cache_read=4000)
+    rows = s.conn.execute("select cache_read_tokens, cost_usd from llm_calls order by id").fetchall()
+    assert rows[0][0] == 0 and rows[1][0] == 4000
+    assert abs(rows[1][1] - (100 + 4000 * 0.1 + 10 * 5) / 1e6) < 1e-12

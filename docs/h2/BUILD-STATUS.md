@@ -795,7 +795,8 @@ Pilotní nástroj pro *H2 Planning OS v0.3* (Notion, pilot 23.–29. 9. 2026). K
 | v6: časový rozsah = BLOCK, jeden bod = TASK (DEC-009 doplněk 6) | viz PR | `pytest` 331/331, eval **69/69** |
 | v7: TASK štítek druhu času + odhad délky, `top` místo `focus` (DEC-009 doplněk 7) | viz PR | `pytest` 376/376, eval **81/81** |
 | v8: Planning OS v0.5 — lide/domov/fokus pravidla, cestou/připomínka/rituál pojistky, reminder u každého úkolu s časem vč. bloku, celodenní EVENT lide/zazitky (DEC-009 doplněk 8) | viz PR | `pytest` 424/424, eval **92/92** |
-| v9: Planning OS v0.6 — 🚗 = účel, 📌 pevné, vazba blok↔úkol, test vlastnictví, došlý kredit = čekání (DEC-009 doplněk 9) | ROZDĚLANÉ — `pytest` 443/443; **eval nedokončen: Anthropic kredit došel (32/96 bez odchylky)**; nenasazeno | PR níže |
+| v9: Planning OS v0.6 — 🚗 = účel, 📌 pevné, vazba blok↔úkol, test vlastnictví, došlý kredit = čekání (DEC-009 doplněk 9) | viz níže — `pytest` 446/446; eval `--full` **96/96** přes batch + cache, 0,0625 USD | [PR #63](https://github.com/honzabindr-max/muj-web/pull/63) |
+| v9b: prompt caching (prefix 4 392 tok.), eval přes Batches API (`--changed`/`--full`), cena ze skutečného usage (DEC-009 doplněk 10) | viz PR #63 | cache ověřena (zápis 4392 → čtení 4392) |
 | Nasazení na VPS (bez timeru) | HOTOVO (GO 2026-09-23, 14:00 UTC) | `/opt/h2-inbox-watcher`, `install.sh`, user `h2iw` uid 990, timer `disabled`/`inactive`, `systemd-analyze verify` OK, `ANTHROPIC_API_KEY` zkopírován z `.env.local` rourou (hodnota nezobrazena) |
 | Secrets ownera | HOTOVO | všech 6 klíčů v `/etc/h2-inbox-watcher/env` (jen názvy ověřeny) |
 | Preflight (read-only) | HOTOVO 2026-09-23 15:04 UTC | Todoist Inbox `6hc8xGCWPWPc5PPm`, Google token + H2 · Info + H2 · Bloky, Telegram `@H2_buddy_hb_bot`, Anthropic `claude-haiku-4-5-20251001` — vše OK (první pokus Todoist 1× přechodně FAIL, další 3 OK) |
