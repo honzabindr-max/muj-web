@@ -786,8 +786,8 @@ Pilotní nástroj pro *H2 Planning OS v0.3* (Notion, pilot 23.–29. 9. 2026). K
 |---|---|---|
 | Kód + offline testy (20 českých fixtur, všechny typy) | HOTOVO | `pytest` 125/125 |
 | Živý běh fixtur proti Haiku | HOTOVO (2. kolo) | Kolo 1: 18/20 + **nebezpečná chyba** — „kontrola na chirurgii v úterý" (bez času) → EVENT v 00:00, model čas vymyslel. Oprava: prompt + deterministická pojistka `validate._check_time_is_stated()` (časovaný EVENT/BLOCK bez časového údaje ve vstupu → UNKNOWN; INFO → celý den; TASK → jen datum). Kolo 2: **19/20**, žádná nebezpečná chyba; jediný MISS „vyzvednout léky … a v pátek v 17:00 kadeřník" → TASK „Vyzvednout léky" (druhá věc zůstává jen v popisu „Původně: …"). Náklad obou kol 0,094 USD. |
-| Commit + PR | HOTOVO (GO 2026-09-23) | větev `h2/inbox-watcher`, PR viz Evidence v DEC-009 odkazu / GitHub |
-| Nasazení na VPS (bez timeru) | HOTOVO (GO 2026-09-23) | `/opt/h2-inbox-watcher`, `install.sh`, `ANTHROPIC_API_KEY` zkopírován z `.env.local` rourou |
+| Commit + PR | HOTOVO (GO 2026-09-23) | commit `d6f4153`, [PR #54](https://github.com/honzabindr-max/muj-web/pull/54) (nemergnuto) |
+| Nasazení na VPS (bez timeru) | HOTOVO (GO 2026-09-23, 14:00 UTC) | `/opt/h2-inbox-watcher`, `install.sh`, user `h2iw` uid 990, timer `disabled`/`inactive`, `systemd-analyze verify` OK, `ANTHROPIC_API_KEY` zkopírován z `.env.local` rourou (hodnota nezobrazena) |
 | Secrets ownera (Todoist, Telegram, Google) | ČEKÁ NA OWNERA | `set-secret.sh`, `google_oauth_bootstrap.py` |
 | Dry run nad aktuálními Doručenými | TODO | |
 | Zapnutí timeru (GO-4) — **předtím vypnout dočasnou hodinovou Claude úlohu třídící Doručené** | ČEKÁ NA GO | |
