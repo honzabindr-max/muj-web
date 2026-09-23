@@ -101,6 +101,8 @@ class Applier:
         s = self._step
         if v.type in ("TASK", "WAITING"):
             s(tid, "todoist_update", lambda: self.todoist.update_task(tid, _task_fields(v, task)))
+            if v.reminder:
+                s(tid, "todoist_reminder", lambda: self.todoist.add_reminder(tid))
             s(tid, "todoist_move", lambda: self.todoist.move_task(tid, config.H2_PROJECT_ID))
         elif v.type == "BLOCK":
             s(tid, "todoist_update", lambda: self.todoist.update_task(tid, _task_fields(v, task)))

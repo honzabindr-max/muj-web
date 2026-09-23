@@ -99,6 +99,12 @@ class TodoistClient:
         self._assert_in_inbox(task_id)
         self._post(f"/tasks/{task_id}/close")
 
+    def add_reminder(self, task_id: str) -> None:
+        """Push reminder at the task's due time (relative, 0 min). Inbox tasks only."""
+        self._assert_in_inbox(task_id)
+        self._post("/reminders", {"task_id": task_id, "type": "relative",
+                                  "minute_offset": 0, "service": "push"})
+
     def add_comment(self, task_id: str, content: str) -> None:
         self._assert_in_inbox(task_id)
         self._post("/comments", {"task_id": task_id, "content": content})

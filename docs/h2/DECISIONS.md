@@ -182,3 +182,8 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
   - Pojistka rozšířena o slovesa `odlož`, `vyřízeno`, `nedovolal(a)`, `nestihl(a)`, `nezvládl(a)` na začátku textu — pokud je model neoznačí jako COMMAND, položka zůstane v Doručených s „❓".
   - **Tvrdý zákaz zůstává:** watcher příkaz neprovádí, na úkol, kterého se týká, nesahá; jediná operace je přesun samotné položky z Doručených do „H2 · Příkazy" (hlídá `_assert_in_inbox`).
   - Živý eval (47 fixtur, +6 stavových aktualizací vč. „Nedovolal jsem se Patrikovi, tak jsem mu napsal zprávu a čekám. Připomeň mi to zítra"): **47/47**, 0,1470 USD.
+- **Doplněk 4 — 2026-09-23, chyba z provozu: nová věc s připomenutím není COMMAND.**
+  - Provoz: „Dnes ve 20:15 vytáhnout imbus z auta a přidej připomenutí" → COMMAND (přesunuto do „H2 · Příkazy"). Pravidlo: nová věc + „připomeň mi / přidej připomenutí / upozorni mě" = **TASK**; COMMAND jen když text odkazuje na už existující věc (stavová aktualizace nebo změna). Řešeno promptem.
+  - **Připomenutí:** TASK/WAITING s výslovným časem + žádost o připomenutí ve vstupu → Todoist reminder `relative`, `minute_offset 0`, `service push` (`POST /api/v1/reminders`, endpoint ověřen živě 2026-09-23 sondou s neexistujícím task id — nic nezapsáno). Bez času („připomeň mi zítra") jen datum, žádný reminder. Rozhoduje deterministicky `REMINDER_RE` nad textem + přítomnost času (ne model). Nový zápis `add_reminder` hlídá stejný `_assert_in_inbox` jako ostatní zápisy; pořadí update → reminder → move.
+  - Známé omezení: pád procesu mezi úspěšným POST reminderu a zápisem kroku může po restartu vytvořit druhý reminder (Todoist reminder nemá idempotentní klíč).
+  - Živý eval (53 fixtur, +6 připomenutí): **53/53**, 0,1731 USD.

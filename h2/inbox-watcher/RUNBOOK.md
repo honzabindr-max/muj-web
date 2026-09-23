@@ -110,6 +110,7 @@ cd ~/Projects/muj-web/h2/inbox-watcher && rsync -a --delete --exclude .venv --ex
 
 - Calendar client can only list calendars and insert events — no update/delete exists.
 - Todoist writes re-check that the task is still an open Inbox task; nothing outside Doručené is touched.
+- A new TASK/WAITING with an explicit time and a reminder request („připomeň mi…", „přidej připomenutí", „upozorni mě") gets a Todoist push reminder at due time (relative, 0 min). Without a time: date only, no reminder.
 - An input with two or more separate actions/appointments is never partly applied: it stays in Doručené with „❓ více věcí najednou — rozdělit".
 - `focus` / ⭐ is never assigned; deadlines only from an explicit „do …" in the item itself.
 - No LLM call when nothing is new.

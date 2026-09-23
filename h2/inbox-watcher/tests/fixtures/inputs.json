@@ -941,6 +941,126 @@
     "multiple_items": false,
     "reason": "Stavová aktualizace existujícího úkolu."
    }
+  },
+  {
+   "id": "task_reminder_imbus",
+   "text": "Dnes ve 20:15 vytáhnout imbus z auta a přidej připomenutí",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Vytáhnout imbus z auta",
+    "context": "venku",
+    "area": null,
+    "due_date": "2026-09-23",
+    "due_time": "20:15",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Nový úkol s připomenutím."
+   }
+  },
+  {
+   "id": "task_reminder_pills",
+   "text": "připomeň mi zítra v 7:30 vzít léky",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Vzít léky",
+    "context": "doma",
+    "area": "zdravi",
+    "due_date": "2026-09-24",
+    "due_time": "07:30",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Nový úkol s připomenutím."
+   }
+  },
+  {
+   "id": "task_reminder_gift",
+   "text": "upozorni mě v pátek v 16 že mám koupit dárek",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Koupit dárek",
+    "context": "venku",
+    "area": null,
+    "due_date": "2026-09-25",
+    "due_time": "16:00",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Nový úkol s připomenutím."
+   }
+  },
+  {
+   "id": "task_reminder_no_time",
+   "text": "připomeň mi zítra zavolat mámě",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zavolat mámě",
+    "context": "telefon",
+    "area": "rodina",
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Nový úkol s připomenutím."
+   }
+  },
+  {
+   "id": "task_reminder_evening_no_clock",
+   "text": "v neděli večer připomenout zalít kytky",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zalít kytky",
+    "context": "doma",
+    "area": "domacnost",
+    "due_date": "2026-09-27",
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Nový úkol s připomenutím."
+   }
+  },
+  {
+   "id": "task_reminder_add_notification",
+   "text": "zítra v 9 odeslat fakturu Optimiu, dej mi upozornění",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Odeslat fakturu Optimiu",
+    "context": null,
+    "area": "prace",
+    "due_date": "2026-09-24",
+    "due_time": "09:00",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Nový úkol s připomenutím."
+   }
   }
  ]
 }
