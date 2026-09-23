@@ -19,7 +19,8 @@
     "all_day_date": null,
     "reason": "Úkol bez termínu.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -39,7 +40,8 @@
     "all_day_date": null,
     "reason": "Nákup.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -59,7 +61,8 @@
     "all_day_date": null,
     "reason": "Výslovný deadline.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -79,7 +82,8 @@
     "all_day_date": null,
     "reason": "Úkol na zítřek.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -99,7 +103,8 @@
     "all_day_date": null,
     "reason": "Hovor s časem, ne schůzka.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -119,7 +124,8 @@
     "all_day_date": null,
     "reason": "Zpráva.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -139,7 +145,8 @@
     "all_day_date": null,
     "reason": "Jen zachytit.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -159,7 +166,8 @@
     "all_day_date": null,
     "reason": "Pohyb.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -179,7 +187,8 @@
     "all_day_date": null,
     "reason": "Čekám na Petra, follow-up čtvrtek.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -199,7 +208,8 @@
     "all_day_date": null,
     "reason": "Čekám.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -219,8 +229,10 @@
     "all_day_date": null,
     "reason": "Pevný termín s časem.",
     "note_subtype": null,
-    "multiple_items": false
-   }
+    "multiple_items": false,
+    "life": "povinnost"
+   },
+   "expected_life": "povinnost"
   },
   {
    "id": "event_meeting_range",
@@ -239,8 +251,10 @@
     "all_day_date": null,
     "reason": "Schůzka.",
     "note_subtype": null,
-    "multiple_items": false
-   }
+    "multiple_items": false,
+    "life": "povinnost"
+   },
+   "expected_life": "povinnost"
   },
   {
    "id": "event_no_time",
@@ -259,7 +273,8 @@
     "all_day_date": null,
     "reason": "Pevný termín, ale chybí čas.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -279,7 +294,8 @@
     "all_day_date": null,
     "reason": "Plán jiného člověka.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -299,7 +315,8 @@
     "all_day_date": "2026-09-26",
     "reason": "Plán jiných, celý den.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -319,8 +336,10 @@
     "all_day_date": null,
     "reason": "Vyhrazený čas.",
     "note_subtype": null,
-    "multiple_items": false
-   }
+    "multiple_items": false,
+    "life": "fokus"
+   },
+   "expected_life": "fokus"
   },
   {
    "id": "block_duration",
@@ -339,8 +358,10 @@
     "all_day_date": null,
     "reason": "Blok na práci.",
     "note_subtype": null,
-    "multiple_items": false
-   }
+    "multiple_items": false,
+    "life": "fokus"
+   },
+   "expected_life": "fokus"
   },
   {
    "id": "nonsense_vague",
@@ -359,7 +380,8 @@
     "all_day_date": null,
     "reason": "Nesrozumitelné diktování.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -379,7 +401,8 @@
     "all_day_date": null,
     "reason": "Nesmyslný text.",
     "note_subtype": null,
-    "multiple_items": false
+    "multiple_items": false,
+    "life": null
    }
   },
   {
@@ -399,7 +422,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": true,
-    "reason": "Dvě nesouvisející věci v jedné položce."
+    "reason": "Dvě nesouvisející věci v jedné položce.",
+    "life": null
    }
   },
   {
@@ -419,7 +443,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": true,
-    "reason": "Dvě samostatné akce."
+    "reason": "Dvě samostatné akce.",
+    "life": null
    }
   },
   {
@@ -439,7 +464,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Jeden nákup."
+    "reason": "Jeden nákup.",
+    "life": null
    }
   },
   {
@@ -459,7 +485,8 @@
     "all_day_date": null,
     "note_subtype": "idea",
     "multiple_items": false,
-    "reason": "Poznámka bez akce."
+    "reason": "Poznámka bez akce.",
+    "life": null
    }
   },
   {
@@ -479,7 +506,8 @@
     "all_day_date": null,
     "note_subtype": "idea",
     "multiple_items": false,
-    "reason": "Poznámka bez akce."
+    "reason": "Poznámka bez akce.",
+    "life": null
    }
   },
   {
@@ -499,7 +527,8 @@
     "all_day_date": null,
     "note_subtype": "journal",
     "multiple_items": false,
-    "reason": "Poznámka bez akce."
+    "reason": "Poznámka bez akce.",
+    "life": null
    }
   },
   {
@@ -519,7 +548,8 @@
     "all_day_date": null,
     "note_subtype": "person",
     "multiple_items": false,
-    "reason": "Poznámka bez akce."
+    "reason": "Poznámka bez akce.",
+    "life": null
    }
   },
   {
@@ -539,7 +569,8 @@
     "all_day_date": null,
     "note_subtype": "person",
     "multiple_items": false,
-    "reason": "Poznámka bez akce."
+    "reason": "Poznámka bez akce.",
+    "life": null
    }
   },
   {
@@ -559,7 +590,8 @@
     "all_day_date": null,
     "note_subtype": "other",
     "multiple_items": false,
-    "reason": "Poznámka bez akce."
+    "reason": "Poznámka bez akce.",
+    "life": null
    }
   },
   {
@@ -579,7 +611,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -599,7 +632,8 @@
     "all_day_date": "2026-09-25",
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -619,7 +653,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -639,7 +674,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -659,7 +695,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -679,8 +716,10 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
-   }
+    "reason": "x",
+    "life": "povinnost"
+   },
+   "expected_life": "povinnost"
   },
   {
    "id": "event_i_go_beer",
@@ -699,8 +738,10 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
-   }
+    "reason": "x",
+    "life": "lide"
+   },
+   "expected_life": "lide"
   },
   {
    "id": "event_i_travel",
@@ -719,8 +760,13 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
-   }
+    "reason": "x",
+    "life": "zazitky"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
   },
   {
    "id": "command_delete_event",
@@ -739,7 +785,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -759,7 +806,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -779,7 +827,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -799,7 +848,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -819,7 +869,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "x"
+    "reason": "x",
+    "life": null
    }
   },
   {
@@ -839,7 +890,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Stavová aktualizace existujícího úkolu."
+    "reason": "Stavová aktualizace existujícího úkolu.",
+    "life": null
    }
   },
   {
@@ -859,7 +911,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Stavová aktualizace existujícího úkolu."
+    "reason": "Stavová aktualizace existujícího úkolu.",
+    "life": null
    }
   },
   {
@@ -879,7 +932,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Stavová aktualizace existujícího úkolu."
+    "reason": "Stavová aktualizace existujícího úkolu.",
+    "life": null
    }
   },
   {
@@ -899,7 +953,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Stavová aktualizace existujícího úkolu."
+    "reason": "Stavová aktualizace existujícího úkolu.",
+    "life": null
    }
   },
   {
@@ -919,7 +974,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Stavová aktualizace existujícího úkolu."
+    "reason": "Stavová aktualizace existujícího úkolu.",
+    "life": null
    }
   },
   {
@@ -939,7 +995,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Stavová aktualizace existujícího úkolu."
+    "reason": "Stavová aktualizace existujícího úkolu.",
+    "life": null
    }
   },
   {
@@ -959,7 +1016,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Nový úkol s připomenutím."
+    "reason": "Nový úkol s připomenutím.",
+    "life": null
    }
   },
   {
@@ -979,7 +1037,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Nový úkol s připomenutím."
+    "reason": "Nový úkol s připomenutím.",
+    "life": null
    }
   },
   {
@@ -999,7 +1058,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Nový úkol s připomenutím."
+    "reason": "Nový úkol s připomenutím.",
+    "life": null
    }
   },
   {
@@ -1019,7 +1079,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Nový úkol s připomenutím."
+    "reason": "Nový úkol s připomenutím.",
+    "life": null
    }
   },
   {
@@ -1039,7 +1100,8 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Nový úkol s připomenutím."
+    "reason": "Nový úkol s připomenutím.",
+    "life": null
    }
   },
   {
@@ -1059,7 +1121,333 @@
     "all_day_date": null,
     "note_subtype": null,
     "multiple_items": false,
-    "reason": "Nový úkol s připomenutím."
+    "reason": "Nový úkol s připomenutím.",
+    "life": null
+   }
+  },
+  {
+   "id": "event_rehab",
+   "text": "rehabilitace v pátek v 10",
+   "expected_type": "EVENT",
+   "expected_life": "povinnost",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Rehabilitace",
+    "context": null,
+    "area": "zdravi",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T10:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "povinnost",
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "event_stk",
+   "text": "STK v pondělí v 8:30",
+   "expected_type": "EVENT",
+   "expected_life": "povinnost",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "STK",
+    "context": null,
+    "area": "urady",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-28T08:30",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "povinnost",
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "block_find_sofa_online",
+   "text": "v sobotu 9 až 10 najít sedačku na internetu",
+   "expected_type": "BLOCK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Najít sedačku na internetu",
+    "context": null,
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T09:00",
+    "end": "2026-09-26T10:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "BLOCK",
+    "EVENT"
+   ]
+  },
+  {
+   "id": "block_mortgage_papers",
+   "text": "zítra od 14 do 16 vyřídit papíry k hypotéce",
+   "expected_type": "BLOCK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Vyřídit papíry k hypotéce",
+    "context": null,
+    "area": "finance",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T14:00",
+    "end": "2026-09-24T16:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "BLOCK",
+    "EVENT"
+   ]
+  },
+  {
+   "id": "event_bike_saturday",
+   "text": "v sobotu 10–12 kolo",
+   "expected_type": "EVENT",
+   "expected_life": "regenerace",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Kolo",
+    "context": null,
+    "area": "pohyb",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T10:00",
+    "end": "2026-09-26T12:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "regenerace",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "event_yoga",
+   "text": "ve čtvrtek v 18 hodina jógy",
+   "expected_type": "EVENT",
+   "expected_life": "regenerace",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Jóga",
+    "context": null,
+    "area": "pohyb",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T18:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "regenerace",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "event_dinner_marketka",
+   "text": "večeře s Markétkou v pátek v 19",
+   "expected_type": "EVENT",
+   "expected_life": "lide",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Večeře s Markétkou",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T19:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "event_lunch_kids",
+   "text": "v neděli ve 12 oběd s dětmi",
+   "expected_type": "EVENT",
+   "expected_life": "lide",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Oběd s dětmi",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-27T12:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "block_carry_sofa",
+   "text": "v sobotu 10 až 12 odnést sedačku",
+   "expected_type": "BLOCK",
+   "expected_life": "domov",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Odnést sedačku",
+    "context": null,
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T10:00",
+    "end": "2026-09-26T12:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "BLOCK",
+    "EVENT"
+   ]
+  },
+  {
+   "id": "block_fix_wardrobe",
+   "text": "zítra od 16 do 18 opravit skříň",
+   "expected_type": "BLOCK",
+   "expected_life": "domov",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Opravit skříň",
+    "context": null,
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T16:00",
+    "end": "2026-09-24T18:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "BLOCK",
+    "EVENT"
+   ]
+  },
+  {
+   "id": "event_burcak",
+   "text": "v sobotu v 15 Burčákový pochod",
+   "expected_type": "EVENT",
+   "expected_life": "zazitky",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Burčákový pochod",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T15:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "zazitky",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "event_cinema",
+   "text": "v pátek ve 20 kino",
+   "expected_type": "EVENT",
+   "expected_life": "zazitky",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Kino",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T20:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "zazitky",
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "info_partner_party",
+   "text": "Markétka má v pátek večírek",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Markétka – večírek",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-25",
+    "note_subtype": null,
+    "life": null,
+    "multiple_items": false,
+    "reason": "Program jiné osoby."
    }
   }
  ]

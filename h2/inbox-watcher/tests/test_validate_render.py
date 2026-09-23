@@ -157,7 +157,7 @@ def test_task_with_invented_time_keeps_only_date():
 @pytest.mark.parametrize("c", FIXTURES["cases"], ids=lambda c: c["id"])
 def test_fixture_expectations_hold_with_source_text(c):
     v = validate(c["mock_output"], NOW, c["text"])
-    assert (isinstance(v, Invalid) and c["expected_type"] == "UNKNOWN") or v.type == c["expected_type"]
+    assert (isinstance(v, Invalid) and c["expected_type"] == "UNKNOWN") or v.type in c.get("accept_types", [c["expected_type"]])
 
 
 # --- multi-intent guard (owner requirement 2026-09-23) ---------------------
@@ -276,3 +276,40 @@ def test_reminder_without_time_is_date_only():
 def test_time_without_reminder_phrase_has_no_reminder():
     c = case("task_due_time")
     assert not validate(c["mock_output"], NOW, c["text"]).reminder
+
+
+# --- life -----------------------------------------------------------------
+
+def test_event_without_life_defaults_to_povinnost_block_to_fokus():
+    e = dict(case("event_dentist")["mock_output"], life=None)
+    b = dict(case("block_project")["mock_output"], life=None)
+    assert validate(e, NOW).life == "povinnost"
+    assert validate(b, NOW).life == "fokus"
+
+
+def test_invalid_life_rejected():
+    d = dict(case("event_dentist")["mock_output"], life="prace")
+    assert isinstance(validate(d, NOW), Invalid)
+
+
+def test_life_ignored_outside_event_block():
+    d = dict(case("task_errand")["mock_output"], life="domov")
+    assert validate(d, NOW).life is None
+
+
+def test_life_fixture_coverage():
+    lives = [c.get("expected_life") for c in FIXTURES["cases"] if c.get("expected_life")]
+    for life in ["povinnost", "fokus", "regenerace", "lide", "domov", "zazitky"]:
+        assert lives.count(life) >= 2, life
+
+
+def test_status_report_mid_text_never_becomes_waiting():
+    c = case("command_status_accountant")
+    as_waiting = dict(case("waiting_followup")["mock_output"], title="Účetní se ozve")
+    v = validate(as_waiting, NOW, c["text"])
+    assert isinstance(v, Invalid) and "stavová aktualizace" in v.reason
+
+
+def test_future_waiting_is_not_caught_by_status_guard():
+    c = case("waiting_no_date")
+    assert validate(c["mock_output"], NOW, c["text"]).type == "WAITING"

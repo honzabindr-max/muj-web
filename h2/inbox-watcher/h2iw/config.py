@@ -18,7 +18,20 @@ H2_PROJECT_ID = "6hc925WcvFQ34pp6"
 COMMANDS_PROJECT_NAME = "H2 · Příkazy"
 PRIMARY_CALENDAR_ID = "honza.bindr@gmail.com"
 INFO_CALENDAR_NAME = "H2 · Info"
-BLOCK_CALENDAR_NAME = "H2 · Bloky"
+
+# Planning OS v0.4 §2: calendar = time map of life. What Honzík DOES in that
+# time decides the calendar. name None = primary calendar (Hlavní / Povinnosti).
+# life -> (colour prefix for Telegram, calendar name, display name)
+LIFE_CALENDARS = {
+    "povinnost": ("🔴", None, "Hlavní"),
+    "fokus": ("🟣", "H2 · Fokus", "H2 · Fokus"),
+    "regenerace": ("🌿", "H2 · Regenerace", "H2 · Regenerace"),
+    "lide": ("🩷", "H2 · Lidé", "H2 · Lidé"),
+    "domov": ("🟤", "H2 · Domov", "H2 · Domov"),
+    "zazitky": ("🟡", "H2 · Zážitky", "H2 · Zážitky"),
+}
+INFO_COLOUR = "⚪"
+LIVES = list(LIFE_CALENDARS)
 TELEGRAM_CHAT_ID = 6034875251
 
 MODEL = "claude-haiku-4-5"
@@ -34,7 +47,8 @@ FAILURE_ALERT_THRESHOLD = 5
 
 EVENT_DEFAULT_MINUTES = 60
 BLOCK_DEFAULT_MINUTES = 60
-EVENT_REMINDER_MINUTES = 60
+EVENT_REMINDER_MINUTES = 60  # povinnost only
+LIFE_REMINDER_MINUTES = 15   # every other life calendar
 
 DEFAULT_DB_PATH = "/var/lib/h2-inbox-watcher/state.db"
 

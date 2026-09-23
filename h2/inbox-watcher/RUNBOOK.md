@@ -11,6 +11,7 @@ Decision record: `docs/h2/DECISIONS.md` DEC-009.
 | Code | `/opt/h2-inbox-watcher` (root-owned, copied from `muj-web/h2/inbox-watcher`) |
 | Secrets | `/etc/h2-inbox-watcher/env` (root:root 600, read by systemd only) |
 | State (SQLite) | `/var/lib/h2-inbox-watcher/state.db` (user `h2iw`, 700 dir) |
+| Calendars | hlavní `honza.bindr@gmail.com` (povinnost), „H2 · Fokus", „H2 · Regenerace", „H2 · Lidé", „H2 · Domov", „H2 · Zážitky", „H2 · Info" — looked up by exact name; a missing one leaves the item in Doručené with „❓ chybí kalendář X" |
 | Units | `h2-inbox-watcher.service` (oneshot), `h2-inbox-watcher.timer` (minutely) |
 | Logs | journald: task ids + types only, never item text |
 

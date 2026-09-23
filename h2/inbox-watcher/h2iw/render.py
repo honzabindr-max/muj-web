@@ -80,6 +80,18 @@ def command_line(source_text: str) -> str:
     return f"➡️ předáno Plánovači: {text}"
 
 
+def calendar_prefix(v: Valid) -> str | None:
+    """Colour + calendar name for calendar items (Planning OS v0.4 §2)."""
+    from . import config
+
+    if v.type == "INFO":
+        return f"{config.INFO_COLOUR} {config.INFO_CALENDAR_NAME}"
+    if v.type in ("EVENT", "BLOCK") and v.life in config.LIFE_CALENDARS:
+        colour, _, display = config.LIFE_CALENDARS[v.life]
+        return f"{colour} {display}"
+    return None
+
+
 def summary_line(v: Valid) -> str:
     if v.type == "NOTE":
         return f"📝 poznámka uložena ({NOTE_SUBTYPE_LABEL[v.note_subtype]}): {v.title}"
@@ -88,4 +100,6 @@ def summary_line(v: Valid) -> str:
     if v.reminder:
         extra = f"{extra} 🔔"
     notes = f" ({'; '.join(v.notes)})" if v.notes else ""
-    return _join([TYPE_ICON[v.type], v.type, title, f"· {extra}" if extra else None]) + notes
+    prefix = calendar_prefix(v)
+    line = _join([TYPE_ICON[v.type], v.type, title, f"· {extra}" if extra else None]) + notes
+    return f"{prefix} · {line}" if prefix else line

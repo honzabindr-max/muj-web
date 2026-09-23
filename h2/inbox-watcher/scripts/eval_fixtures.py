@@ -34,7 +34,7 @@ def main() -> int:
 
     ok = 0
     in_tok = out_tok = 0
-    print("| id | očekáváno | model | po validaci | výsledek |")
+    print("| id | očekáváno (life) | model | po validaci | výsledek |")
     print("|---|---|---|---|---|")
     for c in fx["cases"]:
         res = classify(client, c["text"], "", now)
@@ -44,9 +44,20 @@ def main() -> int:
         v = validate(res.data, now, c["text"])
         final = "UNKNOWN" if isinstance(v, Invalid) else v.type
         shown = f"UNKNOWN ({v.reason})" if isinstance(v, Invalid) else render.summary_line(v)
-        hit = final == c["expected_type"]
+        hit = final in c.get("accept_types", [c["expected_type"]])
+        if hit and c.get("expected_life"):
+            hit = getattr(v, "life", None) == c["expected_life"]
+        # Dates must match the reference answer (a wrong day is worse than a wrong type).
+        mo = c["mock_output"]
+        if hit and not isinstance(v, Invalid):
+            for field in ("start", "due_date", "deadline_date", "all_day_date"):
+                ref, got = mo.get(field), getattr(v, field, None)
+                if ref and got is not None and str(got)[:10] != ref[:10]:
+                    hit = False
+                    shown += f" [DATUM {field}: {str(got)[:10]} ≠ {ref[:10]}]"
         ok += hit
-        print(f"| {c['id']} | {c['expected_type']} | {model_type} | {shown} | {'OK' if hit else 'MISS'} |")
+        exp = c["expected_type"] + (f" ({c['expected_life']})" if c.get("expected_life") else "")
+        print(f"| {c['id']} | {exp} | {model_type} | {shown} | {'OK' if hit else 'MISS'} |")
     cost = (in_tok * config.PRICE_INPUT_PER_MTOK + out_tok * config.PRICE_OUTPUT_PER_MTOK) / 1e6
     print(f"\n{ok}/{len(fx['cases'])} shoda typu · tokens in={in_tok} out={out_tok} · {cost:.4f} USD")
     return 0 if ok == len(fx["cases"]) else 1

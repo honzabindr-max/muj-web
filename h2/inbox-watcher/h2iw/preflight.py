@@ -45,10 +45,11 @@ def main() -> int:
 
     gcal = GCalClient(s.google_client_id, s.google_client_secret, s.google_refresh_token)
     check("google token refresh", lambda: (gcal._token(), "")[1])
-    check(f"calendar '{config.INFO_CALENDAR_NAME}'",
-          lambda: (gcal.calendar_id_by_name(config.INFO_CALENDAR_NAME), "found")[1])
-    check(f"calendar '{config.BLOCK_CALENDAR_NAME}'",
-          lambda: (gcal.calendar_id_by_name(config.BLOCK_CALENDAR_NAME), "found")[1])
+    names = [config.INFO_CALENDAR_NAME] + [
+        n for _, n, _ in config.LIFE_CALENDARS.values() if n is not None]
+    for name in names:
+        check(f"calendar '{name}'",
+              lambda name=name: (gcal.calendar_id_by_name(name), "found")[1])
 
     def telegram():
         r = httpx.get(f"https://api.telegram.org/bot{s.telegram_token}/getMe", timeout=20)

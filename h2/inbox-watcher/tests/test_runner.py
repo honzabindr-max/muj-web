@@ -164,7 +164,7 @@ def test_block_creates_task_and_linked_event(env):
     _run(env)
     assert [c[0] for c in env.todoist.calls] == ["update", "move"]
     (cal, _), ev = next(iter(env.gcal.events.items()))
-    assert cal == "cal-bloky"
+    assert cal == "cal-fokus"
     assert ev["description"] == "Úkol: https://app.todoist.com/app/task/b"
 
 
@@ -403,3 +403,52 @@ def test_no_reminder_call_without_time(env):
     env.todoist.add("r", case("task_reminder_no_time")["text"])
     _run(env)
     assert [x[0] for x in env.todoist.calls] == ["update", "move"]
+
+
+# --- life calendars (Planning OS v0.4) -------------------------------------
+
+import pytest  # noqa: E402
+
+LIFE_CASES = [
+    ("event_rehab", "povinnost", config.PRIMARY_CALENDAR_ID, 60, "🔴 Hlavní"),
+    ("block_find_sofa_online", "fokus", "cal-fokus", 15, "🟣 H2 · Fokus"),
+    ("event_bike_saturday", "regenerace", "cal-regenerace", 15, "🌿 H2 · Regenerace"),
+    ("event_dinner_marketka", "lide", "cal-lide", 15, "🩷 H2 · Lidé"),
+    ("block_carry_sofa", "domov", "cal-domov", 15, "🟤 H2 · Domov"),
+    ("event_burcak", "zazitky", "cal-zazitky", 15, "🟡 H2 · Zážitky"),
+]
+
+
+@pytest.mark.parametrize("cid,life,cal,minutes,prefix", LIFE_CASES)
+def test_life_routes_to_calendar_busy_with_reminder(env, cid, life, cal, minutes, prefix):
+    env.todoist.add("x", case(cid)["text"])
+    r = _run(env)
+    (cal_id, _), ev = next(iter(env.gcal.events.items()))
+    assert cal_id == cal
+    assert ev["transparency"] == "opaque"
+    assert ev["reminders"]["overrides"] == [{"method": "popup", "minutes": minutes}]
+    assert r.lines[0].startswith(prefix + " · ")
+
+
+def test_info_line_has_grey_prefix(env):
+    env.todoist.add("i", case("info_partner_party")["text"])
+    r = _run(env)
+    assert r.lines[0].startswith("⚪ H2 · Info · ")
+
+
+def test_missing_life_calendar_stays_in_inbox_nothing_written(env):
+    del env.gcal.calendars["H2 · Domov"]
+    env.todoist.add("b", case("block_carry_sofa")["text"])
+    r = _run(env)
+    assert env.gcal.events == {}
+    assert env.todoist.calls == [("comment", "b", "❓ chybí kalendář H2 · Domov")]
+    assert env.todoist.tasks["b"]["project_id"] == "inbox-1"
+    assert env.todoist.tasks["b"]["content"] == case("block_carry_sofa")["text"]  # not renamed
+    assert "chybí kalendář H2 · Domov" in r.lines[0]
+    assert env.store.get("b")["status"] == "UNKNOWN_MARKED"
+
+
+def test_event_in_life_calendar_comment_names_it(env):
+    env.todoist.add("d", case("event_dinner_marketka")["text"])
+    _run(env)
+    assert ("comment", "d", "→ H2 · Lidé") in env.todoist.calls

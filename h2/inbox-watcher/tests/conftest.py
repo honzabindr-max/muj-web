@@ -86,9 +86,21 @@ class FakeGCal:
     def __init__(self):
         self.events: dict[tuple[str, str], dict] = {}
         self.insert_calls = 0
+        self.calendars = {
+            config.INFO_CALENDAR_NAME: "cal-info",
+            "H2 · Fokus": "cal-fokus",
+            "H2 · Regenerace": "cal-regenerace",
+            "H2 · Lidé": "cal-lide",
+            "H2 · Domov": "cal-domov",
+            "H2 · Zážitky": "cal-zazitky",
+        }
 
     def calendar_id_by_name(self, name):
-        return {config.INFO_CALENDAR_NAME: "cal-info", config.BLOCK_CALENDAR_NAME: "cal-bloky"}[name]
+        from h2iw.gcal import CalendarMissingError
+
+        if name not in self.calendars:
+            raise CalendarMissingError(name)
+        return self.calendars[name]
 
     def insert_event(self, calendar_id, event):
         self.insert_calls += 1

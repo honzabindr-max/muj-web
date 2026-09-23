@@ -20,6 +20,7 @@ from . import config, render
 from .apply import Applier
 from .classify import ClassifyResult
 from .store import Store, utcnow
+from .gcal import CalendarMissingError
 from .todoist import NotInInboxError
 from .validate import Invalid, validate
 
@@ -189,6 +190,11 @@ class Runner:
             self.applier.apply(v, task)
         except NotInInboxError:
             self._status(tid, "GONE")
+            return
+        except CalendarMissingError as e:
+            # Never fall back to the primary calendar: leave it in the Inbox.
+            log.warning("item %s: target calendar missing", tid)
+            self._unknown(task, f"chybí kalendář {e.name}", report)
             return
         except Exception as e:
             attempts = self.store.bump_attempts(tid)

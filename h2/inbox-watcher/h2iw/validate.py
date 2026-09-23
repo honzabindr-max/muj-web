@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 
 from . import config
-from .classify import AREAS, CONTEXTS, NOTE_SUBTYPES, TYPES
+from .classify import AREAS, CONTEXTS, LIVES, NOTE_SUBTYPES, TYPES
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^\d{2}:\d{2}$")
@@ -53,6 +53,13 @@ COMMAND_VERB_RE = re.compile(
     r"vyřízeno|uprav|změň|nedovolal|nedovolala|nestihl|nestihla|nezvládl|nezvládla)\b",
     re.IGNORECASE,
 )
+# Past-tense status report anywhere in the text ("účetní se neozvala, …"):
+# it refers to something already tracked, so it must never become a new
+# TASK/WAITING (that would duplicate the existing task).
+STATUS_REPORT_RE = re.compile(
+    r"\b(neozval[aoi]?|nedovolal[aoi]?|nestihl[aoi]?|nezvládl[aoi]?|nevyšl[oa])\b",
+    re.IGNORECASE,
+)
 COMMAND_GUARD_REASON = "vypadá jako příkaz nebo stavová aktualizace — neprovádím, napiš to do chatu s Claudem"
 
 # Explicit reminder request in the text. A TASK/WAITING with an explicit time
@@ -77,6 +84,7 @@ class Valid:
     all_day_date: date | None = None
     note_subtype: str | None = None
     reminder: bool = False
+    life: str | None = None
     reason: str = ""
     notes: list[str] = field(default_factory=list)  # e.g. defaulted end time
 
@@ -124,6 +132,8 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
         return Invalid(str(e))
     if isinstance(v, Valid) and source_text and v.type != "COMMAND":
         if COMMAND_VERB_RE.search(source_text):
+            return Invalid(COMMAND_GUARD_REASON)
+        if v.type in ("TASK", "WAITING") and STATUS_REPORT_RE.search(source_text):
             return Invalid(COMMAND_GUARD_REASON)
         v = _check_time_is_stated(v, source_text)
         if isinstance(v, Valid):
@@ -204,7 +214,11 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     if area is not None and area not in AREAS:
         raise _Reject("neplatná oblast")
 
-    v = Valid(type=t, title=title, area=area, reason=reason)
+    life = raw.get("life")
+    if life is not None and life not in LIVES:
+        raise _Reject("neplatný druh času")
+    v = Valid(type=t, title=title, area=area, reason=reason,
+              life=life if t in ("EVENT", "BLOCK") else None)
     v.due_date = _date(raw.get("due_date"), "due_date", today)
     v.deadline_date = _date(raw.get("deadline_date"), "deadline_date", today)
     v.all_day_date = _date(raw.get("all_day_date"), "all_day_date", today)
@@ -253,6 +267,10 @@ def _validate_calendar(v: Valid) -> Valid | Invalid:
             minutes = config.EVENT_DEFAULT_MINUTES if t == "EVENT" else config.BLOCK_DEFAULT_MINUTES
             v.end = v.start + timedelta(minutes=minutes)
             v.notes.append(f"konec nezadán → {minutes} min")
+        life = v.life
+        if life is None:
+            v.life = "povinnost" if t == "EVENT" else "fokus"
+            v.notes.append(f"druh času nezadán → {v.life}")
         if t == "EVENT" and (v.due_date or v.due_time or v.deadline_date):
             v.due_date = v.due_time = v.deadline_date = None  # irrelevant, task gets closed
     elif t == "INFO":
