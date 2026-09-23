@@ -40,6 +40,8 @@ def main() -> int:
 
     todoist = TodoistClient(s.todoist_token)
     check("todoist inbox", lambda: f"project {todoist.inbox_id()}, {len(todoist.list_inbox())} items")
+    check(f"todoist project '{config.COMMANDS_PROJECT_NAME}'",
+          lambda: todoist.project_id_by_name(config.COMMANDS_PROJECT_NAME))
 
     gcal = GCalClient(s.google_client_id, s.google_client_secret, s.google_refresh_token)
     check("google token refresh", lambda: (gcal._token(), "")[1])

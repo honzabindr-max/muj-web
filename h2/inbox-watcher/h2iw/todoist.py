@@ -59,6 +59,12 @@ class TodoistClient:
             self._inbox_id = inbox[0]["id"]
         return self._inbox_id
 
+    def project_id_by_name(self, name: str) -> str:
+        matches = [p["id"] for p in self._paged("/projects", {}) if p.get("name") == name]
+        if len(matches) != 1:
+            raise TodoistError(f"project '{name}' not found exactly once")
+        return matches[0]
+
     def list_inbox(self) -> list[dict]:
         return self._paged("/tasks", {"project_id": self.inbox_id()})
 

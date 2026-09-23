@@ -14,6 +14,8 @@ TZ = ZoneInfo("Europe/Prague")
 
 # Planning OS v0.3 targets (verified live 2026-09-23 via Todoist + Calendar MCP).
 H2_PROJECT_ID = "6hc925WcvFQ34pp6"
+# COMMAND items are handed to the Planner (chat with Claude) through this project.
+COMMANDS_PROJECT_NAME = "H2 · Příkazy"
 PRIMARY_CALENDAR_ID = "honza.bindr@gmail.com"
 INFO_CALENDAR_NAME = "H2 · Info"
 BLOCK_CALENDAR_NAME = "H2 · Bloky"

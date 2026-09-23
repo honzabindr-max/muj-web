@@ -292,15 +292,26 @@ def test_multi_item_stays_in_inbox_with_split_comment(env):
 
 # --- COMMAND ---------------------------------------------------------------
 
-def test_command_is_recorded_refused_and_closed(env):
+def test_command_is_recorded_and_moved_open_and_unchanged(env):
     c = case("command_delete_event")
-    env.todoist.add("c", c["text"])
+    env.todoist.add("c", c["text"], description="původní popis")
     r = _run(env)
     assert env.gcal.insert_calls == 0
-    assert env.todoist.calls == [("comment", "c", "→ příkaz, proveď v chatu"), ("close", "c")]
+    # only a move: no rename, no comment, no close, nothing else touched
+    assert env.todoist.calls == [("move", "c", "proj-prikazy")]
+    t = env.todoist.tasks["c"]
+    assert t["content"] == c["text"] and t["description"] == "původní popis"
     row = env.store.conn.execute("select * from commands").fetchone()
-    assert decrypt(TEST_KEY, row["ciphertext"]) == c["text"]
-    assert r.lines == [f"⚠️ příkaz ke změně neprovádím: {c['text']} — napiš to do chatu s Claudem"]
+    assert decrypt(TEST_KEY, row["ciphertext"]) == c["text"] + "\n\npůvodní popis"
+    assert r.lines == [f"➡️ předáno Plánovači: {c['text']}"]
+
+
+def test_status_update_goes_to_planner(env):
+    c = case("command_status_patrik")
+    env.todoist.add("p", c["text"])
+    r = _run(env)
+    assert env.todoist.calls == [("move", "p", "proj-prikazy")]
+    assert r.lines[0].startswith("➡️ předáno Plánovači: Nedovolal jsem se Patrikovi")
 
 
 def test_command_misclassified_as_task_stays_in_inbox(env):
@@ -308,7 +319,7 @@ def test_command_misclassified_as_task_stays_in_inbox(env):
     env.clf.by_text[c["text"]] = dict(case("task_errand")["mock_output"], title="Přesunout úkol")
     env.todoist.add("c", c["text"])
     _run(env)
-    assert env.todoist.calls[0][0] == "comment" and "příkaz ke změně" in env.todoist.calls[0][2]
+    assert env.todoist.calls[0][0] == "comment" and "příkaz nebo stavová aktualizace" in env.todoist.calls[0][2]
     assert len(env.todoist.calls) == 1 and env.todoist.tasks["c"]["project_id"] == "inbox-1"
 
 
