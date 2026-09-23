@@ -1859,6 +1859,271 @@
     "multiple_items": false,
     "reason": "x"
    }
+  },
+  {
+   "id": "task_on_the_way_bulbs",
+   "text": "cestou z baráku koupit žárovky ve 14",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Koupit žárovky cestou z baráku",
+    "context": "venku",
+    "area": "domacnost",
+    "due_date": "2026-09-23",
+    "due_time": "14:00",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "duration_min": 15,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "domov"
+  },
+  {
+   "id": "task_look_for_shell",
+   "text": "za týden se podívat po mušli",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Podívat se po mušli",
+    "context": null,
+    "area": null,
+    "due_date": "2026-09-30",
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   }
+  },
+  {
+   "id": "event_mushrooms_sasenka",
+   "text": "v pondělí jedu se Sašenkou na houby",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Houby se Sašenkou",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-28",
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "lide",
+   "accept_types": [
+    "EVENT"
+   ]
+  },
+  {
+   "id": "event_have_boys",
+   "text": "v pátek od 16 mám kluky",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Mám kluky",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T16:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "lide",
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "block_car_to_house",
+   "text": "zítra od 13 do 14 jedu autem na barák",
+   "expected_type": "BLOCK",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Jet autem na barák",
+    "context": null,
+    "area": null,
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T13:00",
+    "end": "2026-09-24T14:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "domov",
+   "accept_types": [
+    "BLOCK",
+    "EVENT"
+   ]
+  },
+  {
+   "id": "task_design_balcony",
+   "text": "vymyslet krytí balkónu",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Vymyslet krytí balkónu",
+    "context": null,
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "duration_min": 60,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "fokus"
+  },
+  {
+   "id": "ritual_cigarette",
+   "text": "zítra v 7 cigaretka",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "UNKNOWN",
+    "title": "",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": null,
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "Rituál spravuje Plánovač."
+   }
+  },
+  {
+   "id": "ritual_lunch",
+   "text": "v sobotu ve 12 oběd",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "UNKNOWN",
+    "title": "",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": null,
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "Rituál spravuje Plánovač."
+   }
+  },
+  {
+   "id": "event_lunch_dad",
+   "text": "zítra ve 12 oběd s tátou",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Oběd s tátou",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T12:00",
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "lide",
+   "accept_types": [
+    "EVENT",
+    "BLOCK"
+   ]
+  },
+  {
+   "id": "task_sell_bike",
+   "text": "prodat staré kolo na bazoši",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Prodat staré kolo na Bazoši",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "fokus"
+  },
+  {
+   "id": "task_return_book",
+   "text": "nezapomenout zítra vrátit knihu do knihovny",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Vrátit knihu do knihovny",
+    "context": "venku",
+    "area": null,
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "domov",
+    "duration_min": 30,
+    "multiple_items": false,
+    "reason": "x"
+   },
+   "expected_life": "domov"
   }
  ]
 }
