@@ -313,3 +313,36 @@ def test_status_report_mid_text_never_becomes_waiting():
 def test_future_waiting_is_not_caught_by_status_guard():
     c = case("waiting_no_date")
     assert validate(c["mock_output"], NOW, c["text"]).type == "WAITING"
+
+
+# --- time range = BLOCK (owner requirement 2026-09-23) ----------------------
+
+def test_range_fixture_is_block_fokus():
+    c = case("block_call_patrik_range")
+    v = validate(c["mock_output"], NOW, c["text"])
+    assert v.type == "BLOCK" and v.life == "fokus"
+    assert (v.start.hour, v.end.hour) == (10, 11)
+
+
+def test_range_misread_as_task_stays_in_inbox():
+    c = case("block_call_patrik_range")
+    as_task = dict(case("task_due_time")["mock_output"], title="Zavolat Patrikovi",
+                   due_time="10:00")
+    v = validate(as_task, NOW, c["text"])
+    assert isinstance(v, Invalid) and "rozsah" in v.reason
+
+
+@pytest.mark.parametrize("text,is_range", [
+    ("Zítra od 10 do 11 volám Patrikovi", True),
+    ("v sobotu 10–12 kolo", True),
+    ("v sobotu 9 až 10 najít sedačku", True),
+    ("od 8:30 do 9:15 e-maily", True),
+    ("zítra v 10 zavolat Patrikovi", False),
+    ("do pátku poslat faktury", False),
+    ("výlet 5.-7. 10.", False),
+    ("koupit 2-3 žárovky", False),
+    ("zítra koupit 2-3 žárovky", True),  # known false positive: stays in Inbox with ❓
+])
+def test_time_range_detection(text, is_range):
+    from h2iw.validate import is_time_range
+    assert is_time_range(text) is is_range
