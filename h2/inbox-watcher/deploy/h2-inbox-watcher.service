@@ -1,0 +1,27 @@
+[Unit]
+Description=H2 Inbox Watcher (Todoist Doručené -> H2 Planning OS v0.3)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=h2iw
+Group=h2iw
+# Read by systemd as root before dropping privileges; file stays root:root 600.
+EnvironmentFile=/etc/h2-inbox-watcher/env
+Environment=H2IW_DB=/var/lib/h2-inbox-watcher/state.db
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=h2-inbox-watcher
+StateDirectoryMode=0700
+WorkingDirectory=/opt/h2-inbox-watcher
+ExecStart=/opt/h2-inbox-watcher/.venv/bin/python -m h2iw.main
+TimeoutStartSec=240
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes

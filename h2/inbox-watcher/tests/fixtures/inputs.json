@@ -1,0 +1,566 @@
+{
+ "_note": "Reference 'now' for every fixture: 2026-09-23T10:00 Europe/Prague (Wednesday). expected_type is the contract; mock_output is what a correct model answer looks like and drives the offline tests. scripts/eval_fixtures.py runs the same inputs against the real model.",
+ "now": "2026-09-23T10:00:00+02:00",
+ "cases": [
+  {
+   "id": "task_phone_finance",
+   "text": "zavolat účetní kvůli DPH",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zavolat účetní kvůli DPH",
+    "context": "telefon",
+    "area": "finance",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Úkol bez termínu.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_errand",
+   "text": "koupit žárovky do koupelny",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Koupit žárovky do koupelny",
+    "context": "venku",
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Nákup.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_deadline",
+   "text": "do pátku poslat faktury klientovi",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Poslat faktury klientovi",
+    "context": null,
+    "area": "prace",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": "2026-09-25",
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Výslovný deadline.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_due_tomorrow",
+   "text": "zítra umýt auto",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Umýt auto",
+    "context": "venku",
+    "area": null,
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Úkol na zítřek.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_due_time",
+   "text": "zítra v 8 zavolat do školky",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zavolat do školky",
+    "context": "telefon",
+    "area": "rodina",
+    "due_date": "2026-09-24",
+    "due_time": "08:00",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Hovor s časem, ne schůzka.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_message_partner",
+   "text": "napsat Markétce ať koupí mlíko",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Napsat Markétce ať koupí mléko",
+    "context": "telefon",
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Zpráva.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_someday",
+   "text": "někdy vyřešit sedačku",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Vyřešit sedačku",
+    "context": null,
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Jen zachytit.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "task_sport",
+   "text": "jít si zaběhat",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Jít si zaběhat",
+    "context": "venku",
+    "area": "pohyb",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Pohyb.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "waiting_followup",
+   "text": "čekám až mi Petr pošle smlouvu, připomenout ve čtvrtek",
+   "expected_type": "WAITING",
+   "mock_output": {
+    "type": "WAITING",
+    "title": "Petr pošle smlouvu",
+    "context": null,
+    "area": "prace",
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Čekám na Petra, follow-up čtvrtek.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "waiting_no_date",
+   "text": "čekám na odpověď z pojišťovny",
+   "expected_type": "WAITING",
+   "mock_output": {
+    "type": "WAITING",
+    "title": "Odpověď z pojišťovny",
+    "context": null,
+    "area": "finance",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Čekám.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "event_dentist",
+   "text": "zubař v pondělí ve 14:30",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Zubař",
+    "context": null,
+    "area": "zdravi",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-28T14:30",
+    "end": null,
+    "all_day_date": null,
+    "reason": "Pevný termín s časem.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "event_meeting_range",
+   "text": "schůzka s Honzou z Optimia čtvrtek 10 až 11",
+   "expected_type": "EVENT",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Schůzka s Honzou z Optimia",
+    "context": null,
+    "area": "prace",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T10:00",
+    "end": "2026-09-24T11:00",
+    "all_day_date": null,
+    "reason": "Schůzka.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "event_no_time",
+   "text": "kontrola na chirurgii v úterý",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Kontrola na chirurgii",
+    "context": null,
+    "area": "zdravi",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Pevný termín, ale chybí čas.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "info_partner_timed",
+   "text": "Markétka má v pátek firemní akci od šesti do deseti večer",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Markétka – firemní akce",
+    "context": null,
+    "area": "vztah",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T18:00",
+    "end": "2026-09-25T22:00",
+    "all_day_date": null,
+    "reason": "Plán jiného člověka.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "info_kids_allday",
+   "text": "děti mají v sobotu výlet se školou",
+   "expected_type": "INFO",
+   "mock_output": {
+    "type": "INFO",
+    "title": "Děti – školní výlet",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-26",
+    "reason": "Plán jiných, celý den.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "block_project",
+   "text": "v sobotu 10 až 12 dělám na H2",
+   "expected_type": "BLOCK",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Práce na H2",
+    "context": null,
+    "area": "projekty",
+    "due_date": "2026-09-26",
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-26T10:00",
+    "end": "2026-09-26T12:00",
+    "all_day_date": null,
+    "reason": "Vyhrazený čas.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "block_duration",
+   "text": "zablokuj mi zítra dvě hodiny od devíti na daňové přiznání",
+   "expected_type": "BLOCK",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Daňové přiznání",
+    "context": null,
+    "area": "finance",
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T09:00",
+    "end": "2026-09-24T11:00",
+    "all_day_date": null,
+    "reason": "Blok na práci.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "nonsense_vague",
+   "text": "ehm no tak jako tamto s tím, víš co",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "UNKNOWN",
+    "title": "",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Nesrozumitelné diktování.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "nonsense_garbled",
+   "text": "asdf kkk pondělí modrá židle zavolat ne",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "UNKNOWN",
+    "title": "",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "reason": "Nesmyslný text.",
+    "note_subtype": null,
+    "multiple_items": false
+   }
+  },
+  {
+   "id": "multiple_items",
+   "text": "vyzvednout léky v lékárně a v pátek v 17:00 kadeřník",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "UNKNOWN",
+    "title": "",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": true,
+    "reason": "Dvě nesouvisející věci v jedné položce."
+   }
+  },
+  {
+   "id": "multi_call_and_gift",
+   "text": "zavolat instalatérovi a zítra koupit dárek pro mámu",
+   "expected_type": "UNKNOWN",
+   "mock_output": {
+    "type": "UNKNOWN",
+    "title": "",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": true,
+    "reason": "Dvě samostatné akce."
+   }
+  },
+  {
+   "id": "task_shopping_list_is_one",
+   "text": "koupit mléko, chleba a vajíčka",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Koupit mléko, chleba a vajíčka",
+    "context": "venku",
+    "area": "domacnost",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "multiple_items": false,
+    "reason": "Jeden nákup."
+   }
+  },
+  {
+   "id": "note_idea_app",
+   "text": "nápad: appka na sdílení nákupního seznamu s hlasovým zadáváním",
+   "expected_type": "NOTE",
+   "mock_output": {
+    "type": "NOTE",
+    "title": "Appka na sdílený nákupní seznam s hlasem",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": "idea",
+    "multiple_items": false,
+    "reason": "Poznámka bez akce."
+   }
+  },
+  {
+   "id": "note_idea_h2",
+   "text": "napadlo mě že by H2 mohl ráno posílat jedno doporučení na den",
+   "expected_type": "NOTE",
+   "mock_output": {
+    "type": "NOTE",
+    "title": "H2 posílá ráno jedno doporučení",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": "idea",
+    "multiple_items": false,
+    "reason": "Poznámka bez akce."
+   }
+  },
+  {
+   "id": "note_journal",
+   "text": "dneska jsem byl celý den unavený a naštvaný, asi málo spánku",
+   "expected_type": "NOTE",
+   "mock_output": {
+    "type": "NOTE",
+    "title": "Unavený a naštvaný, málo spánku",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": "journal",
+    "multiple_items": false,
+    "reason": "Poznámka bez akce."
+   }
+  },
+  {
+   "id": "note_person_colleague",
+   "text": "Petr z práce má dvě děti, Adama a Evu, a rád jezdí na kole",
+   "expected_type": "NOTE",
+   "mock_output": {
+    "type": "NOTE",
+    "title": "Petr z práce — děti Adam a Eva, kolo",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": "person",
+    "multiple_items": false,
+    "reason": "Poznámka bez akce."
+   }
+  },
+  {
+   "id": "note_person_partner",
+   "text": "Markétka nemá ráda koriandr",
+   "expected_type": "NOTE",
+   "mock_output": {
+    "type": "NOTE",
+    "title": "Markétka nemá ráda koriandr",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": "person",
+    "multiple_items": false,
+    "reason": "Poznámka bez akce."
+   }
+  },
+  {
+   "id": "note_other_wifi",
+   "text": "heslo na wifi u babičky je napsané na lednici",
+   "expected_type": "NOTE",
+   "mock_output": {
+    "type": "NOTE",
+    "title": "Wifi heslo u babičky je na lednici",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": "other",
+    "multiple_items": false,
+    "reason": "Poznámka bez akce."
+   }
+  }
+ ]
+}

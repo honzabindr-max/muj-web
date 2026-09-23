@@ -1,5 +1,7 @@
 # H2 Buddy — Build Status
 
+**STAV 2026-09-23: vývoj H2 Buddy (BUILD-12+) je POZASTAVENÝ kvůli nákladové architektuře.** Výjimka schválená ownerem 23. 9.: pilotní nástroj **H2-IW — H2 Inbox Watcher** (není BUILD blok, viz sekce „Pilotní nástroje" níže a [DEC-009](./DECISIONS.md#dec-009)). **H2-IW: V PROVOZU od 2026-09-23 15:08 UTC** — timer `h2-inbox-watcher.timer` běží na VPS `hz` (minutely), E2E ověřeno (TASK / EVENT / NOTE), [PR #54](https://github.com/honzabindr-max/muj-web/pull/54). Hodinová Claude úloha třídící Doručené vypnuta ownerem před zapnutím timeru.
+
 **BUILD-11 — KOMPLETNÍ. Krok 4 (trigger wiring — `processOwnerQueueBounded()`, `after()` fast path, wake endpoint) — HOTOVO, MERGED, NASAZENO.** PR [#47](https://github.com/honzabindr-max/muj-web/pull/47) mergnut (merge `6a608031bd548e6c27b732d1e1a8b07e71f43ff0`), deploy `dpl_8AnGTD17onGh3xrCfSnZoFFByG6f` READY. [docs/h2/BUILD-11-PLAN.md](./BUILD-11-PLAN.md) Rozhodnutí 1 (`processOwnerQueueBounded()` s rozpočtovanou smyčkou, `WORST_CASE_JOB_DURATION_MS`, `after()` v obou ingest routách) + Rozhodnutí 8 (`POST /api/internal/queue-wakeup`, `H2_QUEUE_WAKE_SECRET`, enumerace `owners` bez RLS → per-owner scoped volání) živě na produkci. Vedlejší: `withOwnerScope()` (`h2/db/with-owner-scope.ts`) dostal Pravidlo 9 readback guard (dřív jen doporučený pro Krok 1, teď skutečně implementovaný — chrání KAŽDÉ owner-scoped volání v H2, ne jen wake endpoint). `clear-stale-pending-jobs.ts --confirm` proběhl PŘED mergem (6 stale PENDING jobů z 2026-09-03 → `MANUALLY_CLEARED`, ověřeno přímým dotazem — 0 PENDING/RETRY_PENDING po odklizení). Migrace žádná. 284/284 testů lokálně (6 nových), `tsc --noEmit` a `npm run build` čisté.
 
 **M1 DOSAŽENO 2026-09-05 — ověřeno přímým dotazem do produkční DB, ne jen tvrzením.** První reálná Buddy odpověď přes Telegram, produkční trigger funkční end-to-end: příchozí zpráva → `message_processing_jobs` (`RESPONSE_READY`) → Sonnet (`responses`, `stance=BE_WITH`) → `response_deliveries` (`channel='telegram'`, `status='DELIVERED'`, reálné Telegram `external_message_id`). 3 zprávy dnes (07:22, 07:28, 07:30), všechny stejný vzor. `cron-job.org` budík **ZAPNUT** (30 min interval, `POST /api/internal/queue-wakeup`, hlavička `X-H2-Wake-Secret`, save responses vypnuto, notifikace při selhání zapnutá — Honzíkovo nastavení, mimo repo). Delivery jen kanálem `telegram`, ne `web` — **potvrzeno Honzíkem** (web polling čte `responses` napřímo, druhý `response_deliveries` řádek by byl bookkeeping bez čtenáře). **Vercel Function Region — HOTOVO 2026-09-05** (bylo ČEKÁ NA OVĚŘENÍ, viz vlastní Evidence blok níže): Dashboard nastavení se do deploymentů nepropisovalo (ani redeploy, ani čerstvý git build), řešením byl `vercel.json` s `regions: ["fra1"]` (PR [#48](https://github.com/honzabindr-max/muj-web/pull/48), MERGED) — produkce i preview teď potvrzeně `regions: ["fra1"]` a `x-vercel-id: fra1::fra1::...` na obou. **Entity extrakce v odpovědi zůstává NEPOTVRZENÁ** — Honzíkovo hlášení "entity se projevily" živé ověření nepodpořilo (žádný aktivní prompt pro `OPERATIONAL_EXTRACTION` v produkci, `operational_extractions` má 0 řádků). Viz Evidence blok níže pro plné shrnutí.
@@ -767,6 +769,57 @@ Remaining risk: žádné — end-to-end živě ověřeno (viz PR #19 evidence a 
 **Poslední deployment:** [PR #11](https://github.com/honzabindr-max/muj-web/pull/11), [PR #12](https://github.com/honzabindr-max/muj-web/pull/12), [PR #13](https://github.com/honzabindr-max/muj-web/pull/13), [PR #14](https://github.com/honzabindr-max/muj-web/pull/14), [PR #15](https://github.com/honzabindr-max/muj-web/pull/15), [PR #17](https://github.com/honzabindr-max/muj-web/pull/17), [PR #18](https://github.com/honzabindr-max/muj-web/pull/18), [PR #19](https://github.com/honzabindr-max/muj-web/pull/19), [PR #20](https://github.com/honzabindr-max/muj-web/pull/20), [PR #22](https://github.com/honzabindr-max/muj-web/pull/22), [PR #24](https://github.com/honzabindr-max/muj-web/pull/24) a [PR #26](https://github.com/honzabindr-max/muj-web/pull/26) mergnuty do `main`, Vercel auto-deploy proběhl přes existující GitHub integraci. Reálné přihlášení přes Google na `good-inventions.work` živě ověřeno a funkční (po hotfixu PR #17 + aplikaci migrací 0012+0013 na produkční i preview větev Neonu). BUILD-04 (Telegram/web ingest routy) nasazeno na produkci a **živě ověřeno end-to-end** — reálné Telegram zprávy prošly `setWebhook` → `ingestMessage()` → DB. BUILD-05 (queue/lease/fencing/quarantine) nasazeno na produkci — bez HTTP povrchu, ověřeno jen zdravím `/api/h2/health` a testy pod `h2_runtime`. BUILD-06 (voice transcription) nasazeno na produkci — ingest větev live (feature flag `telegramVoice=true`), zpracování (download/transkripce) zatím bez produkčního triggeru, čeká na ruční end-to-end verifikaci s `H2_OPENAI_API_KEY`. BUILD-07 (prompt registry & model adapter) nasazeno na produkci — migrace 0015 aplikována na obou Neon větvích, mechanismus bez produkčního triggeru, čeká na ruční certifikaci s `H2_ANTHROPIC_API_KEY`. BUILD-08 (operational extraction) nasazeno na produkci — žádná migrace, žádný nový credential, mechanismus bez produkčního triggeru (zapojení je BUILD-10).
 **Stav milestone M1 (Buddy Live):** NOT STARTED — 0 / 11 bloků DEPLOYED se skutečným produkčním triggerem (BUILD-01–BUILD-11 vč. BUILD-03A), BUILD-01/02/03/03A/04/05/06/07/08/09/10 AT GREEN, MERGED, nasazeny; BUILD-04 živě ověřeno end-to-end; BUILD-06/07/10 čekají na ruční end-to-end ověření (voice, resp. Anthropic certifikace — BUILD-10 navíc čeká na BUILD-11's trigger, který teprve zavolá `generateBuddyResponse()` v produkci); BUILD-11 (Telegram + web delivery) — zbývající blok před M1, viz BUILD-10's evidence blok výše pro dva forward-pointery (voice payload_type handoff, operational extraction bez volajícího), které by BUILD-11's trigger měl vyřešit zároveň
 **Otevřené ARCHITECTURE DECISION REQUIRED:** 0 (DEC-001–DEC-006 vyřešeny/zaznamenány; DEC-004 zaznamenané riziko pro budoucí pg upgrade, DEC-005 uzavřený bezpečnostní incident "no exposure confirmed by owner", DEC-006 vědomá odchylka — migrace běží přes `neondb_owner`, ne `h2_migrator` — s remedy odloženým do M1 deploy gate, viz [DECISIONS.md](./DECISIONS.md))
+
+## Pilotní nástroje (mimo BUILD-01..28)
+
+### H2-IW — H2 Inbox Watcher (V PROVOZU)
+
+Pilotní nástroj pro *H2 Planning OS v0.3* (Notion, pilot 23.–29. 9. 2026). Každou minutu přečte Todoist Doručené; nic nového = konec bez LLM. Nová položka → jedno volání `claude-haiku-4-5` (Structured Outputs) → deterministická validace → zápis do Todoistu (projekt H2) / Google Kalendáře (Hlavní, H2 · Info, H2 · Bloky) → jedna Telegram zpráva za běh. Rozhodnutí: [DEC-009](./DECISIONS.md#dec-009).
+
+- **Kód:** `h2/inbox-watcher/` (Python 3.12, samostatný projekt, `anthropic` + `httpx`), runbook `h2/inbox-watcher/RUNBOOK.md`.
+- **Běh:** Hetzner VPS `hz`, `/opt/h2-inbox-watcher`, systemd `h2-inbox-watcher.service` (oneshot, user `h2iw`) + `h2-inbox-watcher.timer` (minutely), stav SQLite `/var/lib/h2-inbox-watcher/state.db`, secrets `/etc/h2-inbox-watcher/env`.
+- **Tvrdé zákazy vynucené povrchem klientů (testováno):** kalendářový klient umí jen `calendarList` + `events.insert` (update/delete neexistuje); každý zápis do Todoistu znovu ověří, že úkol je otevřený v Doručených; `focus`/⭐ se nikdy nepřiděluje; bez nové položky žádné LLM volání.
+- **Idempotence:** `items(task_id)` + `steps(task_id, step)`; kalendářní události mají deterministické id (opakovaný insert → 409 = hotovo); pád mezi kroky pokračuje bez nového LLM volání.
+- **Náklady:** strop 200 volání/den + 3 USD/měsíc, ledger `llm_calls`.
+
+| Krok | Stav | Důkaz |
+|---|---|---|
+| Kód + offline testy (20 českých fixtur, všechny typy) | HOTOVO | `pytest` 125/125 |
+| Živý běh fixtur proti Haiku | HOTOVO (2. kolo) | Kolo 1: 18/20 + **nebezpečná chyba** — „kontrola na chirurgii v úterý" (bez času) → EVENT v 00:00, model čas vymyslel. Oprava: prompt + deterministická pojistka `validate._check_time_is_stated()` (časovaný EVENT/BLOCK bez časového údaje ve vstupu → UNKNOWN; INFO → celý den; TASK → jen datum). Kolo 2: **19/20**, žádná nebezpečná chyba; jediný MISS „vyzvednout léky … a v pátek v 17:00 kadeřník" → TASK „Vyzvednout léky" (druhá věc zůstává jen v popisu „Původně: …"). Náklad obou kol 0,094 USD. |
+| Doplněk: typ NOTE + pojistka více záměrů (DEC-009 doplněk) | HOTOVO | `pytest` 161/161; eval kolo 3: **28/28** (20 původních + 6 NOTE + 2 víc-záměrové), 0,0776 USD |
+| Commit + PR | HOTOVO (GO 2026-09-23) | commit `d6f4153`, [PR #54](https://github.com/honzabindr-max/muj-web/pull/54) (nemergnuto) |
+| Nasazení na VPS (bez timeru) | HOTOVO (GO 2026-09-23, 14:00 UTC) | `/opt/h2-inbox-watcher`, `install.sh`, user `h2iw` uid 990, timer `disabled`/`inactive`, `systemd-analyze verify` OK, `ANTHROPIC_API_KEY` zkopírován z `.env.local` rourou (hodnota nezobrazena) |
+| Secrets ownera | HOTOVO | všech 6 klíčů v `/etc/h2-inbox-watcher/env` (jen názvy ověřeny) |
+| Preflight (read-only) | HOTOVO 2026-09-23 15:04 UTC | Todoist Inbox `6hc8xGCWPWPc5PPm`, Google token + H2 · Info + H2 · Bloky, Telegram `@H2_buddy_hb_bot`, Anthropic `claude-haiku-4-5-20251001` — vše OK (první pokus Todoist 1× přechodně FAIL, další 3 OK) |
+| Dry run nad aktuálními Doručenými | HOTOVO — Doručené prázdné (0 položek, 0 LLM volání); Todoist API v1 tvar odpovědi + `inbox_project` potvrzeny živě | |
+| Nález z dry runu: `httpx` loguje celé URL na INFO → Telegram bot token by šel do journald | OPRAVENO před prvním ostrým během | `quiet_http_loggers()`, test; journald `api.telegram.org/bot` = 0 výskytů |
+| Zapnutí timeru (GO-4) | HOTOVO 2026-09-23 15:08 UTC | `systemctl enable --now`; první běh: baseline 0 položek, 0 LLM. Hodinová Claude úloha vypnuta ownerem (ověřeno jeho tvrzením, ne Code). |
+| E2E (3 nadiktované položky + Telegram) | HOTOVO 2026-09-23 15:10–15:11 UTC | viz Evidence níže |
+
+**Evidence (H2-IW E2E, 2026-09-23):**
+```
+Commit: 5192a25 (nasazený kód při E2E), CI na PR #54 pass (test run 35878932414, Vercel pass)
+Branch: h2/inbox-watcher (PR #54)
+DB: VPS /var/lib/h2-inbox-watcher/state.db — items: 3× APPLIED
+    6hcF33Prqw845jHF TASK  steps todoist_update, todoist_move
+    6hcF35MGWFQ4XVRF EVENT steps gcal_insert, todoist_comment, todoist_close
+    6hcF37j9H5rFxV5F NOTE  steps note_insert, todoist_comment, todoist_close
+    notes: 1× idea; llm_calls: 3, 0.0083 USD; attempts 1 each (no retry)
+Todoist (MCP fetch): 6hcF33Prqw845jHF content "📞 Zavolat do servisu kvůli autu",
+    project H2 6hc925WcvFQ34pp6, labels [telefon], due 2026-09-24,
+    description "Původně: Zavolat zítra do servisu kvůli autu".
+    6hcF35MGWFQ4XVRF checked, comment "→ kalendář". 6hcF37j9H5rFxV5F checked,
+    comment "→ H2 poznámky".
+Calendar (MCP list_events, primary): "🩺 Zubař" 2026-09-24 14:30–15:30 Europe/Prague,
+    popup reminder 60 min, id 9b5964073afbe0f293be1cf3baaa4e72ee28329f (deterministic)
+Telegram: owner confirmed 2 summaries (one per run: 15:10 TASK, 15:11 EVENT + NOTE)
+Journal: 0 occurrences of api.telegram.org; empty runs log llm_calls=0
+Timestamp: 2026-09-23T15:15Z
+Verified by: Code (SQLite read-only, Todoist + Calendar MCP, journalctl), owner (Telegram)
+Remaining risk: NOTE title "…z HW…" is Todoist dictation mis-hearing "H2" (raw text
+    already says "HW"), not a model error. WAITING / INFO / BLOCK / UNKNOWN / deadline
+    paths covered only by offline tests + live classification eval, not by live writes.
+```
 
 ## Zdroje pravdy
 
