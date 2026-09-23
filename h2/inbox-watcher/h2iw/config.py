@@ -31,6 +31,10 @@ LIFE_CALENDARS = {
     "zazitky": ("🟡", "H2 · Zážitky", "H2 · Zážitky"),
 }
 INFO_COLOUR = "⚪"
+# Todoist labels for life on tasks (same names as `life`, no diacritics).
+# "top" (⭐ 1–3 of the day, formerly "focus") is chosen by the Planner, never here.
+NEVER_ASSIGNED_LABELS = ("top", "focus")
+TASK_DURATIONS_MIN = (15, 30, 60, 120)
 LIVES = list(LIFE_CALENDARS)
 TELEGRAM_CHAT_ID = 6034875251
 

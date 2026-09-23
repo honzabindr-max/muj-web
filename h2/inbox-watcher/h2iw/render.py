@@ -1,6 +1,6 @@
 """H2 Emoji Dictionary v0.3 — deterministic mapping from validated data.
 
-Order: [⭐] [kontext] [oblast] Název. ⭐ / `focus` is NEVER set by the watcher.
+Order: [⭐] [kontext] [oblast] Název. ⭐ / `top` (formerly `focus`) is NEVER set by the watcher.
 """
 
 from __future__ import annotations
@@ -44,9 +44,13 @@ def task_title(v: Valid) -> str:
 
 
 def task_labels(v: Valid) -> list[str]:
+    """Context label (telefon/doma/venku, or ceka) + life label for TASK/BLOCK."""
     if v.type == "WAITING":
         return ["ceka"]
-    return [v.context] if v.context else []
+    labels = [v.context] if v.context else []
+    if v.type in ("TASK", "BLOCK") and v.life:
+        labels.append(v.life)
+    return labels
 
 
 def calendar_title(v: Valid) -> str:
@@ -101,5 +105,13 @@ def summary_line(v: Valid) -> str:
         extra = f"{extra} 🔔"
     notes = f" ({'; '.join(v.notes)})" if v.notes else ""
     prefix = calendar_prefix(v)
-    line = _join([TYPE_ICON[v.type], v.type, title, f"· {extra}" if extra else None]) + notes
+    if v.duration_min:
+        extra = _join([extra, f"⏱ {v.duration_min} min"])
+    if v.type == "TASK" and v.life:
+        # "🟤 TASK Vyčistit pračku": the life colour replaces the generic icon.
+        from . import config
+        icon = config.LIFE_CALENDARS[v.life][0]
+    else:
+        icon = TYPE_ICON[v.type]
+    line = _join([icon, v.type, title, f"· {extra}" if extra else None]) + notes
     return f"{prefix} · {line}" if prefix else line

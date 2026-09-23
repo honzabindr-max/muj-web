@@ -51,6 +51,7 @@ OUTPUT_SCHEMA = {
         "all_day_date": _nullable({"type": "string"}),
         "note_subtype": _nullable({"type": "string", "enum": NOTE_SUBTYPES}),
         "life": _nullable({"type": "string", "enum": LIVES}),
+        "duration_min": _nullable({"type": "integer", "enum": [15, 30, 60, 120]}),
         "multiple_items": {"type": "boolean"},
         "reason": {"type": "string"},
     },
@@ -67,6 +68,7 @@ OUTPUT_SCHEMA = {
         "all_day_date",
         "note_subtype",
         "life",
+        "duration_min",
         "multiple_items",
         "reason",
     ],
@@ -82,6 +84,7 @@ TYPY
 - INFO: plán nebo pohyb JINÉ osoby, kde já nejsem aktér — podmětem je někdo jiný („Markétka přijede v 19:30", „děti odjíždí", „mamka bude pryč", „Markétka má akci"). I když je uveden přesný čas, je to INFO, ne EVENT.
 - BLOCK: vyhrazuji si čas na práci na úkolu, který by jinak byl v seznamu úkolů („v sobotu 10–12 dělám na…", „zítra 14–16 vyřídit papíry", „odnést sedačku", „opravit skříň", „zablokuj mi…").
 - Časový ROZSAH („od 10 do 11", „10–12", „9 až 10") u mé vlastní činnosti = BLOCK s start i end, nikdy TASK („Zítra od 10 do 11 volám Patrikovi" = BLOCK, life fokus). TASK s due_time jen při jednom časovém bodu („v 10 zavolat Patrikovi").
+- EVENT a BLOCK jen s výslovným časem začátku. Bez času („strávit večer s Markétkou bez mobilu", „někdy si zajít do kina") je to TASK.
 - EVENT vs BLOCK: EVENT = samotná naplánovaná činnost nebo závazek (lékař, schůzka, večeře, kolo, jóga, kino, výlet); BLOCK = vyhrazený čas na odpracování úkolu.
 - Nová věc + žádost o připomenutí („připomeň mi…", „přidej připomenutí", „upozorni mě…") je TASK (s due_date a due_time, pokud je čas uveden), NIKDY COMMAND. „Přidej připomenutí" k nové věci není změna existující položky.
 - COMMAND: (a) pokyn ke změně něčeho, co už existuje v Todoistu, kalendáři nebo H2 („smaž…", „přesuň úkol…", „přejmenuj…", „zruš…", „posuň…", „odlož…", „označ jako hotové"); (b) stavová aktualizace existujícího úkolu — hlášení, co se stalo s něčím, co už řeším („hotovo…", „nedovolal jsem se X, napsal jsem mu a čekám", „zavolal jsem do servisu, auto bude v pátek", „nestihl jsem…, přesuň to", „účetní se neozvala, zkusím to znovu ve čtvrtek"), i když obsahuje „čekám" nebo „připomeň mi to". COMMAND jen když se text týká něčeho, co už existuje (odkazuje na dřívější úkol, událost nebo to, co se už stalo). Celé hlášení je JEDEN COMMAND, multiple_items = false. Nikdy z toho nedělej TASK ani WAITING. Pozor: „přesunout gauč do obýváku" je nový fyzický úkol (TASK) a „čekám až mi Petr pošle smlouvu" bez hlášení o proběhlé akci je nové WAITING.
@@ -103,15 +106,17 @@ POLE
 - title: jen samotná činnost, bez dne a času („Pivo s Petrem", ne „Jít v pátek v 18 s Petrem na pivo").
 - Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
 - Telefonát nebo zpráva s časem („zítra v 8 zavolat do školky") je TASK s due_date + due_time a context telefon, ne EVENT. EVENT je jen schůzka, návštěva nebo termín u někoho.
-- life: jen u EVENT a BLOCK, jinak null. Rozhoduje, co v tom čase SKUTEČNĚ DĚLÁM, ne čeho se věc týká:
-  povinnost = svět určuje můj čas, musím tam být (lékař, rehabilitace, úřad, STK, povinná pracovní schůzka, vlak, pevný termín s jinými lidmi kvůli povinnosti);
+- life: u TASK, EVENT a BLOCK vždy vyplň, jinak null. Rozhoduje, co při tom SKUTEČNĚ DĚLÁM, ne čeho se věc týká:
+  povinnost = svět určuje můj čas, musím tam být nebo to po mně vyžaduje instituce či zdraví (lékař, rehabilitace, úřad, STK, KAŽDÁ pracovní schůzka nebo schůzka s klientem/účetní, vlak; u úkolů „objednat se k lékaři", „zajít na úřad pro občanku");
   fokus = pracuji hlavou (telefonáty, deep work, papíry, finance, rešerše, e-maily, „najít sedačku na internetu");
   regenerace = pečuji o tělo a energii (sport, kolo, procházka, jóga, sauna, odpočinek, meditace);
   lide = skutečně věnuji čas lidem (večeře s Markétkou, oběd s dětmi, kamarádi, popřát k narozeninám);
   domov = fyzicky pečuji o byt rukama (odnést sedačku, opravit skříň, sklep, stěhování);
   zazitky = žiju, cestuji, bavím se (výlet, kino, koncert, restaurace, dovolená, Burčákový pochod).
   Když je hlavní náplní čas s konkrétním člověkem (pivo s Petrem, večeře s Markétkou, oběd s dětmi, návštěva kamaráda), je to lide, i když se odehrává v hospodě nebo restauraci. zazitky jen když je hlavní náplní samotný zážitek (kino, pochod, výlet, koncert, cesta).
-  Plánování zážitku nebo administrativa kvůli lidem (zavolat, zarezervovat) = fokus. Program jiných lidí = INFO, ne life.
+  Plánování zážitku nebo administrativa kvůli lidem (zavolat, zarezervovat, domluvit) = fokus. Program jiných lidí = INFO, ne life.
+  Příklady úkolů: „najít sedačku online" = fokus, „odnést sedačku" = domov, „vyčistit pračku" = domov, „zarezervovat hotel" = fokus, „jít si zaběhat" = regenerace, „popřát mámě k narozeninám" = lide, „jít do kina" = zazitky, „objednat se k lékaři" = povinnost, „domluvit s Petrem pivo" = fokus (domlouvání je administrativa, ne čas s ním), „schůzka s Honzou z Optimia" = povinnost.
+- duration_min: jen u TASK odhad, kolik čistého času úkol zabere: 15, 30, 60 nebo 120 minut (nejbližší). Jinak null.
 - note_subtype: jen u NOTE (idea | journal | person | other), jinak null. NOTE nemá žádné datum ani čas.
 - reason: jedna krátká česká věta, proč tento typ."""
 
