@@ -60,6 +60,24 @@ STATUS_REPORT_RE = re.compile(
     r"\b(neozval[aoi]?|nedovolal[aoi]?|nestihl[aoi]?|nezvládl[aoi]?|nevyšl[oa])\b",
     re.IGNORECASE,
 )
+# A time RANGE means reserved time (BLOCK/EVENT/INFO with start+end), never a
+# TASK with a single due time. If the model returns TASK/WAITING anyway, the
+# end of the range was dropped -> stay in the Inbox.
+FROM_TO_RANGE_RE = re.compile(
+    r"\bod\s+([01]?\d|2[0-3])([:.][0-5]\d)?\s+do\s+([01]?\d|2[0-3])\b", re.IGNORECASE)
+DASH_RANGE_RE = re.compile(
+    r"(?<![\d.])([01]?\d|2[0-3])([:.][0-5]\d)?\s*(–|-|až)\s*([01]?\d|2[0-3])([:.][0-5]\d)?(?![\d.])",
+    re.IGNORECASE)
+
+
+def is_time_range(text: str) -> bool:
+    """"od 10 do 11" always; "10–12" / "9 až 10" only next to a day word or
+    with minutes, so quantities like "koupit 2-3 žárovky" are not ranges."""
+    if FROM_TO_RANGE_RE.search(text):
+        return True
+    m = DASH_RANGE_RE.search(text)
+    return bool(m) and (DAY_RE.search(text) is not None or ":" in m.group(0))
+RANGE_AS_TASK_REASON = "časový rozsah patří do kalendáře jako blok — zkontrolovat"
 COMMAND_GUARD_REASON = "vypadá jako příkaz nebo stavová aktualizace — neprovádím, napiš to do chatu s Claudem"
 
 # Explicit reminder request in the text. A TASK/WAITING with an explicit time
@@ -135,6 +153,8 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
             return Invalid(COMMAND_GUARD_REASON)
         if v.type in ("TASK", "WAITING") and STATUS_REPORT_RE.search(source_text):
             return Invalid(COMMAND_GUARD_REASON)
+        if v.type in ("TASK", "WAITING") and is_time_range(source_text):
+            return Invalid(RANGE_AS_TASK_REASON)
         v = _check_time_is_stated(v, source_text)
         if isinstance(v, Valid):
             v = _check_nothing_dropped(v, source_text)

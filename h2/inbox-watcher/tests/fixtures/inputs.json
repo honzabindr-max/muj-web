@@ -1449,6 +1449,71 @@
     "multiple_items": false,
     "reason": "Program jiné osoby."
    }
+  },
+  {
+   "id": "block_call_patrik_range",
+   "text": "Zítra od 10 do 11 volám Patrikovi",
+   "expected_type": "BLOCK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Volat Patrikovi",
+    "context": null,
+    "area": null,
+    "due_date": "2026-09-24",
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-24T10:00",
+    "end": "2026-09-24T11:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "multiple_items": false,
+    "reason": "Rezervovaný čas s rozsahem."
+   }
+  },
+  {
+   "id": "block_emails_range",
+   "text": "v pátek od 8 do 9 píšu e-maily",
+   "expected_type": "BLOCK",
+   "expected_life": "fokus",
+   "mock_output": {
+    "type": "BLOCK",
+    "title": "Psát e-maily",
+    "context": null,
+    "area": "prace",
+    "due_date": "2026-09-25",
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-25T08:00",
+    "end": "2026-09-25T09:00",
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": "fokus",
+    "multiple_items": false,
+    "reason": "Rezervovaný čas s rozsahem."
+   }
+  },
+  {
+   "id": "task_call_patrik_point",
+   "text": "zítra v 10 zavolat Patrikovi",
+   "expected_type": "TASK",
+   "mock_output": {
+    "type": "TASK",
+    "title": "Zavolat Patrikovi",
+    "context": "telefon",
+    "area": null,
+    "due_date": "2026-09-24",
+    "due_time": "10:00",
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": null,
+    "note_subtype": null,
+    "life": null,
+    "multiple_items": false,
+    "reason": "Jeden časový bod."
+   }
   }
  ]
 }
