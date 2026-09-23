@@ -202,3 +202,19 @@ def test_old_ledger_gets_cache_columns(tmp_path):
     rows = s.conn.execute("select cache_read_tokens, cost_usd from llm_calls order by id").fetchall()
     assert rows[0][0] == 0 and rows[1][0] == 4000
     assert abs(rows[1][1] - (100 + 4000 * 0.1 + 10 * 5) / 1e6) < 1e-12
+
+
+def test_status_works_on_pre_cache_ledger(tmp_path, monkeypatch, capsys):
+    import sqlite3
+    from h2iw import status
+    db = tmp_path / "s.db"
+    c = sqlite3.connect(db)
+    c.executescript("create table items (task_id text, status text, classification_json text,"
+                    " updated_at text); create table notes (subtype text);"
+                    " create table meta (key text, value text);"
+                    " create table llm_calls (at text, in_tokens int, out_tokens int, cost_usd real);"
+                    " insert into llm_calls values ('2026-09-23T10:00:00+00:00', 10, 1, 0.1);")
+    c.commit(); c.close()
+    monkeypatch.setenv("H2IW_DB", str(db))
+    assert status.main() == 0
+    assert "cw 0" in capsys.readouterr().out

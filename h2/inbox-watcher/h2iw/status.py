@@ -26,10 +26,12 @@ def main() -> int:
     ):
         print(f"  {tid}  {status:<16} {cls or '-':<8} {upd}")
     print("LLM calls per day (last 14): calls, input, cache write, cache read, output, USD")
+    cols = {r[1] for r in conn.execute("pragma table_info(llm_calls)")}
+    cw_col = "sum(cache_write_tokens)" if "cache_write_tokens" in cols else "0"
+    cr_col = "sum(cache_read_tokens)" if "cache_read_tokens" in cols else "0"
     for d, calls, i, cw, cr, o, usd in conn.execute(
-        "select date(at), count(*), sum(in_tokens), sum(cache_write_tokens), "
-        "sum(cache_read_tokens), sum(out_tokens), round(sum(cost_usd), 4) from llm_calls "
-        "group by 1 order by 1 desc limit 14"
+        f"select date(at), count(*), sum(in_tokens), {cw_col}, {cr_col}, sum(out_tokens), "
+        "round(sum(cost_usd), 4) from llm_calls group by 1 order by 1 desc limit 14"
     ):
         print(f"  {d}  {calls:>4}  in {i}  cw {cw}  cr {cr}  out {o}  {usd:.4f} USD")
     for key, value in conn.execute("select key, value from meta order by key"):
