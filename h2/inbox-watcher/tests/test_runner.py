@@ -1,4 +1,6 @@
-from conftest import FIXTURES, NOW, FakeClassifier, FakeTodoist, case
+from conftest import FIXTURES, NOW, TEST_KEY, FakeClassifier, FakeTodoist, case
+
+from h2iw.crypto import decrypt
 
 from h2iw import config
 from h2iw.apply import Applier
@@ -39,7 +41,7 @@ def test_unknown_item_is_not_reclassified(env):
 
 
 def test_first_run_baseline_skips_existing_items(tmp_path):
-    store = Store(str(tmp_path / "s.db"))
+    store = Store(str(tmp_path / "s.db"), TEST_KEY)
     todo, clf = FakeTodoist(), FakeClassifier()
     from conftest import FakeGCal
     runner = Runner(store, todo, Applier(store, todo, FakeGCal()), clf)
@@ -264,7 +266,8 @@ def test_note_is_stored_commented_and_closed_nothing_else(env):
     r = _run(env)
     row = env.store.conn.execute("select * from notes").fetchone()
     assert row["todoist_task_id"] == "n" and row["subtype"] == "person"
-    assert row["raw_text"] == c["text"] + "\n\npotkali jsme se na firemní akci"
+    assert decrypt(TEST_KEY, row["ciphertext"]) == c["text"] + "\n\npotkali jsme se na firemní akci"
+    assert row["key_id"] == "h2iw"
     assert env.todoist.calls == [("comment", "n", "→ H2 poznámky"), ("close", "n")]
     assert env.gcal.insert_calls == 0
     assert r.lines == ["📝 poznámka uložena (o lidech): Petr z práce — děti Adam a Eva, kolo"]
@@ -285,3 +288,93 @@ def test_multi_item_stays_in_inbox_with_split_comment(env):
     _run(env)
     assert env.todoist.calls == [("comment", "m", "❓ více věcí najednou — rozdělit")]
     assert env.todoist.tasks["m"]["project_id"] == "inbox-1"
+
+
+# --- COMMAND ---------------------------------------------------------------
+
+def test_command_is_recorded_refused_and_closed(env):
+    c = case("command_delete_event")
+    env.todoist.add("c", c["text"])
+    r = _run(env)
+    assert env.gcal.insert_calls == 0
+    assert env.todoist.calls == [("comment", "c", "→ příkaz, proveď v chatu"), ("close", "c")]
+    row = env.store.conn.execute("select * from commands").fetchone()
+    assert decrypt(TEST_KEY, row["ciphertext"]) == c["text"]
+    assert r.lines == [f"⚠️ příkaz ke změně neprovádím: {c['text']} — napiš to do chatu s Claudem"]
+
+
+def test_command_misclassified_as_task_stays_in_inbox(env):
+    c = case("command_move_task")
+    env.clf.by_text[c["text"]] = dict(case("task_errand")["mock_output"], title="Přesunout úkol")
+    env.todoist.add("c", c["text"])
+    _run(env)
+    assert env.todoist.calls[0][0] == "comment" and "příkaz ke změně" in env.todoist.calls[0][2]
+    assert len(env.todoist.calls) == 1 and env.todoist.tasks["c"]["project_id"] == "inbox-1"
+
+
+# --- encryption at rest ----------------------------------------------------
+
+def _file_bytes(path):
+    out = b""
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        p = path.parent / (path.name + suffix)
+        if p.exists():
+            out += p.read_bytes()
+    return out
+
+
+def test_note_and_command_text_not_readable_in_db_files(env):
+    secret_note = "Markétka nemá ráda koriandr"
+    secret_cmd = "Smaž zítřejší událost v kalendáři která se jmenuje zubař"
+    env.todoist.add("n", secret_note)
+    env.todoist.add("c", secret_cmd)
+    _run(env)
+    env.store.conn.close()
+    blob = _file_bytes(env.db_path)
+    for needle in ("koriandr", "Markétka nemá", "zubař", "Smaž zítřejší", "kalendáři"):
+        assert needle.encode("utf-8") not in blob, needle
+    # the rest of the pipeline still works on the encrypted rows
+    from h2iw.store import Store
+    s2 = Store(str(env.db_path), TEST_KEY)
+    rows = s2.conn.execute("select ciphertext from notes union all select ciphertext from commands")
+    assert sorted(decrypt(TEST_KEY, r[0]) for r in rows) == sorted([secret_note, secret_cmd])
+
+
+def test_v1_plaintext_notes_are_migrated_and_scrubbed(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "v1.db"
+    raw = "Dostal jsem nápad že by mohlo být týdenní shrnutí z HW v neděli večer"
+    c = sqlite3.connect(db)
+    c.executescript("""
+    pragma journal_mode=wal;
+    create table items (task_id text primary key, raw_text text, raw_description text,
+      todoist_added_at text, seen_at text not null, status text not null,
+      classification_json text, error text, attempts integer not null default 0,
+      updated_at text not null);
+    create table notes (id integer primary key autoincrement, todoist_task_id text not null unique,
+      subtype text not null, raw_text text not null, created_at text not null);
+    """)
+    c.execute("insert into items values('t1',?,'', null,'2026-09-23T15:10:32+00:00','APPLIED',?,null,1,'x')",
+              (raw, '{"type": "NOTE", "title": "Týdenní shrnutí z HW v neděli večer", "note_subtype": "idea"}'))
+    c.execute("insert into notes(todoist_task_id, subtype, raw_text, created_at) values('t1','idea',?,'2026-09-23T15:11:07+00:00')", (raw,))
+    c.commit()
+    c.close()
+
+    from h2iw.store import Store
+    s = Store(str(db), TEST_KEY)
+    row = s.conn.execute("select * from notes").fetchone()
+    assert decrypt(TEST_KEY, row["ciphertext"]) == raw and row["created_at"].startswith("2026-09-23T15:11")
+    assert s.get("t1")["raw_text"] is None
+    assert "HW" not in s.get("t1")["classification_json"]
+    s.conn.close()
+    blob = _file_bytes(db)
+    assert "týdenní shrnutí".encode() not in blob.lower() and b"HW v ned" not in blob
+
+
+def test_missing_key_refuses_to_store_notes(tmp_path):
+    from h2iw.store import Store
+    import pytest
+    s = Store(str(tmp_path / "k.db"))
+    with pytest.raises(RuntimeError):
+        s.insert_note("t", "idea", "x")

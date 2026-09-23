@@ -9,7 +9,7 @@ def test_fixture_set_is_big_enough_and_covers_every_type():
     cases = FIXTURES["cases"]
     assert len(cases) >= 15
     assert {c["expected_type"] for c in cases} == {
-        "TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "UNKNOWN"
+        "TASK", "WAITING", "EVENT", "INFO", "BLOCK", "NOTE", "COMMAND", "UNKNOWN"
     }
     assert sum(c["expected_type"] == "NOTE" for c in cases) >= 5
 
@@ -216,3 +216,30 @@ def test_note_invalid_subtype_rejected():
 def test_journal_note_mentioning_today_is_not_multi():
     c = case("note_journal")
     assert validate(c["mock_output"], NOW, c["text"]).type == "NOTE"
+
+
+# --- COMMAND (owner requirement 2026-09-23) --------------------------------
+
+def test_command_is_valid_and_ignores_dates():
+    c = case("command_delete_event")
+    d = dict(c["mock_output"], start="2026-09-24T14:30", due_date="2026-09-24")
+    v = validate(d, NOW, c["text"])
+    assert v.type == "COMMAND" and v.start is None and v.due_date is None
+
+
+def test_command_verb_never_becomes_task():
+    c = case("command_delete_event")
+    as_task = dict(case("task_errand")["mock_output"], title="Smazat událost zubař")
+    v = validate(as_task, NOW, c["text"])
+    assert isinstance(v, Invalid) and "příkaz ke změně" in v.reason
+
+
+def test_infinitive_move_is_a_normal_task():
+    c = case("task_move_sofa_not_command")
+    assert validate(c["mock_output"], NOW, c["text"]).type == "TASK"
+
+
+def test_command_summary_line():
+    line = render.command_line("Smaž zítřejší událost   v kalendáři")
+    assert line == ("⚠️ příkaz ke změně neprovádím: Smaž zítřejší událost v kalendáři"
+                    " — napiš to do chatu s Claudem")

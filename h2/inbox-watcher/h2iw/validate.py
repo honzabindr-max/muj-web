@@ -46,6 +46,15 @@ DAY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Change requests addressed to the assistant ("smaž…", "přesuň…"). If the text
+# opens with one and the model did not say COMMAND, nothing is written.
+COMMAND_VERB_RE = re.compile(
+    r"^\W*(smaž|smazat|vymaž|přesuň|přejmenuj|zruš|posuň|odškrtni|označ|hotovo|splněno|"
+    r"uprav|změň)\b",
+    re.IGNORECASE,
+)
+COMMAND_GUARD_REASON = "vypadá jako příkaz ke změně — neprovádím, napiš to do chatu s Claudem"
+
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
 
@@ -108,7 +117,9 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
         v = _validate(raw, now)
     except _Reject as e:
         return Invalid(str(e))
-    if isinstance(v, Valid) and source_text:
+    if isinstance(v, Valid) and source_text and v.type != "COMMAND":
+        if COMMAND_VERB_RE.search(source_text):
+            return Invalid(COMMAND_GUARD_REASON)
         v = _check_time_is_stated(v, source_text)
         if isinstance(v, Valid):
             return _check_nothing_dropped(v, source_text)
@@ -165,6 +176,10 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     reason = reason.strip()[:200]
     if t == "UNKNOWN":
         return Invalid(reason or "model položku nerozpoznal")
+    if t == "COMMAND":
+        # Never executed: dates/times inside a command describe the target, not a plan.
+        title = raw.get("title") if isinstance(raw.get("title"), str) else ""
+        return Valid(type="COMMAND", title=" ".join(title.split())[:120], reason=reason)
 
     title = raw.get("title")
     if not isinstance(title, str) or not title.strip():

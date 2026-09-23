@@ -33,6 +33,11 @@ def main() -> int:
             ok = False
             print(f"FAIL {name}: {type(e).__name__}")
 
+    from .crypto import decrypt, encrypt, load_key
+
+    check("encryption key", lambda: (lambda k: f"key_id {k.key_id}, roundtrip "
+          + ("OK" if decrypt(k, encrypt(k, "test")) == "test" else "FAIL"))(load_key()))
+
     todoist = TodoistClient(s.todoist_token)
     check("todoist inbox", lambda: f"project {todoist.inbox_id()}, {len(todoist.list_inbox())} items")
 

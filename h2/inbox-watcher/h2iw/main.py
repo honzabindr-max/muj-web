@@ -36,6 +36,7 @@ class Report:
     errors: list[str] = field(default_factory=list)
     llm_calls: int = 0
     baseline: int = 0
+    sensitive_written: bool = False
 
 
 class Runner:
@@ -108,7 +109,8 @@ class Runner:
             # succeeded but the process died before recording it.
             any_step = any(
                 self.store.step_done(tid, s)
-                for s in ("todoist_update", "gcal_insert", "todoist_comment", "note_insert")
+                for s in ("todoist_update", "gcal_insert", "todoist_comment", "note_insert",
+                      "command_insert")
             )
             self._status(tid, "APPLIED" if any_step else "GONE")
 
@@ -124,6 +126,8 @@ class Runner:
             except Exception as e:  # one bad item must not block the rest
                 log.error("item %s failed: %s", task["id"], type(e).__name__)
                 report.errors.append(f"{task['id']}: {type(e).__name__}")
+        if report.sensitive_written:
+            self.store.purge_file_remnants()
         return report
 
     def _process(self, task: dict, now: datetime, report: Report) -> None:
@@ -176,8 +180,10 @@ class Runner:
             self._unknown(task, v.reason, report)
             return
         log.info("item %s -> %s", tid, v.type)
+        line = (render.command_line(task.get("content") or "") if v.type == "COMMAND"
+                else render.summary_line(v))
         if self.dry:
-            report.lines.append("[dry-run] " + render.summary_line(v))
+            report.lines.append("[dry-run] " + line)
             return
         try:
             self.applier.apply(v, task)
@@ -194,7 +200,9 @@ class Runner:
                 report.errors.append(f"{tid}: apply {type(e).__name__}")
             return
         self._status(tid, "APPLIED")
-        report.lines.append(render.summary_line(v))
+        if v.type in ("NOTE", "COMMAND"):
+            report.sensitive_written = True
+        report.lines.append(line)
 
 
 def quiet_http_loggers() -> None:
@@ -221,8 +229,10 @@ def _build(dry_run: bool):
     from .telegram import TelegramClient
     from .todoist import TodoistClient
 
+    from .crypto import load_key
+
     secrets = config.load_secrets()
-    store = Store(config.db_path())
+    store = Store(config.db_path(), load_key())
     todoist = TodoistClient(secrets.todoist_token)
     gcal = GCalClient(secrets.google_client_id, secrets.google_client_secret,
                       secrets.google_refresh_token)

@@ -109,7 +109,15 @@ class Applier:
         elif v.type == "NOTE":
             s(tid, "note_insert", lambda: self.store.insert_note(
                 tid, v.note_subtype, _note_text(task)))
+            s(tid, "scrub", lambda: self.store.scrub_item(tid))
             s(tid, "todoist_comment", lambda: self.todoist.add_comment(tid, "→ H2 poznámky"))
+            s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
+        elif v.type == "COMMAND":
+            # Hard ban stays: the command is recorded and refused, never executed.
+            s(tid, "command_insert", lambda: self.store.insert_command(tid, _note_text(task)))
+            s(tid, "scrub", lambda: self.store.scrub_item(tid))
+            s(tid, "todoist_comment", lambda: self.todoist.add_comment(
+                tid, "→ příkaz, proveď v chatu"))
             s(tid, "todoist_close", lambda: self.todoist.close_task(tid))
         elif v.type == "INFO":
             s(tid, "gcal_insert", lambda: self.gcal.insert_event(

@@ -4,7 +4,7 @@
 #   piped:        some-command | ssh hz /opt/h2-inbox-watcher/deploy/set-secret.sh GOOGLE_REFRESH_TOKEN
 set -euo pipefail
 ENV_FILE=/etc/h2-inbox-watcher/env
-ALLOWED="TODOIST_API_TOKEN ANTHROPIC_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN H2_TELEGRAM_BOT_TOKEN"
+ALLOWED="TODOIST_API_TOKEN ANTHROPIC_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN H2_TELEGRAM_BOT_TOKEN H2IW_ENCRYPTION_KEY H2_ENCRYPTION_KEY_V1"
 key="${1:-}"
 if [[ " $ALLOWED " != *" $key "* ]]; then
   echo "usage: set-secret.sh <one of: $ALLOWED>" >&2

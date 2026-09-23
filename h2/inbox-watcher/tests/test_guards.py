@@ -128,3 +128,22 @@ def test_http_client_loggers_cannot_leak_urls():
     quiet_http_loggers()
     for name in ("httpx", "httpx2", "httpcore", "anthropic"):
         assert not logging.getLogger(name).isEnabledFor(logging.INFO)
+
+
+def test_crypto_envelope_matches_h2_layout_and_rejects_bad_keys():
+    import base64
+
+    from h2iw.crypto import CryptoError, Key, decrypt, encrypt, load_key
+
+    k = Key("h2iw", bytes(32))
+    blob = encrypt(k, "ahoj")
+    assert len(blob) == 12 + 16 + len("ahoj".encode())
+    assert decrypt(k, blob) == "ahoj"
+    with pytest.raises(CryptoError):
+        decrypt(Key("h2iw", bytes([1]) * 32), blob)
+    with pytest.raises(CryptoError):
+        load_key({"H2IW_ENCRYPTION_KEY": base64.b64encode(bytes(16)).decode()})
+    assert load_key({"H2_ENCRYPTION_KEY_V1": base64.b64encode(bytes(32)).decode()}).key_id == "h2-v1"
+    with pytest.raises(CryptoError) as e:
+        load_key({})
+    assert "H2IW_ENCRYPTION_KEY" in str(e.value)
