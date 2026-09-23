@@ -200,7 +200,7 @@ class Runner:
 def quiet_http_loggers() -> None:
     """httpx logs full request URLs at INFO; the Telegram URL contains the bot
     token. Keep HTTP client loggers at WARNING so no secret reaches journald."""
-    for name in ("httpx", "httpcore", "anthropic"):
+    for name in ("httpx", "httpx2", "httpcore", "anthropic"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
 

@@ -126,5 +126,5 @@ def test_http_client_loggers_cannot_leak_urls():
     from h2iw.main import quiet_http_loggers
 
     quiet_http_loggers()
-    for name in ("httpx", "httpcore", "anthropic"):
+    for name in ("httpx", "httpx2", "httpcore", "anthropic"):
         assert not logging.getLogger(name).isEnabledFor(logging.INFO)
