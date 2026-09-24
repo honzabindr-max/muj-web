@@ -2293,6 +2293,33 @@
    }
   },
   {
+   "id": "event_uncertain_category",
+   "text": "V úterý v 17:00 mám workshop",
+   "expected_type": "EVENT",
+   "expected_pinned": false,
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Workshop",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": "2026-09-29T17:00",
+    "end": null,
+    "all_day_date": null,
+    "all_day_end_date": null,
+    "note_subtype": null,
+    "life": null,
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "Mám čas, ale kategorie workshopu není jasná."
+   }
+  },
+  {
    "id": "event_dinner_marketka_sat",
    "text": "v sobotu večeře s Markétkou v 19",
    "expected_type": "EVENT",

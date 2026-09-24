@@ -272,6 +272,44 @@ def test_runner_downgrades_invented_time_to_all_day_placeholder(env):
     assert env.store.get("k")["status"] == "APPLIED"
 
 
+def test_uncategorized_timed_event_lands_in_info_free_no_popup(env):
+    # Planning OS v0.11.1 §2: missing life never defaults to povinnost.
+    d = dict(case("event_dentist")["mock_output"], life=None)
+    env.clf.by_text["x"] = d
+    env.todoist.add("x", "x")
+    _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == "cal-info"
+    assert ev["summary"] == "⏳ 🩺 Zubař"
+    assert ev["description"] == "❓ kategorie — zařadí Plánovač\nZ Todoist Doručených: x"
+    assert ev["transparency"] == "transparent"
+    assert ev["reminders"] == {"useDefault": False, "overrides": []}
+    assert env.todoist.calls[0][2] == "→ H2 · Info"
+
+
+def test_uncategorized_all_day_event_lands_in_info(env):
+    d = dict(case("event_mushrooms_sasenka")["mock_output"], life=None)
+    env.clf.by_text["x"] = d
+    env.todoist.add("x", "x")
+    r = _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == "cal-info"
+    assert ev["start"] == {"dateTime": "2026-09-28T08:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["summary"] == "⏳ Houby se Sašenkou"
+    assert ev["description"] == "❓ kategorie — zařadí Plánovač\nZ Todoist Doručených: x"
+    assert ev["reminders"] == {"useDefault": False, "overrides": []}
+    assert r.lines[0].startswith("⚪ H2 · Info · ")
+
+
+def test_explicit_povinnost_still_goes_to_primary_calendar(env):
+    # Explicitly stated povinnost is unaffected by the v0.11.1 §2 change.
+    env.todoist.add("d", case("event_dentist")["text"])
+    _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == config.PRIMARY_CALENDAR_ID
+    assert ev["summary"] == "🩺 Zubař"
+
+
 def test_note_is_stored_commented_and_closed_nothing_else(env):
     c = case("note_person_colleague")
     env.todoist.add("n", c["text"], description="potkali jsme se na firemní akci")
@@ -511,17 +549,27 @@ def test_top_label_never_added(env):
                for c in env.todoist.calls)
 
 
-def test_all_day_life_event_busy_with_popup_and_pinned_line(env):
+def test_all_day_life_event_busy_without_popup_but_pinned_line(env):
     env.todoist.add("h", case("event_mushrooms_sasenka")["text"])
     r = _run(env)
     (cal, _), ev = next(iter(env.gcal.events.items()))
     assert cal == "cal-lide" and ev["transparency"] == "opaque"
-    # Planning OS v0.11 §1/§5: 8:00-18:00 placeholder, same reminder logic as
-    # any timed event (LIFE_REMINDER_MINUTES for a non-povinnost life).
+    # Planning OS v0.11.1 §1: an all-day placeholder pops up only for a
+    # single-day povinnost event — every other life stays silent.
     assert ev["start"] == {"dateTime": "2026-09-28T08:00:00+02:00", "timeZone": "Europe/Prague"}
-    assert ev["reminders"]["overrides"] == [{"method": "popup", "minutes": config.LIFE_REMINDER_MINUTES}]
+    assert ev["reminders"]["overrides"] == []
     assert ev["description"] == "📌 pevné\n🗓️ celý den\nZ Todoist Doručených: v pondělí jedu se Sašenkou na houby"
     assert r.lines[0].startswith("🩷 H2 · Lidé · ")
+
+
+def test_all_day_povinnost_placeholder_gets_popup(env):
+    env.clf.by_text["kontrola v úterý"] = dict(case("event_dentist")["mock_output"],
+                                                start=None, all_day_date="2026-09-29")
+    env.todoist.add("d", "kontrola v úterý")
+    _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == config.PRIMARY_CALENDAR_ID
+    assert ev["reminders"]["overrides"] == [{"method": "popup", "minutes": config.EVENT_REMINDER_MINUTES}]
 
 
 def test_multi_day_event_creates_recurring_placeholder(env):
@@ -536,6 +584,18 @@ def test_multi_day_event_creates_recurring_placeholder(env):
     assert ev["end"] == {"dateTime": "2026-09-25T18:00:00+02:00", "timeZone": "Europe/Prague"}
     assert ev["recurrence"] == ["RRULE:FREQ=DAILY;COUNT=3"]
     assert ev["summary"] == "Houby se Sašenkou"  # never ⏳❓ for a multi-day span
+    assert ev["reminders"]["overrides"] == []  # v0.11.1 §1: never a multi-day popup
+
+
+def test_multi_day_povinnost_placeholder_never_pops_up(env):
+    d = dict(case("event_mushrooms_sasenka")["mock_output"], life="povinnost",
+              all_day_date="2026-09-25", all_day_end_date="2026-09-27")
+    env.clf.by_text["hory"] = d
+    env.todoist.add("m", "hory")
+    _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == config.PRIMARY_CALENDAR_ID
+    assert ev["reminders"]["overrides"] == []
 
 
 def test_every_timed_task_path_adds_reminder(env):

@@ -343,9 +343,8 @@ def _validate_calendar(v: Valid) -> Valid | Invalid:
         # time is never all-day on the calendar — apply.py turns it into an
         # 8:00-18:00 placeholder. render.calendar_title flags a single-day
         # povinnost placeholder ("⏳ … čas ❓"); every other life stays plain.
-        if v.life is None:
-            v.life = "povinnost"
-            v.notes.append("druh času nezadán → povinnost")
+        # v0.11.1 §2: missing life is never defaulted to povinnost — apply.py
+        # routes it to ⚪ H2 · Info for the Planner instead.
         if v.all_day_end_date is not None:
             if v.all_day_end_date < v.all_day_date:
                 raise _Reject("konec vícedenní akce je před začátkem")
@@ -364,10 +363,12 @@ def _validate_calendar(v: Valid) -> Valid | Invalid:
             minutes = config.EVENT_DEFAULT_MINUTES if t == "EVENT" else config.BLOCK_DEFAULT_MINUTES
             v.end = v.start + timedelta(minutes=minutes)
             v.notes.append(f"konec nezadán → {minutes} min")
-        life = v.life
-        if life is None:
-            v.life = "povinnost" if t == "EVENT" else "fokus"
-            v.notes.append(f"druh času nezadán → {v.life}")
+        # v0.11.1 §2: BLOCK always defaults to fokus (it's always my own
+        # work); EVENT never defaults to povinnost — a missing life stays
+        # None and apply.py routes it to ⚪ H2 · Info for the Planner.
+        if v.life is None and t == "BLOCK":
+            v.life = "fokus"
+            v.notes.append("druh času nezadán → fokus")
         if t == "EVENT" and (v.due_date or v.due_time or v.deadline_date):
             v.due_date = v.due_time = v.deadline_date = None  # irrelevant, task gets closed
     elif t == "INFO":

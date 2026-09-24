@@ -286,10 +286,12 @@ def test_task_with_time_always_has_reminder_v05():
 
 # --- life -----------------------------------------------------------------
 
-def test_event_without_life_defaults_to_povinnost_block_to_fokus():
+def test_event_without_life_stays_none_block_defaults_to_fokus():
+    # Planning OS v0.11.1 §2: EVENT never defaults to povinnost any more —
+    # apply.calendar_for routes a life-less EVENT to ⚪ H2 · Info instead.
     e = dict(case("event_dentist")["mock_output"], life=None)
     b = dict(case("block_project")["mock_output"], life=None)
-    assert validate(e, NOW).life == "povinnost"
+    assert validate(e, NOW).life is None
     assert validate(b, NOW).life == "fokus"
 
 
@@ -433,12 +435,15 @@ def test_all_day_event_is_valid_for_any_life():
     assert render.calendar_title(v2) == "⏳ Houby se Sašenkou — čas ❓"
 
 
-def test_all_day_event_with_missing_life_defaults_to_povinnost():
+def test_all_day_event_with_missing_life_stays_none():
+    # Planning OS v0.11.1 §2: no default any more — apply.py routes this to
+    # ⚪ H2 · Info instead of guessing povinnost.
     c = case("event_mushrooms_sasenka")
     no_life = dict(c["mock_output"], life=None)
     v = validate(no_life, NOW, c["text"])
-    assert v.type == "EVENT" and v.life == "povinnost"
-    assert "druh času nezadán → povinnost" in v.notes
+    assert v.type == "EVENT" and v.life is None
+    assert render.calendar_title(v) == "⏳ Houby se Sašenkou"
+    assert not render.is_pinned(v)
 
 
 def test_multi_day_event_gets_end_date_and_plain_title():

@@ -55,9 +55,13 @@ def task_labels(v: Valid) -> list[str]:
 
 def calendar_title(v: Valid) -> str:
     """Calendar summary: [oblast] Název (type is shown by calendar colour).
-    Planning OS v0.11 §4: a single-day povinnost placeholder (unknown time,
-    never 📌) is flagged "⏳ … — čas ❓" so it stands out for a manual fix."""
+    Planning OS v0.11.1 §2: EVENT with no life at all is flagged "⏳ …" (it
+    lands in ⚪ H2 · Info for the Planner, see apply.calendar_for). v0.11 §4:
+    a single-day povinnost placeholder (unknown time, never 📌) is flagged
+    "⏳ … — čas ❓" so it stands out for a manual fix."""
     title = _join([AREA_EMOJI.get(v.area or ""), v.title])
+    if v.type == "EVENT" and v.life is None:
+        return f"⏳ {title}"
     if (v.type == "EVENT" and v.start is None and v.all_day_date is not None
             and v.all_day_end_date is None and v.life == "povinnost"):
         return f"⏳ {title} — čas ❓"
@@ -96,6 +100,7 @@ def command_line(source_text: str) -> str:
 
 PINNED_LINE = "📌 pevné"
 ALL_DAY_LINE = "🗓️ celý den"  # Planning OS v0.11 §2: marks a timed placeholder
+UNCATEGORIZED_LINE = "❓ kategorie — zařadí Plánovač"  # v0.11.1 §2
 
 
 def is_pinned(v: Valid) -> bool:
@@ -109,7 +114,8 @@ def calendar_prefix(v: Valid) -> str | None:
     """Colour + calendar name for calendar items (Planning OS v0.4 §2)."""
     from . import config
 
-    if v.type == "INFO":
+    if v.type == "INFO" or (v.type == "EVENT" and v.life is None):
+        # v0.11.1 §2: an EVENT with no life lands in ⚪ H2 · Info too.
         return f"{config.INFO_COLOUR} {config.INFO_CALENDAR_NAME}"
     if v.type in ("EVENT", "BLOCK") and v.life in config.LIFE_CALENDARS:
         colour, _, display = config.LIFE_CALENDARS[v.life]
