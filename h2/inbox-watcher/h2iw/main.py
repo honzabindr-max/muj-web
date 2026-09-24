@@ -22,7 +22,7 @@ from .classify import ClassifyResult
 from .store import Store, utcnow
 from .gcal import CalendarMissingError
 from .todoist import NotInInboxError
-from .validate import Invalid, validate
+from .validate import DateMismatch, Invalid, validate
 
 log = logging.getLogger("h2iw")
 
@@ -78,6 +78,19 @@ class Runner:
         short = (task.get("content") or "").strip().replace("\n", " ")[:60]
         report.lines.append(
             f"❓ {short} — Watcher: {reason} (zůstává v Doručených, {config.QUARANTINE_LABEL})")
+
+    def _date_mismatch(self, task: dict, reason: str, report: Report) -> None:
+        tid = task["id"]
+        log.info("item %s -> DATE_MISMATCH", tid)
+        if not self.dry:
+            try:
+                self.applier.mark_date_mismatch(tid, reason)
+            except NotInInboxError:
+                self._status(tid, "GONE")
+                return
+            self._status(tid, "DATE_MISMATCH_MARKED", reason)
+        short = (task.get("content") or "").strip().replace("\n", " ")[:60]
+        report.lines.append(f"❓ {short} — {reason} (→ {config.COMMANDS_PROJECT_NAME})")
 
     def _prefilter(self, task: dict) -> str | None:
         content = (task.get("content") or "").strip()
@@ -206,6 +219,9 @@ class Runner:
 
         source = f"{task.get('content') or ''}\n{task.get('description') or ''}"
         v = validate(data, now, source)
+        if isinstance(v, DateMismatch):
+            self._date_mismatch(task, v.reason, report)
+            return
         if isinstance(v, Invalid):
             self._unknown(task, v.reason, report)
             return

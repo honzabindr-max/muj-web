@@ -2,7 +2,7 @@ import pytest
 from conftest import FIXTURES, NOW, case
 
 from h2iw import render
-from h2iw.validate import Invalid, Valid, validate
+from h2iw.validate import DateMismatch, Invalid, Valid, validate
 
 
 def test_fixture_set_is_big_enough_and_covers_every_type():
@@ -495,3 +495,36 @@ def test_person_overrides_zazitky_to_lide():
     d = dict(c["mock_output"], life="zazitky")
     v = validate(d, NOW, c["text"])
     assert v.life == "lide" and "s konkrétním člověkem → lide" in v.notes
+
+
+# --- weekday/date consistency (Planning OS v0.15 §10, NOW = 2026-09-23 Wed) --
+
+def test_weekday_date_mismatch_goes_to_planner():
+    # 7. 10. 2026 is a Wednesday, not "úterý" (Tuesday) -> never create anything.
+    v = validate(_base(), NOW, "úterý 7. 10. zavolat účetní kvůli DPH")
+    assert isinstance(v, DateMismatch)
+    assert v.reason == "den a datum nesedí: úterý 7. 10. → st 7. 10. / úterý 29. 9.?"
+
+
+def test_weekday_date_mismatch_applies_to_event_and_block_too():
+    v = validate(_event("2026-10-07T14:30"), NOW, "zubař v úterý 7. 10. ve 14:30")
+    assert isinstance(v, DateMismatch) and "den a datum nesedí" in v.reason
+    block = dict(case("block_project")["mock_output"], start="2026-10-07T10:00",
+                 end="2026-10-07T12:00", due_date="2026-10-07")
+    v2 = validate(block, NOW, "úterý 7. 10. od 10 do 12 dělám na H2")
+    assert isinstance(v2, DateMismatch) and "den a datum nesedí" in v2.reason
+
+
+def test_weekday_date_agreement_creates_normally():
+    # 29. 9. 2026 really is "úterý" (Tuesday) -> no conflict, item is created.
+    v = validate(_base(due_date="2026-09-29"), NOW, "úterý 29. 9. zavolat účetní kvůli DPH")
+    assert isinstance(v, Valid) and v.due_date.isoformat() == "2026-09-29"
+    assert v.derived_date_note is None  # explicit date given, nothing to derive
+
+
+def test_weekday_only_derives_nearest_future_date():
+    # No numeric date in the text -> resolved date gets a visible derivation note.
+    v = validate(_base(due_date="2026-09-29"), NOW, "v úterý zavolat účetní kvůli DPH")
+    assert isinstance(v, Valid) and v.due_date.isoformat() == "2026-09-29"
+    assert v.derived_date_note == "Datum odvozeno: út 29. 9."
+    assert v.derived_date_note in v.notes

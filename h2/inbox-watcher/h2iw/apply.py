@@ -25,6 +25,8 @@ def _task_fields(v: Valid, task: dict) -> dict:
         # H2 pravidla §6: Todoist Free nemá deadline (API pole `deadline_date`
         # je Pro-only, 403) — Watcher ho nikdy neposílá, termín jde do popisu.
         desc += f"\nTermín: {v.deadline_date.day}. {v.deadline_date.month}."
+    if v.derived_date_note:
+        desc += f"\n{v.derived_date_note}"
     if existing_desc:
         desc += f"\n\n{existing_desc}"
     ours = [lb for lb in render.task_labels(v) if lb not in config.NEVER_ASSIGNED_LABELS]
@@ -79,6 +81,8 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
             body["description"] = f"{render.UNCATEGORIZED_LINE}\n{body['description']}"
         elif v.all_day_date is not None:
             body["description"] = f"{render.ALL_DAY_LINE}\n{body['description']}"
+        if v.derived_date_note:
+            body["description"] = f"{body['description']}\n{v.derived_date_note}"
         body["transparency"] = "transparent"
         body["reminders"] = {"useDefault": False, "overrides": []}
         return body
@@ -109,6 +113,8 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
             header.append(render.ALL_DAY_LINE)
         if header:
             body["description"] = "\n".join([*header, body["description"]])
+    if v.derived_date_note:
+        body["description"] = f"{body['description']}\n{v.derived_date_note}"
     return body
 
 
@@ -237,3 +243,12 @@ class Applier:
                    lambda: self.todoist.update_task(task_id, {"labels": labels}))
         self._step(task_id, "todoist_comment_quarantine",
                    lambda: self.todoist.add_comment(task_id, f"❓ Watcher: {reason}"))
+
+    def mark_date_mismatch(self, task_id: str, reason: str) -> None:
+        # Planning OS v0.15 §10: unlike mark_unknown, the item does not stay
+        # in the Inbox -- it moves to the Planner's project, same target as
+        # COMMAND, but with a comment explaining what does not add up.
+        self._step(task_id, "todoist_comment_date_mismatch",
+                   lambda: self.todoist.add_comment(task_id, f"❓ {reason}"))
+        self._step(task_id, "todoist_move_date_mismatch", lambda: self.todoist.move_task(
+            task_id, self._project(config.COMMANDS_PROJECT_NAME)))

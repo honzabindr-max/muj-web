@@ -103,6 +103,80 @@ ON_THE_WAY_REASON = "věc „cestou\" patří do úkolu s časem, ne do kalendá
 LOOK_REMIND_REASON = "připomínka patří do úkolu s datem, ne do kalendáře — zkontrolovat"
 RITUAL_REASON = "rituál / oběd do kalendáře nezakládám — spravuje Plánovač"
 
+# Planning OS v0.15 §10: a dictated weekday name and an explicit numeric date
+# must agree in Europe/Prague for EVENT/BLOCK/TASK. If both are stated and
+# disagree, never guess which one is right -> hand the item to the Planner's
+# "H2 · Příkazy" project instead of creating anything. If only the weekday is
+# stated, the resolved date gets a visible "Datum odvozeno: …" line so the
+# derivation is auditable.
+_WEEKDAY_SHORT_CS = ["po", "út", "st", "čt", "pá", "so", "ne"]
+_WEEKDAY_INDEX = {
+    "pondělí": 0, "úterý": 1, "středa": 2, "středu": 2, "čtvrtek": 3,
+    "pátek": 4, "sobota": 5, "sobotu": 5, "neděle": 6, "neděli": 6,
+}
+WEEKDAY_NAME_RE = re.compile(
+    r"\b(pondělí|úterý|středa|středu|čtvrtek|pátek|sobota|sobotu|neděle|neděli)\b",
+    re.IGNORECASE,
+)
+NUMERIC_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})\.\s?(\d{1,2})\.(?:\s?(\d{4}))?")
+DATE_WEEKDAY_MISMATCH_REASON = "den a datum nesedí"
+
+
+@dataclass
+class DateMismatch:
+    reason: str
+
+
+def _short_weekday(d: date) -> str:
+    return _WEEKDAY_SHORT_CS[d.weekday()]
+
+
+def _next_weekday_on_or_after(start: date, weekday_idx: int) -> date:
+    return start + timedelta(days=(weekday_idx - start.weekday()) % 7)
+
+
+def _weekday_date_conflict(text: str, today: date) -> DateMismatch | None:
+    day_m = WEEKDAY_NAME_RE.search(text)
+    date_m = NUMERIC_DATE_RE.search(text)
+    if not day_m or not date_m:
+        return None
+    stated_idx = _WEEKDAY_INDEX[day_m.group(1).lower()]
+    day_num, month_num = int(date_m.group(1)), int(date_m.group(2))
+    if date_m.group(3):
+        year = int(date_m.group(3))
+    else:
+        try:
+            year = today.year if date(today.year, month_num, day_num) >= today - timedelta(days=1) else today.year + 1
+        except ValueError:
+            return None
+    try:
+        stated_date = date(year, month_num, day_num)
+    except ValueError:
+        return None
+    if stated_date.weekday() == stated_idx:
+        return None
+    correct_day = _short_weekday(stated_date)
+    correct_date = _next_weekday_on_or_after(today, stated_idx)
+    stated_day_label = day_m.group(1)
+    stated_date_label = f"{day_num}. {month_num}."
+    return DateMismatch(
+        f"{DATE_WEEKDAY_MISMATCH_REASON}: {stated_day_label} {stated_date_label} → "
+        f"{correct_day} {stated_date_label} / {stated_day_label} "
+        f"{correct_date.day}. {correct_date.month}.?"
+    )
+
+
+def _derived_date_note(v: Valid, text: str) -> None:
+    if NUMERIC_DATE_RE.search(text) or not WEEKDAY_NAME_RE.search(text):
+        return
+    d = v.start.date() if v.start is not None else (v.all_day_date or v.due_date)
+    if d is None:
+        return
+    line = f"Datum odvozeno: {_short_weekday(d)} {d.day}. {d.month}."
+    v.derived_date_note = line
+    v.notes.append(line)
+
+
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
 MAX_MULTI_DAY_SPAN = 21  # Planning OS v0.11 §3: cap a recurring all-day span
@@ -127,6 +201,7 @@ class Valid:
     duration_min: int | None = None
     reason: str = ""
     notes: list[str] = field(default_factory=list)  # e.g. defaulted end time
+    derived_date_note: str | None = None  # "Datum odvozeno: …" (Planning OS v0.15 §10)
 
 
 @dataclass
@@ -165,7 +240,7 @@ def _dt(value, name: str, today: date) -> datetime | None:
     return naive.replace(tzinfo=config.TZ)
 
 
-def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | Invalid:
+def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | Invalid | DateMismatch:
     if (isinstance(raw, dict) and source_text and raw.get("all_day_date") and raw.get("start")
             and TIME_SIGNAL_RE.search(source_text) is None):
         # Model gave an all-day date AND an invented time: keep the all-day date.
@@ -175,6 +250,10 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
     except _Reject as e:
         return Invalid(str(e))
     if isinstance(v, Valid) and source_text and v.type != "COMMAND":
+        if v.type in ("EVENT", "BLOCK", "TASK"):
+            conflict = _weekday_date_conflict(source_text, now.astimezone(config.TZ).date())
+            if conflict is not None:
+                return conflict
         if COMMAND_VERB_RE.search(source_text):
             return Invalid(COMMAND_GUARD_REASON)
         if v.type in ("TASK", "WAITING") and STATUS_REPORT_RE.search(source_text):
@@ -191,6 +270,8 @@ def validate(raw: dict | None, now: datetime, source_text: str = "") -> Valid | 
             # including the task behind a BLOCK (due = block start).
             v.reminder = ((v.type in ("TASK", "WAITING") and v.due_time is not None)
                           or (v.type == "BLOCK" and v.start is not None))
+        if isinstance(v, Valid) and v.type in ("EVENT", "BLOCK", "TASK"):
+            _derived_date_note(v, source_text)
     return v
 
 
