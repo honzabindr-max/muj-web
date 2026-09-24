@@ -271,7 +271,9 @@
   {
    "id": "event_no_time",
    "text": "kontrola na chirurgii v úterý",
-   "expected_type": "UNKNOWN",
+   "expected_type": "EVENT",
+   "expected_life": "povinnost",
+   "expected_pinned": false,
    "mock_output": {
     "type": "EVENT",
     "title": "Kontrola na chirurgii",
@@ -282,11 +284,12 @@
     "deadline_date": null,
     "start": null,
     "end": null,
-    "all_day_date": null,
-    "reason": "Pevný termín, ale chybí čas.",
+    "all_day_date": "2026-09-29",
+    "all_day_end_date": null,
+    "reason": "Pevný termín, čas neuveden.",
     "note_subtype": null,
     "multiple_items": false,
-    "life": null,
+    "life": "povinnost",
     "duration_min": null
    }
   },
@@ -2204,6 +2207,90 @@
     "reason": "x"
    },
    "expected_pinned": true
+  },
+  {
+   "id": "event_allday_explicit_chalupa",
+   "text": "V sobotu jsem celý den s dětmi na chalupě",
+   "expected_type": "EVENT",
+   "expected_life": "lide",
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Chalupa s dětmi",
+    "context": null,
+    "area": "rodina",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-26",
+    "all_day_end_date": null,
+    "note_subtype": null,
+    "life": "lide",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "Celodenní čas s dětmi."
+   },
+   "expected_pinned": true
+  },
+  {
+   "id": "event_multiday_hory",
+   "text": "Od pátku do neděle jedeme na hory",
+   "expected_type": "EVENT",
+   "expected_life": "zazitky",
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Hory",
+    "context": null,
+    "area": null,
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-25",
+    "all_day_end_date": "2026-09-27",
+    "note_subtype": null,
+    "life": "zazitky",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "Vícedenní výlet."
+   },
+   "expected_pinned": true
+  },
+  {
+   "id": "event_unknown_time_urad",
+   "text": "V úterý musím na úřad kvůli dokladům, čas ještě nevím",
+   "expected_type": "EVENT",
+   "expected_life": "povinnost",
+   "expected_pinned": false,
+   "accept_types": [
+    "EVENT"
+   ],
+   "mock_output": {
+    "type": "EVENT",
+    "title": "Úřad kvůli dokladům",
+    "context": null,
+    "area": "urady",
+    "due_date": null,
+    "due_time": null,
+    "deadline_date": null,
+    "start": null,
+    "end": null,
+    "all_day_date": "2026-09-29",
+    "all_day_end_date": null,
+    "note_subtype": null,
+    "life": "povinnost",
+    "duration_min": null,
+    "multiple_items": false,
+    "reason": "Pevný termín, čas neznámý."
+   }
   },
   {
    "id": "event_dinner_marketka_sat",

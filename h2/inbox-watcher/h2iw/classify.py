@@ -49,6 +49,7 @@ OUTPUT_SCHEMA = {
         "start": _nullable({"type": "string"}),
         "end": _nullable({"type": "string"}),
         "all_day_date": _nullable({"type": "string"}),
+        "all_day_end_date": _nullable({"type": "string"}),
         "note_subtype": _nullable({"type": "string", "enum": NOTE_SUBTYPES}),
         "life": _nullable({"type": "string", "enum": LIVES}),
         "duration_min": _nullable({"type": "integer", "enum": [15, 30, 60, 120]}),
@@ -66,6 +67,7 @@ OUTPUT_SCHEMA = {
         "start",
         "end",
         "all_day_date",
+        "all_day_end_date",
         "note_subtype",
         "life",
         "duration_min",
@@ -80,11 +82,11 @@ SYSTEM_PROMPT = """Třídíš jednu položku z Todoist Doručených podle H2 Pla
 TYPY
 - TASK: něco, co mám udělat já. Bez pevného času.
 - WAITING: čekám na někoho/něco („čekám až…", „až pošle…", „ozve se…").
-- EVENT: MŮJ pevný závazek s konkrétním časem — já jsem aktér („mám", „jdu", „jedu", „schůzka s…", lékař, kontrola). Musí mít datum I čas začátku.
+- EVENT: MŮJ pevný závazek — já jsem aktér („mám", „jdu", „jedu", „schůzka s…", lékař, kontrola). Musí mít datum; čas začátku jen když je ve vstupu uveden (jinak all_day_date, viz níže).
 - INFO: plán nebo pohyb JINÉ osoby, kde já nejsem aktér — podmětem je někdo jiný („Markétka přijede v 19:30", „děti odjíždí", „mamka bude pryč", „Markétka má akci"). I když je uveden přesný čas, je to INFO, ne EVENT.
-- BLOCK: vyhrazuji si čas na práci na úkolu, který by jinak byl v seznamu úkolů („v sobotu 10–12 dělám na…", „zítra 14–16 vyřídit papíry", „odnést sedačku", „opravit skříň", „zablokuj mi…").
+- BLOCK: vyhrazuji si čas na práci na úkolu, který by jinak byl v seznamu úkolů („v sobotu 10–12 dělám na…", „zítra 14–16 vyřídit papíry", „odnést sedačku", „opravit skříň", „zablokuj mi…"). BLOCK vždy s výslovným časem začátku — bez něj to není BLOCK.
 - Časový ROZSAH („od 10 do 11", „10–12", „9 až 10") u mé vlastní činnosti = BLOCK s start i end, nikdy TASK („Zítra od 10 do 11 volám Patrikovi" = BLOCK, life fokus). TASK s due_time jen při jednom časovém bodu („v 10 zavolat Patrikovi").
-- EVENT a BLOCK jen s výslovným časem začátku. Bez času („strávit večer s Markétkou bez mobilu", „někdy si zajít do kina") je to TASK. Výjimka: celodenní činnost s lidmi nebo zážitek s daným dnem („v pondělí jedu se Sašenkou na houby") = EVENT s all_day_date a life (lide / zazitky); pevný termín (lékař, úřad) bez času je dál UNKNOWN.
+- EVENT s výslovným časem začátku → start (a end, je-li uveden). EVENT, kde vstup říká jen DEN bez přesného času (celodenní činnost s lidmi/zážitek: „v pondělí jedu se Sašenkou na houby"; pevný termín bez uvedeného času: „kontrola u zubaře v úterý", „schůzka ve čtvrtek, čas nevím"; výslovné „celý den") → all_day_date (ten den) a life, start nikdy nevymýšlej. Vícedenní EVENT („od pátku do neděle na horách", „dovolená 20.–25. 9.") → all_day_date (první den) + all_day_end_date (poslední den), bez start/end. Úplně bez dne i bez času („strávit večer s Markétkou bez mobilu", „někdy si zajít do kina") je to TASK.
 - Čas bez dne („ve 14") = dnes; pokud dnes už ten čas minul, zítra.
 - Věci „cestou" („cestou z baráku koupit žárovky ve 14") = TASK s časem (připomenutí se přidá samo), NIKDY BLOCK ani EVENT.
 - „Podívat se", „nezapomenout", „připomeň mi" = TASK s datem (a časem, pokud zazní), NIKDY kalendář (EVENT/BLOCK/INFO).
@@ -95,7 +97,7 @@ TYPY
 - Obyčejný úkol bez dne a času je v pořádku („koupit mléko, chleba a vajíčka") = TASK bez due_date, NE UNKNOWN.
 - „Napadlo mě…", „nápad:", „co kdyby…" bez výslovného pokynu něco udělat = NOTE idea, ne TASK. TASK jen když vstup říká, že to mám udělat („vymyslet krytí balkónu").
 - NOTE: poznámka bez akce a bez termínu — nápad (idea), deník/pocity (journal), informace o člověku (person), jiná informace k zapamatování (other). Nic k vykonání, nic do kalendáře.
-- UNKNOWN: nesrozumitelné, nesmyslné, nebo pevný termín bez jasného času. V reason napiš česky krátce proč.
+- UNKNOWN: nesrozumitelné nebo nesmyslné vstupy. Pevný termín bez jasného času už NENÍ UNKNOWN — je to EVENT s all_day_date (viz výše). V reason napiš česky krátce proč.
 - Dvě a více samostatných akcí nebo termínů v jednom vstupu („vyzvednout léky a v pátek v 17:00 kadeřník"): multiple_items = true a type UNKNOWN. Nikdy nevybírej jen první věc. Jinak multiple_items = false.
 
 POLE
@@ -106,11 +108,11 @@ POLE
 - due_time (HH:MM): jen u TASK/WAITING, když je výslovně uveden čas a jde o úkol, ne schůzku. Jinak null.
 - deadline_date (YYYY-MM-DD): JEN výslovný termín „do…" („do pátku", „nejpozději 30. 9."). „Do pátku" je deadline, ne due_date.
 - start/end (YYYY-MM-DDTHH:MM, místní čas Praha): u EVENT, BLOCK a časovaného INFO. end jen když je uveden konec nebo délka.
-- all_day_date (YYYY-MM-DD): jen u INFO bez času (celodenní).
+- all_day_date (YYYY-MM-DD): u INFO bez času, a u EVENT když je znám jen den bez přesného času (viz TYPY). all_day_end_date (YYYY-MM-DD): poslední den vícedenní akce (EVENT nebo INFO) — jen když all_day_date je vyplněné a akce trvá víc než jeden den, jinak null.
 - Nikdy si nevymýšlej datum ani čas, které ve vstupu nejsou. Relativní dny přepočítej podle tabulky níže.
 - Den v týdnu („v pátek", „ve čtvrtek") = NEJBLIŽŠÍ takový den z tabulky od zítřka dál (dnešní den jen se slovem „dnes"); „příští pátek" = o týden později. Datum vždy ověř v tabulce.
 - title: jen samotná činnost, bez dne a času („Pivo s Petrem", ne „Jít v pátek v 18 s Petrem na pivo").
-- Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
+- Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = EVENT s all_day_date, ne UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
 - Telefonát nebo zpráva s časem („zítra v 8 zavolat do školky") je TASK s due_date + due_time a context telefon, ne EVENT. EVENT je jen schůzka, návštěva nebo termín u někoho.
 - life: u TASK, EVENT a BLOCK vždy vyplň, jinak null. Rozhoduje, co při tom SKUTEČNĚ DĚLÁM, ne čeho se věc týká:
   povinnost = svět určuje můj čas, musím tam být nebo to po mně vyžaduje instituce či zdraví (lékař, rehabilitace, úřad, STK, KAŽDÁ pracovní schůzka nebo schůzka s klientem/účetní, vlak; u úkolů „objednat se k lékaři", „zajít na úřad pro občanku");

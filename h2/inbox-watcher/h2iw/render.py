@@ -54,8 +54,14 @@ def task_labels(v: Valid) -> list[str]:
 
 
 def calendar_title(v: Valid) -> str:
-    """Calendar summary: [oblast] Název (type is shown by calendar colour)."""
-    return _join([AREA_EMOJI.get(v.area or ""), v.title])
+    """Calendar summary: [oblast] Název (type is shown by calendar colour).
+    Planning OS v0.11 §4: a single-day povinnost placeholder (unknown time,
+    never 📌) is flagged "⏳ … — čas ❓" so it stands out for a manual fix."""
+    title = _join([AREA_EMOJI.get(v.area or ""), v.title])
+    if (v.type == "EVENT" and v.start is None and v.all_day_date is not None
+            and v.all_day_end_date is None and v.life == "povinnost"):
+        return f"⏳ {title} — čas ❓"
+    return title
 
 
 DAY_NAMES = ["po", "út", "st", "čt", "pá", "so", "ne"]
@@ -67,6 +73,10 @@ def when(v: Valid) -> str:
         return f"{DAY_NAMES[s.weekday()]} {s.day}. {s.month}. {s:%H:%M}–{v.end:%H:%M}"
     if v.all_day_date is not None:
         d = v.all_day_date
+        if v.all_day_end_date is not None and v.all_day_end_date > d:
+            e = v.all_day_end_date
+            return (f"{DAY_NAMES[d.weekday()]} {d.day}. {d.month}.–"
+                    f"{DAY_NAMES[e.weekday()]} {e.day}. {e.month}. celý den")
         return f"{DAY_NAMES[d.weekday()]} {d.day}. {d.month}. celý den"
     parts = []
     if v.due_date is not None:
@@ -85,6 +95,7 @@ def command_line(source_text: str) -> str:
 
 
 PINNED_LINE = "📌 pevné"
+ALL_DAY_LINE = "🗓️ celý den"  # Planning OS v0.11 §2: marks a timed placeholder
 
 
 def is_pinned(v: Valid) -> bool:

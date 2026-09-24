@@ -73,7 +73,7 @@ def judge(c: dict, res: ClassifyResult, now: datetime) -> tuple[bool, str, str]:
             hit, shown = False, shown + " [📌 nesedí]"
     mo = c["mock_output"]
     if hit and not isinstance(v, Invalid):
-        for field in ("start", "due_date", "deadline_date", "all_day_date"):
+        for field in ("start", "due_date", "deadline_date", "all_day_date", "all_day_end_date"):
             ref, got = mo.get(field), getattr(v, field, None)
             if ref and got is not None and str(got)[:10] != ref[:10]:
                 hit, shown = False, shown + f" [DATUM {field}: {str(got)[:10]} ≠ {ref[:10]}]"
