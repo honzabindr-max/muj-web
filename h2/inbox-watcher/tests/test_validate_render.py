@@ -117,14 +117,19 @@ def _event(start, t="EVENT"):
     return dict(case("event_dentist")["mock_output"], type=t, start=start)
 
 
-def test_invented_midnight_event_is_rejected():
+def test_invented_midnight_event_becomes_all_day_placeholder():
+    # Planning OS v0.11 §1/§3/§4: no longer Invalid — a known day with no
+    # stated time becomes an all_day_date placeholder, never an invented time.
     v = validate(_event("2026-09-29T00:00"), NOW, "kontrola na chirurgii v úterý")
-    assert isinstance(v, Invalid) and "času" in v.reason
+    assert isinstance(v, Valid) and v.start is None
+    assert v.all_day_date.isoformat() == "2026-09-29"
+    assert render.calendar_title(v) == "⏳ 🩺 Zubař — čas ❓"
 
 
-def test_invented_time_without_any_time_signal_is_rejected():
+def test_invented_time_without_any_time_signal_becomes_all_day():
     v = validate(_event("2026-09-29T09:00"), NOW, "kontrola na chirurgii v úterý")
-    assert isinstance(v, Invalid)
+    assert isinstance(v, Valid) and v.start is None
+    assert v.all_day_date.isoformat() == "2026-09-29"
 
 
 def test_block_without_stated_time_is_rejected():
@@ -413,12 +418,50 @@ def test_ritual_is_unknown_but_lunch_with_person_is_lide():
     assert validate(lunch["mock_output"], NOW, lunch["text"]).life == "lide"
 
 
-def test_all_day_event_with_people_is_valid_but_not_for_povinnost():
+def test_all_day_event_is_valid_for_any_life():
+    # Planning OS v0.11 §1/§3/§4: no life restriction any more. lide/zazitky
+    # etc. stay plain + pinned; povinnost gets the "⏳ … čas ❓" title, never
+    # pinned (rule §2's "🔴 bez 📌").
     c = case("event_mushrooms_sasenka")
     v = validate(c["mock_output"], NOW, c["text"])
     assert v.type == "EVENT" and v.life == "lide" and v.all_day_date.isoformat() == "2026-09-28"
+    assert render.is_pinned(v) and render.calendar_title(v) == "Houby se Sašenkou"
     doctor = dict(c["mock_output"], life="povinnost")
-    assert isinstance(validate(doctor, NOW), Invalid)
+    v2 = validate(doctor, NOW)
+    assert isinstance(v2, Valid) and v2.life == "povinnost"
+    assert not render.is_pinned(v2)
+    assert render.calendar_title(v2) == "⏳ Houby se Sašenkou — čas ❓"
+
+
+def test_all_day_event_with_missing_life_defaults_to_povinnost():
+    c = case("event_mushrooms_sasenka")
+    no_life = dict(c["mock_output"], life=None)
+    v = validate(no_life, NOW, c["text"])
+    assert v.type == "EVENT" and v.life == "povinnost"
+    assert "druh času nezadán → povinnost" in v.notes
+
+
+def test_multi_day_event_gets_end_date_and_plain_title():
+    c = case("event_mushrooms_sasenka")
+    trip = dict(c["mock_output"], all_day_date="2026-09-25", all_day_end_date="2026-09-27")
+    v = validate(trip, NOW)
+    assert isinstance(v, Valid) and v.all_day_end_date.isoformat() == "2026-09-27"
+    assert render.calendar_title(v) == "Houby se Sašenkou"  # never ⏳❓, even for povinnost
+    povinnost_trip = dict(trip, life="povinnost")
+    v2 = validate(povinnost_trip, NOW)
+    assert render.calendar_title(v2) == "Houby se Sašenkou"
+
+
+def test_multi_day_event_span_is_capped():
+    c = case("event_mushrooms_sasenka")
+    too_long = dict(c["mock_output"], all_day_date="2026-09-25", all_day_end_date="2026-11-25")
+    assert isinstance(validate(too_long, NOW), Invalid)
+
+
+def test_multi_day_end_before_start_is_rejected():
+    c = case("event_mushrooms_sasenka")
+    bad = dict(c["mock_output"], all_day_date="2026-09-27", all_day_end_date="2026-09-25")
+    assert isinstance(validate(bad, NOW), Invalid)
 
 
 def test_all_day_with_invented_time_keeps_all_day():

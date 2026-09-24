@@ -105,6 +105,7 @@ RITUAL_REASON = "rituál / oběd do kalendáře nezakládám — spravuje Pláno
 
 MAX_DAYS_AHEAD = 400
 MAX_TIMED_HOURS = 12
+MAX_MULTI_DAY_SPAN = 21  # Planning OS v0.11 §3: cap a recurring all-day span
 
 
 @dataclass
@@ -119,6 +120,7 @@ class Valid:
     start: datetime | None = None  # tz-aware, Europe/Prague
     end: datetime | None = None
     all_day_date: date | None = None
+    all_day_end_date: date | None = None
     note_subtype: str | None = None
     reminder: bool = False
     life: str | None = None
@@ -234,8 +236,10 @@ def _check_time_is_stated(v: Valid, text: str) -> Valid | Invalid:
     )
     if stated and not (midnight and not MIDNIGHT_RE.search(text)):
         return v
-    if v.type == "INFO" and v.start is not None:
-        # Someone else's plan with an invented time: keep it, but as all-day (FREE).
+    if v.type in ("INFO", "EVENT") and v.start is not None:
+        # Someone else's plan, or a fixed EVENT, with an invented time: keep
+        # the day, drop the time (Planning OS v0.11 §1/§3 — never Invalid,
+        # apply.py turns the day into an 8:00-18:00 placeholder).
         v.all_day_date, v.start, v.end = v.start.date(), None, None
         v.notes.append("čas ve vstupu není → celý den")
         return v
@@ -243,7 +247,7 @@ def _check_time_is_stated(v: Valid, text: str) -> Valid | Invalid:
         v.due_time = None
         v.notes.append("čas ve vstupu není → jen datum")
         return v
-    return Invalid("pevný termín bez jasného času" if v.type == "EVENT" else "blok bez jasného času")
+    return Invalid("blok bez jasného času")
 
 
 def _validate(raw, now: datetime) -> Valid | Invalid:
@@ -295,6 +299,9 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     v.due_date = _date(raw.get("due_date"), "due_date", today)
     v.deadline_date = _date(raw.get("deadline_date"), "deadline_date", today)
     v.all_day_date = _date(raw.get("all_day_date"), "all_day_date", today)
+    v.all_day_end_date = _date(raw.get("all_day_end_date"), "all_day_end_date", today)
+    if v.all_day_end_date is not None and v.all_day_date is None:
+        raise _Reject("konec vícedenní akce bez začátku")
     v.start = _dt(raw.get("start"), "start", today)
     v.end = _dt(raw.get("end"), "end", today)
 
@@ -312,11 +319,11 @@ def _validate(raw, now: datetime) -> Valid | Invalid:
     # WAITING: `ceka` replaces context (Planning OS §3/§4).
     v.context = None if t == "WAITING" else ctx
 
-    if t in ("TASK", "WAITING") and (v.start or v.end or v.all_day_date):
+    if t in ("TASK", "WAITING") and (v.start or v.end or v.all_day_date or v.all_day_end_date):
         raise _Reject("úkol nesmí mít kalendářní čas")
     if t == "NOTE":
         if any(x is not None for x in (v.due_date, v.due_time, v.deadline_date, v.start,
-                                       v.end, v.all_day_date)):
+                                       v.end, v.all_day_date, v.all_day_end_date)):
             raise _Reject("poznámka s termínem — zkontrolovat")
         sub = raw.get("note_subtype")
         if sub is not None and sub not in NOTE_SUBTYPES:
@@ -331,11 +338,20 @@ def _validate_calendar(v: Valid) -> Valid | Invalid:
     if t in ("TASK", "WAITING", "NOTE"):
         return v
 
-    if (t == "EVENT" and v.start is None and v.all_day_date is not None
-            and v.life is not None and v.life != "povinnost"):
-        # v0.5: a day-long activity with people / experience without a time
-        # ("v pondělí jedu se Sašenkou na houby") is an all-day event. A fixed
-        # appointment (povinnost) without a time stays UNKNOWN.
+    if t == "EVENT" and v.start is None and v.all_day_date is not None:
+        # Planning OS v0.11 §1/§3/§4: EVENT with a known day but no exact
+        # time is never all-day on the calendar — apply.py turns it into an
+        # 8:00-18:00 placeholder. render.calendar_title flags a single-day
+        # povinnost placeholder ("⏳ … čas ❓"); every other life stays plain.
+        if v.life is None:
+            v.life = "povinnost"
+            v.notes.append("druh času nezadán → povinnost")
+        if v.all_day_end_date is not None:
+            if v.all_day_end_date < v.all_day_date:
+                raise _Reject("konec vícedenní akce je před začátkem")
+            days = (v.all_day_end_date - v.all_day_date).days + 1
+            if days > MAX_MULTI_DAY_SPAN:
+                return Invalid(f"vícedenní akce déle než {MAX_MULTI_DAY_SPAN} dní — zkontrolovat")
         v.due_date = v.due_time = v.deadline_date = None
         return v
 
@@ -357,11 +373,17 @@ def _validate_calendar(v: Valid) -> Valid | Invalid:
     elif t == "INFO":
         if v.start is None and v.all_day_date is None:
             return Invalid("info bez data")
-        if v.start is not None and v.all_day_date is not None:
+        if v.start is not None and (v.all_day_date is not None or v.all_day_end_date is not None):
             raise _Reject("info nesmí být časované i celodenní")
         if v.start is not None and v.end is None:
             v.end = v.start + timedelta(minutes=config.EVENT_DEFAULT_MINUTES)
             v.notes.append(f"konec nezadán → {config.EVENT_DEFAULT_MINUTES} min")
+        if v.all_day_date is not None and v.all_day_end_date is not None:
+            if v.all_day_end_date < v.all_day_date:
+                raise _Reject("konec vícedenní akce je před začátkem")
+            days = (v.all_day_end_date - v.all_day_date).days + 1
+            if days > MAX_MULTI_DAY_SPAN:
+                return Invalid(f"vícedenní akce déle než {MAX_MULTI_DAY_SPAN} dní — zkontrolovat")
         v.due_date = v.due_time = v.deadline_date = None
 
     if v.start is not None:

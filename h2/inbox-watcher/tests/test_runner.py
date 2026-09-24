@@ -155,7 +155,10 @@ def test_info_is_free_without_reminders(env):
     assert cal == "cal-info"
     assert ev["transparency"] == "transparent"
     assert ev["reminders"] == {"useDefault": False, "overrides": []}
-    assert ev["start"] == {"date": "2026-09-26"} and ev["end"] == {"date": "2026-09-27"}
+    # Planning OS v0.11 §3: never a celodenní ("date") event — 8:00-18:00 instead.
+    assert ev["start"] == {"dateTime": "2026-09-26T08:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["end"] == {"dateTime": "2026-09-26T18:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["description"].startswith("🗓️ celý den\n")
     assert env.todoist.calls[0][2] == "→ H2 · Info"
 
 
@@ -170,9 +173,10 @@ def test_block_creates_task_and_linked_event(env):
 
 
 def test_unknown_stays_in_inbox_with_comment(env):
-    env.todoist.add("u", case("event_no_time")["text"])
+    c = case("nonsense_vague")
+    env.todoist.add("u", c["text"])
     r = _run(env)
-    assert env.todoist.calls == [("comment", "u", "❓ pevný termín bez jasného času")]
+    assert env.todoist.calls == [("comment", "u", f"❓ {c['mock_output']['reason']}")]
     assert env.todoist.tasks["u"]["project_id"] == "inbox-1"
     assert r.lines[0].startswith("❓")
 
@@ -253,13 +257,19 @@ def test_summary_none_when_nothing_done():
     assert format_summary(Report()) is None
 
 
-def test_runner_rejects_invented_time_end_to_end(env):
+def test_runner_downgrades_invented_time_to_all_day_placeholder(env):
+    # Planning OS v0.11 §1/§3/§4: no longer UNKNOWN — an invented, unstated
+    # time downgrades to the day-only placeholder (povinnost -> "⏳ … čas ❓").
     env.clf.by_text["kontrola v úterý"] = dict(case("event_dentist")["mock_output"],
                                                 start="2026-09-29T00:00")
     env.todoist.add("k", "kontrola v úterý")
     _run(env)
-    assert env.gcal.events == {}
-    assert env.store.get("k")["status"] == "UNKNOWN_MARKED"
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == config.PRIMARY_CALENDAR_ID
+    assert ev["start"] == {"dateTime": "2026-09-29T08:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["summary"] == "⏳ 🩺 Zubař — čas ❓"
+    assert ev["description"].startswith("🗓️ celý den\n")
+    assert env.store.get("k")["status"] == "APPLIED"
 
 
 def test_note_is_stored_commented_and_closed_nothing_else(env):
@@ -501,13 +511,31 @@ def test_top_label_never_added(env):
                for c in env.todoist.calls)
 
 
-def test_all_day_life_event_busy_without_popup(env):
+def test_all_day_life_event_busy_with_popup_and_pinned_line(env):
     env.todoist.add("h", case("event_mushrooms_sasenka")["text"])
     r = _run(env)
     (cal, _), ev = next(iter(env.gcal.events.items()))
     assert cal == "cal-lide" and ev["transparency"] == "opaque"
-    assert ev["start"] == {"date": "2026-09-28"} and ev["reminders"]["overrides"] == []
+    # Planning OS v0.11 §1/§5: 8:00-18:00 placeholder, same reminder logic as
+    # any timed event (LIFE_REMINDER_MINUTES for a non-povinnost life).
+    assert ev["start"] == {"dateTime": "2026-09-28T08:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["reminders"]["overrides"] == [{"method": "popup", "minutes": config.LIFE_REMINDER_MINUTES}]
+    assert ev["description"] == "📌 pevné\n🗓️ celý den\nZ Todoist Doručených: v pondělí jedu se Sašenkou na houby"
     assert r.lines[0].startswith("🩷 H2 · Lidé · ")
+
+
+def test_multi_day_event_creates_recurring_placeholder(env):
+    d = dict(case("event_mushrooms_sasenka")["mock_output"],
+              all_day_date="2026-09-25", all_day_end_date="2026-09-27")
+    env.clf.by_text["hory"] = d
+    env.todoist.add("m", "hory")
+    _run(env)
+    (cal, _), ev = next(iter(env.gcal.events.items()))
+    assert cal == "cal-lide"
+    assert ev["start"] == {"dateTime": "2026-09-25T08:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["end"] == {"dateTime": "2026-09-25T18:00:00+02:00", "timeZone": "Europe/Prague"}
+    assert ev["recurrence"] == ["RRULE:FREQ=DAILY;COUNT=3"]
+    assert ev["summary"] == "Houby se Sašenkou"  # never ⏳❓ for a multi-day span
 
 
 def test_every_timed_task_path_adds_reminder(env):

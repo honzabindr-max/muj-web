@@ -68,6 +68,11 @@ BLOCK_DEFAULT_MINUTES = 60
 EVENT_REMINDER_MINUTES = 60  # povinnost only
 LIFE_REMINDER_MINUTES = 15   # every other life calendar
 
+# Planning OS v0.11 §1/§3/§4: the watcher never creates a celodenní ("date")
+# calendar event. A day known but no exact time -> this placeholder window.
+ALL_DAY_START_HOUR = 8
+ALL_DAY_END_HOUR = 18
+
 DEFAULT_DB_PATH = "/var/lib/h2-inbox-watcher/state.db"
 
 

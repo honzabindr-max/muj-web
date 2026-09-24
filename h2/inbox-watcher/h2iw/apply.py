@@ -6,7 +6,7 @@ calendar insert (idempotent id) -> comment -> close / move last.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timezone
 
 from . import config, render
 from .gcal import GCalClient, event_id_for
@@ -52,32 +52,48 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
         body["start"] = {"dateTime": v.start.isoformat(), "timeZone": "Europe/Prague"}
         body["end"] = {"dateTime": v.end.isoformat(), "timeZone": "Europe/Prague"}
     else:
+        # Planning OS v0.11 §3: never a celodenní ("date") event — an
+        # 8:00-18:00 placeholder instead, flagged in the description
+        # (render.ALL_DAY_LINE). Multi-day = one recurring event.
         d = v.all_day_date
-        body["start"] = {"date": d.isoformat()}
-        body["end"] = {"date": (d + timedelta(days=1)).isoformat()}
+        start_t = time(config.ALL_DAY_START_HOUR, 0)
+        end_t = time(config.ALL_DAY_END_HOUR, 0)
+        body["start"] = {"dateTime": datetime.combine(d, start_t, tzinfo=config.TZ).isoformat(),
+                          "timeZone": "Europe/Prague"}
+        body["end"] = {"dateTime": datetime.combine(d, end_t, tzinfo=config.TZ).isoformat(),
+                        "timeZone": "Europe/Prague"}
+        if v.all_day_end_date is not None and v.all_day_end_date > d:
+            days = (v.all_day_end_date - d).days + 1
+            body["recurrence"] = [f"RRULE:FREQ=DAILY;COUNT={days}"]
 
     original = (task.get("content") or "").strip()
     if kind == "INFO":
         # Someone else's plan: FREE, no notification (Planning OS v0.4 §2).
         body["description"] = f"Z Todoist Doručených: {original}"
+        if v.all_day_date is not None:
+            body["description"] = f"{render.ALL_DAY_LINE}\n{body['description']}"
         body["transparency"] = "transparent"
         body["reminders"] = {"useDefault": False, "overrides": []}
         return body
     # Every life calendar is BUSY; 60 min reminder only for povinnost, else 15.
+    # v0.11 §5: same reminder logic as any timed event, all-day placeholder included.
     minutes = (config.EVENT_REMINDER_MINUTES if v.life == "povinnost"
                else config.LIFE_REMINDER_MINUTES)
     body["transparency"] = "opaque"
-    # All-day events: a popup N minutes before midnight is noise, so none.
-    overrides = [] if v.start is None else [{"method": "popup", "minutes": minutes}]
-    body["reminders"] = {"useDefault": False, "overrides": overrides}
+    body["reminders"] = {"useDefault": False, "overrides": [{"method": "popup", "minutes": minutes}]}
     if kind == "BLOCK":
         # v0.6 §6: the block links the task it was created with (one line per task).
         body["description"] = f"Úkol: {TODOIST_TASK_URL.format(id=task['id'])}"
     else:
         body["description"] = f"Z Todoist Doručených: {original}"
+        header = []
         if render.is_pinned(v):
             # v0.6 §4: first line marks the event PEVNÉ for the Planner.
-            body["description"] = f"{render.PINNED_LINE}\n{body['description']}"
+            header.append(render.PINNED_LINE)
+        if v.all_day_date is not None:
+            header.append(render.ALL_DAY_LINE)
+        if header:
+            body["description"] = "\n".join([*header, body["description"]])
     return body
 
 
