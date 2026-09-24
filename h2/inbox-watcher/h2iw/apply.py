@@ -67,20 +67,33 @@ def _event_body(v: Valid, task: dict, kind: str) -> dict:
             body["recurrence"] = [f"RRULE:FREQ=DAILY;COUNT={days}"]
 
     original = (task.get("content") or "").strip()
-    if kind == "INFO":
-        # Someone else's plan: FREE, no notification (Planning OS v0.4 §2).
+    uncategorized = kind == "EVENT" and v.life is None
+    if kind == "INFO" or uncategorized:
+        # Someone else's plan, or MY event with no clear category: FREE, no
+        # notification (Planning OS v0.4 §2 / v0.11.1 §2 — the Planner sorts
+        # the uncategorized ones out, never guessed as povinnost).
         body["description"] = f"Z Todoist Doručených: {original}"
-        if v.all_day_date is not None:
+        if uncategorized:
+            body["description"] = f"{render.UNCATEGORIZED_LINE}\n{body['description']}"
+        elif v.all_day_date is not None:
             body["description"] = f"{render.ALL_DAY_LINE}\n{body['description']}"
         body["transparency"] = "transparent"
         body["reminders"] = {"useDefault": False, "overrides": []}
         return body
     # Every life calendar is BUSY; 60 min reminder only for povinnost, else 15.
-    # v0.11 §5: same reminder logic as any timed event, all-day placeholder included.
     minutes = (config.EVENT_REMINDER_MINUTES if v.life == "povinnost"
                else config.LIFE_REMINDER_MINUTES)
     body["transparency"] = "opaque"
-    body["reminders"] = {"useDefault": False, "overrides": [{"method": "popup", "minutes": minutes}]}
+    # v0.11.1 §1: a "🗓️ celý den" placeholder pops up only when it's a
+    # single-day povinnost event; a multi-day series or any other calendar
+    # gets no popup. A real timed EVENT/BLOCK always gets one, as before.
+    if v.all_day_date is None:
+        overrides = [{"method": "popup", "minutes": minutes}]
+    elif v.all_day_end_date is None and v.life == "povinnost":
+        overrides = [{"method": "popup", "minutes": minutes}]
+    else:
+        overrides = []
+    body["reminders"] = {"useDefault": False, "overrides": overrides}
     if kind == "BLOCK":
         # v0.6 §6: the block links the task it was created with (one line per task).
         body["description"] = f"Úkol: {TODOIST_TASK_URL.format(id=task['id'])}"
@@ -118,7 +131,9 @@ class Applier:
 
     def calendar_for(self, v: Valid) -> tuple[str, str]:
         """(calendar id, display name). Raises CalendarMissingError before any write."""
-        if v.type == "INFO":
+        if v.type == "INFO" or (v.type == "EVENT" and v.life is None):
+            # v0.11.1 §2: an EVENT with no clear life lands in ⚪ H2 · Info
+            # for the Planner, instead of guessing povinnost.
             return self._cal(config.INFO_CALENDAR_NAME), config.INFO_CALENDAR_NAME
         _, name, display = config.LIFE_CALENDARS[v.life]
         if name is None:

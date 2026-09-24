@@ -114,7 +114,7 @@ POLE
 - title: jen samotná činnost, bez dne a času („Pivo s Petrem", ne „Jít v pátek v 18 s Petrem na pivo").
 - Pevný termín (lékař, kontrola, schůzka) bez výslovného času ve vstupu = EVENT s all_day_date, ne UNKNOWN. start nikdy nevyplňuj bez času ze vstupu, ani jako 00:00.
 - Telefonát nebo zpráva s časem („zítra v 8 zavolat do školky") je TASK s due_date + due_time a context telefon, ne EVENT. EVENT je jen schůzka, návštěva nebo termín u někoho.
-- life: u TASK, EVENT a BLOCK vždy vyplň, jinak null. Rozhoduje, co při tom SKUTEČNĚ DĚLÁM, ne čeho se věc týká:
+- life: u TASK a BLOCK vždy vyplň. U EVENT vyplň jen když je z textu jasné, co doopravdy dělám, nebo jde o výslovnou povinnost (lékař, úřad, schůzka s klientem/pronajímatelkou…, viz níže); když to jasné není, nech life null — NIKDY nehádej povinnost jen proto, že jde o závazek, o kategorii rozhodne Plánovač. Příklad: „v úterý v 17 mám workshop" bez dalšího kontextu — nevíš, jestli je to práce, koníček nebo zážitek — life null, ne povinnost. Jinak (TASK/BLOCK) null. Rozhoduje, co při tom SKUTEČNĚ DĚLÁM, ne čeho se věc týká:
   povinnost = svět určuje můj čas, musím tam být nebo to po mně vyžaduje instituce či zdraví (lékař, rehabilitace, úřad, STK, KAŽDÁ pracovní schůzka nebo schůzka s klientem/účetní, vlak; u úkolů „objednat se k lékaři", „zajít na úřad pro občanku");
   fokus = pracuji hlavou (telefonáty, deep work, papíry, finance, rešerše, e-maily, „najít sedačku na internetu");
   regenerace = pečuji o tělo a energii (sport, kolo, procházka, jóga, sauna, odpočinek, meditace);
