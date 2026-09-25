@@ -228,14 +228,17 @@ class Runner:
         except Exception as e:
             attempts = self.store.bump_apply_attempts(tid)
             log.error("item %s apply error: %s", tid, type(e).__name__)
+            # A single item's write failing (Todoist/gcal rejects a field, a
+            # transient 5xx, ...) is never a run-level failure: the streak in
+            # main() is for the whole run being down (Todoist/LLM/network
+            # unreachable), not for one stuck item retrying in the
+            # background. report.errors stays untouched either way -- below
+            # the threshold it just retries next run; at the threshold it
+            # quarantines with its own one-off alert instead.
             if attempts >= config.APPLY_QUARANTINE_ATTEMPTS:
-                # Stop retrying every minute: one alert, not a repeating one,
-                # and never mistaken in the run-failure streak for the whole
-                # watcher being down (report.errors is deliberately not used).
                 self._apply_quarantine(task, str(e)[:200], report)
             else:
                 self._status(tid, "CLASSIFIED", type(e).__name__)
-                report.errors.append(f"{tid}: apply {type(e).__name__}")
             return
         self._status(tid, "APPLIED")
         if v.type in ("NOTE", "COMMAND"):
