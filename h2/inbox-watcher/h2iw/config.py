@@ -62,6 +62,10 @@ MONTHLY_USD_CAP = 3.00
 MAX_CLASSIFY_ATTEMPTS = 3
 RAW_TEXT_RETENTION_DAYS = 30
 FAILURE_ALERT_THRESHOLD = 5
+# A write that keeps failing (plan limits, malformed field) must not retry
+# every minute forever, and must not look like the watcher itself is down.
+APPLY_QUARANTINE_ATTEMPTS = 3
+QUARANTINE_LABEL = "k-triazi"
 
 EVENT_DEFAULT_MINUTES = 60
 BLOCK_DEFAULT_MINUTES = 60
