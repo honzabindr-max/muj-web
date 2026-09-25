@@ -213,7 +213,8 @@ def test_crash_between_steps_resumes_without_duplicates(env):
     env.todoist.add("e", case("event_meeting_range")["text"])
     env.todoist.fail_once.add("close")
     r1 = _run(env)
-    assert r1.errors and env.store.get("e")["status"] == "CLASSIFIED"
+    # a single apply failure retries silently, never feeds the run-failure streak
+    assert not r1.errors and env.store.get("e")["status"] == "CLASSIFIED"
     r2 = _run(env)
     assert env.clf.calls == 1           # no second LLM call
     assert len(env.gcal.events) == 1    # event not duplicated
@@ -274,7 +275,9 @@ def test_apply_failure_quarantines_after_n_attempts_not_every_minute(env):
     for _ in range(config.APPLY_QUARANTINE_ATTEMPTS - 1):
         r = _run(env)
         assert env.store.get("q")["status"] == "CLASSIFIED"
-        assert r.errors  # visible in this run's report, but not yet quarantined
+        # one item's write failing is never a run-level failure (main()'s
+        # streak is for Todoist/LLM/network being down, not one stuck item)
+        assert not r.errors
     r = _run(env)
     row = env.store.get("q")
     assert row["status"] == "APPLY_QUARANTINED" and row["apply_attempts"] == config.APPLY_QUARANTINE_ATTEMPTS
@@ -290,6 +293,30 @@ def test_apply_failure_quarantines_after_n_attempts_not_every_minute(env):
     calls_before = len(env.todoist.calls)
     _run(env)
     assert len(env.todoist.calls) == calls_before
+
+
+def test_apply_errors_never_feed_run_failure_streak_but_classify_errors_do(env):
+    # main()'s consecutive-failure streak ("H2 Inbox Watcher selhal N× po
+    # sobě" alert) is driven only by Report.errors. One item's apply write
+    # failing must never populate it -- only genuine run-level trouble
+    # (LLM/Todoist/network) should.
+    from h2iw.todoist import TodoistError
+
+    def always_fails(tid, fields):
+        raise TodoistError("POST /tasks/a -> 500")
+
+    env.todoist.update_task = always_fails
+    env.todoist.add("a", case("task_phone_finance")["text"])
+    r1 = _run(env)
+    assert not r1.errors
+
+    def boom(text, desc, now):
+        raise TimeoutError()
+
+    env.runner.classifier = boom
+    env.todoist.add("b", case("task_sport")["text"])
+    r2 = _run(env)  # retries "a" (apply, silent) and classifies "b" (fails, counted)
+    assert r2.errors == ["b: classify TimeoutError"]
 
 
 def test_dry_run_writes_nothing(env):
