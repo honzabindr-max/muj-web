@@ -36,6 +36,7 @@ create table if not exists items (
     classification_json text,
     error text,
     attempts integer not null default 0,
+    apply_attempts integer not null default 0,
     updated_at text not null
 );
 create table if not exists steps (
@@ -71,7 +72,7 @@ REDACTED_TITLE = "[šifrováno]"
 # Statuses in which an item still needs work on a later run.
 RESUMABLE = ("RECEIVED", "CLASSIFIED", "FAILED_RETRYABLE", "SKIPPED_CAP")
 # Terminal statuses. An item in one of these is never touched again.
-TERMINAL = ("APPLIED", "UNKNOWN_MARKED", "BASELINE", "GONE")
+TERMINAL = ("APPLIED", "UNKNOWN_MARKED", "APPLY_QUARANTINED", "BASELINE", "GONE")
 
 
 def utcnow() -> datetime:
@@ -97,6 +98,10 @@ class Store:
             if col not in cols:  # v1-v8 ledgers
                 self.conn.execute(
                     f"alter table llm_calls add column {col} integer not null default 0")
+        item_cols = {r["name"] for r in self.conn.execute("pragma table_info(items)")}
+        if "apply_attempts" not in item_cols:  # pre-2026-09-25 ledgers
+            self.conn.execute(
+                "alter table items add column apply_attempts integer not null default 0")
 
     # --- encryption migration (v1 notes had a plaintext raw_text column) ---
     def _migrate_plaintext_notes(self) -> None:
@@ -187,6 +192,11 @@ class Store:
     def bump_attempts(self, task_id: str) -> int:
         self.conn.execute("update items set attempts=attempts+1 where task_id=?", (task_id,))
         return self.get(task_id)["attempts"]
+
+    def bump_apply_attempts(self, task_id: str) -> int:
+        self.conn.execute(
+            "update items set apply_attempts=apply_attempts+1 where task_id=?", (task_id,))
+        return self.get(task_id)["apply_attempts"]
 
     # --- notes / commands (encrypted) ---------------------------------------
     def _require_key(self) -> Key:

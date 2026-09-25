@@ -103,12 +103,38 @@ def test_task_is_renamed_labelled_and_moved(env):
     assert ops == ["update", "move"]
     fields = env.todoist.calls[0][2]
     assert fields["content"] == "💼 Poslat faktury klientovi"
-    assert fields["deadline_date"] == "2026-09-25"
+    # Todoist Free has no `deadline_date` field (403) -- never sent, goes to
+    # the description instead (H2 pravidla §6).
+    assert "deadline_date" not in fields
     assert "due_date" not in fields  # „do pátku" is a deadline, not a planned day
-    assert fields["description"].startswith("Původně: do pátku poslat faktury klientovi")
+    assert fields["description"] == (
+        "Původně: do pátku poslat faktury klientovi\nTermín: 25. 9."
+    )
     assert env.todoist.calls[1][2] == config.H2_PROJECT_ID
     assert env.gcal.insert_calls == 0
     assert "TASK" in r.lines[0]
+
+
+def test_deadline_na_vanoce_never_sent_to_todoist_regression(env):
+    # Production incident 2026-09-25 (task 6hcmFJV8HG6gg4HF): "na Vánoce" ->
+    # deadline_date 2026-12-24, and every apply attempt failed with
+    # TodoistError because Todoist Free rejects the `deadline_date` field.
+    text = "Vakua s krabičkama malýma a velkýma na Vánoce"
+    env.clf.by_text[text] = {
+        "type": "TASK", "title": "Koupit vakua s krabičkami na Vánoce",
+        "context": None, "area": "domacnost", "due_date": None, "due_time": None,
+        "deadline_date": "2026-12-24", "start": None, "end": None,
+        "all_day_date": None, "all_day_end_date": None, "note_subtype": None,
+        "life": "domov", "duration_min": 30, "multiple_items": False,
+        "reason": "Nákup s termínem do Vánoc.",
+    }
+    env.todoist.add("6hcmFJV8HG6gg4HF", text)
+    r = _run(env)
+    assert env.store.get("6hcmFJV8HG6gg4HF")["status"] == "APPLIED"
+    fields = env.todoist.calls[0][2]
+    assert "deadline_date" not in fields
+    assert "Termín: 24. 12." in fields["description"]
+    assert not r.errors
 
 
 def test_task_due_time_goes_as_utc_datetime(env):
@@ -230,6 +256,40 @@ def test_classifier_exception_retries_then_gives_up(env):
         _run(env)
     assert env.store.get("t")["status"] == "UNKNOWN_MARKED"
     assert env.store.get("t")["attempts"] == config.MAX_CLASSIFY_ATTEMPTS
+
+
+def test_apply_failure_quarantines_after_n_attempts_not_every_minute(env):
+    from h2iw.todoist import TodoistError
+
+    real = env.todoist.update_task
+
+    def picky(tid, fields):
+        if "content" in fields:  # the full task write keeps failing; a
+            raise TodoistError("POST /tasks/q -> 403")  # label-only write does not
+        return real(tid, fields)
+
+    env.todoist.update_task = picky
+    text = case("task_phone_finance")["text"]
+    env.todoist.add("q", text)
+    for _ in range(config.APPLY_QUARANTINE_ATTEMPTS - 1):
+        r = _run(env)
+        assert env.store.get("q")["status"] == "CLASSIFIED"
+        assert r.errors  # visible in this run's report, but not yet quarantined
+    r = _run(env)
+    row = env.store.get("q")
+    assert row["status"] == "APPLY_QUARANTINED" and row["apply_attempts"] == config.APPLY_QUARANTINE_ATTEMPTS
+    assert env.todoist.tasks["q"]["labels"] == [config.QUARANTINE_LABEL]
+    assert env.todoist.tasks["q"]["project_id"] == "inbox-1"  # stays in the Inbox, unlike COMMAND
+    assert [c[0] for c in env.todoist.calls[-2:]] == ["update", "comment"]
+    reason = "POST /tasks/q -> 403"
+    assert env.todoist.calls[-1][2] == f"❓ Watcher: {reason}"
+    assert not r.errors  # quarantine no longer counts as a run failure
+    assert r.lines[-1] == f"❓ {text} — Watcher: {reason} (zůstává v Doručených, k-triazi)"
+
+    # Once quarantined, it is never retried again -- no more Todoist calls.
+    calls_before = len(env.todoist.calls)
+    _run(env)
+    assert len(env.todoist.calls) == calls_before
 
 
 def test_dry_run_writes_nothing(env):
@@ -529,9 +589,13 @@ def test_duration_rejected_by_todoist_is_dropped_not_fatal(env):
     env.todoist.update_task = picky
     env.todoist.add("w", case("task_clean_washer")["text"])
     r = _run(env)
-    assert "duration" not in env.todoist.calls[0][2]
+    fields = env.todoist.calls[0][2]
+    assert "duration" not in fields
     assert env.store.get("w")["status"] == "APPLIED"
     assert "odhad délky Todoist odmítl" in r.lines[0]
+    # general 4xx-field fallback (H2 pravidla §6): dropped value stays visible
+    # in the description, never silently lost.
+    assert fields["description"].endswith("\nodhad délky Todoist odmítl")
 
 
 def test_block_task_also_gets_life_label(env):

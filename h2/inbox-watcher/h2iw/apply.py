@@ -21,6 +21,10 @@ def _task_fields(v: Valid, task: dict) -> dict:
     original = (task.get("content") or "").strip()
     existing_desc = (task.get("description") or "").strip()
     desc = f"Původně: {original}"
+    if v.deadline_date is not None:
+        # H2 pravidla §6: Todoist Free nemá deadline (API pole `deadline_date`
+        # je Pro-only, 403) — Watcher ho nikdy neposílá, termín jde do popisu.
+        desc += f"\nTermín: {v.deadline_date.day}. {v.deadline_date.month}."
     if existing_desc:
         desc += f"\n\n{existing_desc}"
     ours = [lb for lb in render.task_labels(v) if lb not in config.NEVER_ASSIGNED_LABELS]
@@ -38,8 +42,6 @@ def _task_fields(v: Valid, task: dict) -> dict:
             fields["due_datetime"] = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
             fields["due_date"] = v.due_date.isoformat()
-    if v.deadline_date is not None:
-        fields["deadline_date"] = v.deadline_date.isoformat()
     return fields
 
 
@@ -145,19 +147,30 @@ class Applier:
             self._project_ids[name] = self.todoist.project_id_by_name(name)
         return self._project_ids[name]
 
+    # Fields that are refinements, never worth losing the whole task over: if
+    # Todoist rejects the write with a 4xx (plan limits, format quirks), drop
+    # the offending group and retry once. The value is not lost — it gets a
+    # line in the description too, so it stays visible to the owner.
+    _DROPPABLE_FIELDS: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("duration", "duration_unit"), "odhad délky Todoist odmítl"),
+    )
+
     def _update_task(self, tid: str, v: Valid, task: dict) -> None:
         fields = _task_fields(v, task)
         try:
             self.todoist.update_task(tid, fields)
         except TodoistError as e:
-            # Duration is an estimate, never worth losing the task over: if
-            # Todoist rejects it (e.g. no due date), write everything else.
-            if "duration" not in fields or "-> 400" not in str(e):
+            if "-> 4" not in str(e):
                 raise
-            fields.pop("duration")
-            fields.pop("duration_unit")
-            v.notes.append("odhad délky Todoist odmítl")
-            self.todoist.update_task(tid, fields)
+            for names, note in self._DROPPABLE_FIELDS:
+                if any(n in fields for n in names):
+                    for n in names:
+                        fields.pop(n, None)
+                    v.notes.append(note)
+                    fields["description"] = f"{fields['description']}\n{note}"
+                    self.todoist.update_task(tid, fields)
+                    return
+            raise
 
     def _step(self, task_id: str, step: str, fn) -> None:
         if self.store.step_done(task_id, step):
@@ -215,3 +228,12 @@ class Applier:
     def mark_unknown(self, task_id: str, reason: str) -> None:
         self._step(task_id, "todoist_comment_unknown",
                    lambda: self.todoist.add_comment(task_id, f"❓ {reason}"))
+
+    def mark_apply_quarantine(self, task_id: str, reason: str, task: dict) -> None:
+        """After config.APPLY_QUARANTINE_ATTEMPTS failed writes: stop retrying every
+        minute, tag it for manual triage, leave it open in the Inbox unchanged."""
+        labels = list(dict.fromkeys([*(task.get("labels") or []), config.QUARANTINE_LABEL]))
+        self._step(task_id, "todoist_label_quarantine",
+                   lambda: self.todoist.update_task(task_id, {"labels": labels}))
+        self._step(task_id, "todoist_comment_quarantine",
+                   lambda: self.todoist.add_comment(task_id, f"❓ Watcher: {reason}"))

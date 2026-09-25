@@ -28,8 +28,6 @@ log = logging.getLogger("h2iw")
 
 Classifier = Callable[[str, str, datetime], ClassifyResult]
 
-APPLY_GIVE_UP_ATTEMPTS = 10
-
 
 @dataclass
 class Report:
@@ -66,6 +64,20 @@ class Runner:
             self._status(tid, "UNKNOWN_MARKED", reason)
         short = (task.get("content") or "").strip().replace("\n", " ")[:60]
         report.lines.append(f"❓ {short} — {reason} (zůstává v Doručených)")
+
+    def _apply_quarantine(self, task: dict, reason: str, report: Report) -> None:
+        tid = task["id"]
+        log.info("item %s -> APPLY_QUARANTINED (%s)", tid, reason)
+        if not self.dry:
+            try:
+                self.applier.mark_apply_quarantine(tid, reason, task)
+            except NotInInboxError:
+                self._status(tid, "GONE")
+                return
+            self._status(tid, "APPLY_QUARANTINED", reason)
+        short = (task.get("content") or "").strip().replace("\n", " ")[:60]
+        report.lines.append(
+            f"❓ {short} — Watcher: {reason} (zůstává v Doručených, {config.QUARANTINE_LABEL})")
 
     def _prefilter(self, task: dict) -> str | None:
         content = (task.get("content") or "").strip()
@@ -214,10 +226,13 @@ class Runner:
             self._unknown(task, f"chybí kalendář {e.name}", report)
             return
         except Exception as e:
-            attempts = self.store.bump_attempts(tid)
+            attempts = self.store.bump_apply_attempts(tid)
             log.error("item %s apply error: %s", tid, type(e).__name__)
-            if attempts >= APPLY_GIVE_UP_ATTEMPTS:
-                self._unknown(task, "zápis opakovaně selhal", report)
+            if attempts >= config.APPLY_QUARANTINE_ATTEMPTS:
+                # Stop retrying every minute: one alert, not a repeating one,
+                # and never mistaken in the run-failure streak for the whole
+                # watcher being down (report.errors is deliberately not used).
+                self._apply_quarantine(task, str(e)[:200], report)
             else:
                 self._status(tid, "CLASSIFIED", type(e).__name__)
                 report.errors.append(f"{tid}: apply {type(e).__name__}")
