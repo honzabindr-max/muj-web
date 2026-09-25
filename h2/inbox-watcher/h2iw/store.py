@@ -72,7 +72,8 @@ REDACTED_TITLE = "[šifrováno]"
 # Statuses in which an item still needs work on a later run.
 RESUMABLE = ("RECEIVED", "CLASSIFIED", "FAILED_RETRYABLE", "SKIPPED_CAP")
 # Terminal statuses. An item in one of these is never touched again.
-TERMINAL = ("APPLIED", "UNKNOWN_MARKED", "APPLY_QUARANTINED", "BASELINE", "GONE")
+TERMINAL = ("APPLIED", "UNKNOWN_MARKED", "APPLY_QUARANTINED", "DATE_MISMATCH_MARKED",
+            "BASELINE", "GONE")
 
 
 def utcnow() -> datetime:

@@ -195,7 +195,7 @@ def test_block_creates_task_and_linked_event(env):
     assert env.todoist.calls[0][2]["due_datetime"] == "2026-09-26T08:00:00Z"  # block start
     (cal, _), ev = next(iter(env.gcal.events.items()))
     assert cal == "cal-fokus"
-    assert ev["description"] == "Úkol: https://app.todoist.com/app/task/b"
+    assert ev["description"] == "Úkol: https://app.todoist.com/app/task/b\nDatum odvozeno: so 26. 9."
 
 
 def test_unknown_stays_in_inbox_with_comment(env):
@@ -427,6 +427,33 @@ def test_multi_item_stays_in_inbox_with_split_comment(env):
     assert env.todoist.tasks["m"]["project_id"] == "inbox-1"
 
 
+# --- weekday/date consistency (Planning OS v0.15 §10) -----------------------
+
+def test_date_mismatch_moves_to_planner_with_comment(env):
+    text = "úterý 7. 10. zavolat účetní kvůli DPH"
+    env.clf.by_text[text] = case("task_phone_finance")["mock_output"]
+    env.todoist.add("dm", text)
+    r = _run(env)
+    reason = "den a datum nesedí: úterý 7. 10. → st 7. 10. / úterý 29. 9.?"
+    assert env.todoist.calls == [
+        ("comment", "dm", f"❓ {reason}"),
+        ("move", "dm", "proj-prikazy"),
+    ]
+    t = env.todoist.tasks["dm"]
+    assert t["project_id"] == "proj-prikazy" and t["content"] == text  # never touched
+    assert r.lines == [f"❓ {text} — {reason} (→ {config.COMMANDS_PROJECT_NAME})"]
+    assert env.store.get("dm")["status"] == "DATE_MISMATCH_MARKED"
+
+
+def test_date_mismatch_is_not_reclassified(env):
+    text = "úterý 7. 10. zavolat účetní kvůli DPH"
+    env.clf.by_text[text] = case("task_phone_finance")["mock_output"]
+    env.todoist.add("dm", text)
+    _run(env)
+    _run(env)
+    assert env.clf.calls == 1
+
+
 # --- COMMAND ---------------------------------------------------------------
 
 def test_command_is_recorded_and_moved_open_and_unchanged(env):
@@ -649,7 +676,10 @@ def test_all_day_life_event_busy_without_popup_but_pinned_line(env):
     # single-day povinnost event — every other life stays silent.
     assert ev["start"] == {"dateTime": "2026-09-28T08:00:00+02:00", "timeZone": "Europe/Prague"}
     assert ev["reminders"]["overrides"] == []
-    assert ev["description"] == "📌 pevné\n🗓️ celý den\nZ Todoist Doručených: v pondělí jedu se Sašenkou na houby"
+    assert ev["description"] == (
+        "📌 pevné\n🗓️ celý den\nZ Todoist Doručených: v pondělí jedu se Sašenkou na houby"
+        "\nDatum odvozeno: po 28. 9."
+    )
     assert r.lines[0].startswith("🩷 H2 · Lidé · ")
 
 
