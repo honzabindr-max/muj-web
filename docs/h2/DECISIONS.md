@@ -221,3 +221,54 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
   - **Eval přes Message Batches API** (50 %): režimy `--changed` (jen případy změněné proti `origin/main`), `--full` (celá sada, jen před nasazením), `--ids`; jeden synchronní dotaz napřed zapíše cache. Každé hlášení uvádí cenu kola ze skutečného usage (vstup, cache zápis, cache čtení, výstup, batch sleva) a srovnání „bez cache a batche".
   - Ověřovací malé kolo (5 případů): batch dotazy cache jen zapisovaly (0 čtení) → 0,0140 USD. **Plné kolo (96): 96/96, 95 batch dotazů všechny četly cache, 0,0625 USD (bez cache a batche 0,5033 USD).**
   - **Proč hlášení uváděla ~1,4 USD místo ~4,5 USD z Console:** cena každého jednotlivého kola byla spočtená správně (sedí se ceníkem Haiku 4.5 1/5 USD za MTok), ale souhrn „všechna kola dnes dohromady asi 1,4 USD" v hlášení k v8 byl **chybný součet** — nesečetl jsem všechna kola. Skutečný součet 16 celých kol evalu 23. 9. = **4,13 USD** (+ přerušené kolo v9 32 volání + provoz ~0,06 USD), vstup ~3,7 M tokenů, ~1 000 volání (Console: ~3,87 M, ~840 volání — rozdíl v počtu volání nedokážu z dostupných dat doložit, pravděpodobně jiná hranice dne v Console). Příčina výše: každá změna spouštěla plné kolo rostoucí sady (20 → 92 případů) za plnou cenu a bez cache. Nápravou je `--changed` + batch + cache.
+
+---
+
+### DEC-010
+
+- **Datum:** 2026-09-29
+- **Slice:** kontext/bootstrap řízení H2 (ne BUILD blok, ne H2-IW) — „Linking Your AI / AI OS — delta review v2"
+- **Co je nejasné:** GPT rozhodovací brána prošla širším architektonickým návrhem (propojení H2 Buddy identity/profilu napříč nástroji, run-envelope H2↔H2-IW, skill metadata, cost/router vrstva, bootstrap kontext pro nové sessions) a rozhodla, co se implementuje teď, co zůstává jen smluvní/dokumentační kontrakt, co se zamítá a co se odkládá. Tento zápis eviduje výsledek brány, ne novou nejasnost k řešení Code.
+- **Rozhodnutí (výstup GPT gate, 2026-09-29):**
+  - **ACCEPT NOW** (implementuje se v rámci téhle a navazujících dávek):
+    1. cost modes + pre-call enforcement (vynucení nákladového režimu PŘED voláním modelu, ne jen po něm),
+    2. deterministický Janitor (bez LLM) nad bootstrap soubory,
+    3. bootstrap cleanup (rozdělení `docs/h2/BUILD-STATUS.md` na aktuální snapshot + historii, authority map),
+    4. owner-scoped šifrovaný profil v Neon `h2-runtime` (ne nová služba, ne soubor v repu),
+    5. sensitivity defaults + override (výchozí citlivost dat per pole/typ, s možností explicitního přepsání),
+    6. router jen nad certifikovanými páry `prompt_version × model_id` (žádné směrování na necertifikovanou kombinaci),
+    7. lehká metadata skillů (popisná, ne nový runtime mechanismus),
+    8. Planning Validator v1.
+  - **CONTRACT-ONLY** (jen dokumentační/smluvní tvar, žádná implementace teď):
+    1. sdílená run envelope H2 ↔ H2-IW (společný tvar zápisu běhu mezi Buddym a Inbox Watcherem — zapsat kontrakt, nestavět kód),
+    2. „šest rovin" architektury — jen jako dokumentační mapa, ne jako kód nebo schema.
+  - **REJECT** (zamítnuto, nestaví se):
+    1. reálný `me.md` v repu (osobní profil jako soubor v gitu — proti Secret Handling/osobní data),
+    2. `~/.h2/private` (mimo-repo osobní úložiště mimo H2 architekturu),
+    3. nová samostatná profile služba,
+    4. restrukturalizace repa na `apps/` + `packages/` (rozpor s [DEC-001](#dec-001) — H2, H2-IW i web už jsou v jednom repu, `muj-web`; nejde o slučování repozitářů),
+    5. `INVARIANTS.md` (duplicitní soubor vedle Notion invariantů — riziko rozjetí dvou zdrojů pravdy),
+    6. sjednocení runtime H2 + H2-IW (zůstávají oddělené — H2-IW je pilotní nástroj na VPS, ne cílová architektura),
+    7. routing podle jména vendora (model routing musí jít přes certifikované `prompt_version × model_id` páry, ne přes vendor string),
+    8. LLM intent klasifikátor na každém vstupu (náklad + I7.6/I7.7 riziko — kontrolní commandy zůstávají deterministické),
+    9. univerzální schéma atomů (příliš obecné, žádný konkrétní use case ho dnes vyžaduje).
+  - **DEFER** (odloženo, ne zamítnuto — budoucí Honzíkovo produktové rozhodnutí):
+    1. Daily Brief,
+    2. energy constraints,
+    3. AI curator.
+- **Dopad na I1–I8:** žádný přímý — jde o řízení kontextu/bootstrapu a rozsahu budoucí práce, ne o změnu H2 Buddy runtime chování. ACCEPT NOW položky 1 a 6 (cost modes, certifikovaný router) se dotknou BUILD-07/BUILD-10 rozhraní, až se budou implementovat — samostatný budoucí zápis, pokud vznikne nejasnost.
+- **Kdo rozhodl:** GPT gate + Honzík. Fakta o repu (existující soubory, cesty, stav BUILD-STATUS.md) ověřil Code přímo proti repozitáři před zápisem, ne převzetím z promptu.
+
+## Authority map
+
+Kategorie → právě jedna autorita. Pravidlo při rozporu: vyhrává Notion Locked Architecture / Technical Architecture v1.2. Zápis v DECISIONS.md (DEC-XXX) se od ní smí odchýlit jen výslovně, s citací konkrétního §, po adversarial review (vzor: DEC-007 §8.1, DEC-008 §4.2) — nikdy tichou implementací. Bootstrap soubory (CLAUDE.md, AGENTS.md, BUILD-STATUS.md) nejsou autorita pro nic v tabulce níže, jen na ni ukazují.
+
+| Kategorie | Autorita | Poznámka |
+|---|---|---|
+| Invarianty I1–I8, Locked Architecture, Product Spec | Notion (uzamčené dokumenty — *H2 BUDDY Complete Product Specification v1.0*, *H2 Buddy Technical Architecture v1.2*) | Tento repozitář je nesmí zmenšovat ani znovu otevírat. |
+| Rozhodnutí (DEC-XXX) a I7.x sub-invarianty | `docs/h2/DECISIONS.md` (tento soubor) | Vzniká, jen když nejasnost implementace hrozí změnou I1–I8/Product Spec/Locked Architecture. |
+| Runtime schéma (tabulky, sloupce, constraints) | `h2/db/migrations/*.sql`, ověřené přímým dotazem na `_h2_migrations` proti Neon | Existence souboru migrace ≠ aplikováno — viz Pravidlo 5 v BUILD-STATUS historii. |
+| Certifikace promptů (který `prompt_version × model_id` je aktivní) | `prompt_versions` + `prompt_test_runs` (přímý SELECT proti production `h2-runtime`) | Nikdy tvrzení bez SELECTu. |
+| Profil (owner-scoped šifrovaná data, DEC-010 ACCEPT NOW bod 4) | budoucí profil tabulky v Neon `h2-runtime`, až vzniknou (migrace) | Ne soubor v repu, ne `~/.h2/private` (DEC-010 REJECT). |
+| Bootstrap (pořadí čtení na startu session) | `CLAUDE.md` (root) — jen jako pointer sem, ne jako vlastní zdroj faktů | Viz sekce „H2 bootstrap" v `CLAUDE.md`. |
+| Stav stavby (BUILD-01..28, M1 gate) | `docs/h2/BUILD-STATUS.md` (aktuální snapshot) + `docs/h2/history/build/` (historie, needituje se) | Historie se nezkracuje ani nepřepisuje, jen přesouvá. |

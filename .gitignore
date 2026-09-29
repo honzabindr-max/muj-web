@@ -56,3 +56,7 @@ crawler_state_emergency_*.json
 # sam-byt — vygenerovaná hesla a migrátorské connection stringy nikdy do gitu
 SAM_BYT_CREDENTIALS*.local.txt
 .env.migrate.sam-byt.*
+
+# H2 BUILD-STATUS historie — globální ~/.gitignore_global ignoruje libovolný
+# adresář jménem "build/" (JS build output); tenhle je dokumentační archiv.
+!docs/h2/history/build/
