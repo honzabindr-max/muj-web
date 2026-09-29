@@ -4,7 +4,7 @@
 - **Doména:** good-inventions.work
 - **Stack:** Next.js (App Router) + TypeScript
 - **Hosting:** Vercel (deploy z `main`, auto)
-- **Repo:** honzabindr-max/muj-web-next
+- **Repo:** honzabindr-max/muj-web
 - **DNS:** Cloudflare + Wedos
 
 ## Struktura
@@ -67,3 +67,10 @@ Pravidlo: každý model končí explicitní instrukcí kam výstup předat — e
 3. Kdyz povinny dukaz nejde vyrobit: STOP, vrat BLOCKED + seznam chybejicich dukazu. Nenahrazuj raw output shrnutim. Neoznacuj DONE.
 4. Zadne vyjimky ("jen mala zmena") bez explicitniho GO.
 5. Deterministicke kontroly (secret scan, lint, pytest, diff/format, redundant reads) resi hooky, ne subagent.
+
+## H2 bootstrap
+Pořadí autority (při rozporu vyhrává vlevo): Notion Technical Architecture v1.2 (uzamčeno) → `docs/h2/DECISIONS.md` (+ authority map tam) → `h2/db/migrations/*.sql` (ověřené proti Neon) → `docs/h2/BUILD-STATUS.md` (aktuální snapshot) → `docs/h2/BUILD-XX-PLAN.md` (rozpracovaný slice).
+Osobní data nikdy v repu (žádný `me.md`, žádný profil jako soubor — DEC-010 REJECT).
+Agent na H2 slice dostává jen role-specific kontext pro daný blok, ne celou historii.
+Historie (`docs/h2/history/`) se čte jen na vyžádání — evidence bloky, staré PR odkazy, plné znění starých Pravidel.
+**Supabase gotcha výš v tomhle souboru (REST API 1000řádkový cap) se nemaže** — Janitor ji nahlásí jako WARNING (výskyt „supabase"), není to chyba bootstrapu.
