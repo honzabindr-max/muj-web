@@ -17,6 +17,7 @@
     "db:migrate:neon:control:preview": "tsx h2/db/scripts/migrate-neon-control.ts preview",
     "db:migrate:neon:control:production": "tsx h2/db/scripts/migrate-neon-control.ts production",
     "db:check:neon:roles": "tsx h2/db/scripts/check-neon-roles.ts",
+    "h2:janitor": "tsx h2/build-governance/run-context-janitor.ts",
     "fetch:routes": "node scripts/fetch-soci-routes.mjs",
     "fetch:photos": "node scripts/fetch-soci-photos.mjs"
   },
