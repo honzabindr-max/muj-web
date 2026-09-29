@@ -246,7 +246,7 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
     1. reálný `me.md` v repu (osobní profil jako soubor v gitu — proti Secret Handling/osobní data),
     2. `~/.h2/private` (mimo-repo osobní úložiště mimo H2 architekturu),
     3. nová samostatná profile služba,
-    4. monorepo (sloučení H2/H2-IW/muj-web do jednoho repa),
+    4. restrukturalizace repa na `apps/` + `packages/` (rozpor s [DEC-001](#dec-001) — H2, H2-IW i web už jsou v jednom repu, `muj-web`; nejde o slučování repozitářů),
     5. `INVARIANTS.md` (duplicitní soubor vedle Notion invariantů — riziko rozjetí dvou zdrojů pravdy),
     6. sjednocení runtime H2 + H2-IW (zůstávají oddělené — H2-IW je pilotní nástroj na VPS, ne cílová architektura),
     7. routing podle jména vendora (model routing musí jít přes certifikované `prompt_version × model_id` páry, ne přes vendor string),
@@ -261,7 +261,7 @@ Zápis vzniká, kdykoli nejasnost implementace hrozí změnou Product Spec, inva
 
 ## Authority map
 
-Kategorie → autorita. Při rozporu vyhrává autorita vlevo dole (specifičtější), ne bootstrap soubor.
+Kategorie → právě jedna autorita. Pravidlo při rozporu: vyhrává Notion Locked Architecture / Technical Architecture v1.2. Zápis v DECISIONS.md (DEC-XXX) se od ní smí odchýlit jen výslovně, s citací konkrétního §, po adversarial review (vzor: DEC-007 §8.1, DEC-008 §4.2) — nikdy tichou implementací. Bootstrap soubory (CLAUDE.md, AGENTS.md, BUILD-STATUS.md) nejsou autorita pro nic v tabulce níže, jen na ni ukazují.
 
 | Kategorie | Autorita | Poznámka |
 |---|---|---|

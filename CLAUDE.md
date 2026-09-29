@@ -69,7 +69,7 @@ Pravidlo: každý model končí explicitní instrukcí kam výstup předat — e
 5. Deterministicke kontroly (secret scan, lint, pytest, diff/format, redundant reads) resi hooky, ne subagent.
 
 ## H2 bootstrap
-Pořadí autority (při rozporu vyhrává vlevo): Notion Technical Architecture v1.2 (uzamčeno) → `docs/h2/DECISIONS.md` (+ authority map tam) → migrace v `h2/db/migrations/` (ověřené proti Neon) → `docs/h2/BUILD-STATUS.md` (aktuální snapshot) → PLAN soubor rozpracovaného slice (`docs/h2/`).
+Pořadí autority a pravidlo při rozporu: `docs/h2/DECISIONS.md#authority-map`. Nová session: přečti `docs/h2/BUILD-STATUS.md` + `docs/h2/DECISIONS.md`, ne tenhle soubor.
 Osobní data nikdy v repu (žádný `me.md`, žádný profil jako soubor — DEC-010 REJECT).
 Agent na H2 slice dostává jen role-specific kontext pro daný blok, ne celou historii.
 Historie (`docs/h2/history/`) se čte jen na vyžádání — evidence bloky, staré PR odkazy, plné znění starých Pravidel.
