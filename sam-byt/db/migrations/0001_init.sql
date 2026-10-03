@@ -1,7 +1,7 @@
 -- SAM-BYT — 0001_init
 -- Izolovaná databáze jen pro /sam-byt (viz zadání bod 1.1). Dva pevné
 -- účty (sam, honzik), stav rozhodování per (listing_id, user_id) a
--- historie změn. Katalog bytů (11 sam-XX) NENÍ v DB — čte se ze
+-- historie změn. Katalog bytů NENÍ v DB — čte se ze
 -- statického data/sam-byt/listings.json, tahle DB drží jen uživatelský stav.
 
 create table sam_byt_users (
@@ -38,7 +38,7 @@ create index sam_byt_login_attempts_username_idx on sam_byt_login_attempts (user
 create index sam_byt_login_attempts_ip_idx on sam_byt_login_attempts (ip, attempted_at);
 
 -- listing_id není FK (katalog je statický JSON, ne tabulka) — validuje se
--- v aplikaci proti seznamu sam-01..sam-11 před každým zápisem.
+-- v aplikaci proti aktuálnímu aktivnímu katalogu před každým zápisem.
 create table sam_byt_user_listing_state (
   user_id uuid not null references sam_byt_users (id) on delete cascade,
   listing_id text not null check (listing_id ~ '^sam-(0[1-9]|1[01])$'),

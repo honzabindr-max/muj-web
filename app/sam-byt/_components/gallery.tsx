@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ImageWithFallback } from "./image-with-fallback";
 
 /**
- * 7 z 11 bytů má jedinou fotku (bod 2.3 zadání) — lightbox se šipkami se
+ * Lightbox se šipkami se
  * zobrazí jen když má víc než jeden obrázek, jinak jen jedna fotka bez
  * prázdné galerie.
  */

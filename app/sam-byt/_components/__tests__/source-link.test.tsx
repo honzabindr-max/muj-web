@@ -24,7 +24,7 @@ const noopState: ListingState = {
   updatedAt: new Date(0).toISOString(),
 };
 
-describe("odkaz na původní inzerát — všech 11 karet a detailů (zadání)", () => {
+describe("odkaz na původní inzerát — všech 13 aktivních karet a detailů (zadání)", () => {
   beforeAll(() => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("no network in test"))));
   });

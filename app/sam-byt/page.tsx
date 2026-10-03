@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { getServerSessionUser } from "@/sam-byt/auth/server-session";
-import { getAllListings } from "@/sam-byt/data/listings";
+import { getAllListings, getArchivedListings } from "@/sam-byt/data/listings";
 
 import { AppShell } from "./_components/app-shell";
 import { LoginForm } from "./_components/login-form";
@@ -19,5 +19,12 @@ export default async function SamBytPage() {
   if (!sessionUser) {
     return <LoginForm />;
   }
-  return <AppShell listings={getAllListings()} username={sessionUser.username} displayName={sessionUser.displayName} />;
+  return (
+    <AppShell
+      listings={getAllListings()}
+      archivedListings={getArchivedListings()}
+      username={sessionUser.username}
+      displayName={sessionUser.displayName}
+    />
+  );
 }

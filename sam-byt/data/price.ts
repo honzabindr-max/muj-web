@@ -20,7 +20,7 @@ export function formatMonthlyPriceRange(listing: Listing): string {
   return `${czk.format(known_min_czk)}–${czk.format(known_max_czk)} Kč`;
 }
 
-/** "známé náklady; další platby k ověření" pro všechny kromě sam-11. */
+/** "známé náklady; další platby k ověření" pro všechny nekompletní ceny. */
 export function priceCompletenessNote(listing: Listing): string {
   if (listing.display_monthly_price.is_complete) {
     return "Úplná známá cena.";
@@ -35,7 +35,7 @@ export function formatRent(listing: Listing): string {
 
 /**
  * Malé číslo pod nájmem: "celkem 24 000 Kč vč. záloh" (u sam-05 jako
- * rozsah, u sam-11 s dovětkem "pro 2 osoby"). Zdroj pořád display_monthly_price,
+ * rozsah). Zdroj pořád display_monthly_price,
  * nikdy known_monthly_total_czk.
  */
 export function formatTotalCostsLabel(listing: Listing): string {
@@ -44,14 +44,13 @@ export function formatTotalCostsLabel(listing: Listing): string {
     known_min_czk === known_max_czk
       ? formatCzk(known_min_czk)
       : `${czk.format(known_min_czk)}–${czk.format(known_max_czk)} Kč`;
-  const forTwo = listing.id === "sam-11" ? " pro 2 osoby" : "";
-  return `celkem ${amount} vč. záloh${forTwo}`;
+  return `celkem ${amount} vč. záloh`;
 }
 
 /**
  * Kč/m² pro řazení a zobrazení. Pokud zdroj dodává rozsah přímo
  * (price_per_m2_from/to_czk, např. sam-05), použije se ten. Jinak se
- * dopočítá ze známé ceny a plochy. Bez plochy vrací null (sam-11) — nikdy
+ * dopočítá ze známé ceny a plochy. Bez plochy vrací null — nikdy
  * se nedomýšlí.
  */
 export function computePricePerM2(listing: Listing): { fromCzk: number; toCzk: number } | null {
@@ -78,7 +77,7 @@ export function formatPricePerM2(listing: Listing): string {
 }
 
 /**
- * Řadicí hodnota pro výchozí řazení "Kč/m² ↑". Byty bez plochy (sam-11)
+ * Řadicí hodnota pro výchozí řazení "Kč/m² ↑". Byty bez plochy
  * jdou vždy až na konec — Infinity, ne 0/null, aby sort byl deterministický.
  */
 export function sortPricePerM2Value(listing: Listing): number {

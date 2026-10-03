@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { defaultState } from "@/sam-byt/state/default-state";
-import type { Listing, ListingId, Username } from "@/sam-byt/types";
+import type { ArchivedListing, Listing, ListingId, Username } from "@/sam-byt/types";
 
 import { applyFilters, emptyFilters, sortListings, type Filters, type SortKey } from "@/app/sam-byt/_lib/filters";
 import { useSamBytState } from "@/app/sam-byt/_lib/use-sam-byt-state";
@@ -18,10 +18,12 @@ const MAX_COMPARE = 4;
 
 export function AppShell({
   listings,
+  archivedListings,
   username,
   displayName,
 }: {
   listings: Listing[];
+  archivedListings: ArchivedListing[];
   username: Username;
   displayName: string;
 }) {
@@ -31,6 +33,7 @@ export function AppShell({
   const [sortKey, setSortKey] = useState<SortKey>("price_per_m2_asc");
   const [compareIds, setCompareIds] = useState<ListingId[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   const stateFor = useMemo(() => {
     return (listingId: string) => data?.own[listingId] ?? defaultState("", username, listingId as ListingId);
@@ -90,6 +93,7 @@ export function AppShell({
         resultCount={sorted.length}
       />
 
+      <h2 className="text-lg font-bold text-zinc-950">Aktivní nabídky</h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {sorted.map((listing) => (
           <ListingCard
@@ -105,6 +109,41 @@ export function AppShell({
       </div>
 
       {username === "honzik" && data?.sam && <SamuvVyber listings={listings} samState={data.sam} />}
+
+      <section>
+        <button
+          type="button"
+          onClick={() => setShowArchived((v) => !v)}
+          className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-600"
+        >
+          {showArchived ? "Skrýt archivované" : `Zobrazit archivované (${archivedListings.length})`}
+        </button>
+
+        {showArchived && (
+          <div className="mt-3">
+            <h2 className="text-lg font-bold text-zinc-600">Archivované nabídky</h2>
+            <p className="mt-1 text-xs font-medium text-zinc-500">
+              Vyřazené z aktivního výběru — historický stav (favorit, poznámky, rozhodnutí) zůstává zachovaný, ale
+              nejde dál upravovat a nejde zařadit do porovnání.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {archivedListings.map((listing) => (
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  state={stateFor(listing.id)}
+                  onMutate={mutate}
+                  onToggleCompare={toggleCompare}
+                  compareChecked={false}
+                  compareDisabled
+                  archived
+                  archiveReason={listing.archive_status}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       {compareOpen && compareListings.length >= 2 && (
         <CompareDrawer listings={compareListings} statesFor={stateFor} onClose={() => setCompareOpen(false)} />

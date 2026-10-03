@@ -137,7 +137,7 @@ export function DetailView({ listing, username }: { listing: Listing; username: 
         )}
         {listing.pets_conditions && <p className="mt-2 text-sm text-zinc-600">{listing.pets_conditions}</p>}
         <p className="mt-2 text-xs font-medium text-zinc-600">
-          Souhlas se psem nelze potvrdit bez kontaktu s majitelem — žádný z 11 bytů dnes nemá konkrétního
+          Souhlas se psem nelze potvrdit bez kontaktu s majitelem — žádný z 13 aktivních bytů dnes nemá konkrétního
           australského ovčáka výslovně schváleného.
         </p>
       </section>

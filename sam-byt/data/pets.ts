@@ -4,8 +4,8 @@ const FORBIDDEN_PATTERN = /zakázán|nepovolen|bez zvířat|bez psů/i;
 const AGREED_PATTERN = /dohod/i;
 
 /**
- * Čtyři stavy z bodu 2.1: Po dohodě / Neuvedeno, ověřit / Výslovně
- * schválen konkrétní pes / Zakázáno. Žádný z 11 bytů dnes nemá
+ * Čtyři stavy z bodu 2.1: Povoleno / Po dohodě / Nutno ověřit / Zakázáno.
+ * Žádný z aktivních bytů dnes nemá
  * australian_shepherd_explicitly_approved=true, filtr ale musí kategorii
  * umět zobrazit, kdyby přibyla.
  */
@@ -20,7 +20,7 @@ export function petCategory(listing: Listing): PetCategory {
 
 export const PET_CATEGORY_LABELS: Record<PetCategory, string> = {
   po_dohode: "Po dohodě",
-  neuvedeno: "Neuvedeno, ověřit",
-  schvaleno: "Výslovně schválen konkrétní pes",
+  neuvedeno: "Nutno ověřit",
+  schvaleno: "Povoleno",
   zakazano: "Zakázáno",
 };

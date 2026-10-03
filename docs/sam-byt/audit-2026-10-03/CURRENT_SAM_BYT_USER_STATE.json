@@ -1,0 +1,347 @@
+{
+  "status": "PENDING_LOCAL_EXPORT",
+  "why": "Uživatelský stav existuje jen v produkční Neon DB (SAM_BYT_DATABASE_URL). Cloud session auditu k ní nemá credentials ani síťový přístup. Hodnoty obsahují osobní poznámky Sama/Honzíka → plný export se do gitu NEcommituje (pravidlo: osobní data nikdy v repu).",
+  "how_to_fill": "npx tsx sam-byt/audit/export-state-readonly.ts production  →  CURRENT_SAM_BYT_USER_STATE.local.json (gitignored). Agregované počty (bez poznámek) vlož do SAM_BYT_AUDIT_REPORT.md.",
+  "persistence": {
+    "storage": "Neon Postgres, tabulka sam_byt_user_listing_state (PK user_id+listing_id) + sam_byt_decision_events (append-only historie)",
+    "client_storage": "žádné (localStorage/sessionStorage se v /sam-byt nepoužívá)",
+    "key": "listing_id = internal_id z CURRENT_SAM_BYT_CATALOG.json"
+  },
+  "schema": {
+    "per_user_fields": {
+      "favorite": "boolean, default false",
+      "decision": "text: unreviewed|favorite|maybe|want_viewing|reject, default unreviewed (want_viewing = Samovo „chci na prohlídku“)",
+      "notes": "text ≤2000, default ",
+      "rating_price": "1–5|null",
+      "rating_pet": "1–5|null",
+      "rating_location": "1–5|null",
+      "rating_balcony": "1–5|null",
+      "rating_furnishing": "1–5|null",
+      "version": "int (optimistic concurrency)",
+      "updated_at": "timestamptz"
+    },
+    "constraints": [
+      "listing_id CHECK ^sam-(0[1-9]|1[01])$",
+      "NOT (favorite AND decision=reject)",
+      "user_id FK → sam_byt_users ON DELETE CASCADE"
+    ],
+    "users": "sam_byt_users: username ∈ {sam, honzik}; user_id = uuid",
+    "history": "sam_byt_decision_events: id, user_id, listing_id, field, old_value, new_value, created_at — zapisuje se v téže transakci jako změna stavu",
+    "absent_row_means": "Řádek chybí = uživatel byt nikdy neupravil = výchozí stav (unreviewed, bez poznámky). Není to ztráta dat."
+  },
+  "visibility": {
+    "sam": "vidí jen svůj stav",
+    "honzik": "vidí svůj + Samův stav a posledních 100 událostí historie (/api/sam-byt/events)"
+  },
+  "by_listing": {
+    "sam-01": {
+      "title": "Foltýnova, Brno-Bystrc – 2+1, 75 m²",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-02": {
+      "title": "Opálkova, Brno-Bystrc – 2+1, 68 m²",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-03": {
+      "title": "Běly Pažoutové, Brno-Komín – 2+1, 55 m²",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-04": {
+      "title": "Laštůvkova, Brno-Bystrc – 2+1, 61 m²",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-05": {
+      "title": "Habřinova, Brno-Komín – 2+1, 60 m²",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-06": {
+      "title": "Vondrákova, Brno-Bystrc – 2+1, 60 m² (6. podlaží)",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-07": {
+      "title": "Dubová, Brno-Jundrov – 2+1, 56 m²",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-08": {
+      "title": "Jasanová, Brno-Jundrov – 2+1, 58 m² (8. NP, 22 800 Kč)",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-09": {
+      "title": "Jasanová, Brno-Jundrov – 2+1, 58 m² (1. podlaží, 22 900 Kč)",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-10": {
+      "title": "Vondrákova, Brno-Bystrc – 2+1, 50 m² (1. podlaží, bez výtahu)",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    },
+    "sam-11": {
+      "title": "Brno-Bystrc – 2+1, 21 500 Kč celkem (bez RK)",
+      "sam": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "honzik": {
+        "favorite": "PENDING_LOCAL_EXPORT",
+        "decision": "PENDING_LOCAL_EXPORT",
+        "notes": "PENDING_LOCAL_EXPORT",
+        "rating_price": "PENDING_LOCAL_EXPORT",
+        "rating_pet": "PENDING_LOCAL_EXPORT",
+        "rating_location": "PENDING_LOCAL_EXPORT",
+        "rating_balcony": "PENDING_LOCAL_EXPORT",
+        "rating_furnishing": "PENDING_LOCAL_EXPORT",
+        "version": "PENDING_LOCAL_EXPORT",
+        "updated_at": "PENDING_LOCAL_EXPORT"
+      },
+      "events_count": "PENDING_LOCAL_EXPORT"
+    }
+  },
+  "decision_events": "PENDING_LOCAL_EXPORT"
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Fotky v původním inzerátu</title>
+  <desc id="desc">Neutrální placeholder pro byt bez převzatých fotografií.</desc>
+  <rect width="1200" height="800" fill="#f4f4f5"/>
+  <rect x="180" y="250" width="840" height="390" rx="28" fill="#ffffff" stroke="#d4d4d8" stroke-width="12"/>
+  <path d="M300 630V395L600 180l300 215v235" fill="none" stroke="#71717a" stroke-width="32" stroke-linejoin="round"/>
+  <path d="M470 630V465h260v165" fill="none" stroke="#71717a" stroke-width="28" stroke-linejoin="round"/>
+  <path d="M360 390h480" fill="none" stroke="#a1a1aa" stroke-width="24" stroke-linecap="round"/>
+  <text x="600" y="720" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#3f3f46">
+    Fotky v původním inzerátu
+  </text>
+</svg>

@@ -8,14 +8,14 @@ describe("pes — čtyři stavy (zadání bod 2.1)", () => {
     expect(petCategory(getListingById("sam-06")!)).toBe("po_dohode");
   });
 
-  it("ostatních 10 bytů je 'neuvedeno, ověřit'", () => {
-    for (const id of ["sam-01", "sam-02", "sam-03", "sam-04", "sam-05", "sam-07", "sam-08", "sam-09", "sam-10", "sam-11"]) {
+  it("ostatních 12 aktivních bytů je 'neuvedeno, ověřit'", () => {
+    for (const id of ["sam-01", "sam-03", "sam-04", "sam-05", "sam-07", "sam-08", "sam-09", "sam-10", "sam-12", "sam-13", "sam-14", "sam-15"] as const) {
       expect(petCategory(getListingById(id)!)).toBe("neuvedeno");
     }
   });
 
   it("žádný byt dnes není 'výslovně schválen'", () => {
-    for (const id of ["sam-01", "sam-02", "sam-03", "sam-04", "sam-05", "sam-06", "sam-07", "sam-08", "sam-09", "sam-10", "sam-11"]) {
+    for (const id of ["sam-01", "sam-03", "sam-04", "sam-05", "sam-06", "sam-07", "sam-08", "sam-09", "sam-10", "sam-12", "sam-13", "sam-14", "sam-15"] as const) {
       expect(petCategory(getListingById(id)!)).not.toBe("schvaleno");
     }
   });
