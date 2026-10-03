@@ -9,7 +9,11 @@ export type ListingId =
   | "sam-08"
   | "sam-09"
   | "sam-10"
-  | "sam-11";
+  | "sam-11"
+  | "sam-12"
+  | "sam-13"
+  | "sam-14"
+  | "sam-15";
 
 export interface DisplayMonthlyPrice {
   known_min_czk: number;
@@ -79,7 +83,7 @@ export interface Listing {
   facts_to_verify: string[];
   source_url: string;
   source_name: string;
-  district: "Brno-Bystrc" | "Brno-Komín" | "Brno-Jundrov" | string;
+  district: "Brno-Bystrc" | "Brno-Komín" | "Brno-Jundrov" | "Brno-Žabovřesky" | string;
   street: string | null;
   house_number: string | null;
   disposition: string;
@@ -102,6 +106,12 @@ export interface Listing {
   image_url_main_validated_live: boolean;
   source_data_checked_at: string;
   display_price_per_m2_is_final: boolean;
+}
+
+/** Vyřazený byt — stejný tvar jako Listing, navíc důvod a čas archivace. */
+export interface ArchivedListing extends Listing {
+  archive_status: string;
+  archived_at: string;
 }
 
 export type Username = "sam" | "honzik";

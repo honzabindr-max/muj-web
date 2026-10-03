@@ -20,11 +20,12 @@ describe("cenová logika (zadání bod 5)", () => {
     expect(Math.round(perM2.toCzk)).toBe(415);
   });
 
-  it("sam-11 nemá Kč/m² (chybí ulice i plocha)", () => {
-    const sam11 = getListingById("sam-11")!;
-    expect(computePricePerM2(sam11)).toBeNull();
-    expect(formatPricePerM2(sam11)).toMatch(/neuvedeno/i);
-    expect(sortPricePerM2Value(sam11)).toBe(Number.POSITIVE_INFINITY);
+  it("sam-13 má kompletní známou cenu 27 062 Kč a vypočítané Kč/m²", () => {
+    const sam13 = getListingById("sam-13")!;
+    expect(sam13.display_monthly_price.is_complete).toBe(true);
+    expect(formatMonthlyPriceRange(sam13).replace(/ /g, " ")).toBe("27 062 Kč");
+    expect(Math.round(computePricePerM2(sam13)!.fromCzk)).toBe(366);
+    expect(formatPricePerM2(sam13)).toMatch(/366/);
   });
 
   it("sam-06 má 26 000 Kč známých měsíčních nákladů", () => {
@@ -44,14 +45,25 @@ describe("cenová logika (zadání bod 5)", () => {
     expect(sam07.discrepancies.some((d) => /21\s*900/.test(d) && /26\s*499/.test(d))).toBe(true);
   });
 
-  it("jen sam-11 má is_complete=true, ostatní hlásí neúplnost v poznámce", () => {
+  it("sam-09 (po cenové korekci) a sam-13 mají is_complete=true, ostatní hlásí neúplnost v poznámce", () => {
     const sam01 = getListingById("sam-01")!;
     expect(sam01.display_monthly_price.is_complete).toBe(false);
+    expect(getAllListings().filter((l) => l.display_monthly_price.is_complete).map((l) => l.id)).toEqual([
+      "sam-09",
+      "sam-13",
+    ]);
   });
 
-  it("výchozí řazení dá sam-11 (bez plochy) vždy za byty s vypočítatelným Kč/m²", () => {
-    const withArea = getListingById("sam-01")!;
-    expect(sortPricePerM2Value(getListingById("sam-11")!)).toBeGreaterThan(sortPricePerM2Value(withArea));
+  it("sam-09 má kompletní známou cenu 27 100 Kč po korekci nájmu na 22 500 Kč", () => {
+    const sam09 = getListingById("sam-09")!;
+    expect(sam09.rent_czk).toBe(22_500);
+    expect(sam09.services_czk).toBe(4_600);
+    expect(sam09.display_monthly_price.is_complete).toBe(true);
+    expect(formatMonthlyPriceRange(sam09).replace(/ /g, " ")).toBe("27 100 Kč");
+  });
+
+  it("výchozí řazení umí spočítat Kč/m² u všech aktivních bytů", () => {
+    expect(getAllListings().every((listing) => Number.isFinite(sortPricePerM2Value(listing)))).toBe(true);
   });
 
   it("velké číslo na kartě je nájem (rent_czk), ne celkové náklady", () => {
@@ -65,17 +77,13 @@ describe("cenová logika (zadání bod 5)", () => {
     expect(label).toBe("celkem 24 400–24 900 Kč vč. záloh");
   });
 
-  it("sam-11 má v celkové částce dovětek 'pro 2 osoby'", () => {
-    const sam11 = getListingById("sam-11")!;
-    expect(formatTotalCostsLabel(sam11)).toMatch(/pro 2 osoby$/);
-  });
-
-  it("10 z 11 bytů (vše kromě sam-11) má viditelné označení neúplnosti u celkové ceny", () => {
-    const incomplete = getAllListings().filter((l) => l.id !== "sam-11");
-    expect(incomplete).toHaveLength(10);
+  it("11 z 13 bytů (vše kromě sam-09 a sam-13) má viditelné označení neúplnosti u celkové ceny", () => {
+    const incomplete = getAllListings().filter((l) => l.id !== "sam-13" && l.id !== "sam-09");
+    expect(incomplete).toHaveLength(11);
     for (const listing of incomplete) {
       expect(priceCompletenessNote(listing)).toMatch(/známé náklady/i);
     }
-    expect(priceCompletenessNote(getListingById("sam-11")!)).toMatch(/úplná/i);
+    expect(priceCompletenessNote(getListingById("sam-13")!)).toMatch(/úplná/i);
+    expect(priceCompletenessNote(getListingById("sam-09")!)).toMatch(/úplná/i);
   });
 });

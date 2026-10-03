@@ -113,4 +113,29 @@ describe("state/repository — serverový zápis, konkurence, historie (zadání
     expect(samState.get("sam-08")?.decision).toBe("want_viewing");
     expect(honzikState.get("sam-08")?.decision).toBe("reject");
   });
+
+  it("DB constraint povoluje nová ID sam-12..sam-15 i archivovaná ID pro historii", async () => {
+    const userId = await insertTestUser(pool, "sam");
+    for (const listingId of ["sam-02", "sam-11", "sam-12", "sam-13", "sam-14", "sam-15"] as const) {
+      const result = await applyStateMutation(pool, userId, "sam", listingId, { notes: `stav ${listingId}` }, 0);
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  it("archivace nemaže favorite/notes/historii — stav pro sam-02 zůstává čitelný po archivaci (zadání archiv bod 5)", async () => {
+    const userId = await insertTestUser(pool, "sam");
+    const favored = await applyStateMutation(pool, userId, "sam", "sam-02", { favorite: true, notes: "líbilo se" }, 0);
+    expect(favored.ok).toBe(true);
+
+    // "reload" — nezávislé čtení po archivaci bytu (katalog je jen JSON, DB řádek se nemaže).
+    const reloaded = await getStatesForUser(pool, userId, "sam");
+    const sam02State = reloaded.get("sam-02");
+    expect(sam02State?.favorite).toBe(true);
+    expect(sam02State?.notes).toBe("líbilo se");
+
+    const events = await getRecentEvents(pool, 10);
+    const sam02Events = events.filter((e) => e.listingId === "sam-02").map((e) => e.field);
+    expect(sam02Events).toContain("favorite");
+    expect(sam02Events).toContain("notes");
+  });
 });
