@@ -60,3 +60,6 @@ SAM_BYT_CREDENTIALS*.local.txt
 # H2 BUILD-STATUS historie — globální ~/.gitignore_global ignoruje libovolný
 # adresář jménem "build/" (JS build output); tenhle je dokumentační archiv.
 !docs/h2/history/build/
+
+# sam-byt audit — plný export uživatelského stavu (osobní poznámky), nikdy do gitu
+CURRENT_SAM_BYT_USER_STATE*.local.json
