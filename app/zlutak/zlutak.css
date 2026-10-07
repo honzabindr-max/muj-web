@@ -22,6 +22,14 @@
   --z-gray-border: #d4d4d8;
   --z-gray-fg: #3f3f46;
 
+  /* Stavy položek (chipy + souhrn) — sytá barva na vlastním pozadí, čitelné
+     v obou motivech prohlížeče, protože nezávisí na barvě okolní stránky. */
+  --z-status-resolved: #16a34a;
+  --z-status-discard: #dc2626;
+  --z-status-sell: #2563eb;
+  --z-status-keep: #d97706;
+  --z-status-someone: #7c3aed;
+
   background: var(--z-bg);
   color: var(--z-fg);
   min-height: 100vh;
@@ -409,9 +417,33 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.z-chip[data-active="true"] {
-  background: #16a34a;
-  border-color: #16a34a;
+.z-chip[data-field="resolved"][data-active="true"] {
+  background: var(--z-status-resolved);
+  border-color: var(--z-status-resolved);
+  color: white;
+}
+
+.z-chip[data-field="discard"][data-active="true"] {
+  background: var(--z-status-discard);
+  border-color: var(--z-status-discard);
+  color: white;
+}
+
+.z-chip[data-field="sellOnline"][data-active="true"] {
+  background: var(--z-status-sell);
+  border-color: var(--z-status-sell);
+  color: white;
+}
+
+.z-chip[data-field="keepAtZlutak"][data-active="true"] {
+  background: var(--z-status-keep);
+  border-color: var(--z-status-keep);
+  color: white;
+}
+
+.z-chip[data-field="someoneTakes"][data-active="true"] {
+  background: var(--z-status-someone);
+  border-color: var(--z-status-someone);
   color: white;
 }
 
@@ -453,28 +485,58 @@
   margin: 1rem 0 1.5rem;
 }
 
-.z-summary-headline {
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.z-summary-counts {
+.z-summary-rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.1rem;
-  font-size: 0.85rem;
-  color: var(--z-muted);
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.z-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.z-summary-label {
+  flex: 1;
+}
+
+.z-summary-figures {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.z-dot {
+  flex-shrink: 0;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+}
+
+.z-dot-undecided {
+  background: var(--z-muted);
 }
 
 .z-mini-summary {
   max-width: 760px;
   margin: 0 auto 0.5rem;
-  font-size: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--z-fg);
+}
+
+.z-mini-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
 }
 
 /* Tables */

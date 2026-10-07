@@ -4,14 +4,7 @@ import type { ChangeEvent } from 'react';
 import type { ChecklistItemData, ChecklistSectionData } from '../lib/checklist-data';
 import { useZlutakItems } from './ZlutakItemsProvider';
 import type { ZlutakItemState } from '../lib/zlutak-items';
-
-const CHIPS: Array<{ field: keyof ZlutakItemState; label: string }> = [
-  { field: 'resolved', label: 'Vyřešené komplet' },
-  { field: 'discard', label: 'Vyhodit' },
-  { field: 'sellOnline', label: 'Prodat online' },
-  { field: 'keepAtZlutak', label: 'Nechat na Žluťáku' },
-  { field: 'someoneTakes', label: 'Někdo si vezme' },
-];
+import { STATUS_FIELDS } from '../lib/zlutak-status';
 
 function ItemRow({ item }: { item: ChecklistItemData }) {
   const { items, updateItem } = useZlutakItems();
@@ -36,11 +29,12 @@ function ItemRow({ item }: { item: ChecklistItemData }) {
     <li className="z-item" data-resolved={state.resolved}>
       <div className="z-item-text">{item.label}</div>
       <div className="z-item-chips">
-        {CHIPS.map(({ field, label }) => (
+        {STATUS_FIELDS.map(({ field, label }) => (
           <button
             key={field}
             type="button"
             className="z-chip"
+            data-field={field}
             data-active={!!state[field]}
             onClick={() => toggle(field)}
           >
@@ -48,19 +42,17 @@ function ItemRow({ item }: { item: ChecklistItemData }) {
           </button>
         ))}
       </div>
-      {state.keepAtZlutak ? (
-        <label className="z-item-value">
-          Odhad hodnoty (Kč)
-          <input
-            type="number"
-            name={`${item.id}-value`}
-            inputMode="numeric"
-            min={0}
-            defaultValue={state.keepValueCzk ?? ''}
-            onChange={handleValueChange}
-          />
-        </label>
-      ) : null}
+      <label className="z-item-value">
+        Odhad hodnoty (Kč)
+        <input
+          type="number"
+          name={`${item.id}-value`}
+          inputMode="numeric"
+          min={0}
+          defaultValue={state.keepValueCzk ?? ''}
+          onChange={handleValueChange}
+        />
+      </label>
       <textarea
         className="z-item-note"
         name={`${item.id}-note`}
