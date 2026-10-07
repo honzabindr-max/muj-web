@@ -1,9 +1,11 @@
 import { TOC } from '../lib/toc-data';
 import { ChecklistProgress } from './ChecklistProgress';
+import { ZlutakSummaryMini } from './ZlutakSummary';
 
 export function StickyBar() {
   return (
     <div className="z-sticky-bar">
+      <ZlutakSummaryMini />
       <ChecklistProgress />
       <details className="z-toc">
         <summary className="z-toc-summary">Obsah</summary>

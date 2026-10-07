@@ -3,7 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { DEFAULT_CHECKLIST_STATE } from '../lib/checklist-data';
 
-const STORAGE_KEY = 'zlutak-checklist-v1';
+export const CHECKLIST_STORAGE_KEY = 'zlutak-checklist-v1';
+const STORAGE_KEY = CHECKLIST_STORAGE_KEY;
 
 type ChecklistState = Record<string, boolean>;
 

@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import { ChecklistProvider } from './components/ChecklistProvider';
 import { Checklist } from './components/Checklist';
+import { ItemChecklist } from './components/ItemChecklist';
+import { ZlutakItemsProvider } from './components/ZlutakItemsProvider';
+import { ZlutakSummaryFull } from './components/ZlutakSummary';
 import { Callout } from './components/Callout';
 import { ResponsiveTable } from './components/ResponsiveTable';
 import { DeadlineStatus } from './components/DeadlineStatus';
@@ -46,6 +49,7 @@ const OZNAMENI_FULL_TEXT = `Předmět: ${OZNAMENI_SUBJECT}\n\n${OZNAMENI_BODY}`;
 
 export default function ZlutakPage() {
   return (
+    <ZlutakItemsProvider>
     <ChecklistProvider>
       <div className="z-page">
         <StickyBar />
@@ -59,31 +63,34 @@ export default function ZlutakPage() {
             <Callout variant="blue" icon="📦">
               <p>
                 <strong>Checklist vznikl z 54 fotografií; zjevné duplicity jsou sloučené.</strong>{' '}
-                Zaškrtnout, až je věc odvezena, prodána, darována, zlikvidována nebo je písemně
-                dohodnuto, že zůstává.
+                U každé věci se zaškrtává nezávisle, co se s ní stane; poznámka a odhad hodnoty se
+                ukládají v tomto prohlížeči (stejně jako zbytek checklistu) — na jiném zařízení je
+                vidět samostatně.
               </p>
             </Callout>
 
             <h3 id="vozidla">Vozidla a přeprava</h3>
-            <Checklist section={SEC_VOZIDLA} />
+            <ItemChecklist section={SEC_VOZIDLA} />
 
             <h3 id="nabytek">Velký nábytek</h3>
-            <Checklist section={SEC_NABYTEK} />
+            <ItemChecklist section={SEC_NABYTEK} />
 
             <h3 id="spotrebice">Spotřebiče a elektronika</h3>
-            <Checklist section={SEC_SPOTREBICE} />
+            <ItemChecklist section={SEC_SPOTREBICE} />
 
             <h3 id="zvirata">Zvířata k dořešení</h3>
-            <Checklist section={SEC_ZVIRATA} />
+            <ItemChecklist section={SEC_ZVIRATA} />
 
             <h3 id="akvaria">Akvária a chovatelské vybavení</h3>
-            <Checklist section={SEC_AKVARIA} />
+            <ItemChecklist section={SEC_AKVARIA} />
 
             <h3 id="zahrada">Zahrada, dílna a venkovní vybavení</h3>
-            <Checklist section={SEC_ZAHRADA} />
+            <ItemChecklist section={SEC_ZAHRADA} />
 
             <h3 id="ostatni">Ostatní věci</h3>
-            <Checklist section={SEC_OSTATNI} />
+            <ItemChecklist section={SEC_OSTATNI} />
+
+            <ZlutakSummaryFull />
 
             <h3 id="overit-pronajimatelka">Ověřit s pronajímatelkou / opravit před předáním</h3>
             <Checklist section={SEC_OVERIT} />
@@ -94,10 +101,13 @@ export default function ZlutakPage() {
             <Callout variant="green" icon="💰">
               <p>
                 <strong>
-                  Odhad celkového nájemného za období 7. 10. 2018–6. 10. 2026: 2 283 581 Kč.
+                  Odhad celkového nájemného za období 7. 10. 2018–31. 10. 2026: 2 303 742 Kč.
                 </strong>{' '}
                 Výpočet předpokládá původní sazbu 22 000 Kč měsíčně a ústně dohodnuté zvýšení na
                 25 000 Kč od 1. 1. 2022. Nezahrnuje vratnou jistotu, elektřinu ani jiné náklady.
+                Oproti odhadu pro konec 6. 10. 2026 (2 283 581 Kč) je to o{' '}
+                <strong>20 161 Kč víc</strong> — říjen 2026 je nově celý měsíc (31 dní) místo
+                poměrné části za 6 dní.
               </p>
             </Callout>
 
@@ -107,11 +117,11 @@ export default function ZlutakPage() {
                 ['7.–31. 10. 2018', 'Poměrná část uvedená přímo ve smlouvě', '17 742 Kč'],
                 ['11/2018–12/2021', '38 měsíců × 22 000 Kč', '836 000 Kč'],
                 ['1/2022–9/2026', '57 měsíců × 25 000 Kč', '1 425 000 Kč'],
-                ['1.–6. 10. 2026', '25 000 Kč ÷ 31 dní × 6 dní, zaokrouhleno', '4 839 Kč'],
+                ['1.–31. 10. 2026', 'celý měsíc, 25 000 Kč (dřív poměrná část 4 839 Kč do 6. 10.)', '25 000 Kč'],
                 [
                   <strong key="celkem">Celkem</strong>,
                   '',
-                  <strong key="castka">2 283 581 Kč</strong>,
+                  <strong key="castka">2 303 742 Kč</strong>,
                 ],
               ]}
             />
@@ -565,5 +575,6 @@ export default function ZlutakPage() {
         </main>
       </div>
     </ChecklistProvider>
+    </ZlutakItemsProvider>
   );
 }

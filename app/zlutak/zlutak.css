@@ -358,6 +358,125 @@
   outline-offset: 2px;
 }
 
+/* Item evidence (vozidla, nábytek, spotřebiče, zvířata, akvária, zahrada, ostatní) */
+.z-item-list {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.z-item {
+  border: 1px solid var(--z-border);
+  border-radius: 0.75rem;
+  background: var(--z-card);
+  padding: 0.75rem 0.85rem;
+}
+
+.z-item[data-resolved="true"] {
+  opacity: 0.55;
+}
+
+.z-item[data-resolved="true"] .z-item-text {
+  text-decoration: line-through;
+  text-decoration-color: #a1a1aa;
+}
+
+.z-item-text {
+  font-size: 0.95rem;
+  margin-bottom: 0.55rem;
+}
+
+.z-item-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.z-chip {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  background: var(--z-bg);
+  border: 1.5px solid var(--z-border);
+  color: var(--z-muted);
+  border-radius: 999px;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.z-chip[data-active="true"] {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: white;
+}
+
+.z-item-value {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--z-muted);
+  margin-top: 0.55rem;
+}
+
+.z-item-value input {
+  width: 7rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--z-border);
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.z-item-note {
+  display: block;
+  width: 100%;
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border: 1px solid var(--z-border);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  resize: vertical;
+}
+
+/* Summary */
+.z-summary {
+  border: 1px solid var(--z-border);
+  border-radius: 0.75rem;
+  background: var(--z-card);
+  padding: 0.9rem 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.z-summary-headline {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.z-summary-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.1rem;
+  font-size: 0.85rem;
+  color: var(--z-muted);
+}
+
+.z-mini-summary {
+  max-width: 760px;
+  margin: 0 auto 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--z-fg);
+}
+
 /* Tables */
 .z-table-wrap {
   margin: 1rem 0 1.5rem;

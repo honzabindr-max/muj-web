@@ -212,7 +212,10 @@ export const SEC_HARM_PO_PREDANI = section('harmonogram-po-predani', [
   'Uchovat smlouvu, dodatky, oznámení, doklady o doručení, protokol, fotografie a závěrečná vyúčtování.',
 ]);
 
-export const ALL_CHECKLIST_SECTIONS: ChecklistSectionData[] = [
+// Věcné sekce (vybavení domu) — perzistovaná evidence v Redis, viz zlutak/items.ts.
+// Nejsou součástí ALL_CHECKLIST_SECTIONS níže, protože ty mají vlastní (bohatší) stav
+// než jeden boolean checkbox.
+export const ITEM_SECTIONS: ChecklistSectionData[] = [
   SEC_VOZIDLA,
   SEC_NABYTEK,
   SEC_SPOTREBICE,
@@ -220,6 +223,11 @@ export const ALL_CHECKLIST_SECTIONS: ChecklistSectionData[] = [
   SEC_AKVARIA,
   SEC_ZAHRADA,
   SEC_OSTATNI,
+];
+
+// Právní / procesní sekce — zůstávají na jednoduchém per-device checkboxu v localStorage
+// (ChecklistProvider), protože jde o osobní "udělal jsem to" stav, ne evidenci věcí.
+export const ALL_CHECKLIST_SECTIONS: ChecklistSectionData[] = [
   SEC_OVERIT,
   SEC_POSLEDNI_NAJEM,
   SEC_CO_UDELAT_TED,
