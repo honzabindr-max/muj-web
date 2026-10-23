@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mezi vámi — Vztahová DNA</title>
+<meta name="description" content="Dva lidé. Jeden vztah. Vzorec, který uvidíte až spolu. Zjistěte svou Vztahovou DNA zdarma.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Spectral:wght@300;400;500&family=Alegreya+Sans:wght@300;400;500;700&display=swap&subset=latin-ext" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b080d;
+    --ink:#f3e6e4;
+    --ink-2:#d9c9d3;
+    --muted:#a796ac;
+    --muted-2:#857590;
+    --line:rgba(226,190,200,.22);
+    --line-2:rgba(226,190,200,.12);
+    --peach:#f1cdb7;
+    --mauve:#b59ab6;
+    --gold-1:#fbd3b3;
+    --gold-2:#e8b48e;
+    --gold-ink:#2a1720;
+    --serif:"Cormorant Garamond", "Cormorant", Georgia, serif;
+    --display:"Spectral", Georgia, serif;
+    --sans:"Alegreya Sans", "Segoe UI", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none}
+  button,input{font:inherit;color:inherit}
+
+  /* ---------- background ---------- */
+  .page{position:relative;min-height:100vh;overflow:hidden;
+    background:
+      radial-gradient(42% 22% at 70% 13%, rgba(52,32,64,.5), transparent 70%),
+      radial-gradient(22% 16% at 0% 27%, rgba(48,24,56,.4), transparent 70%),
+      radial-gradient(40% 14% at 55% 22%, rgba(40,24,50,.35), transparent 70%),
+      radial-gradient(70% 12% at 45% 48%, rgba(40,22,46,.7), transparent 75%),
+      radial-gradient(40% 16% at 78% 60%, rgba(46,26,56,.45), transparent 70%),
+      radial-gradient(30% 22% at 0% 88%, rgba(44,26,52,.7), transparent 75%),
+      radial-gradient(30% 22% at 100% 88%, rgba(40,22,46,.55), transparent 75%),
+      radial-gradient(60% 7% at 50% 100%, rgba(84,44,90,.85), transparent 75%),
+      linear-gradient(180deg,#0a070c 0%,#0f0912 30%,#100a14 50%,#120b16 75%,#140b17 100%);
+  }
+  .fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+  .wrap{position:relative;z-index:1;width:1080px;margin:0 auto}
+
+  /* ---------- nav ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  height: 86px;
+  padding-top: 0;
+}
+.logo {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 27px;
+  letter-spacing: 0.2em;
+  color: #eaded9;
+  white-space: nowrap;
+}
+.menu {
+  display: flex;
+  gap: 34px;
+  margin-left: 132px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #e9dfe3;
+  letter-spacing: -0.005em;
+}
+.menu a:hover {
+  color: #fff;
+}
+.nav .btn-ghost {
+  margin-left: auto;
+  width: 265px;
+  height: 43px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 12px;
+  border-color: rgba(240, 215, 205, 0.75);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border: 1px solid rgba(240, 210, 200, 0.55);
+  border-radius: 999px;
+  background: rgba(20, 10, 22, 0.25);
+  color: #f2e7e5;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+.btn-ghost:hover {
+  background: rgba(255, 220, 210, 0.06);
+  border-color: rgba(250, 220, 205, 0.8);
+}
+.arrow {
+  width: 15px;
+  height: 10px;
+  flex: none;
+}
+
+/* ---------- hero ---------- */
+.hero {
+  position: relative;
+  padding-top: 76px;
+}
+.hero h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 104px;
+  line-height: 0.92;
+  letter-spacing: -0.018em;
+}
+.hero h1 span {
+  display: block;
+  width: max-content;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero h1 .l1 {
+  background-image: linear-gradient(180deg, #f8e0d2 0%, #ecc3b6 100%);
+}
+.hero h1 .l2 {
+  background-image: linear-gradient(180deg, #d2b6c4 0%, #ac93ad 100%);
+}
+.lead {
+  margin: 10px 0 0;
+  font-size: 35px;
+  line-height: 40px;
+  font-weight: 500;
+  color: #a99aaf;
+  letter-spacing: -0.005em;
+}
+.hero-actions {
+  display: flex;
+  gap: 28px;
+  margin-top: 32px;
+}
+.hero-actions .primary {
+  width: 370px;
+  height: 54px;
+  font-size: 18px;
+  font-weight: 500;
+  gap: 14px;
+}
+.hero-actions .play {
+  width: 185px;
+  height: 54px;
+  padding: 0 0 0 6px;
+  justify-content: flex-start;
+  font-size: 15px;
+  font-weight: 700;
+  gap: 20px;
+  border-color: rgba(240, 210, 200, 0.28);
+}
+.play-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(240, 210, 200, 0.55);
+  display: grid;
+  place-items: center;
+}
+.play-ic svg {
+  width: 11px;
+  height: 12px;
+  margin-left: 2px;
+}
+.tagline {
+  position: absolute;
+  right: 0;
+  top: 112px;
+  text-align: right;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  line-height: 27px;
+  color: #a99db6;
+  text-transform: uppercase;
+}
+.tagline::after {
+  content: "";
+  display: block;
+  width: 50px;
+  height: 1px;
+  background: rgba(200, 185, 210, 0.55);
+  margin: 12px 0 0 auto;
+}
+
+/* ---------- form panel ---------- */
+.panel {
+  margin-top: 40px;
+  position: relative;
+  border-radius: 20px;
+  padding: 29px 27px 27px 30px;
+  display: flex;
+  align-items: flex-start;
+  gap: 21px;
+  background: linear-gradient(
+    180deg,
+    rgba(66, 42, 68, 0.45),
+    rgba(42, 26, 46, 0.4)
+  );
+  border: 1px solid rgba(240, 205, 190, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 0 24px rgba(240, 190, 170, 0.08),
+    0 30px 80px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.person {
+  width: 354px;
+  height: 156px;
+  border-radius: 12px;
+  padding: 20px 20px 0 21px;
+  background: linear-gradient(
+    180deg,
+    rgba(96, 74, 98, 0.45),
+    rgba(62, 44, 66, 0.38)
+  );
+  border: 1px solid rgba(230, 205, 215, 0.2);
+}
+.person h3 {
+  margin: 0;
+  font-size: 18.5px;
+  font-weight: 700;
+  color: #f3e9ea;
+  letter-spacing: -0.005em;
+}
+.person p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: #c9bac7;
+}
+.fields {
+  display: flex;
+  gap: 14px;
+  margin-top: 16px;
+}
+.fields input {
+  height: 43px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(28, 16, 30, 0.72);
+  padding: 0 15px;
+  font-size: 13.5px;
+  color: #eee;
+  outline: none;
+}
+.fields input::placeholder {
+  color: #9c8c9f;
+}
+.fields input.date::placeholder {
+  color: #ddd1da;
+  font-size: 16px;
+}
+.fields input:focus {
+  border-color: rgba(241, 205, 183, 0.5);
+}
+.fields .name {
+  width: 135px;
+}
+.fields .date {
+  width: 165px;
+}
+.cta-col {
+  width: 262px;
+  margin-left: 9px;
+  padding-top: 19px;
+  text-align: center;
+}
+.btn-gold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+  border-radius: 999px;
+  color: var(--gold-ink);
+  font-weight: 500;
+  background: linear-gradient(180deg, #fcd8bb 0%, #f2c19e 55%, #e6ad86 100%);
+  box-shadow:
+    0 0 30px rgba(244, 190, 150, 0.35),
+    0 0 1px rgba(255, 230, 210, 0.9) inset,
+    0 -6px 14px rgba(190, 120, 80, 0.25) inset;
+  transition:
+    filter 0.2s,
+    box-shadow 0.2s;
+}
+.btn-gold:hover {
+  filter: brightness(1.05);
+  box-shadow:
+    0 0 40px rgba(244, 190, 150, 0.5),
+    0 0 1px rgba(255, 230, 210, 0.9) inset;
+}
+.cta-col .btn-gold {
+  height: 70px;
+  font-size: 18px;
+  line-height: 27px;
+  padding: 0 24px;
+}
+.cta-col small {
+  display: block;
+  margin-top: 20px;
+  font-size: 14px;
+  line-height: 22px;
+  color: #c8bac6;
+}
+
+.trust {
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  margin-top: 29px;
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 13.5px;
+  letter-spacing: .16em;
+  color: #a497a8;
+  text-transform: uppercase;
+}
+.trust span {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.trust span::before {
+  content: "";
+  width: 38px;
+  height: 1px;
+  background: rgba(170, 150, 175, 0.6);
+}
+
+/* ---------- dna section ---------- */
+.dna {
+  position: relative;
+  height: 368px;
+  margin-top: 0;
+}
+.dna .text {
+  position: absolute;
+  left: 0;
+  top: 88px;
+  width: 378px;
+}
+.eyebrow {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  color: #9e8fa3;
+  text-transform: uppercase;
+}
+.dna h2 {
+  margin: 12px 0 0;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 57px;
+  line-height: 1;
+  color: #f0cdba;
+  letter-spacing: -0.02em;
+}
+.dna p {
+  margin: 20px 0 0;
+  font-size: 19.5px;
+  line-height: 27.5px;
+  font-weight: 500;
+  color: #cdbdcb;
+  letter-spacing: -0.005em;
+  max-width: 350px;
+}
+.dna .btn-ghost {
+  width: 205px;
+  height: 47px;
+  margin-top: 20px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.card {
+  position: absolute;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(170deg, #2a1a2f 0%, #1d1222 55%, #160d1a 100%);
+  border: 1px solid rgba(220, 190, 215, 0.22);
+  box-shadow:
+    0 30px 60px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+}
+.c1 {
+  left: 410px;
+  top: 44px;
+  width: 300px;
+  height: 392px;
+  transform: rotate(-4deg);
+  z-index: 3;
+}
+.c2 {
+  left: 681px;
+  top: 44px;
+  width: 254px;
+  height: 380px;
+  transform: rotate(3.5deg);
+  z-index: 2;
+  background: linear-gradient(170deg, #2a1930 0%, #1e1223 60%, #180e1c 100%);
+}
+.c3 {
+  left: 866px;
+  top: 50px;
+  width: 256px;
+  height: 372px;
+  transform: rotate(5.5deg);
+  z-index: 1;
+  background: linear-gradient(170deg, #231527 0%, #1c1120 60%, #150c18 100%);
+}
+.c1 .brand {
+  margin-top: 38px;
+  text-align: center;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  color: #e5d6d8;
+}
+.c1 h4 {
+  margin: 26px 0 0;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 35px;
+  color: #f2dcd2;
+  letter-spacing: -0.02em;
+}
+.c1 .sub {
+  margin-top: 10px;
+  text-align: center;
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  color: #9b8a9f;
+}
+.c1 svg.glow {
+  position: absolute;
+  left: 0;
+  top: 120px;
+  width: 100%;
+  height: 210px;
+}
+.c1 .people {
+  position: absolute;
+  left: 28px;
+  right: 24px;
+  bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #e9dde0;
+}
+.c1 .people b {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.c1 .people span {
+  color: #b9a8b9;
+  font-size: 13.5px;
+  letter-spacing: 0.03em;
+}
+.c1 .people div:last-child {
+  width: 112px;
+}
+
+.c2 h4,
+.c3 h4 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  color: #f0dedd;
+  letter-spacing: -0.02em;
+}
+.c2 h4 {
+  padding: 28px 20px 0 22px;
+  font-size: 26px;
+  line-height: 30px;
+}
+.themes {
+  margin: 12px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.theme {
+  position: relative;
+  height: 60px;
+  border-radius: 5px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.035);
+}
+.theme b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #eadde2;
+}
+.theme span {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #a897a8;
+}
+.theme i {
+  position: absolute;
+  right: 12px;
+  top: 34px;
+  width: 74px;
+  height: 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.theme i::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--v);
+  border-radius: 5px;
+  background: linear-gradient(90deg, #d79c84, #f0c3a5);
+}
+
+.c3 h4 {
+  padding: 40px 22px 0;
+  font-size: 23.5px;
+}
+.ring {
+  position: relative;
+  width: 158px;
+  height: 158px;
+  margin: 36px 0 0 46px;
+}
+.ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.ring b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: 42px;
+  color: #f0e1df;
+}
+.c3 p {
+  margin: 32px 22px 0;
+  font-size: 12.5px;
+  line-height: 20px;
+  color: #b8a6b6;
+}
+
+/* ---------- deep analysis ---------- */
+.deep {
+  position: relative;
+  z-index: 1;
+  width: 1194px;
+  margin: 103px auto 42px;
+  height: 372px;
+  border-radius: 24px;
+  background: linear-gradient(
+    180deg,
+    rgba(30, 18, 32, 0.72),
+    rgba(22, 13, 25, 0.78)
+  );
+  border: 1px solid rgba(220, 190, 210, 0.14);
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.4);
+}
+.deep .left {
+  position: absolute;
+  left: 57px;
+  top: 28px;
+  width: 540px;
+}
+.deep h2 {
+  margin: 14px 0 0;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 56px;
+  line-height: 1;
+  color: #efd9d0;
+  letter-spacing: -0.02em;
+}
+.deep .price {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 43px;
+  line-height: 1;
+  color: #a38fa6;
+  letter-spacing: -0.01em;
+}
+.deep p {
+  margin: 20px 0 0;
+  max-width: 425px;
+  font-size: 18px;
+  line-height: 27px;
+  font-weight: 500;
+  color: #cdbdcb;
+  letter-spacing: -0.005em;
+}
+.deep .btn-gold {
+  width: 335px;
+  height: 56px;
+  margin-top: 30px;
+  font-size: 17.5px;
+  gap: 14px;
+}
+.feats {
+  position: absolute;
+  left: 582px;
+  top: 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.feat {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.feat .ic {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(220, 195, 215, 0.3);
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.feat .ic svg {
+  width: 20px;
+  height: 20px;
+}
+.feat b {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #f0e6e8;
+  letter-spacing: -0.005em;
+}
+.feat span {
+  display: block;
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: #a796a7;
+}
+.book {
+  position: absolute;
+  border-radius: 4px;
+}
+.books {
+  position: absolute;
+  left: 868px;
+  top: 24px;
+  width: 320px;
+  height: 340px;
+}
+.b4 {
+  left: 118px;
+  top: 42px;
+  width: 150px;
+  height: 290px;
+  transform: rotate(3deg);
+  background: linear-gradient(90deg, #c9aecd, #9f84a5);
+}
+.b3 {
+  left: 100px;
+  top: 34px;
+  width: 155px;
+  height: 296px;
+  transform: rotate(1deg);
+  background: linear-gradient(90deg, #dcc4dd, #b294b6);
+}
+.b2 {
+  left: 80px;
+  top: 24px;
+  width: 165px;
+  height: 305px;
+  transform: rotate(-1.5deg);
+  background: linear-gradient(90deg, #ebd8e9, #c3a6c5);
+}
+.b1 {
+  left: 0;
+  top: 0;
+  width: 220px;
+  height: 322px;
+  transform: rotate(-5deg);
+  overflow: hidden;
+  background: linear-gradient(165deg, #2b1a30 0%, #1b1020 60%, #150c19 100%);
+  border: 1px solid rgba(220, 190, 215, 0.22);
+  box-shadow:
+    -10px 20px 40px rgba(0, 0, 0, 0.6),
+    4px 0 12px rgba(0, 0, 0, 0.45);
+}
+.b1 .brand {
+  margin-top: 42px;
+  text-align: center;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: #d8c7cc;
+}
+.b1 h5 {
+  margin: 38px 0 0;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 30px;
+  color: #efdcd4;
+  letter-spacing: -0.02em;
+  transform: rotate(-3deg);
+}
+.b1 svg {
+  position: absolute;
+  left: 0;
+  top: 110px;
+  width: 100%;
+  height: 190px;
+}
+.b1 .foot {
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  bottom: 30px;
+  height: 2px;
+  background: rgba(200, 170, 200, 0.12);
+}
+  /* ---------- responsive ---------- */
+  @media (max-width:1240px){
+    .wrap{width:auto;margin:0 40px}
+    .deep{width:auto;margin:80px 20px 60px}
+  }
+  @media (max-width:1100px){
+    .menu{display:none}
+    .tagline{display:none}
+    .panel{flex-wrap:wrap}
+    .person{flex:1 1 300px;width:auto}
+    .fields input{flex:1;min-width:0;width:auto}
+    .cta-col{flex:1 1 100%;margin:0;padding-top:4px}
+    .cta-col small{margin-top:14px}
+    .trust{flex-wrap:wrap;gap:14px 36px}
+    .dna{height:auto;display:flex;flex-direction:column;gap:40px;padding-top:80px}
+    .dna .text{position:static;width:auto;max-width:520px}
+    .cards{position:relative;height:440px;width:760px;max-width:100%;margin:0 auto}
+    .c1{left:0}.c2{left:280px}.c3{left:480px}
+    .deep{height:auto;padding:40px 36px 50px;display:flex;flex-wrap:wrap;gap:40px}
+    .deep .left,.feats{position:static;width:auto}
+    .deep .books{position:relative;left:auto;top:auto}
+  }
+  @media (max-width:760px){
+    .wrap{margin:0 16px}
+    .nav{height:72px}
+    .logo{font-size:21px}
+    .nav .btn-ghost{height:38px;padding:0 14px;font-size:12px}
+    .nav .btn-ghost .long{display:none}
+    .hero{padding-top:40px}
+    .hero h1{font-size:58px}
+    .lead{font-size:21px;line-height:29px}
+    .hero-actions{flex-wrap:wrap;gap:14px}
+    .hero-actions .primary{width:100%;font-size:16px}
+    .panel{padding:18px}
+    .fields{flex-wrap:wrap}
+    .person{height:auto;padding-bottom:18px}
+    .fields input{flex:1 1 120px}
+    .fields .name,.fields .date{width:auto}
+    .fields input.date::placeholder{font-size:14px}
+    .books{transform:scale(.8);transform-origin:top left;height:290px!important}
+    .dna h2{font-size:46px}
+    .cards{transform:scale(.48);transform-origin:top left;height:220px;width:760px}
+    .deep{margin:60px 12px 40px;padding:30px 22px 40px}
+    .deep h2{font-size:42px}
+    .deep .price{font-size:34px}
+    .deep .btn-gold{width:100%}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <svg class="fx" viewBox="0 0 1280 1720" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+    <defs>
+      <filter id="b2" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2"/></filter>
+      <filter id="b6" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter>
+      <filter id="b18" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
+      <filter id="b40" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="40"/></filter>
+      <linearGradient id="arcA" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffd9c0" stop-opacity=".9"/>
+        <stop offset=".45" stop-color="#ffe1c8"/>
+        <stop offset=".8" stop-color="#f1a98d" stop-opacity=".85"/>
+        <stop offset="1" stop-color="#d27e88" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="arcB" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#b05ab4" stop-opacity="0"/>
+        <stop offset=".25" stop-color="#c06ab8" stop-opacity=".55"/>
+        <stop offset=".58" stop-color="#f6c7b4"/>
+        <stop offset=".8" stop-color="#d98aa6" stop-opacity=".7"/>
+        <stop offset="1" stop-color="#b864a8" stop-opacity=".3"/>
+      </linearGradient>
+      <linearGradient id="arcC" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#9a4aa6" stop-opacity="0"/>
+        <stop offset=".35" stop-color="#b968b4" stop-opacity=".5"/>
+        <stop offset=".75" stop-color="#e7a4b6" stop-opacity=".7"/>
+        <stop offset="1" stop-color="#c47fb0" stop-opacity="0"/>
+      </linearGradient>
+      <radialGradient id="flare" cx=".5" cy=".5" r=".5">
+        <stop offset="0" stop-color="#fff1e6" stop-opacity=".95"/>
+        <stop offset=".2" stop-color="#f7c4b2" stop-opacity=".5"/>
+        <stop offset="1" stop-color="#b65cb0" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+
+    <!-- soft violet haze -->
+    <ellipse cx="900" cy="300" rx="300" ry="150" fill="#6a2c78" opacity=".2" filter="url(#b40)"/>
+    <ellipse cx="60" cy="480" rx="140" ry="200" fill="#5b2a6a" opacity=".2" filter="url(#b40)"/>
+    <ellipse cx="840" cy="1020" rx="420" ry="110" fill="#5e2a6e" opacity=".22" filter="url(#b40)"/>
+
+    <!-- broad sweeping streak (left → right) -->
+    <path d="M300 78 Q 760 160 1300 445" fill="none" stroke="#c46ab8" stroke-width="60" opacity=".2" filter="url(#b18)"/>
+    <path d="M260 70 Q 760 160 1300 445" fill="none" stroke="#9c4aa6" stroke-width="110" opacity=".12" filter="url(#b40)"/>
+    <path d="M300 78 Q 760 160 1300 445" fill="none" stroke="url(#arcB)" stroke-width="7" opacity=".7" filter="url(#b6)"/>
+    <path d="M300 78 Q 760 160 1300 445" fill="none" stroke="url(#arcB)" stroke-width="2.2"/>
+    <path d="M380 100 Q 800 190 1300 470" fill="none" stroke="url(#arcC)" stroke-width="1.1" opacity=".75"/>
+    <path d="M380 100 Q 800 190 1300 470" fill="none" stroke="#b86ab4" stroke-width="14" opacity=".3" filter="url(#b6)"/>
+
+    <!-- bright arc from top -->
+    <path d="M928 -10 C 846 140 836 262 912 345 C 990 430 1130 520 1300 610" fill="none" stroke="#f3a98f" stroke-width="30" opacity=".3" filter="url(#b18)"/>
+    <path d="M928 -10 C 846 140 836 262 912 345 C 990 430 1130 520 1300 610" fill="none" stroke="url(#arcA)" stroke-width="8" opacity=".8" filter="url(#b2)"/>
+    <path d="M928 -10 C 846 140 836 262 912 345 C 990 430 1130 520 1300 610" fill="none" stroke="#fff2e6" stroke-width="2.4" opacity=".95"/>
+
+    <!-- crossing flare -->
+    <circle cx="866" cy="242" r="70" fill="url(#flare)" opacity=".6"/>
+    <circle cx="866" cy="242" r="16" fill="#fff4ea" opacity=".55" filter="url(#b6)"/>
+
+    <!-- lower streaks behind cards -->
+    <path d="M-20 1262 C 200 1240 380 1215 520 1160" fill="none" stroke="#c06ab8" stroke-width="54" opacity=".42" filter="url(#b18)"/>
+    <path d="M-20 1262 C 200 1240 380 1215 520 1160" fill="none" stroke="url(#arcC)" stroke-width="2" opacity=".9" filter="url(#b2)"/>
+    <path d="M-20 1262 C 200 1240 380 1215 560 1150" fill="none" stroke="#f2b8c8" stroke-width="1.2" opacity=".75"/>
+    <path d="M760 1270 C 950 1260 1120 1235 1300 1210" fill="none" stroke="#c87ab4" stroke-width="16" opacity=".22" filter="url(#b18)"/>
+    <path d="M500 1290 C 800 1275 1050 1262 1300 1250" fill="none" stroke="#e0a4bb" stroke-width="1" opacity=".35"/>
+    <path d="M420 1720 C 700 1660 1000 1650 1300 1680" fill="none" stroke="#a65aa8" stroke-width="14" opacity=".4" filter="url(#b18)"/>
+  </svg>
+
+  <div class="wrap">
+    <header class="nav">
+      <a class="logo" href="#">MEZI VÁMI</a>
+      <nav class="menu">
+        <a href="#jak">Jak to funguje</a>
+        <a href="#co">Co získáte</a>
+        <a href="#ukazka">Ukázka</a>
+        <a href="#cenik">Ceník</a>
+        <a href="#onas">O nás</a>
+      </nav>
+      <a class="btn-ghost" href="#start"><span>Zjistit <span class="long">Vztahovou </span>DNA zdarma</span>
+        <svg class="arrow" viewBox="0 0 15 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M0 5h13.5M9.5 1l4 4-4 4"/></svg></a>
+    </header>
+
+    <section class="hero">
+      <h1><span class="l1">Co vzniká</span><span class="l2">mezi vámi?</span></h1>
+      <p class="lead">Dva lidé. Jeden vztah.<br>Vzorec, který uvidíte až spolu.</p>
+      <div class="hero-actions">
+        <a class="btn-ghost primary" href="#start">Zjistit Vztahovou DNA zdarma
+          <svg class="arrow" viewBox="0 0 15 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M0 5h13.5M9.5 1l4 4-4 4"/></svg></a>
+        <a class="btn-ghost play" href="#jak" id="jak"><span class="play-ic"><svg viewBox="0 0 11 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 1l9 5-9 5z"/></svg></span>Jak to funguje</a>
+      </div>
+      <div class="tagline">Více porozumění<br>Hlubší blízkost<br>Vědomá volba</div>
+    </section>
+
+    <form class="panel" id="start" onsubmit="return false">
+      <div class="person">
+        <h3>První osoba</h3>
+        <p>Zadejte jméno a datum narození</p>
+        <div class="fields">
+          <input class="name" type="text" placeholder="Jméno" aria-label="Jméno první osoby">
+          <input class="date" type="text" placeholder="např. 24. 12. 1990" aria-label="Datum narození první osoby">
+        </div>
+      </div>
+      <div class="person">
+        <h3>Druhá osoba</h3>
+        <p>Zadejte jméno a datum narození</p>
+        <div class="fields">
+          <input class="name" type="text" placeholder="Jméno" aria-label="Jméno druhé osoby">
+          <input class="date" type="text" placeholder="např. 24. 12. 1990" aria-label="Datum narození druhé osoby">
+        </div>
+      </div>
+      <div class="cta-col">
+        <button class="btn-gold" type="submit">Zjistit Vztahovou DNA<br>zdarma&nbsp;&nbsp;→</button>
+        <small>Získáte základní vhled ihned.<br>Bez registrace.</small>
+      </div>
+    </form>
+
+    <div class="trust">
+      <span>Na základě vašich dat</span>
+      <span>Okamžitý výsledek</span>
+      <span>Důvěrné a bez registrace</span>
+    </div>
+
+    <section class="dna" id="co">
+      <div class="text">
+        <div class="eyebrow">Co zjistíte</div>
+        <h2>Vztahová DNA</h2>
+        <p>Jedinečná analýza, která odhaluje, jak se dvě energie propojují. Uvidíte silné stránky vašeho vztahu, přirozené výzvy i to, co vás může posunout blíž k sobě.</p>
+        <a class="btn-ghost" href="#ukazka" id="ukazka">Ukázka výsledku
+          <svg class="arrow" viewBox="0 0 15 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M0 5h13.5M9.5 1l4 4-4 4"/></svg></a>
+      </div>
+
+      <div class="cards">
+        <div class="card c1">
+          <div class="brand">MEZI VÁMI</div>
+          <h4>Vztahová DNA</h4>
+          <div class="sub">VAŠE JEDINEČNÁ DYNAMIKA</div>
+          <svg class="glow" viewBox="0 0 300 190" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="cg1" x1="0" x2="1"><stop offset="0" stop-color="#b768c0" stop-opacity=".2"/><stop offset=".5" stop-color="#f3c0b0"/><stop offset="1" stop-color="#e8a090" stop-opacity=".6"/></linearGradient>
+              <linearGradient id="cg2" x1="0" x2="1"><stop offset="0" stop-color="#d07ccc" stop-opacity=".7"/><stop offset=".6" stop-color="#b064b4" stop-opacity=".35"/><stop offset="1" stop-color="#8a4a9a" stop-opacity="0"/></linearGradient>
+            </defs>
+            <ellipse cx="120" cy="120" rx="130" ry="40" fill="#8c3e98" opacity=".5" filter="url(#b18)"/>
+            <path d="M-5 175 C 70 120 150 70 305 50" fill="none" stroke="#f4b8a4" stroke-width="7" opacity=".6" filter="url(#b6)"/>
+            <path d="M-5 175 C 70 120 150 70 305 50" fill="none" stroke="url(#cg1)" stroke-width="2"/>
+            <path d="M-5 100 C 60 115 140 140 230 190" fill="none" stroke="url(#cg2)" stroke-width="1.4"/>
+            <path d="M-5 110 C 70 120 150 145 240 195" fill="none" stroke="url(#cg2)" stroke-width="1" opacity=".7"/>
+            <path d="M-5 92 C 70 108 150 130 250 185" fill="none" stroke="#c070c0" stroke-width="10" opacity=".45" filter="url(#b6)"/>
+          </svg>
+          <div class="people">
+            <div><b>Jana</b><span>16. 5. 1990</span></div>
+            <div><b>Tomáš</b><span>23. 8. 1988</span></div>
+          </div>
+        </div>
+
+        <div class="card c2">
+          <h4>Hlavní témata<br>vašeho vztahu</h4>
+          <div class="themes">
+            <div class="theme"><b>Přirozená blízkost</b><span>Co vás spojuje</span><i style="--v:82%"></i></div>
+            <div class="theme"><b>Výzvy</b><span>Kde vzniká napětí</span><i style="--v:42%"></i></div>
+            <div class="theme"><b>Skrytý potenciál</b><span>V čem se můžete posunout</span><i style="--v:74%"></i></div>
+            <div class="theme"><b>Spolupráce</b><span>Společné motivy pro vás</span><i style="--v:78%"></i></div>
+          </div>
+        </div>
+
+        <div class="card c3">
+          <h4>Celková harmonie</h4>
+          <div class="ring">
+            <svg viewBox="0 0 150 150" aria-hidden="true">
+              <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6c9aa"/><stop offset="1" stop-color="#d9957d"/></linearGradient></defs>
+              <circle cx="75" cy="75" r="66" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="5"/>
+              <circle cx="75" cy="75" r="66" fill="none" stroke="#e6a98c" stroke-width="12" opacity=".25" filter="url(#b6)" stroke-dasharray="298.6 414.7"/>
+              <circle cx="75" cy="75" r="66" fill="none" stroke="url(#rg)" stroke-width="5" stroke-linecap="round" stroke-dasharray="298.6 414.7"/>
+            </svg>
+            <b>72 %</b>
+          </div>
+          <p>Váš vztah má silný základ<br>a velký potenciál pro další růst.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="deep" id="cenik">
+    <div class="left">
+      <div class="eyebrow">Pro hlubší porozumění</div>
+      <h2>Hloubková analýza</h2>
+      <div class="price">1 990 Kč</div>
+      <p>Detailní rozbor vaší vztahové dynamiky. 40+ stran konkrétních vhledů, doporučení a praktických inspirací pro váš další společný krok.</p>
+      <a class="btn-gold" href="#cenik">Získat hloubkovou analýzu&nbsp;&nbsp;→</a>
+    </div>
+
+    <div class="feats">
+      <div class="feat"><div class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="#e8d6dc" stroke-width="1.2"><rect x="3.5" y="3" width="13" height="14" rx="2"/><path d="M3.5 7h13M7 10h2M11 10h2M7 13h2M11 13h2"/></svg></div>
+        <div><b>40+ stran osobní analýzy</b><span>Vaše dynamika do hloubky</span></div></div>
+      <div class="feat"><div class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="#e8d6dc" stroke-width="1.2"><path d="M10 16.5S3 12.3 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 4.7-7 8.9-7 8.9z"/></svg></div>
+        <div><b>Silné stránky i výzvy</b><span>Jasně a srozumitelně</span></div></div>
+      <div class="feat"><div class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="#e8d6dc" stroke-width="1.2"><path d="M10 16.5S3 12.3 3 7.6A3.6 3.6 0 0 1 10 6a3.6 3.6 0 0 1 7 1.6c0 4.7-7 8.9-7 8.9z"/></svg></div>
+        <div><b>Praktická doporučení</b><span>Pro skutečný posun</span></div></div>
+      <div class="feat"><div class="ic"><svg viewBox="0 0 20 20" fill="none" stroke="#e8d6dc" stroke-width="1.2"><rect x="4" y="4" width="12" height="13" rx="2"/><path d="M7.5 2.5v3M12.5 2.5v3M7.5 11l1.8 1.8 3.4-3.6"/></svg></div>
+        <div><b>Krásně zpracovaný výstup</b><span>PDF, které si budete chtít uchovat</span></div></div>
+    </div>
+
+    <div class="books" aria-hidden="true">
+      <div class="book sheet b4"></div>
+      <div class="book sheet b3"></div>
+      <div class="book sheet b2"></div>
+      <div class="book b1">
+        <div class="brand">MEZI VÁMI</div>
+        <h5>Hloubková<br>analýza</h5>
+        <svg viewBox="0 0 155 180" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="bg1" x1="0" x2="1"><stop offset="0" stop-color="#b768c0" stop-opacity=".2"/><stop offset=".55" stop-color="#f3c0b0"/><stop offset="1" stop-color="#e8a090" stop-opacity=".4"/></linearGradient>
+          </defs>
+          <ellipse cx="70" cy="110" rx="70" ry="30" fill="#8c3e98" opacity=".35" filter="url(#b18)"/>
+          <path d="M-5 160 C 40 120 90 60 160 20" fill="none" stroke="#f4b8a4" stroke-width="6" opacity=".35" filter="url(#b6)"/>
+          <path d="M-5 160 C 40 120 90 60 160 20" fill="none" stroke="url(#bg1)" stroke-width="1.4"/>
+          <path d="M-5 100 C 40 110 90 125 160 150" fill="none" stroke="#c070c0" stroke-width="1.1" opacity=".7"/>
+          <path d="M-5 108 C 40 118 90 132 160 160" fill="none" stroke="#c070c0" stroke-width="8" opacity=".22" filter="url(#b6)"/>
+        </svg>
+        <div class="foot"></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
