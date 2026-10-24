@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Pokladna — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#120A12}
+a{color:#F1D0BC}a:hover{color:#FFE6D6}
+input::placeholder{color:#8F7884}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #EDB894;outline-offset:2px}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; height: 1640px; box-sizing: border-box; background: #120A12; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 300; overflow: hidden">
+
+<svg aria-hidden="true" viewBox="0 0 375 360" style="position: absolute; left: 0; top: 0; width: 375px; height: 360px; pointer-events: none"><defs><filter id="m6Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="40"></feGaussianBlur></filter><filter id="m6B" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"></feGaussianBlur></filter><linearGradient id="m6A" gradientUnits="userSpaceOnUse" x1="-20" y1="0" x2="400" y2="0"><stop offset="0" stop-color="#6E3C8A" stop-opacity="0"></stop><stop offset="0.5" stop-color="#C77FAA"></stop><stop offset="0.8" stop-color="#FFF1E6"></stop><stop offset="1" stop-color="#EFB49A" stop-opacity="0.2"></stop></linearGradient></defs><ellipse cx="300" cy="120" rx="150" ry="120" fill="#3A1838" opacity="0.6" filter="url(#m6Pool)"></ellipse><path d="M -20 200 C 120 100, 270 90, 400 40" fill="none" stroke="url(#m6A)" stroke-width="8" opacity="0.45" filter="url(#m6B)"></path><path d="M -20 200 C 120 100, 270 90, 400 40" fill="none" stroke="url(#m6A)" stroke-width="1.1"></path></svg>
+<header style="position: relative; display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<a href="Mobil-05-Nabidka.dc.html" aria-label="Zpět na nabídku" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #4A3045"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#F4E9E4" stroke-width="1.4"><path d="M10 3L5 8l5 5"></path></svg></a>
+<span style="flex: 1; text-align: center; font-family: 'EB Garamond', serif; font-size: 17px; letter-spacing: 0.22em; color: #E8DAE0">MEZI VÁMI</span>
+<span style="width: 44px"></span>
+</header>
+
+<main style="position: relative; padding: 20px 20px 0">
+<h1 style="margin: 0; font-family: 'EB Garamond', serif; font-weight: 300; font-size: 46px; line-height: 1; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Objednávka</h1>
+
+<div style="margin-top: 22px; padding: 20px; border-radius: 16px; border: 1px solid rgba(242, 198, 166, 0.3); background: #1E1120">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px">
+<p style="margin: 0; font-size: 16px; font-weight: 400; color: #F4E9E4">Hloubková analýza<br><span style="font-family: 'EB Garamond', serif; font-size: 18px; font-weight: 300; color: #C9A0B8">MEZI VÁMI</span></p>
+<p style="margin: 0; font-family: 'EB Garamond', serif; font-size: 30px; color: #F4E9E4; white-space: nowrap">1 990 Kč</p>
+</div>
+<p style="margin: 14px 0 0; padding-top: 14px; border-top: 1px solid #3A2535; font-size: 13px; line-height: 1.6; color: #BDA7B2">PDF do 48 hodin e-mailem · odkaz platný 30 dní · jednorázová platba, bez předplatného</p>
+</div>
+
+<h2 style="margin: 34px 0 0; font-size: 15px; font-weight: 400; color: #E8DAE0">Zkontrolujte údaje</h2>
+<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 10px">
+<div style="padding: 16px; border-radius: 14px; border: 1px solid #3A2535; background: #180D18">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+<p style="margin: 0; font-size: 14px; font-weight: 400; color: #F4E9E4">První osoba</p>
+<a href="Mobil-02-Osoba.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-size: 13px">Upravit</a>
+</div>
+<p style="margin: 2px 0 0; font-size: 14px; color: #BDA7B2">14. 5. 1990 · Brno · 7:40 přesně</p>
+<fieldset style="margin: 12px 0 0; padding: 0; border: 0">
+<legend style="padding: 0; font-size: 12px; color: #A48D99">Jak psát</legend>
+<div style="margin-top: 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+<label style="display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 10px; border: 1px solid #EDB894; background: rgba(237, 184, 148, 0.12); font-size: 13px; color: #F4E9E4"><input type="radio" name="m6-a" checked style="position: absolute; opacity: 0; width: 1px; height: 1px">Neutrálně</label>
+<label style="display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 10px; border: 1px solid #5A3F53; font-size: 13px; color: #E8DAE0"><input type="radio" name="m6-a" style="position: absolute; opacity: 0; width: 1px; height: 1px">Muž. rod</label>
+<label style="display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 10px; border: 1px solid #5A3F53; font-size: 13px; color: #E8DAE0"><input type="radio" name="m6-a" style="position: absolute; opacity: 0; width: 1px; height: 1px">Žen. rod</label>
+</div>
+</fieldset>
+</div>
+<div style="padding: 16px; border-radius: 14px; border: 1px solid #3A2535; background: #180D18">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+<p style="margin: 0; font-size: 14px; font-weight: 400; color: #F4E9E4">Druhá osoba</p>
+<a href="Mobil-02-Osoba.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; font-size: 13px">Upravit</a>
+</div>
+<p style="margin: 2px 0 0; font-size: 14px; color: #BDA7B2">23. 8. 1988 · Žilina · čas neznámý</p>
+<fieldset style="margin: 12px 0 0; padding: 0; border: 0">
+<legend style="padding: 0; font-size: 12px; color: #A48D99">Jak psát</legend>
+<div style="margin-top: 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+<label style="display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 10px; border: 1px solid #EDB894; background: rgba(237, 184, 148, 0.12); font-size: 13px; color: #F4E9E4"><input type="radio" name="m6-b" checked style="position: absolute; opacity: 0; width: 1px; height: 1px">Neutrálně</label>
+<label style="display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 10px; border: 1px solid #5A3F53; font-size: 13px; color: #E8DAE0"><input type="radio" name="m6-b" style="position: absolute; opacity: 0; width: 1px; height: 1px">Muž. rod</label>
+<label style="display: flex; align-items: center; justify-content: center; min-height: 44px; border-radius: 10px; border: 1px solid #5A3F53; font-size: 13px; color: #E8DAE0"><input type="radio" name="m6-b" style="position: absolute; opacity: 0; width: 1px; height: 1px">Žen. rod</label>
+</div>
+</fieldset>
+</div>
+</div>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Úprava údajů spustí nový výpočet — vaše Vztahová DNA se pak může změnit.</p>
+
+<div style="margin-top: 30px; display: flex; flex-direction: column; gap: 8px">
+<label for="m6-email" style="font-size: 15px; font-weight: 400; color: #E8DAE0">E-mail pro doručení</label>
+<input id="m6-email" type="email" autocomplete="email" placeholder="vas@email.cz" style="height: 52px; box-sizing: border-box; padding: 0 16px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 300">
+<p style="margin: 0; font-size: 13px; color: #A48D99">Sem pošleme odkaz na PDF. Nic jiného.</p>
+</div>
+
+<div style="margin-top: 26px; display: flex; flex-direction: column; gap: 4px">
+<label style="display: flex; gap: 12px; align-items: flex-start; min-height: 44px; padding: 6px 0; font-size: 14px; line-height: 1.5; color: #E8DAE0"><input type="checkbox" style="flex: 0 0 auto; width: 20px; height: 20px; margin: 1px 0 0; accent-color: #EDB894"><span>Souhlasím s <a href="#">obchodními podmínkami</a>. <span style="color: #8F7884">[LEGAL_PENDING]</span></span></label>
+<label style="display: flex; gap: 12px; align-items: flex-start; min-height: 44px; padding: 6px 0; font-size: 14px; line-height: 1.5; color: #E8DAE0"><input type="checkbox" style="flex: 0 0 auto; width: 20px; height: 20px; margin: 1px 0 0; accent-color: #EDB894"><span>[Potvrzení k zahájení plnění a odstoupení od smlouvy] <span style="color: #8F7884">[LEGAL_PENDING]</span></span></label>
+<p style="margin: 6px 0 0; font-size: 13px; color: #A48D99">Jak nakládáme s údaji: <a href="#">Ochrana údajů</a> · <a href="#">Reklamace a vrácení</a></p>
+</div>
+
+<button type="button" style="margin-top: 28px; width: 100%; min-height: 58px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.4), 0 0 70px rgba(240, 160, 130, 0.22), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 17px; font-weight: 500; cursor: pointer">Zaplatit 1 990 Kč</button>
+<p style="margin: 12px 0 0; display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 13px; color: #BDA7B2"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#BDA7B2" stroke-width="1.2"><rect x="2.5" y="6" width="9" height="6.5" rx="1"></rect><path d="M4.5 6V4.5a2.5 2.5 0 0 1 5 0V6"></path></svg>Platbu zpracuje [PSP]. Údaje karty nevidíme.</p>
+<p style="margin: 28px 0 0; text-align: center; font-size: 12px; color: #8F7884">Prodávající: [PRODEJCE] · IČO [IČO]</p>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":375,"height":1640}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

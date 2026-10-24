@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Vztahová DNA — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0E070F}
+a{color:#F4CDB6}a:hover{color:#FFE9DB}
+.mv-breathe{animation:mvBreathe 8s ease-in-out infinite}
+.mv-travel{animation:mvTravel 6s linear infinite}
+.mv-pulse{animation:mvPulse 6s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+.mv-tw{animation:mvTw 4.5s ease-in-out infinite}
+.mv-tw2{animation:mvTw 6s ease-in-out infinite;animation-delay:-3s}
+@keyframes mvBreathe{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes mvTravel{from{stroke-dashoffset:0}to{stroke-dashoffset:-660}}
+@keyframes mvPulse{0%,100%{opacity:.75;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
+@keyframes mvTw{0%,100%{opacity:.15}50%{opacity:.95}}
+@media (prefers-reduced-motion: reduce){.mv-breathe,.mv-travel,.mv-pulse,.mv-tw,.mv-tw2{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; height: 2480px; box-sizing: border-box; background: #0E070F; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 300; overflow: hidden">
+
+<!-- tůně světla po celé délce -->
+<svg aria-hidden="true" viewBox="0 0 375 2480" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 375px; height: 2480px; pointer-events: none">
+<defs><filter id="m4Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="50"></feGaussianBlur></filter></defs>
+<ellipse cx="300" cy="620" rx="170" ry="200" fill="#341533" opacity="0.5" filter="url(#m4Pool)"></ellipse>
+<ellipse cx="60" cy="1250" rx="160" ry="200" fill="#2A1230" opacity="0.5" filter="url(#m4Pool)"></ellipse>
+<ellipse cx="320" cy="1800" rx="160" ry="180" fill="#311431" opacity="0.45" filter="url(#m4Pool)"></ellipse>
+<ellipse cx="188" cy="2260" rx="200" ry="140" fill="#3A1838" opacity="0.5" filter="url(#m4Pool)"></ellipse>
+</svg>
+
+<section style="position: relative; padding: 52px 20px 44px; text-align: center; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 375 300" style="position: absolute; left: 0; top: 0; width: 375px; height: 300px; pointer-events: none">
+<defs>
+<filter id="m4B1" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"></feGaussianBlur></filter>
+<filter id="m4B2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12"></feGaussianBlur></filter>
+<filter id="m4B3" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="40"></feGaussianBlur></filter>
+<linearGradient id="m4A" gradientUnits="userSpaceOnUse" x1="-20" y1="0" x2="400" y2="0"><stop offset="0" stop-color="#6E3C8A" stop-opacity="0"></stop><stop offset="0.4" stop-color="#C77FAA"></stop><stop offset="0.66" stop-color="#FFF1E6"></stop><stop offset="1" stop-color="#EFB49A" stop-opacity="0.2"></stop></linearGradient>
+<radialGradient id="m4Fl"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="0.15" stop-color="#FFEBDD" stop-opacity="0.95"></stop><stop offset="0.45" stop-color="#F2A98E" stop-opacity="0.3"></stop><stop offset="1" stop-color="#F2A98E" stop-opacity="0"></stop></radialGradient>
+</defs>
+<ellipse cx="260" cy="130" rx="150" ry="110" fill="#3A1838" opacity="0.6" filter="url(#m4B3)"></ellipse>
+<g class="mv-breathe">
+<path d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="url(#m4A)" stroke-width="22" opacity="0.22" filter="url(#m4B2)"></path>
+<path d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="url(#m4A)" stroke-width="7" opacity="0.6" filter="url(#m4B1)"></path>
+</g>
+<path d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="url(#m4A)" stroke-width="1.4"></path>
+<path d="M -20 247 C 100 148, 280 148, 400 48" fill="none" stroke="url(#m4A)" stroke-width="0.6" opacity="0.55"></path>
+<path d="M -20 233 C 102 132, 282 132, 400 32" fill="none" stroke="url(#m4A)" stroke-width="0.5" opacity="0.35"></path>
+<path class="mv-travel" d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="#FFF3EA" stroke-width="2" stroke-linecap="round" stroke-dasharray="36 624" filter="url(#m4B1)"></path>
+</svg>
+<p style="position: relative; margin: 0; font-family: 'EB Garamond', serif; font-size: 14px; letter-spacing: 0.26em; color: #EADCE2">MEZI VÁMI</p>
+<h1 style="position: relative; margin: 22px 0 0; font-family: 'EB Garamond', serif; font-weight: 300; font-size: 58px; line-height: 0.98; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Vztahová DNA</h1>
+<p style="position: relative; margin: 12px 0 0; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #C2ACB7">první osoba · druhá osoba</p>
+<p style="position: relative; margin: 30px auto 0; display: inline-block; padding: 6px 12px; border: 1px dashed #6E5566; border-radius: 999px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #A8909D">Ukázkový obsah · prototyp</p>
+</section>
+
+<!-- 01 HLAVNÍ VZOREC -->
+<article style="position: relative; margin: 0 14px; padding: 30px 22px; border-radius: 22px; border: 1px solid transparent; background: linear-gradient(170deg, rgba(50, 26, 52, 0.96), rgba(22, 11, 24, 0.97)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.8), rgba(185, 138, 198, 0.2) 45%, rgba(255, 214, 190, 0.6)) border-box; box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6), 0 0 80px rgba(220, 130, 150, 0.22), inset 0 1px 0 rgba(255, 230, 215, 0.15); overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 347 420" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"><defs><filter id="m4C" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"></feGaussianBlur></filter></defs><path d="M -10 120 C 90 60, 240 70, 360 10" fill="none" stroke="#F2C6A6" stroke-width="6" opacity="0.3" filter="url(#m4C)"></path><path d="M -10 120 C 90 60, 240 70, 360 10" fill="none" stroke="#FFE9DA" stroke-width="0.8" opacity="0.7"></path></svg>
+<p style="position: relative; margin: 0; display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #F0BEA5"><span style="font-family: 'EB Garamond', serif; font-size: 34px; letter-spacing: 0; background: linear-gradient(135deg, #FFE7D6, #D9917C); -webkit-background-clip: text; background-clip: text; color: transparent">01</span>Hlavní vzorec</p>
+<h2 style="position: relative; margin: 18px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 33px; line-height: 1.1; color: #FBEFE9">Jeden otevře deset možností. Druhý z nich udělá dvě použitelné.</h2>
+<p style="position: relative; margin: 18px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Jednotlivě jsou to dvě docela běžné vlastnosti. Neobvyklé je, co se s nimi stane, když jste spolu: nápady přestanou být jen nápady a plány přestanou být nudné.</p>
+<p style="position: relative; margin: 14px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Nejlíp vám to jde ve chvílích, kdy si to nikdo z vás neuvědomuje — u plánování dovolené, u stěhování nábytku, u čehokoli, co má víc variant než jednu.</p>
+<p style="position: relative; margin: 20px 0 0; padding-top: 14px; border-top: 1px solid rgba(240, 190, 165, 0.2); display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #C2ACB7"><span aria-hidden="true" style="flex: 0 0 auto; width: 6px; height: 6px; margin-top: 7px; border-radius: 999px; background: #F0B48F; box-shadow: 0 0 10px #F0B48F"></span>Stojí na vazbě Měsíce první osoby a Venuše druhé osoby.</p>
+</article>
+
+<!-- 02 -->
+<article style="position: relative; margin: 52px 20px 0">
+<p style="margin: 0; display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #B49DAA"><span style="font-family: 'EB Garamond', serif; font-size: 30px; letter-spacing: 0; background: linear-gradient(135deg, #EBB3C2, #A987C4); -webkit-background-clip: text; background-clip: text; color: transparent">02</span>Druhý výrazný vzorec</p>
+<h2 style="margin: 12px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 29px; line-height: 1.12; color: #F7EAE4">Rozhodujete se ve dvou tempech.</h2>
+<p style="margin: 14px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Jeden z vás potřebuje vědět hned, druhý potřebuje vědět jistě. Když se to potká v sobotu ráno nad výběrem výletu, vznikne malé divadlo, které oba znáte nazpaměť.</p>
+<p style="margin: 14px 0 0; display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #C2ACB7"><span aria-hidden="true" style="flex: 0 0 auto; width: 6px; height: 6px; margin-top: 7px; border-radius: 999px; background: #E3A3BC; box-shadow: 0 0 10px #E3A3BC"></span>Stojí na rozdílném postavení Merkuru u každého z vás.</p>
+</article>
+
+<svg aria-hidden="true" width="375" height="50" viewBox="0 0 375 50" style="position: relative; display: block; margin-top: 30px"><defs><linearGradient id="m4Sep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#B66FA6" stop-opacity="0"></stop><stop offset="0.5" stop-color="#F2B9A6"></stop><stop offset="1" stop-color="#B66FA6" stop-opacity="0"></stop></linearGradient><radialGradient id="m4Dot"><stop offset="0" stop-color="#FFF4EC"></stop><stop offset="1" stop-color="#F2A98E" stop-opacity="0"></stop></radialGradient></defs><path d="M 30 36 C 130 10, 245 10, 345 36" fill="none" stroke="url(#m4Sep)" stroke-width="1"></path><circle cx="188" cy="17" r="10" fill="url(#m4Dot)"></circle></svg>
+
+<!-- 03 -->
+<article style="position: relative; margin: 14px 20px 0">
+<p style="margin: 0; display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #B49DAA"><span style="font-family: 'EB Garamond', serif; font-size: 30px; letter-spacing: 0; background: linear-gradient(135deg, #EBB3C2, #A987C4); -webkit-background-clip: text; background-clip: text; color: transparent">03</span>Co vás drží</p>
+<h2 style="margin: 12px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 29px; line-height: 1.12; color: #F7EAE4">Smějete se stejným věcem dřív, než je stihnete vysvětlit.</h2>
+<p style="margin: 14px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Sdílený humor tu není ozdoba, ale zkratka. Často jím vyřešíte víc než dlouhým rozhovorem — a oba to víte.</p>
+<p style="margin: 14px 0 0; display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #C2ACB7"><span aria-hidden="true" style="flex: 0 0 auto; width: 6px; height: 6px; margin-top: 7px; border-radius: 999px; background: #E3A3BC; box-shadow: 0 0 10px #E3A3BC"></span>Stojí na souzvuku Jupitera první osoby se Sluncem druhé osoby.</p>
+</article>
+
+<svg aria-hidden="true" width="375" height="50" viewBox="0 0 375 50" style="position: relative; display: block; margin-top: 30px"><path d="M 30 36 C 130 10, 245 10, 345 36" fill="none" stroke="url(#m4Sep)" stroke-width="1"></path><circle cx="188" cy="17" r="10" fill="url(#m4Dot)"></circle></svg>
+
+<!-- 04 -->
+<article style="position: relative; margin: 14px 20px 0">
+<p style="margin: 0; display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #B49DAA"><span style="font-family: 'EB Garamond', serif; font-size: 30px; letter-spacing: 0; background: linear-gradient(135deg, #EBB3C2, #A987C4); -webkit-background-clip: text; background-clip: text; color: transparent">04</span>Kde se míjíte</p>
+<h2 style="margin: 12px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 29px; line-height: 1.12; color: #F7EAE4">Po neshodě se vracíte různou rychlostí.</h2>
+<p style="margin: 14px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Jeden chce věc vyřešit teď, druhý potřebuje chvíli ticha. Ani jedno není špatně. Jen každý z vás čte to druhé jako něco jiného, než to ve skutečnosti je.</p>
+<p style="margin: 14px 0 0; display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #C2ACB7"><span aria-hidden="true" style="flex: 0 0 auto; width: 6px; height: 6px; margin-top: 7px; border-radius: 999px; background: #B98AC6; box-shadow: 0 0 10px #B98AC6"></span>Stojí na vazbě Marsu první osoby a Saturnu druhé osoby.</p>
+</article>
+
+<!-- 05 -->
+<article style="position: relative; margin: 52px 14px 0; padding: 26px 22px; border-radius: 20px; border: 1px solid transparent; background: linear-gradient(160deg, rgba(70, 36, 50, 0.85), rgba(36, 18, 30, 0.9)) padding-box, linear-gradient(120deg, rgba(255, 214, 190, 0.7), rgba(240, 180, 143, 0.15) 50%, rgba(255, 214, 190, 0.55)) border-box; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), 0 0 60px rgba(240, 160, 130, 0.18)">
+<p style="margin: 0; display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #F0BEA5"><span style="font-family: 'EB Garamond', serif; font-size: 30px; letter-spacing: 0; background: linear-gradient(135deg, #FFE7D6, #D9917C); -webkit-background-clip: text; background-clip: text; color: transparent">05</span>Na zkoušku</p>
+<h2 style="margin: 12px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 28px; line-height: 1.12; color: #F7EAE4">Domluvte si signál pro „potřebuju chvíli“.</h2>
+<p style="margin: 14px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Slovo nebo gesto, které znamená: vrátím se, jen ne hned. Tomu rychlejšímu z vás ušetří nejistotu, tomu pomalejšímu tlak.</p>
+</article>
+
+<!-- KONEC FREE PRODUKTU -->
+<section style="position: relative; margin: 64px 20px 0; text-align: center">
+<svg aria-hidden="true" width="140" height="80" viewBox="0 0 140 80" style="display: block; margin: 0 auto"><defs><filter id="m4E" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4"></feGaussianBlur></filter><clipPath id="m4EC"><circle cx="56" cy="40" r="28"></circle></clipPath><radialGradient id="m4EF"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="0.3" stop-color="#FFEBDD" stop-opacity="0.8"></stop><stop offset="1" stop-color="#F2A98E" stop-opacity="0"></stop></radialGradient></defs><circle cx="56" cy="40" r="28" fill="none" stroke="#E3A3BC" stroke-width="6" opacity="0.35" filter="url(#m4E)"></circle><circle cx="84" cy="40" r="28" fill="none" stroke="#F0B48F" stroke-width="6" opacity="0.35" filter="url(#m4E)"></circle><circle cx="56" cy="40" r="28" fill="none" stroke="#F2C3D2" stroke-width="1"></circle><circle cx="84" cy="40" r="28" fill="none" stroke="#FFDCC4" stroke-width="1"></circle><g clip-path="url(#m4EC)"><circle class="mv-breathe" cx="84" cy="40" r="28" fill="#F2A98E" opacity="0.45" filter="url(#m4E)"></circle></g><g class="mv-pulse"><circle cx="70" cy="40" r="14" fill="url(#m4EF)"></circle></g></svg>
+<p style="margin: 18px 0 0; font-family: 'EB Garamond', serif; font-size: 29px; line-height: 1.18; background: linear-gradient(100deg, #FFE7D6, #E9AFC0); -webkit-background-clip: text; background-clip: text; color: transparent">Tady vaše Vztahová DNA končí.<br>Je celá.</p>
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: #C2ACB7">V tomto prohlížeči ji najdete ještě 72 hodin. Pak výsledek i údaje smažeme.</p>
+</section>
+
+<a href="Mobil-05-Nabidka.dc.html" style="position: relative; margin: 52px 20px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 64px; text-decoration: none">
+<span style="font-size: 14px; color: #EADCE2">Chcete jít hlouběji?</span>
+<svg aria-hidden="true" width="16" height="22" viewBox="0 0 16 22" fill="none" stroke="#F0B48F" stroke-width="1.3"><path d="M8 1v19M2 14l6 6 6-6"></path></svg>
+</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":375,"height":2480}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Landing — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D090E}
+a{color:#EFCDB8}a:hover{color:#FFE9DB}
+.mv-breathe{animation:mvBreathe 9s ease-in-out infinite}
+.mv-travel{animation:mvTravel 8s linear infinite}
+@keyframes mvBreathe{0%,100%{opacity:.7}50%{opacity:1}}
+@keyframes mvTravel{from{stroke-dashoffset:0}to{stroke-dashoffset:-760}}
+@media (prefers-reduced-motion: reduce){.mv-breathe,.mv-travel{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; height: 1560px; box-sizing: border-box; background: #0D090E; color: #F2E8E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 300; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 375 760" style="position: absolute; left: 0; top: 0; width: 375px; height: 760px; pointer-events: none">
+<defs>
+<filter id="m1B1" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3"></feGaussianBlur></filter>
+<filter id="m1B2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"></feGaussianBlur></filter>
+<filter id="m1Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="50"></feGaussianBlur></filter>
+<linearGradient id="m1A" gradientUnits="userSpaceOnUse" x1="270" y1="-20" x2="390" y2="330"><stop offset="0" stop-color="#F6C9A8" stop-opacity="0.5"></stop><stop offset="0.3" stop-color="#FFEBDC"></stop><stop offset="0.7" stop-color="#F3BE9E"></stop><stop offset="1" stop-color="#D98FA6" stop-opacity="0.6"></stop></linearGradient>
+<linearGradient id="m1B" gradientUnits="userSpaceOnUse" x1="40" y1="0" x2="400" y2="0"><stop offset="0" stop-color="#9C6A9C" stop-opacity="0"></stop><stop offset="0.45" stop-color="#C995B0" stop-opacity="0.7"></stop><stop offset="1" stop-color="#F2C2A8"></stop></linearGradient>
+</defs>
+<ellipse cx="320" cy="140" rx="180" ry="160" fill="#3A1838" opacity="0.6" filter="url(#m1Pool)"></ellipse>
+<g class="mv-breathe">
+<path d="M 280 -20 C 255 90, 270 190, 400 330" fill="none" stroke="#E9A08C" stroke-width="20" opacity="0.22" filter="url(#m1B2)"></path>
+<path d="M 280 -20 C 255 90, 270 190, 400 330" fill="none" stroke="#F6C2A4" stroke-width="5" opacity="0.7" filter="url(#m1B1)"></path>
+<path d="M 40 40 C 170 30, 300 120, 400 360" fill="none" stroke="#E7B0B4" stroke-width="3" opacity="0.45" filter="url(#m1B1)"></path>
+</g>
+<path d="M 280 -20 C 255 90, 270 190, 400 330" fill="none" stroke="url(#m1A)" stroke-width="1.5"></path>
+<path d="M 40 40 C 170 30, 300 120, 400 360" fill="none" stroke="url(#m1B)" stroke-width="1"></path>
+<path class="mv-travel" d="M 40 40 C 170 30, 300 120, 400 360" fill="none" stroke="#FFF1E6" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="36 724" opacity="0.7" filter="url(#m1B1)"></path>
+<path d="M -20 700 C 120 640, 260 620, 400 600" fill="none" stroke="#C995B0" stroke-width="0.9" opacity="0.4"></path>
+</svg>
+
+<header style="position: relative; display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 14px 20px">
+<a href="Main.dc.html" style="font-family: 'EB Garamond', serif; font-size: 20px; letter-spacing: 0.22em; color: #F2E8E4; text-decoration: none">MEZI VÁMI</a>
+<button type="button" aria-label="Otevřít menu" style="width: 44px; height: 44px; border-radius: 999px; border: 1px solid #5A4A58; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg aria-hidden="true" width="18" height="12" viewBox="0 0 18 12" fill="none" stroke="#F2E8E4" stroke-width="1.3"><path d="M1 2h16M1 10h16"></path></svg></button>
+</header>
+
+<div style="position: relative; padding: 52px 20px 0">
+<h1 style="margin: 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 58px; line-height: 1; letter-spacing: -0.01em"><span style="background: linear-gradient(180deg, #F6E6DA 0%, #E9C8B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Co vzniká</span><br><span style="background: linear-gradient(180deg, #CDB2C0 0%, #A98FA2 100%); -webkit-background-clip: text; background-clip: text; color: transparent">mezi vámi?</span></h1>
+<p style="margin: 20px 0 0; font-size: 22px; line-height: 1.35; color: #B9A8B5">Dva lidé. Jeden vztah.<br>Vzorec, který uvidíte až spolu.</p>
+<a href="Mobil-02-Osoba.dc.html" style="margin-top: 32px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; border-radius: 999px; border: 1.5px solid #E6D3CC; color: #F2E8E4; text-decoration: none; font-size: 16px">Zjistit vaši Vztahovou DNA zdarma <span aria-hidden="true">→</span></a>
+<p style="margin: 14px 0 0; font-size: 13px; line-height: 1.55; color: #A897A3; text-align: center">Zdarma a hned, bez e-mailu.<br>Hloubková analýza <span style="color: #E9C8B5">1 990 Kč</span> je dobrovolná — až po výsledku.</p>
+</div>
+
+<div style="position: relative; margin: 36px 16px 0; border-radius: 20px; border: 1px solid transparent; background: linear-gradient(180deg, rgba(42, 32, 44, 0.85), rgba(26, 19, 28, 0.85)) padding-box, linear-gradient(180deg, rgba(236, 212, 200, 0.55), rgba(236, 212, 200, 0.14) 60%, rgba(236, 212, 200, 0.22)) border-box; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55); padding: 16px; display: flex; flex-direction: column; gap: 10px">
+<div style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.09); background: linear-gradient(180deg, rgba(88, 74, 90, 0.5), rgba(58, 46, 60, 0.5)); padding: 16px 16px">
+<p style="margin: 0; font-size: 15px; font-weight: 400; color: #F2E8E4">První osoba</p>
+<div style="margin-top: 10px; display: flex; gap: 8px">
+<span style="flex: 1 1 0; display: flex; align-items: center; height: 38px; padding: 0 12px; border-radius: 8px; background: rgba(14, 10, 16, 0.55); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4); font-size: 12px; color: #8E7E8A">Datum narození</span>
+<span style="flex: 1 1 0; display: flex; align-items: center; height: 38px; padding: 0 12px; border-radius: 8px; background: rgba(14, 10, 16, 0.55); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4); font-size: 12px; color: #8E7E8A">Místo</span>
+</div>
+</div>
+<div style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.09); background: linear-gradient(180deg, rgba(88, 74, 90, 0.5), rgba(58, 46, 60, 0.5)); padding: 16px 16px">
+<p style="margin: 0; font-size: 15px; font-weight: 400; color: #F2E8E4">Druhá osoba</p>
+<div style="margin-top: 10px; display: flex; gap: 8px">
+<span style="flex: 1 1 0; display: flex; align-items: center; height: 38px; padding: 0 12px; border-radius: 8px; background: rgba(14, 10, 16, 0.55); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4); font-size: 12px; color: #8E7E8A">Datum narození</span>
+<span style="flex: 1 1 0; display: flex; align-items: center; height: 38px; padding: 0 12px; border-radius: 8px; background: rgba(14, 10, 16, 0.55); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4); font-size: 12px; color: #8E7E8A">Místo</span>
+</div>
+</div>
+<a href="Mobil-02-Osoba.dc.html" style="margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1622; text-decoration: none; font-size: 16px; box-shadow: 0 10px 30px rgba(232, 170, 135, 0.35), 0 0 50px rgba(232, 170, 135, 0.18), inset 0 1px 0 rgba(255, 244, 236, 0.6)">Začít první osobou <span aria-hidden="true">→</span></a>
+<p style="margin: 2px 0 4px; text-align: center; font-size: 12px; color: #A897A3">Výsledek hned. Bez registrace.</p>
+</div>
+
+<ul style="position: relative; margin: 26px 0 0; padding: 0 20px; list-style: none; display: flex; flex-direction: column; gap: 12px; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #9E8D99">
+<li style="display: flex; align-items: center; gap: 12px"><span aria-hidden="true" style="width: 24px; height: 1px; background: #6A5866"></span>Z údajů o narození obou</li>
+<li style="display: flex; align-items: center; gap: 12px"><span aria-hidden="true" style="width: 24px; height: 1px; background: #6A5866"></span>Bez registrace</li>
+<li style="display: flex; align-items: center; gap: 12px"><span aria-hidden="true" style="width: 24px; height: 1px; background: #6A5866"></span>Údaje mažeme do 72 hodin</li>
+</ul>
+
+<section style="position: relative; margin-top: 56px; padding: 0 20px">
+<p style="margin: 0; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #9E8D99">Co zjistíte zdarma</p>
+<h2 style="margin: 10px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 44px; line-height: 1; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Vztahová DNA</h2>
+<p style="margin: 14px 0 0; font-size: 16px; line-height: 1.6; color: #C9B9C3">Krátká, dokončená analýza vaší společné dynamiky. Není to upoutávka — je to celý výsledek, a u každého závěru uvidíte, na čem stojí.</p>
+<div style="position: relative; margin-top: 24px; height: 300px">
+<svg aria-hidden="true" viewBox="0 0 335 300" preserveAspectRatio="none" style="position: absolute; left: -20px; right: -20px; bottom: 0; width: 375px; height: 300px; pointer-events: none"><defs><filter id="m1F" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="4"></feGaussianBlur></filter></defs><path d="M -10 280 C 100 240, 220 240, 345 200" fill="none" stroke="#F6C2A4" stroke-width="4" opacity="0.5" filter="url(#m1F)"></path><path d="M -10 280 C 100 240, 220 240, 345 200" fill="none" stroke="#F3C9AD" stroke-width="1"></path></svg>
+<div style="position: absolute; left: 150px; top: 18px; width: 170px; height: 240px; transform: perspective(1000px) rotateY(-16deg) rotateZ(1.5deg); border-radius: 10px; border: 1px solid rgba(236, 212, 200, 0.2); background: linear-gradient(170deg, #281D2B, #160F18); padding: 20px 16px; box-sizing: border-box; box-shadow: 0 24px 50px rgba(0, 0, 0, 0.6)">
+<p style="margin: 0; font-family: 'EB Garamond', serif; font-size: 17px; line-height: 1.12; color: #EAD9CF">Hlavní témata<br>vašeho vztahu</p>
+<p style="margin: 14px 0 0; padding-top: 8px; border-top: 1px solid rgba(236, 212, 200, 0.12); font-size: 11px; color: #C9B9C3">Hlavní vzorec</p>
+<p style="margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(236, 212, 200, 0.12); font-size: 11px; color: #C9B9C3">Rytmus rozhodování</p>
+<p style="margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(236, 212, 200, 0.12); font-size: 11px; color: #C9B9C3">Co vás drží</p>
+</div>
+<div style="position: absolute; left: 0; top: 0; width: 190px; height: 270px; transform: perspective(1000px) rotateY(-16deg) rotateZ(-2.5deg); border-radius: 10px; border: 1px solid rgba(236, 212, 200, 0.3); background: linear-gradient(165deg, #2B1E2F, #120C14); overflow: hidden; box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7)">
+<svg aria-hidden="true" viewBox="0 0 190 270" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%"><defs><filter id="m1C1" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3"></feGaussianBlur></filter><filter id="m1C2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"></feGaussianBlur></filter></defs><path d="M -10 210 C 50 160, 120 150, 205 110" fill="none" stroke="#E9A08C" stroke-width="16" opacity="0.25" filter="url(#m1C2)"></path><path d="M -10 210 C 50 160, 120 150, 205 110" fill="none" stroke="#F6C2A4" stroke-width="4" opacity="0.7" filter="url(#m1C1)"></path><path d="M -10 210 C 50 160, 120 150, 205 110" fill="none" stroke="#FFE6D4" stroke-width="1.1"></path></svg>
+<p style="position: absolute; left: 0; right: 0; top: 20px; margin: 0; text-align: center; font-family: 'EB Garamond', serif; font-size: 10px; letter-spacing: 0.26em; color: #E2D6DC">MEZI VÁMI</p>
+<p style="position: absolute; left: 0; right: 0; top: 64px; margin: 0; text-align: center; font-family: 'EB Garamond', serif; font-size: 25px; color: #F2DDD0">Vztahová DNA</p>
+<p style="position: absolute; left: 14px; right: 14px; bottom: 16px; margin: 0; display: flex; justify-content: space-between; font-size: 10px; line-height: 1.4; color: #B9A8B5"><span>První osoba<br>14. 5. 1990</span><span style="text-align: right">Druhá osoba<br>23. 8. 1988</span></p>
+</div>
+</div>
+<p style="margin: 12px 0 0; text-align: center; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #7E6E7A">Ukázkový obsah</p>
+<a href="Main.dc.html#ukazka" style="margin-top: 18px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 50px; border-radius: 999px; border: 1.5px solid #E6D3CC; color: #F2E8E4; text-decoration: none; font-size: 14px">Ukázka výsledku <span aria-hidden="true">→</span></a>
+</section>
+
+<section style="position: relative; margin: 48px 16px 0; border-radius: 20px; border: 1px solid rgba(236, 212, 200, 0.16); background: linear-gradient(180deg, rgba(26, 19, 28, 0.94), rgba(18, 13, 20, 0.96)); box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5); padding: 26px 20px">
+<p style="margin: 0; font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: #9E8D99">Pro hlubší porozumění</p>
+<h2 style="margin: 12px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 36px; line-height: 1.02; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Hloubková analýza</h2>
+<p style="margin: 4px 0 0; font-family: 'EB Garamond', serif; font-size: 32px; color: #C2A8B8">1 990 Kč</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #C9B9C3">Rozsáhlá designovaná analýza vaší dvojice v PDF. Jednorázově, do 48 hodin e-mailem.</p>
+<p style="margin: 10px 0 0; font-size: 13px; color: #A897A3">Objednáte ji až po Vztahové DNA, pokud budete chtít.</p>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":375,"height":1560}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

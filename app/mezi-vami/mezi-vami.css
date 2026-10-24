@@ -1,0 +1,111 @@
+/* MEZI VÁMI — sdílené styly sekce (převzato z <helmet> bloků v design/mezi-vami/*.dc.html) */
+
+.mvp {
+  position: relative;
+  min-height: 100vh;
+  color: #F4E9E4;
+  font-family: var(--font-mv-jost), system-ui, sans-serif;
+  font-variant-numeric: lining-nums;
+  font-weight: 300;
+  line-height: normal;
+  overflow: hidden;
+  -webkit-font-smoothing: auto;
+}
+.mvp-landing { background: #0D090E; color: #F2E8E4; }
+.mvp-osoba, .mvp-pokladna { background: #120A12; }
+.mvp-vysledek { background: #0E070F; }
+.mvp-stavy { background: #0D070D; }
+
+/* návrh vznikl bez Tailwind preflightu: vrať výchozí chování prohlížeče */
+.mvp, .mvp *, .mvp *::before, .mvp *::after { box-sizing: content-box; }
+.mvp button, .mvp input[type="radio"], .mvp input[type="checkbox"] { box-sizing: border-box; }
+.mvp svg, .mvp img { display: inline; vertical-align: baseline; }
+.mvp a { text-decoration: underline; }
+.mvp-landing a { color: #EFCDB8; }
+.mvp-landing a:hover { color: #FFE9DB; }
+.mvp-osoba a, .mvp-pokladna a, .mvp-stavy a { color: #F1D0BC; }
+.mvp-osoba a:hover, .mvp-pokladna a:hover, .mvp-stavy a:hover { color: #FFE6D6; }
+.mvp-vysledek a { color: #F4CDB6; }
+.mvp-vysledek a:hover { color: #FFE9DB; }
+.mvp details > summary { list-style: none; cursor: pointer; }
+.mvp details > summary::-webkit-details-marker { display: none; }
+.mvp-osoba input::placeholder, .mvp-pokladna input::placeholder { color: #8F7884; opacity: 1; }
+.mvp-osoba input:focus-visible, .mvp-osoba button:focus-visible, .mvp-osoba a:focus-visible, .mvp-osoba summary:focus-visible,
+.mvp-pokladna input:focus-visible, .mvp-pokladna button:focus-visible, .mvp-pokladna a:focus-visible {
+  outline: 2px solid #EDB894;
+  outline-offset: 2px;
+}
+
+/* animace */
+.mv-breathe-d { animation: mvBreathe7 9s ease-in-out infinite; }
+.mv-travel-d { animation: mvTravelD 9s linear infinite; }
+.mv-float-d { animation: mvFloat 10s ease-in-out infinite; }
+.mv-btn-d { transition: transform .25s ease, box-shadow .25s ease, background-color .25s ease; }
+.mv-btn-d:hover { transform: translateY(-1px); }
+
+.mv-breathe-m1 { animation: mvBreathe7 9s ease-in-out infinite; }
+.mv-travel-m1 { animation: mvTravelM1 8s linear infinite; }
+
+.mv-breathe-m3 { animation: mvBreathe5 6s ease-in-out infinite; }
+.mv-spin-m3 { animation: mvSpin 40s linear infinite; transform-origin: center; transform-box: fill-box; }
+.mv-pulse-m3 { animation: mvPulse3 5s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+
+.mv-breathe-m4 { animation: mvBreathe55 8s ease-in-out infinite; }
+.mv-travel-m4 { animation: mvTravelM4 6s linear infinite; }
+.mv-pulse-m4 { animation: mvPulse4 6s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+
+.mv-breathe-m5 { animation: mvBreathe55 8s ease-in-out infinite; }
+.mv-float-m5 { animation: mvFloat 9s ease-in-out infinite; }
+.mv-travel-m5 { animation: mvTravelM5 6s linear infinite; }
+
+.mv-glow-s { animation: mvGlow 3.2s ease-in-out infinite; }
+
+.mv-sticky { transition: transform .3s ease, visibility .3s; }
+
+@keyframes mvBreathe7 { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+@keyframes mvBreathe5 { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@keyframes mvBreathe55 { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes mvTravelD { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -1700; } }
+@keyframes mvTravelM1 { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -760; } }
+@keyframes mvTravelM4 { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -660; } }
+@keyframes mvTravelM5 { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -560; } }
+@keyframes mvFloat { 0%, 100% { translate: 0 0; } 50% { translate: 0 -8px; } }
+@keyframes mvSpin { to { transform: rotate(360deg); } }
+@keyframes mvPulse3 { 0%, 100% { opacity: .8; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } }
+@keyframes mvPulse4 { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
+@keyframes mvGlow { 0%, 100% { opacity: .35; } 50% { opacity: .95; } }
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="mv-breathe-"], [class*="mv-travel-"], [class*="mv-float-"], [class*="mv-spin-"], [class*="mv-pulse-"] { animation: none; }
+  .mv-glow-s { animation: none; opacity: .7; }
+  .mv-btn-d, .mv-sticky { transition: none; }
+  .mv-btn-d:hover { transform: none; }
+}
+
+/* landing: desktop (Main) / mobil (Mobil-01) pod 768 px */
+.mv-m { display: none !important; }
+@media (max-width: 767.98px) {
+  .mv-m { display: block !important; }
+  .mv-d { display: none !important; }
+  .mv-px { padding-left: 20px !important; padding-right: 20px !important; }
+  .mv-dna { padding: 56px 0 64px !important; }
+  .mv-h66 { font-size: 44px !important; }
+  .mv-h60 { font-size: 40px !important; }
+  .mv-h50 { font-size: 38px !important; }
+  .mv-h46 { font-size: 36px !important; }
+  .mv-price46 { font-size: 34px !important; }
+  .mv-offer { padding: 28px 20px !important; }
+}
+
+/* galerie stavů: mřížka na desktopu, pod sebou na mobilu */
+.mv-stavy-wrap { max-width: 1772px; margin: 0 auto; padding: 64px; }
+.mv-stavy-h1 { display: inline-block; }
+.mv-stavy-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 56px 48px; }
+@media (max-width: 1279.98px) {
+  .mv-stavy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767.98px) {
+  .mv-stavy-wrap { padding: 32px 20px; }
+  .mv-stavy-h1 { font-size: 40px !important; }
+  .mv-stavy-grid { grid-template-columns: minmax(0, 1fr); max-width: 420px; margin-left: auto; margin-right: auto; }
+}
