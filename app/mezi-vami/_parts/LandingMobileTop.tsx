@@ -64,34 +64,29 @@ export function LandingMobileTop() {
       <MobileMenu />
     </header>
     <div style={{ position: "relative", padding: "52px 20px 0" }}>
-      <h1 style={{ margin: "0", fontFamily: "var(--font-mv-garamond), serif", fontWeight: "400", fontSize: "58px", lineHeight: "1", letterSpacing: "-0.01em" }}>
+      <h1 style={{ margin: "0", fontFamily: "var(--font-mv-garamond), serif", fontWeight: "400", fontSize: "50px", lineHeight: "1", letterSpacing: "-0.01em" }}>
         <span style={{ background: "linear-gradient(180deg, #F6E6DA 0%, #E9C8B5 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
-          Co vzniká
+          Co se odehrává
         </span>
         <br />
         <span style={{ background: "linear-gradient(180deg, #CDB2C0 0%, #A98FA2 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
           mezi vámi?
         </span>
       </h1>
-      <p style={{ margin: "20px 0 0", fontSize: "22px", lineHeight: "1.35", color: "#B9A8B5" }}>
-        Dva lidé. Jeden vztah.
-        <br />
-        Vzorec, který uvidíte až spolu.
+      <p style={{ margin: "20px 0 0", fontSize: "17px", lineHeight: "1.5", color: "#B9A8B5" }}>
+        Každý vztah má své silné stránky, citlivá místa i překvapivé souvislosti. Objevte nový pohled na to, jak se potkávají vaše dvě osobnosti — na základě údajů o narození obou lidí.
       </p>
       <Link href="/mezi-vami/osoba" prefetch={false} style={{ marginTop: "32px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", minHeight: "56px", borderRadius: "999px", border: "1.5px solid #E6D3CC", color: "#F2E8E4", textDecoration: "none", fontSize: "16px" }}>
-        {"Zjistit vaši Vztahovou DNA zdarma "}
+        {"Objevit Vztahovou DNA zdarma "}
         <span aria-hidden="true">
           →
         </span>
       </Link>
       <p style={{ margin: "14px 0 0", fontSize: "13px", lineHeight: "1.55", color: "#A897A3", textAlign: "center" }}>
-        Zdarma a hned, bez e-mailu.
-        <br />
-        {"Hloubková analýza "}
-        <span style={{ color: "#E9C8B5" }}>
+        {"Zdarma a bez e-mailu · Hloubková analýza jen volitelně za "}
+        <span style={{ color: "#E9C8B5", whiteSpace: "nowrap" }}>
           1 990 Kč
         </span>
-        {" je dobrovolná — až po výsledku."}
       </p>
     </div>
     <div style={{ position: "relative", margin: "36px 16px 0", borderRadius: "20px", border: "1px solid transparent", background: "linear-gradient(180deg, rgba(42, 32, 44, 0.85), rgba(26, 19, 28, 0.85)) padding-box, linear-gradient(180deg, rgba(236, 212, 200, 0.55), rgba(236, 212, 200, 0.14) 60%, rgba(236, 212, 200, 0.22)) border-box", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", boxShadow: "0 30px 70px rgba(0, 0, 0, 0.55)", padding: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>

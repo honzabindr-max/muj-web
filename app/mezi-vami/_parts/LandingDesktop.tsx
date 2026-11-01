@@ -100,21 +100,19 @@ export function LandingDesktop() {
         <div style={{ flex: "1 1 640px", minWidth: "0" }}>
           <h1 style={{ margin: "0", fontFamily: "var(--font-mv-garamond), serif", fontWeight: "400", fontSize: "clamp(62px, 8.2vw, 118px)", lineHeight: "0.98", letterSpacing: "-0.01em" }}>
             <span style={{ background: "linear-gradient(180deg, #F6E6DA 0%, #E9C8B5 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
-              Co vzniká
+              Co se odehrává
             </span>
             <br />
             <span style={{ background: "linear-gradient(180deg, #CDB2C0 0%, #A98FA2 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
               mezi vámi?
             </span>
           </h1>
-          <p style={{ margin: "26px 0 0", fontSize: "31px", lineHeight: "1.3", color: "#B9A8B5", maxWidth: "600px" }}>
-            Dva lidé. Jeden vztah.
-            <br />
-            Vzorec, který uvidíte až spolu.
+          <p style={{ margin: "26px 0 0", fontSize: "22px", lineHeight: "1.45", color: "#B9A8B5", maxWidth: "600px" }}>
+            Každý vztah má své silné stránky, citlivá místa i překvapivé souvislosti. Objevte nový pohled na to, jak se potkávají vaše dvě osobnosti — na základě údajů o narození obou lidí.
           </p>
           <div style={{ marginTop: "42px", display: "flex", flexWrap: "wrap", gap: "18px", alignItems: "center" }}>
             <Link href="/mezi-vami/osoba" prefetch={false} className="mv-btn-d" style={{ display: "inline-flex", alignItems: "center", gap: "12px", minHeight: "60px", padding: "0 36px", borderRadius: "999px", border: "1.5px solid #E6D3CC", color: "#F2E8E4", textDecoration: "none", fontSize: "17px", fontWeight: "400" }}>
-              {"Zjistit vaši Vztahovou DNA zdarma "}
+              {"Objevit Vztahovou DNA zdarma "}
               <span aria-hidden="true">
                 →
               </span>
@@ -130,11 +128,10 @@ export function LandingDesktop() {
             </a>
           </div>
           <p style={{ margin: "24px 0 0", fontSize: "14px", lineHeight: "1.6", color: "#A897A3", maxWidth: "540px" }}>
-            {"Vztahová DNA je zdarma a kompletní. Hloubková analýza za "}
-            <span style={{ color: "#E9C8B5" }}>
+            {"Zdarma a bez e-mailu · Hloubková analýza jen volitelně za "}
+            <span style={{ color: "#E9C8B5", whiteSpace: "nowrap" }}>
               1 990 Kč
             </span>
-            {" je dobrovolná — nabídneme ji až po výsledku."}
           </p>
         </div>
         <ul style={{ flex: "0 1 240px", margin: "0", padding: "0", listStyle: "none", textAlign: "right", fontSize: "12px", letterSpacing: "0.26em", textTransform: "uppercase", color: "#9E8D99", lineHeight: "2.5" }}>
