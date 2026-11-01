@@ -75,10 +75,31 @@
 @keyframes mvPulse4 { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
 @keyframes mvGlow { 0%, 100% { opacity: .35; } 50% { opacity: .95; } }
 
+/* výpočet: prstence se nakreslí, opory se odhalí, řádky se "dopočítají" */
+.mv-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: mvDraw 1.8s cubic-bezier(.3,.1,.2,1) .2s forwards; }
+.mv-draw-2 { animation-delay: .55s; }
+.mv-rv { transition: opacity .7s ease calc(var(--d, 0ms)), translate .7s ease calc(var(--d, 0ms)); }
+.mv-bar { transform-origin: top; transition: transform .9s cubic-bezier(.3,.1,.2,1) calc(var(--d, 0ms) + 250ms); }
+.mvp details[open] .mv-calc li { animation: mvRowIn .5s ease both; }
+.mvp details[open] .mv-calc li:nth-child(2) { animation-delay: .35s; }
+.mvp details[open] .mv-calc li:nth-child(3) { animation-delay: .7s; }
+.mvp details[open] .mv-calc li:nth-child(4) { animation-delay: 1.05s; }
+.mvp details[open] .mv-calc li > span:last-child { animation: mvDone .9s ease both; animation-delay: inherit; }
+@media (prefers-reduced-motion: no-preference) {
+  .mv-rv.mv-armed:not(.mv-in) { opacity: 0; translate: 0 14px; }
+  .mv-rv.mv-armed:not(.mv-in) .mv-bar { transform: scaleY(0); }
+}
+@keyframes mvDraw { to { stroke-dashoffset: 0; } }
+@keyframes mvRowIn { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@keyframes mvDone { 0% { text-shadow: 0 0 0 transparent; } 40% { text-shadow: 0 0 10px rgba(240, 180, 143, .9); } 100% { text-shadow: 0 0 0 transparent; } }
+
 @media (prefers-reduced-motion: reduce) {
   [class*="mv-breathe-"], [class*="mv-travel-"], [class*="mv-float-"], [class*="mv-spin-"], [class*="mv-pulse-"] { animation: none; }
   .mv-glow-s { animation: none; opacity: .7; }
   .mv-btn-d, .mv-sticky { transition: none; }
+  .mv-draw { animation: none; stroke-dashoffset: 0; }
+  .mvp details[open] .mv-calc li, .mvp details[open] .mv-calc li > span:last-child { animation: none; }
+  .mv-rv, .mv-bar { transition: none; }
   .mv-btn-d:hover { transform: none; }
 }
 

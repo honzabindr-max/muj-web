@@ -1,9 +1,11 @@
 // Převedeno skriptem z design/mezi-vami/Mobil-03-Vypocet.dc.html (řádky 31–112), pak ručně upraveno.
 import Link from "next/link";
+import { RevealOnView } from "./RevealOnView";
 
 export function Vypocet() {
   return (
     <>
+    <RevealOnView />
     <svg aria-hidden="true" viewBox="0 0 375 420" style={{ position: "absolute", left: "50%", marginLeft: "-187.5px", top: "0", width: "375px", height: "420px", overflow: "visible", pointerEvents: "none" }}>
       <defs>
         <filter id="m3B1" x="-40%" y="-40%" width="180%" height="180%">
@@ -53,9 +55,9 @@ export function Vypocet() {
       </circle>
       <circle cx="216" cy="150" r="66" fill="none" stroke="#F0B48F" strokeWidth="10" opacity="0.35" filter="url(#m3B2)">
       </circle>
-      <circle cx="160" cy="150" r="66" fill="none" stroke="url(#m3RingA)" strokeWidth="1.4">
+      <circle className="mv-draw" pathLength="1" cx="160" cy="150" r="66" fill="none" stroke="url(#m3RingA)" strokeWidth="1.4">
       </circle>
-      <circle cx="216" cy="150" r="66" fill="none" stroke="url(#m3RingB)" strokeWidth="1.4">
+      <circle className="mv-draw mv-draw-2" pathLength="1" cx="216" cy="150" r="66" fill="none" stroke="url(#m3RingB)" strokeWidth="1.4">
       </circle>
       <circle className="mv-spin-m3" cx="160" cy="150" r="74" fill="none" stroke="#E3A3BC" strokeWidth="0.6" strokeDasharray="1 7" opacity="0.6">
       </circle>
@@ -131,8 +133,8 @@ export function Vypocet() {
         Dvě konkrétní opory z vašeho výpočtu. U každého bloku níže uvidíte, ke které patří.
       </p>
       <ol style={{ margin: "18px 0 0", padding: "0", listStyle: "none", display: "flex", flexDirection: "column", gap: "12px" }}>
-        <li style={{ position: "relative", padding: "18px 18px 18px 22px", borderRadius: "16px", border: "1px solid transparent", background: "linear-gradient(170deg, rgba(46, 24, 48, 0.95), rgba(24, 12, 26, 0.96)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.6), rgba(185, 138, 198, 0.12) 50%, rgba(255, 214, 190, 0.3)) border-box", boxShadow: "0 20px 50px rgba(0, 0, 0, 0.45)" }}>
-          <span aria-hidden="true" style={{ position: "absolute", left: "0", top: "18px", bottom: "18px", width: "2px", borderRadius: "2px", background: "linear-gradient(180deg, #FFE3CF, #D9917C)", boxShadow: "0 0 10px #F0B48F" }}>
+        <li className="mv-rv" style={{ position: "relative", padding: "18px 18px 18px 22px", borderRadius: "16px", border: "1px solid transparent", background: "linear-gradient(170deg, rgba(46, 24, 48, 0.95), rgba(24, 12, 26, 0.96)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.6), rgba(185, 138, 198, 0.12) 50%, rgba(255, 214, 190, 0.3)) border-box", boxShadow: "0 20px 50px rgba(0, 0, 0, 0.45)" }}>
+          <span aria-hidden="true" className="mv-bar" style={{ position: "absolute", left: "0", top: "18px", bottom: "18px", width: "2px", borderRadius: "2px", background: "linear-gradient(180deg, #FFE3CF, #D9917C)", boxShadow: "0 0 10px #F0B48F" }}>
           </span>
           <p style={{ margin: "0", fontSize: "11px", letterSpacing: "0.22em", textTransform: "uppercase", color: "#F0B48F" }}>
             Opora hlavního vzorce
@@ -144,8 +146,8 @@ export function Vypocet() {
             Patří k bloku 01 ↓
           </a>
         </li>
-        <li style={{ position: "relative", padding: "18px 18px 18px 22px", borderRadius: "16px", border: "1px solid transparent", background: "linear-gradient(170deg, rgba(46, 24, 48, 0.95), rgba(24, 12, 26, 0.96)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.45), rgba(185, 138, 198, 0.12) 50%, rgba(185, 138, 198, 0.4)) border-box", boxShadow: "0 20px 50px rgba(0, 0, 0, 0.45)" }}>
-          <span aria-hidden="true" style={{ position: "absolute", left: "0", top: "18px", bottom: "18px", width: "2px", borderRadius: "2px", background: "linear-gradient(180deg, #EBB3C2, #A987C4)", boxShadow: "0 0 10px #CF9DC0" }}>
+        <li className="mv-rv" style={{ ["--d" as string]: "140ms", position: "relative", padding: "18px 18px 18px 22px", borderRadius: "16px", border: "1px solid transparent", background: "linear-gradient(170deg, rgba(46, 24, 48, 0.95), rgba(24, 12, 26, 0.96)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.45), rgba(185, 138, 198, 0.12) 50%, rgba(185, 138, 198, 0.4)) border-box", boxShadow: "0 20px 50px rgba(0, 0, 0, 0.45)" }}>
+          <span aria-hidden="true" className="mv-bar" style={{ position: "absolute", left: "0", top: "18px", bottom: "18px", width: "2px", borderRadius: "2px", background: "linear-gradient(180deg, #EBB3C2, #A987C4)", boxShadow: "0 0 10px #CF9DC0" }}>
           </span>
           <p style={{ margin: "0", fontSize: "11px", letterSpacing: "0.22em", textTransform: "uppercase", color: "#E3A3BC" }}>
             Opora bloku 04
@@ -166,7 +168,7 @@ export function Vypocet() {
             </path>
           </svg>
         </summary>
-        <ul style={{ margin: "0", padding: "0 0 16px", listStyle: "none", display: "flex", flexDirection: "column", gap: "10px", fontSize: "14px" }}>
+        <ul className="mv-calc" style={{ margin: "0", padding: "0 0 16px", listStyle: "none", display: "flex", flexDirection: "column", gap: "10px", fontSize: "14px" }}>
           <li style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
             <span style={{ color: "#EADCE2" }}>
               Postavení planet u obou
