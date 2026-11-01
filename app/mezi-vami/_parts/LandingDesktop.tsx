@@ -90,7 +90,7 @@ export function LandingDesktop() {
           </a>
         </nav>
         <Link href="/mezi-vami/osoba" prefetch={false} className="mv-btn-d" style={{ display: "inline-flex", alignItems: "center", gap: "10px", minHeight: "46px", padding: "0 24px", borderRadius: "999px", border: "1.5px solid #E6D3CC", color: "#F2E8E4", textDecoration: "none", fontSize: "14px" }}>
-          {"Zjistit vaši Vztahovou DNA zdarma "}
+          {"Objevit Vztahovou DNA zdarma "}
           <span aria-hidden="true">
             →
           </span>
@@ -186,7 +186,7 @@ export function LandingDesktop() {
           </div>
           <div style={{ flex: "1 1 250px", minWidth: "0", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "12px", padding: "6px 10px", textAlign: "center" }}>
             <Link href="/mezi-vami/osoba" prefetch={false} className="mv-btn-d" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "10px", minHeight: "62px", width: "100%", maxWidth: "280px", padding: "0 22px", boxSizing: "border-box", borderRadius: "999px", background: "linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%)", color: "#2A1622", textDecoration: "none", fontSize: "16px", fontWeight: "400", lineHeight: "1.25", boxShadow: "0 10px 34px rgba(232, 170, 135, 0.35), 0 0 60px rgba(232, 170, 135, 0.18), inset 0 1px 0 rgba(255, 244, 236, 0.6)" }}>
-              {"Zjistit vaši Vztahovou DNA zdarma "}
+              {"Objevit Vztahovou DNA zdarma "}
               <span aria-hidden="true">
                 →
               </span>
@@ -491,7 +491,7 @@ export function LandingDesktop() {
               Rozsáhlá designovaná analýza vaší dvojice v PDF. Jednorázově, bez předplatného — od hlavních dynamik až po konkrétní věci, které můžete doma zkusit jinak.
             </p>
             <Link href="/mezi-vami/osoba" prefetch={false} className="mv-btn-d" style={{ marginTop: "32px", display: "inline-flex", alignItems: "center", gap: "10px", minHeight: "58px", padding: "0 34px", borderRadius: "999px", background: "linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%)", color: "#2A1622", textDecoration: "none", fontSize: "16px", fontWeight: "400", boxShadow: "0 10px 34px rgba(232, 170, 135, 0.35), 0 0 60px rgba(232, 170, 135, 0.18), inset 0 1px 0 rgba(255, 244, 236, 0.6)" }}>
-              {"Nejdřív Vztahová DNA zdarma "}
+              {"Objevit Vztahovou DNA zdarma "}
               <span aria-hidden="true">
                 →
               </span>
@@ -844,7 +844,7 @@ export function LandingDesktop() {
         </span>
       </h2>
       <Link href="/mezi-vami/osoba" prefetch={false} className="mv-btn-d" style={{ position: "relative", marginTop: "40px", display: "inline-flex", alignItems: "center", gap: "12px", minHeight: "60px", padding: "0 36px", borderRadius: "999px", background: "linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%)", color: "#2A1622", textDecoration: "none", fontSize: "17px", fontWeight: "400", boxShadow: "0 10px 34px rgba(232, 170, 135, 0.35), 0 0 60px rgba(232, 170, 135, 0.18), inset 0 1px 0 rgba(255, 244, 236, 0.6)" }}>
-        {"Zjistit vaši Vztahovou DNA zdarma "}
+        {"Objevit Vztahovou DNA zdarma "}
         <span aria-hidden="true">
           →
         </span>

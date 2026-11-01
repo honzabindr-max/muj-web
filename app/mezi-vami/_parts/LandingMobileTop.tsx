@@ -117,7 +117,7 @@ export function LandingMobileTop() {
         </div>
       </div>
       <Link href="/mezi-vami/osoba" prefetch={false} style={{ marginTop: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", minHeight: "56px", borderRadius: "999px", background: "linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%)", color: "#2A1622", textDecoration: "none", fontSize: "16px", boxShadow: "0 10px 30px rgba(232, 170, 135, 0.35), 0 0 50px rgba(232, 170, 135, 0.18), inset 0 1px 0 rgba(255, 244, 236, 0.6)" }}>
-        {"Začít první osobou "}
+        {"Objevit Vztahovou DNA zdarma "}
         <span aria-hidden="true">
           →
         </span>
