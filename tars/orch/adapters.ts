@@ -90,6 +90,8 @@ export function runProcess(
     p.stdout.on("data", (d) => (stdout += d));
     p.stderr.on("data", (d) => (stderr += d));
     p.on("error", (e) => (stderr += String(e)));
+    // A child that exits without reading stdin (e.g. codex failing fast) must not crash us with EPIPE.
+    p.stdin.on("error", () => undefined);
     p.on("close", (code) => {
       clearTimeout(timer);
       resolve({ code, stdout, stderr, timedOut, duration_ms: Date.now() - t0 });

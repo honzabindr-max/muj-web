@@ -958,6 +958,7 @@ describe("CodexCli → codex exec --output-schema (fake codex on PATH)", () => {
   });
   // The fake finds -o / --output-schema, copies the schema it was given, and writes a canned last message.
   const script = (reply: string, extra = "") => `
+cat > /dev/null
 out=""; schema=""; args="$*"
 while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; --output-schema) schema="$2"; shift;; esac; shift; done
 echo "$args" > "${"$"}{FAKE_LOG}"
@@ -994,6 +995,11 @@ printf '%s' '${reply}' > "$out"
     const { v } = await callChecker(new CodexCli(), "p", dir);
     expect(v?.verdict).toBe("FIX");
     expect(v?.issues[0]).toMatch(/^Nelze ověřit/);
+  });
+  it("codex that exits without reading its stdin does not crash us (EPIPE)", async () => {
+    fakeCodex("exit 1");
+    const r = await new CodexCli().run("x".repeat(8_000_000), { cwd: dir });
+    expect(r.ok).toBe(false);
   });
   it("codex failing (exit 1, usage limit) → not ok, limit flagged, no verdict", async () => {
     process.env.FAKE_LOG = path.join(bin, "log4");
