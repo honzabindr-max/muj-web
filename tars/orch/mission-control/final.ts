@@ -348,6 +348,10 @@ export function buildFinal(input: McInput, focusId?: string, opts: { allRoles?: 
   // team = main mission + the focused order (a background order opened from „Na pozadí“ keeps its roles)
   for (const o of input.orders.filter((x) => opts.allRoles || mainIds.has(x.id) || x.id === focus?.id)) recipeOf(o)?.steps.forEach((s) => (s.kind ?? "create") !== "deliver" && (s.kind ?? "create") !== "owner" && ids.add(s.role));
   for (const k of Object.keys(cards)) if (ROLE_RE.test(k)) ids.add(k);
+  // a delivery step (e.g. „merge“ of a dev run) is not a standing team member, but while an order is
+  // in that step it is the role doing the work: it must be shown and have its role page
+  for (const o of all) if (o.active && o.activeRole && ROLE_RE.test(o.activeRole) && (opts.allRoles || mainIds.has(o.id) || o.id === focus?.id)) ids.add(o.activeRole);
+  if (opts.allRoles) for (const o of input.orders) recipeOf(o)?.steps.forEach((s) => s.kind === "deliver" && ids.add(s.role));
   const labelOf = new Map<string, string>();
   // team = main mission + the focused order (a background order opened from „Na pozadí“ keeps its roles)
   for (const o of input.orders.filter((x) => opts.allRoles || mainIds.has(x.id) || x.id === focus?.id)) recipeOf(o)?.steps.forEach((s) => s.label && labelOf.set(s.role, s.label));

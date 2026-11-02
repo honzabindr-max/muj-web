@@ -280,3 +280,59 @@ describe("review #83: stale running text never outlives the state", () => {
     expect(renderFinal(buildFinal(i), qs)).not.toMatch(/(?<!ne)[Čč]eká na tvoje GO/);
   });
 });
+
+// ---- second GPT review of PR #83 ----
+
+describe("review #83/2: a path after „:“ is hidden", () => {
+  it("cwd:/Users/... in text, HTML and /api/state", async () => {
+    const { redactPaths } = await import("../secret-scan");
+    expect(redactPaths("cwd:/Users/review/project/src/main.ts")).toBe("cwd:[cesta skryta]");
+    expect(redactPaths("dir=/home/x/y")).toBe("dir=[cesta skryta]");
+    for (const keep of ["http://127.0.0.1:4747/role/merge", "https://github.com/x/y/pull/1", "https://example.com:443/home/x"]) expect(redactPaths(keep)).toBe(keep);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-bg3-"));
+    const d = dev("dev-run3", "DOING", { lastStep: "Spouští v cwd:/Users/review/project/src/main.ts", meta: { cwd: "cwd:/Users/review/project" } });
+    fs.mkdirSync(path.join(dir, d.id));
+    fs.writeFileSync(path.join(dir, d.id, "state.json"), JSON.stringify(d));
+    fs.writeFileSync(path.join(dir, d.id, ".lock"), String(process.pid));
+    const srv = http.createServer(handler(dir, "/nonexistent-cards"));
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    for (const p of ["/", "/p0", "/api/state", "/zakazka/dev-run3", "/?focus=dev-run3"]) expect(await (await fetch(`http://127.0.0.1:${port}${p}`)).text()).not.toContain("/Users/review");
+    srv.close();
+  });
+});
+
+describe("review #83/2: a dev run in its „merge“ (deliver) step", () => {
+  const inMerge = () => {
+    const o = dev("dev-run3", "DOING");
+    (o as unknown as { recipe_step: number }).recipe_step = 3; // Merge, kind deliver
+    return withBackground(scenario("aktivita", NOW), [o], { "dev-run3": true });
+  };
+
+  it("detail shows who works, never „Nikdo teď nepracuje“", () => {
+    const f = buildFinal(inMerge(), "dev-run3");
+    expect(f.focus?.activeRole).toBe("merge");
+    expect(f.roles.find((r) => r.id === "merge")?.status).toBe("working");
+    const html = renderFinal(f, qs);
+    expect(html).not.toContain("Nikdo teď nepracuje");
+    expect(html).toContain("/role/merge");
+  });
+
+  it("/role/merge exists (page and HTTP), delivery steps are not standing team members", async () => {
+    const { buildRolePage } = await import("../mission-control/final");
+    const i = inMerge();
+    expect(buildRolePage(i, "merge")).toBeDefined();
+    expect(buildFinal(i).roles.map((r) => r.id)).not.toContain("merge"); // main page team: main mission only
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-bg4-"));
+    const o = i.orders.find((x) => x.id === "dev-run3")!;
+    fs.mkdirSync(path.join(dir, o.id));
+    fs.writeFileSync(path.join(dir, o.id, "state.json"), JSON.stringify(o));
+    fs.writeFileSync(path.join(dir, o.id, ".lock"), String(process.pid));
+    const srv = http.createServer(handler(dir, "/nonexistent-cards"));
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    expect((await fetch(`http://127.0.0.1:${port}/role/merge`)).status).toBe(200);
+    expect(await (await fetch(`http://127.0.0.1:${port}/?focus=dev-run3`)).text()).not.toContain("Nikdo teď nepracuje");
+    srv.close();
+  });
+});
