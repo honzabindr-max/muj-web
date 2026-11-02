@@ -9,6 +9,7 @@ import {
   type Member,
   type OrderView,
   type SysStatus,
+  type BackgroundItem,
 } from "./view";
 
 export const esc = (s: unknown) =>
@@ -51,7 +52,7 @@ function commandBar(v: McView, qs: string) {
   <div class="bar-items">
     <div class="pill ${tone}" data-sys title="${esc(v.statusSentence)}"><span class="dot ${tone}${v.status === "working" ? " pulse" : ""}" aria-hidden="true"></span><span>${esc(v.statusLabel)}</span></div>
     <div class="kv"><span class="k">Mise</span><span class="v">${esc(v.mission)}</span></div>
-    <div class="kv"><span class="k">Pracuje</span><span class="v">${v.workingCount} ${v.workingCount === 1 ? "specialista" : v.workingCount >= 2 && v.workingCount <= 4 ? "specialisté" : "specialistů"}</span></div>
+    <div class="kv"><span class="k">Pracuje</span><span class="v" data-live-count>${esc(liveCount(v.liveOrders))}</span></div>
     <div class="kv"><span class="k">Rozhodnutí</span><span class="v${v.decisionsCount ? " accent" : ""}">${v.decisionsCount}</span></div>
     <div class="kv"><span class="k">Poslední potvrzení</span><span class="v">${ago(v.lastContact, v.now)}</span></div>
   </div>
@@ -180,9 +181,41 @@ function delivery(v: McView, qs: string) {
 </section>`;
 }
 
+/** Header „Pracuje“: live orders across all missions. */
+export const liveCount = (n: number) => `${n} ${n === 1 ? "zakázka" : n >= 2 && n <= 4 ? "zakázky" : "zakázek"}`;
+
+/** „Na pozadí“: orders of other missions, active now or ended today. Every text comes from safe(). */
+export function renderBackground(items: BackgroundItem[], now: string, href: (id: string) => string): string {
+  const body = items.length
+    ? `<ul class="bgx-list">${items
+        .map(
+          (b) => `<li><a class="bgx-item st-${b.status}${b.live ? " is-live" : ""}" href="${esc(href(b.id))}"><i class="led" aria-hidden="true"></i><span class="bgx-t"><b>${esc(b.title)}</b><span>${esc(b.mission)} · ${esc(b.lastStep)}</span></span><span class="bgx-s">${esc(b.statusLabel)}</span><span class="bgx-d">${running(b.startedAt, b.endedAt, now)}</span></a></li>`,
+        )
+        .join("")}</ul>`
+    : `<p class="bgx-empty">Na pozadí nic neběží.</p>`;
+  return `<section class="bgx" aria-label="Na pozadí"><h2 class="bgx-h">Na pozadí</h2>${body}</section>`;
+}
+
+export const CSS_BG = `
+.bgx{margin:18px 0}.bgx-h{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);font-weight:650;margin:0 0 10px}
+.bgx-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bgx-item{display:grid;grid-template-columns:12px minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:11px 16px;border-radius:14px;border:1px solid var(--line);background:var(--surf,var(--s1));color:inherit;text-decoration:none}
+.bgx-item:hover{border-color:var(--line2,var(--line));color:inherit}
+.bgx-item .led{width:9px;height:9px;border-radius:50%;background:var(--unk);display:block;margin:0}
+.bgx-item.st-working .led{background:var(--live)}.bgx-item.st-done .led{background:var(--ok)}.bgx-item.st-failed .led{background:var(--bad)}.bgx-item.st-waiting .led,.bgx-item.st-paused .led{background:var(--wait)}
+.bgx-item.st-working .bgx-s{color:var(--live)}.bgx-item.st-failed .bgx-s{color:var(--bad)}.bgx-item.st-done .bgx-s{color:var(--ok)}.bgx-item.st-unknown .bgx-s,.bgx-item.st-superseded .bgx-s{color:var(--mute)}
+.bgx-t{display:flex;flex-direction:column;min-width:0}.bgx-t b{font-weight:620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bgx-t span{font-size:12.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bgx-s{font-weight:600;font-size:13px;white-space:nowrap}.bgx-d{font-size:12.5px;color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bgx-empty{margin:0;color:var(--mute);font-size:14px}
+.bgx-item.is-live .led{animation:bgx-pulse 1.6s ease-in-out infinite}
+@keyframes bgx-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 55%,transparent)}50%{box-shadow:0 0 0 6px transparent}}
+@media (prefers-reduced-motion:reduce){.bgx-item.is-live .led{animation:none}}
+`;
+
 export function renderMainFragment(v: McView, qs = q(v.demo)): string {
   return `${demoBanner(v)}${commandBar(v, qs)}<main class="wrap">
   <div class="top">${liveMission(v, qs)}<div class="side">${ownerDesk(v)}${nextCard(v)}</div></div>
+  ${renderBackground(v.background, v.now, (id) => `/zakazka/${encodeURIComponent(id)}${qs}`)}
   ${team(v)}
   ${delivery(v, qs)}
   <footer class="foot mute small">Jen čtení · obnova každé 3 s · zdroj runs/*/state.json, runs/log.jsonl, runs/.lock, karty specialistů · stav počítá kód, ne model</footer>
@@ -327,6 +360,7 @@ function swap(el,from,to){from.forEach(function(c){if(el.classList.contains(c)){
 function offline(){document.body.classList.add('offline');last=null;
 var b=document.getElementById('offline');if(b)b.textContent='Panel neodpovídá – stav nelze ověřit. Zobrazená data jsou z '+new Date(okAt).toLocaleTimeString('cs-CZ')+' a nemusí platit.';
 var s=document.querySelector('[data-sys]');if(s){['live','wait','bad','ok','check'].forEach(function(c){s.classList.remove(c)});s.classList.add('unknown');s.setAttribute('title','Spojení s panelem přerušeno');s.lastChild.textContent='Nelze ověřit'}
+document.querySelectorAll('[data-live-count]').forEach(function(el){el.textContent='nelze ověřit'});
 app.querySelectorAll('.pulse,.is-live').forEach(function(el){el.classList.remove('pulse','is-live')});
 app.querySelectorAll('.t-live,.t-check').forEach(function(el){swap(el,['t-live','t-check'],'t-unknown')});
 app.querySelectorAll('.st-working,.st-checking').forEach(function(el){swap(el,['st-working','st-checking'],'st-unknown');var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode())){if(n.nodeValue.indexOf('Pracuje')===0||n.nodeValue.indexOf('Kontroluje')===0)n.nodeValue=n.nodeValue.replace(/^(Pracuje|Kontroluje)/,'Nelze ověřit')}})}
@@ -338,7 +372,7 @@ bind();tick();setInterval(tick,1000);if(app.dataset.src)setInterval(refresh,3000
 const OFFLINE_CSS = `#offline{display:none}body.offline #offline{display:block;position:sticky;top:0;z-index:99;padding:10px 16px;text-align:center;font:600 14px/1.4 -apple-system,system-ui,sans-serif;background:#3a2a10;color:#ffd99a}
 body.offline #app{filter:grayscale(1);opacity:.6}body.offline *,body.offline *::before,body.offline *::after{animation:none!important;transition:none!important}`;
 
-export function renderDocument(title: string, fragment: string, src: string, css = CSS): string {
+export function renderDocument(title: string, fragment: string, src: string, css = CSS + CSS_BG): string {
   return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark light"><title>${esc(title)}</title><style>${css}</style><style>${OFFLINE_CSS}</style></head>
 <body><div id="offline" role="status" aria-live="polite"></div><div id="app" data-src="${esc(src)}">${fragment}</div><script>${SCRIPT}</script></body></html>`;

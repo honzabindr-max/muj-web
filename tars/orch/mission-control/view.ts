@@ -2,7 +2,7 @@
 // Pure function: documented data (state.json, log.jsonl, run lock, specialist cards) → everything the
 // owner sees. No LLM, no guesses: every status and number is computed here from the input, and every
 // value carries enough origin to be traced (zadání §5 „Pravda nad vizuálním efektem“).
-import { scanSecrets } from "../secret-scan";
+import { redactPaths, scanSecrets } from "../secret-scan";
 import type { LogEntry, Order, OrderState } from "../types";
 
 export type SysStatus = "working" | "waiting" | "paused" | "problem" | "unavailable" | "unknown";
@@ -167,11 +167,15 @@ export interface McView {
   guard?: { at: string; ok: boolean };
   /** Number of orders whose state.json cannot be used; > 0 = the overview cannot be verified. */
   unreadable: number;
+  /** Orders with proven live work across all missions (header „Pracuje“). */
+  liveOrders: number;
+  /** Orders outside the main mission: active now or ended today. */
+  background: BackgroundItem[];
 }
 
 export const ACTIVE_STATES: readonly OrderState[] = ["NEW", "PLANNED", "DOING", "CHECKING", "FIXING", "DELIVERED", "PAUSED"];
 
-export const STATE_LABEL: Record<OrderState, string> = {
+export const STATE_LABEL: Record<OrderState | "SUPERSEDED", string> = {
   NEW: "Plánuje se",
   PLANNED: "Zadání schváleno",
   DOING: "Tvorba",
@@ -183,10 +187,17 @@ export const STATE_LABEL: Record<OrderState, string> = {
   PAUSED: "Pozastaveno",
   FAILED: "Selhalo",
   UNKNOWN: "Nelze ověřit",
+  SUPERSEDED: "Nahrazeno",
 };
 
+/**
+ * SUPERSEDED (introduced by the dispatch bridge, run 3): the order was replaced by a newer one.
+ * Not active, never waits for the owner, never in Owner Desk; shown as „Nahrazeno“.
+ */
+export const isSuperseded = (o: { state: string }) => o.state === "SUPERSEDED";
+
 const MISSION_NAME: Record<string, string> = { "mezi-vami": "MEZI VÁMI" };
-export const missionName = (m: string) => MISSION_NAME[m] ?? m;
+export const missionName = (m: string) => MISSION_NAME[m] ?? (safe(m, 60) || "—");
 
 const DEPT_NAME: Record<string, string> = { copy: "Copy a kreativa", dev: "Vývoj", vizual: "Vizuál" };
 
@@ -215,7 +226,8 @@ export function safe(text: string | undefined | null, max = 240): string {
   const t = String(text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return "";
   if (!scanSecrets(t).clean) return "[skryto: text obsahoval citlivý údaj]";
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+  const p = redactPaths(t); // no local paths on the page
+  return p.length > max ? `${p.slice(0, max - 1)}…` : p;
 }
 
 const ms = (iso?: string) => (iso ? Date.parse(iso) : NaN);
@@ -377,7 +389,14 @@ export function buildFlow(o: Order, calls: CallInfo[]): FlowStep[] {
 
   const s = o.state;
   if (s === "DONE") steps.forEach((x) => (x.status = "done"));
-  else if (s === "FAILED" || s === "UNKNOWN") {
+  else if (isSuperseded(o)) {
+    // replaced: the step it stopped in and everything after is skipped, nothing waits for anyone
+    const last = o.history.at(-1);
+    const i = Math.max(0, idx(stepOfState(last?.from ?? "NEW", o, calls)));
+    mark(i, "skipped");
+    steps[i].note = "nahrazeno";
+    steps.slice(i + 1).forEach((x) => (x.status = "skipped"));
+  } else if (s === "FAILED" || s === "UNKNOWN") {
     const last = o.history.at(-1);
     const from = last?.from ?? "NEW";
     const k = from === "PAUSED" && o.paused_from ? stepOfState(o.paused_from, o, calls) : stepOfState(from, o, calls);
@@ -413,7 +432,10 @@ function orderView(o: Order, calls: CallInfo[], lock: LockInfo, log: LogEntry[])
   let sentence = "";
   let tone: OrderView["tone"] = "mute";
   const title = safe(o.brief?.title, 160) || (o.state === "NEW" ? "Nová zakázka — vedoucí vybírá práci" : "Zakázka bez schváleného zadání");
-  switch (o.state) {
+  if (isSuperseded(o)) {
+    sentence = "Zakázku nahradila novější. Nic dalšího se s ní neděje a nečeká na tvoje rozhodnutí.";
+    tone = "mute";
+  } else switch (o.state) {
     case "NEW":
       sentence =
         cur?.key === "brief"
@@ -483,7 +505,7 @@ function orderView(o: Order, calls: CallInfo[], lock: LockInfo, log: LogEntry[])
     endedAt: active || o.state === "WAITING_OWNER" ? undefined : o.updated_at,
     flow,
     problem: o.state === "FAILED" || o.state === "UNKNOWN" ? { what: humanProblem(o.failure_reason), consequence: consequence(o.state) } : undefined,
-    lastEvent: le ? { at: le.ts, text: eventText(le, calls) } : undefined,
+    lastEvent: le ? { at: le.ts, text: eventText(le, calls, o.state) } : undefined,
     deliveredUrl: safeUrl(o.delivered_url),
     ownerCardUrl: safeUrl(o.owner_card_url),
   };
@@ -496,7 +518,7 @@ export function safeUrl(u?: string): string | undefined {
 
 export const RESULT_TEXT: Record<string, string> = { PASS: "PASS", FIX: "vrátil k opravě", BLOCK: "zastavil (BLOCK)", ok: "dokončeno", error: "chyba" };
 
-const TRANSITION_TEXT: Partial<Record<OrderState, string>> = {
+const TRANSITION_TEXT: Partial<Record<OrderState | "SUPERSEDED", string>> = {
   PLANNED: "Zadání schváleno kontrolorem",
   DOING: "Tvůrce spuštěn",
   CHECKING: "Výstup předán ke kontrole",
@@ -507,10 +529,13 @@ const TRANSITION_TEXT: Partial<Record<OrderState, string>> = {
   PAUSED: "Pozastaveno (limit předplatného)",
   FAILED: "Zakázka selhala",
   UNKNOWN: "Výsledek nelze ověřit",
+  SUPERSEDED: "Nahrazeno novější zakázkou",
 };
 
-function eventText(e: LogEntry, calls: CallInfo[]): string {
-  if (e.kind === "transition") return TRANSITION_TEXT[e.to as OrderState] ?? `Přechod ${e.from} → ${e.to}`;
+function eventText(e: LogEntry, calls: CallInfo[], state?: string): string {
+  // „čeká na GO“ only while the order really waits (not after GO, REJECT or SUPERSEDED)
+  if (e.kind === "transition" && e.to === "WAITING_OWNER" && state !== undefined && state !== "WAITING_OWNER") return "Doručeno k rozhodnutí vlastníka";
+  if (e.kind === "transition") return TRANSITION_TEXT[e.to as OrderState] ?? `Přechod ${safe(e.from, 20)} → ${safe(e.to, 20)}`;
   const c = calls.find((x) => x.ts === e.ts && x.order === e.order && x.role === e.role);
   if (!c) return e.role === "transport" ? `Doručení: ${e.result === "error" ? "chyba" : "dokončeno"}` : `Systém: ${safe(e.result, 60)}`;
   const who = TEAM_BASE[c.member].name;
@@ -623,10 +648,15 @@ function membersFor(input: McInput, calls: CallInfo[], current: Order | undefine
 export function buildView(input: McInput): McView {
   const orders = [...input.orders].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const calls = classifyCalls(orders, input.log);
-  const active = orders.filter((o) => ACTIVE_STATES.includes(o.state));
+  const main = mainMission(orders);
+  const mainOrders = orders.filter((o) => !isBackground(o, main));
+  const active = mainOrders.filter((o) => ACTIVE_STATES.includes(o.state));
+  // Owner Desk: every mission's GO waits for the owner (a superseded order never does)
   const waiting = orders.filter((o) => o.state === "WAITING_OWNER");
-  const current = active.at(-1) ?? waiting.at(-1) ?? orders.at(-1);
-  const views = orders.map((o) => orderView(o, calls, lockFor(input, o.id), input.log));
+  const current = active.at(-1) ?? mainOrders.filter((o) => o.state === "WAITING_OWNER").at(-1) ?? mainOrders.at(-1);
+  const liveOrders = countLive(input, orders);
+  const background = buildBackground(input, orders, main);
+  const views = orders.map((o) => orderView(o, calls, proofLock(input, o, main), input.log));
   const currentView = current ? views.find((v) => v.id === current.id) : undefined;
   const team = membersFor(input, calls, current, currentView);
   const guardLast = input.log.filter((e) => e.kind === "guard").at(-1);
@@ -648,6 +678,9 @@ export function buildView(input: McInput): McView {
     const alive = lockFor(input, current.id).alive;
     status = alive ? "working" : "unknown";
     statusSentence = alive ? "Tým pracuje na zakázce." : "Zakázka je podle záznamu rozpracovaná, ale orchestrátor neběží.";
+  } else if (liveOrders) {
+    status = "working";
+    statusSentence = `Na pozadí běží práce (${liveOrders}×). Hlavní mise teď nepracuje.`;
   } else if (current?.state === "PAUSED") {
     status = "paused";
     statusSentence = "Práce je pozastavená kvůli limitu předplatného.";
@@ -696,7 +729,7 @@ export function buildView(input: McInput): McView {
         checker: pass ? `${TEAM_BASE[pass.member].name} · ${safe(pass.model, 60)} · PASS` : "Kontrola nedoložena",
         at,
         url: o.delivered_url!,
-        status: o.state === "DONE" ? "Hotovo" : o.state === "WAITING_OWNER" ? "DRAFT · čeká na GO" : "DRAFT",
+        status: o.state === "DONE" ? "Hotovo" : isSuperseded(o) ? "Nahrazeno" : o.state === "WAITING_OWNER" ? "DRAFT · čeká na GO" : "DRAFT",
       };
     })
     .filter((d) => sameDay(d.at, input.now))
@@ -728,7 +761,7 @@ export function buildView(input: McInput): McView {
         order: e.order,
         orderTitle: titleOf.get(e.order) ?? e.order,
         who: c ? TEAM_BASE[c.member].name : "Orchestrátor",
-        text: eventText(e, calls),
+        text: eventText(e, calls, orders.find((o) => o.id === e.order)?.state),
         tone,
         durationMs: e.kind === "call" ? e.duration_ms : undefined,
       };
@@ -797,7 +830,99 @@ export function buildView(input: McInput): McView {
     orders: views.slice().reverse(),
     guard: guardLast ? { at: guardLast.ts, ok: guardLast.result === "OK" } : undefined,
     unreadable,
+    liveOrders,
+    background,
   };
+}
+
+/**
+ * The mission shown in the main card: the mission of the newest orchestrator order (wo-*),
+ * else of the newest order. Orders of other missions (e.g. dev-* from the dispatch bridge) are background.
+ */
+export function mainMission(orders: Order[]): string | undefined {
+  const byNew = [...orders].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return (byNew.find((o) => o.id.startsWith("wo-")) ?? byNew[0])?.mission;
+}
+
+export const isBackground = (o: Order, main: string | undefined) => main !== undefined && o.mission !== main;
+
+/**
+ * Lock that proves work on an order. A background order (another mission, e.g. the dispatch bridge)
+ * is proven only by its own runs/<id>/.lock – the orchestrator's global lock says nothing about it.
+ */
+export function proofLock(input: McInput, o: Order, main = mainMission(input.orders)): LockInfo {
+  return isBackground(o, main) ? (input.orderLocks?.[o.id] ?? { present: false, alive: false }) : lockFor(input, o.id);
+}
+
+/** Orders whose work is proven right now: active, not paused, run lock held by a live process. */
+export function isLive(input: McInput, o: Order, main = mainMission(input.orders)): boolean {
+  return ACTIVE_STATES.includes(o.state) && o.state !== "PAUSED" && proofLock(input, o, main).alive;
+}
+
+export function countLive(input: McInput, orders: Order[] = input.orders): number {
+  const main = mainMission(orders);
+  return orders.filter((o) => isLive(input, o, main)).length;
+}
+
+export interface BackgroundItem {
+  id: string;
+  title: string;
+  mission: string;
+  status: "working" | "done" | "failed" | "unknown" | "superseded" | "waiting" | "paused";
+  statusLabel: string;
+  lastStep: string;
+  startedAt: string;
+  endedAt?: string;
+  live: boolean;
+}
+
+const BG_LABEL: Record<BackgroundItem["status"], string> = {
+  working: "Pracuje",
+  done: "Hotovo",
+  failed: "Selhalo",
+  unknown: "Nelze ověřit",
+  superseded: "Nahrazeno",
+  waiting: "Čeká na tvoje GO",
+  paused: "Pozastaveno",
+};
+
+/** „Na pozadí“: orders outside the main mission that are active now or ended today (Prague day). */
+export function buildBackground(input: McInput, orders: Order[] = input.orders, main = mainMission(orders)): BackgroundItem[] {
+  const items = orders
+    .filter((o) => isBackground(o, main))
+    .filter((o) => ACTIVE_STATES.includes(o.state) || o.state === "WAITING_OWNER" || sameDay(o.updated_at, input.now))
+    .map((o): BackgroundItem => {
+      const active = ACTIVE_STATES.includes(o.state);
+      const live = isLive(input, o, main);
+      const status: BackgroundItem["status"] = isSuperseded(o)
+        ? "superseded"
+        : o.state === "DONE"
+          ? "done"
+          : o.state === "FAILED"
+            ? "failed"
+            : o.state === "WAITING_OWNER"
+              ? "waiting"
+              : o.state === "PAUSED"
+                ? "paused"
+                : live
+                  ? "working"
+                  : "unknown"; // UNKNOWN, or active without a live process
+      const lastLog = input.log.filter((e) => e.order === o.id && (e.kind === "info" || e.kind === "transition" || e.kind === "error")).at(-1);
+      const fromLog = lastLog ? (lastLog.kind === "transition" ? eventText(lastLog, [], o.state) : lastLog.kind === "error" ? `Chyba: ${safe(lastLog.result, 120)}` : safe(lastLog.reason ?? lastLog.result, 160)) : "";
+      const lastStep = safe(o.meta?.last_step, 160) || fromLog || STATE_LABEL[o.state] || "Nelze ověřit";
+      return {
+        id: o.id,
+        title: safe(o.brief?.title, 140) || o.id,
+        mission: missionName(o.mission),
+        status,
+        statusLabel: BG_LABEL[status],
+        lastStep: status === "unknown" && active ? `${lastStep} · proces neběží, nelze ověřit` : lastStep,
+        startedAt: o.created_at,
+        endedAt: active ? undefined : o.updated_at,
+        live,
+      };
+    });
+  return items.sort((a, b) => Number(b.live) - Number(a.live) || (b.endedAt ?? input.now).localeCompare(a.endedAt ?? input.now));
 }
 
 /** Wording for orders whose state.json cannot be used. */
@@ -822,14 +947,14 @@ export function buildFocus(input: McInput, id: string): FocusView | undefined {
   const o = input.orders.find((x) => x.id === id);
   if (!o) return undefined;
   const calls = classifyCalls(input.orders, input.log);
-  const ov = orderView(o, calls, lockFor(input, o.id), input.log);
+  const ov = orderView(o, calls, proofLock(input, o), input.log);
   const mine = input.log.filter((e) => e.order === id && (e.kind === "transition" || e.kind === "call" || e.kind === "error"));
   const chronology = mine.map((e) => {
     const c = calls.find((x) => x.ts === e.ts && x.order === e.order && x.role === e.role && e.kind === "call");
     return {
       at: e.ts,
       who: c ? `${TEAM_BASE[c.member].name}${c.model ? ` · ${safe(c.model, 60)}` : ""}` : e.role === "transport" ? "Doručení" : "Orchestrátor",
-      text: e.kind === "error" ? `Chyba: ${safe(e.result, 80)}` : eventText(e, calls),
+      text: e.kind === "error" ? `Chyba: ${safe(e.result, 80)}` : eventText(e, calls, o.state),
       tone: (e.kind === "error" || e.result === "BLOCK" || e.result === "error" || e.to === "FAILED" || e.to === "UNKNOWN"
         ? "bad"
         : e.result === "FIX"

@@ -8,6 +8,7 @@ import {
   classifyCalls,
   CREATOR_BY_DEPT,
   humanProblem,
+  isSuperseded,
   lockFor,
   safe,
   TEAM_BASE,
@@ -87,6 +88,7 @@ export function headline(o: Order, calls: CallInfo[], lockAlive: boolean, proble
   const technical = safe(o.brief?.title, 200) || "Zadání zatím nevzniklo";
   const base = { technical, id: o.id, live: false };
   const active = ACTIVE_STATES.includes(o.state) && o.state !== "PAUSED";
+  if (isSuperseded(o)) return { ...base, tone: "unknown", title: "Nahrazeno", subtitle: "Zakázku nahradila novější. Nic dalšího se s ní neděje a nečeká na tvoje GO." };
   if (active && !lockAlive)
     return {
       ...base,
@@ -179,8 +181,9 @@ export function keyEvents(orders: Order[], log: LogEntry[], calls: CallInfo[], t
         else if (e.result === "BLOCK") ev("verdict-stop", `${checker} zastavil zakázku`);
       }
     } else if (e.kind === "transition") {
-      if (e.to === "WAITING_OWNER") ev("delivery", "Doručeno jako DRAFT — čeká na tvoje GO");
+      if (e.to === "WAITING_OWNER") ev("delivery", o.state === "WAITING_OWNER" ? "Doručeno jako DRAFT — čeká na tvoje GO" : "Doručeno jako DRAFT k rozhodnutí vlastníka");
       else if (e.to === "DONE") ev("delivery", "Doručeno — zakázka hotová");
+      else if ((e.to as string) === "SUPERSEDED") ev("handoff", "Zakázka nahrazena novější");
       else if ((e.to === "FAILED" || e.to === "UNKNOWN") && !explained(e)) {
         if (e.event === "fail" && (o.failure_reason ?? "").startsWith("manual abort")) ev("problem", "Zakázka ručně přerušena");
         else if (e.to === "UNKNOWN") ev("problem", "Výsledek nelze ověřit — zakázka se nedoručila");

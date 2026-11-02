@@ -229,7 +229,10 @@ describe("P2: refresh failure marks the system state, not a team member", () => 
     expect(d.body.classList.contains("offline")).toBe(true);
     expect(d.getElementById("offline")!.textContent).toMatch(/nelze ověřit/);
     expect(d.querySelectorAll(".st-working,.st-checking,.is-live,.pulse,.t-live,.t-check").length).toBe(0);
-    expect(d.getElementById("app")!.textContent).not.toMatch(/Pracuje|Kontroluje/);
+    // only the header label „Pracuje“ stays; every status text and the live count are neutralised
+    const statusTexts = [...d.querySelectorAll("[data-sys], .ps, .badge, .bgx-s, [data-live-count]")].map((e) => e.textContent).join(" ");
+    expect(statusTexts).not.toMatch(/Pracuje|Kontroluje/);
+    expect(d.querySelector("[data-live-count]")!.textContent).toBe("nelze ověřit");
     expect([...d.querySelectorAll(".pill .pn")].map((e) => e.textContent)).toEqual(pillsBefore);
     expect(d.querySelector(".pill")!.textContent).not.toContain("Nedostupné");
   });
