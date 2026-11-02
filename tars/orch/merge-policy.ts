@@ -132,7 +132,7 @@ export interface PrInfo {
 
 export const REQUIRED_CHECKS = ["test", "janitor"];
 /** Larger diffs are never reviewed partially: review = UNKNOWN (blocked). */
-export const MAX_REVIEW_DIFF = 180_000;
+export const MAX_REVIEW_DIFF = 400_000;
 
 /** Binding of an approval to exact PR content (DR-024: a review/GO is valid only for what was reviewed). */
 export interface ReviewBinding {
