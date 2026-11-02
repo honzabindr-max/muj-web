@@ -10,7 +10,7 @@ import { CardRegistry } from "./cards";
 import { CopyDepartment, DevDepartment, VizualDepartment } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
-import { runGuard } from "./guard";
+import { runGuardWithI8 } from "./guard";
 import { makeNotion } from "./notion";
 import { Orchestrator, SecretScanningAdapter } from "./orchestrator";
 import { McpPanelSink, PanelIndex } from "./panel";
@@ -40,10 +40,15 @@ function browserReady(): PreflightResult {
 async function refreshBrowserStatus(): Promise<PreflightResult> {
   const b = new BrowserAdapter();
   let r: PreflightResult;
+  // The debugging port may only exist while TARS holds the run lock (I8).
+  const lockStore = new Store(runsDir);
+  if (!lockStore.acquireLock()) return { ok: false, reasons: ["běží jiná zakázka (lock)"] };
   try {
     r = await b.loginCheck("https://claude.ai/new", runsDir);
   } catch (e) {
     r = { ok: false, reasons: [`login check selhal: ${(e as Error).message.split("\n")[0]}`] };
+  } finally {
+    lockStore.releaseLock();
   }
   fs.mkdirSync(runsDir, { recursive: true });
   fs.writeFileSync(browserStatusFile, JSON.stringify({ ...r, checked_at: new Date().toISOString() }, null, 2));
@@ -73,7 +78,7 @@ function build(): Orchestrator {
     },
     notion,
     sources: new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache")),
-    guard: () => runGuard(guardScript, repoRoot),
+    guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot),
     draftParentId,
     repoRoot,
     capsulePath: path.join(repoRoot, "missions/mezi-vami/capsule.md"),

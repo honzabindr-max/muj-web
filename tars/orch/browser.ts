@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { startTarsChrome } from "./cdp";
 import {
   actionAllowed,
   hostAllowed,
@@ -100,15 +101,37 @@ type PwContext = {
   close(): Promise<void>;
 };
 
+/**
+ * Variant B: real Chrome + TARS-agent profile + CDP (cdp.ts). Default since 2026-11-02:
+ * the earlier Playwright-launched Chrome (headless, --enable-automation) hit a Cloudflare challenge.
+ * TARS_BROWSER_MODE=playwright keeps the old launch for tests/debug only.
+ */
 async function launch(headed: boolean): Promise<PwContext> {
   const { chromium } = await import("playwright-core");
-  return (await chromium.launchPersistentContext(TARS_PROFILE_DIR, {
-    channel: "chrome",
-    headless: !headed,
-    viewport: { width: 1440, height: 900 },
-    // Keep the real macOS keychain so cookies from the owner's one-time login stay readable.
-    ignoreDefaultArgs: ["--use-mock-keychain"],
-  })) as unknown as PwContext;
+  if (process.env.TARS_BROWSER_MODE === "playwright") {
+    return (await chromium.launchPersistentContext(TARS_PROFILE_DIR, {
+      channel: "chrome",
+      headless: !headed,
+      viewport: { width: 1440, height: 900 },
+      ignoreDefaultArgs: ["--use-mock-keychain"],
+    })) as unknown as PwContext;
+  }
+  const session = await startTarsChrome(TARS_PROFILE_DIR);
+  try {
+    const browser = await chromium.connectOverCDP(session.endpoint);
+    const ctx = browser.contexts()[0];
+    return {
+      pages: () => ctx.pages() as unknown as PwPage[],
+      newPage: async () => (await ctx.newPage()) as unknown as PwPage,
+      close: async () => {
+        await browser.close().catch(() => undefined);
+        await session.close();
+      },
+    };
+  } catch (e) {
+    await session.close();
+    throw e;
+  }
 }
 
 export class BrowserAdapter {

@@ -26,7 +26,10 @@ import http from "node:http";
 import { handler, listShots, safeShotPath, snapshot } from "../panel-server";
 import { missingSources, SourceLoader } from "../sources";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
-import { parseGuardOutput } from "../guard";
+import { spawnSync } from "node:child_process";
+
+import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../cdp";
+import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
 import { extractNotionUrl } from "../notion";
 import { assertFamilies, Orchestrator, SecretScanningAdapter } from "../orchestrator";
@@ -642,5 +645,70 @@ describe("canonical sources (§2a bod 2)", () => {
     const id = store.listOrders()[0].id;
     const st = JSON.parse(fs.readFileSync(path.join(dir, id, "sources.json"), "utf8")) as Array<{ key: string; ok: boolean }>;
     expect(st.find((x) => x.key === "funnel")!.ok).toBe(false);
+  });
+});
+
+// ─── variant B + TARS-GUARD I8 ───
+const I8 = path.join(__dirname, "..", "guard", "i8.sh");
+function runI8(psLines: string[], opts: { lock?: boolean; accounts?: number } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "i8-"));
+  const prof = path.join(root, "TARS profile");
+  fs.mkdirSync(path.join(prof, "Default"), { recursive: true });
+  fs.writeFileSync(path.join(prof, "Default", "Preferences"), JSON.stringify({ account_info: Array(opts.accounts ?? 0).fill({ email: "x" }), other: 1 }));
+  if (opts.lock) {
+    fs.mkdirSync(path.join(root, "runs"));
+    fs.writeFileSync(path.join(root, "runs", ".lock"), "1");
+  }
+  const psFile = path.join(root, "ps.txt");
+  fs.writeFileSync(psFile, psLines.map((l) => l.replaceAll("PROF", prof)).join("\n"));
+  const r = spawnSync("bash", [I8], { encoding: "utf8", env: { ...process.env, TARS_GUARD_REPO: root, TARS_AGENT_PROFILE: prof, TARS_GUARD_PS_CMD: `cat ${psFile}` } });
+  return r.stdout;
+}
+const CH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+describe("TARS-GUARD I8", () => {
+  it("OK: no debugging port, no Google account", () => {
+    expect(runI8([`${CH} --user-data-dir=PROF`])).toMatch(/^I8 OK/m);
+  });
+  it("OK: TARS-agent with 127.0.0.1 port during an order", () => {
+    expect(runI8([`${CH} --user-data-dir=PROF --remote-debugging-port=9333 --remote-debugging-address=127.0.0.1`], { lock: true })).toMatch(/^I8 OK/m);
+  });
+  it("ALARM: debugging port on another profile (owner's normal Chrome)", () => {
+    expect(runI8([`${CH} --remote-debugging-port=9222`], { lock: true })).toMatch(/I8 ALARM ladicí port Chromu běží mimo profil TARS-agent/);
+  });
+  it("ALARM: TARS-agent port outside an order", () => {
+    expect(runI8([`${CH} --user-data-dir=PROF --remote-debugging-port=9333 --remote-debugging-address=127.0.0.1`])).toMatch(/mimo běžící zakázku/);
+  });
+  it("ALARM: port not bound to 127.0.0.1", () => {
+    expect(runI8([`${CH} --user-data-dir=PROF --remote-debugging-port=9333 --remote-debugging-address=0.0.0.0`], { lock: true })).toMatch(/není omezen na 127.0.0.1/);
+  });
+  it("ALARM: Google account in TARS-agent profile; prints count, not the account", () => {
+    const out = runI8([], { accounts: 1 });
+    expect(out).toMatch(/přihlášený Google účet \(1\)/);
+    expect(out).not.toContain("email");
+  });
+  it("I8 alarm stops the orchestrator gate", () => {
+    expect(combineI8({ alarm: false, summary: "TARS-GUARD OK (7/7)" }, "I8 ALARM x").alarm).toBe(true);
+    expect(combineI8({ alarm: false, summary: "TARS-GUARD OK (7/7)" }, "I8 OK y").alarm).toBe(false);
+    expect(combineI8({ alarm: false, summary: "ok" }, "").alarm).toBe(true);
+  });
+});
+
+describe("variant B identity (fail-closed)", () => {
+  const prof = "/Users/x/Library/Application Support/TARS-agent/chrome-profile";
+  it("only the TARS-agent profile on 127.0.0.1 and our port passes", () => {
+    expect(isTarsAgentProcess(`${CH} --user-data-dir=${prof} --remote-debugging-port=9333 --remote-debugging-address=127.0.0.1`, prof, 9333)).toBe(true);
+    expect(isTarsAgentProcess(`${CH} --remote-debugging-port=9333`, prof, 9333)).toBe(false);
+    expect(isTarsAgentProcess(`${CH} --user-data-dir=/Users/x/Library/Application Support/Google/Chrome --remote-debugging-port=9333`, prof, 9333)).toBe(false);
+    expect(isTarsAgentProcess(`${CH} --user-data-dir=${prof} --remote-debugging-port=9333 --remote-debugging-address=0.0.0.0`, prof, 9333)).toBe(false);
+    expect(isTarsAgentProcess(`${CH} --user-data-dir=${prof} --remote-debugging-port=9444`, prof, 9333)).toBe(false);
+  });
+  it("detects an already open TARS-agent window and Google accounts", () => {
+    expect(profileAlreadyOpen(prof, `${CH} --user-data-dir=${prof}\n${CH} --type=renderer --user-data-dir=${prof}`)).toBe(true);
+    expect(profileAlreadyOpen(prof, `${CH}`)).toBe(false);
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "prof-"));
+    fs.mkdirSync(path.join(d, "Default"));
+    fs.writeFileSync(path.join(d, "Default", "Preferences"), JSON.stringify({ account_info: [{}, {}] }));
+    expect(googleAccountCount(d)).toBe(2);
   });
 });
