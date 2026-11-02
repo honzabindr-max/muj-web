@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { redactDeep } from "./secret-scan";
 import type { LogEntry, Order } from "./types";
 
 export class Store {
@@ -18,7 +19,7 @@ export class Store {
   save(order: Order): void {
     const file = path.join(this.orderDir(order.id), "state.json");
     const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(order, null, 2) + "\n");
+    fs.writeFileSync(tmp, JSON.stringify(redactDeep(order), null, 2) + "\n"); // state.json never keeps a token either
     fs.renameSync(tmp, file); // atomic replace: a crash never leaves half a state
   }
 
@@ -41,10 +42,11 @@ export class Store {
       .map((d) => this.load(d));
   }
 
+  /** Every string in a log entry passes the secret redaction: a token never reaches log.jsonl. */
   log(entry: LogEntry): void {
     fs.appendFileSync(
       path.join(this.runsDir, "log.jsonl"),
-      JSON.stringify(entry) + "\n",
+      JSON.stringify(redactDeep(entry)) + "\n",
     );
   }
 
@@ -64,6 +66,37 @@ export class Store {
 
   readFile(id: string, name: string): string {
     return fs.readFileSync(path.join(this.runsDir, id, name), "utf8");
+  }
+
+  /**
+   * Short lock around one synchronous read-modify-write of an order's state (owner decision from Notion in a tick,
+   * `cli owner`, `abort`). Separate from the tick lock, which is held for a whole tick: with it a manual REJECT can
+   * never be overwritten by a decision the tick read earlier. Waits up to `waitMs`, then throws.
+   */
+  withStateLock<T>(fn: () => T, waitMs = 5000, staleMs = 30_000): T {
+    const f = path.join(this.runsDir, ".state.lock");
+    const t0 = Date.now();
+    for (;;) {
+      try {
+        fs.writeFileSync(f, String(process.pid), { flag: "wx" });
+        break;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; // EACCES, ENOSPC, ...: not a collision, never wait on it
+      }
+      // Somebody holds it. Whatever happens below, the timeout is checked on every pass.
+      try {
+        if (Date.now() - fs.statSync(f).mtimeMs > staleMs) fs.rmSync(f, { force: true });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // vanished meanwhile: just try again
+      }
+      if (Date.now() - t0 >= waitMs) throw new Error("stav zakázky právě mění jiný proces (zámek .state.lock), zkus to za chvíli");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+    try {
+      return fn();
+    } finally {
+      fs.rmSync(f, { force: true });
+    }
   }
 
   /** Single-runner lock (launchd may fire while a long tick still runs). */
