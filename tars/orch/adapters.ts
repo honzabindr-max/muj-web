@@ -65,12 +65,13 @@ export function runProcess(
   input: string,
   cwd: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<ProcResult> {
   const t0 = Date.now();
   return new Promise((resolve) => {
     const p = spawn(cmd, args, {
       cwd,
-      env: childEnv(),
+      env: { ...childEnv(), ...extraEnv },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -192,8 +193,14 @@ function lastErrorLine(s: string): string {
 export class AiChain {
   family: ModelFamily = "claude"; // architect + implementer + final are Claude
   name = "ai-chain run.sh";
-  model = "ai-chain (Opus architekt → Claude implementer)";
-  constructor(public runSh: string) {}
+  model: string;
+  /** §2: implementation runs on Sonnet (run.sh IMPLEMENTER_MODEL, ai-chain PR #2). */
+  constructor(
+    public runSh: string,
+    public implementerModel = "sonnet",
+  ) {
+    this.model = `ai-chain (Opus architekt → ${implementerModel} implementer)`;
+  }
   /** cwd = order dir: ai-chain writes its runs/<ts>/ there. projectDir = git worktree. */
   async run(
     zadaniFile: string,
@@ -207,6 +214,7 @@ export class AiChain {
       "",
       cwd,
       timeoutMs,
+      { IMPLEMENTER_MODEL: this.implementerModel },
     );
     const final = latestFile(path.join(cwd, "runs"), "05-final.md");
     const text = final ? fs.readFileSync(final, "utf8") : "";

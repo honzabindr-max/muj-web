@@ -6,7 +6,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
-import { looksLikeLimit } from "../adapters";
+import { AiChain, looksLikeLimit } from "../adapters";
 import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
 import { CardRegistry, validateCardText } from "../cards";
 import {
@@ -32,7 +32,7 @@ import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../c
 import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
 import { extractNotionUrl } from "../notion";
-import { assertFamilies, Orchestrator, SecretScanningAdapter } from "../orchestrator";
+import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
@@ -710,5 +710,23 @@ describe("variant B identity (fail-closed)", () => {
     fs.mkdirSync(path.join(d, "Default"));
     fs.writeFileSync(path.join(d, "Default", "Preferences"), JSON.stringify({ account_info: [{}, {}] }));
     expect(googleAccountCount(d)).toBe(2);
+  });
+});
+
+describe("run 2 scope and models", () => {
+  it("TARS_DEPARTMENTS keeps only the listed departments", () => {
+    const all = { copy: 1, dev: 2, vizual: 3 };
+    expect(onlyEnabled(["copy"], all)).toEqual({ copy: 1 });
+    expect(onlyEnabled([], all)).toEqual(all);
+  });
+
+  it("AI Chain implementer runs on Sonnet via IMPLEMENTER_MODEL", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-chain-"));
+    const runSh = path.join(dir, "run.sh");
+    fs.writeFileSync(runSh, 'mkdir -p runs/1 && printf "STATUS: DONE\\nmodel=%s\\n" "$IMPLEMENTER_MODEL" > runs/1/05-final.md\n');
+    const r = await new AiChain(runSh).run("zadani.md", dir, dir, 10_000);
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("DONE");
+    expect(r.text).toContain("model=sonnet");
   });
 });
