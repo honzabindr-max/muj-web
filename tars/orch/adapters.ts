@@ -6,12 +6,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { ModelFamily } from "./types";
+import { writeSchemaFile, type JsonSchema } from "./verdict";
 
 export interface RunOpts {
   cwd: string;
   timeoutMs?: number;
   /** claude only: exact tool allowlist (e.g. Notion MCP). Empty = no tools. */
   allowedTools?: string[];
+  /** codex only: JSON Schema for `codex exec --output-schema` (structured verdict). Other adapters ignore it. */
+  outputSchema?: JsonSchema;
 }
 
 export interface AdapterResult {
@@ -27,6 +30,8 @@ export interface TextAdapter {
   name: string;
   model: string;
   family: ModelFamily;
+  /** true = honours RunOpts.outputSchema, so its output is exactly one schema-valid JSON object. */
+  readonly supportsOutputSchema?: boolean;
   run(prompt: string, opts: RunOpts): Promise<AdapterResult>;
 }
 
@@ -85,6 +90,8 @@ export function runProcess(
     p.stdout.on("data", (d) => (stdout += d));
     p.stderr.on("data", (d) => (stderr += d));
     p.on("error", (e) => (stderr += String(e)));
+    // A child that exits without reading stdin (e.g. codex failing fast) must not crash us with EPIPE.
+    p.stdin.on("error", () => undefined);
     p.on("close", (code) => {
       clearTimeout(timer);
       resolve({ code, stdout, stderr, timedOut, duration_ms: Date.now() - t0 });
@@ -93,6 +100,14 @@ export function runProcess(
   });
 }
 
+/**
+ * Orchestrator `claude -p` calls run in runs/<order>/ inside the muj-web repo. The Codex review gate
+ * (plugin openai/codex-plugin-cc, Stop hook) is switched on per workspace for interactive work in that
+ * repo; it must not fire on every headless call of the automat (extra GPT call + quota per transition,
+ * the automat has its own other-family check). Inline --settings outranks project/user settings.
+ */
+export const ORCH_CLAUDE_SETTINGS = JSON.stringify({ enabledPlugins: { "codex@openai-codex": false } });
+
 export class ClaudeCli implements TextAdapter {
   family: ModelFamily = "claude";
   name: string;
@@ -100,7 +115,7 @@ export class ClaudeCli implements TextAdapter {
     this.name = `claude -p --model ${model}`;
   }
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
-    const args = ["-p", "--model", this.model, "--output-format", "json"];
+    const args = ["-p", "--model", this.model, "--output-format", "json", "--settings", ORCH_CLAUDE_SETTINGS];
     if (opts.allowedTools?.length)
       args.push("--allowedTools", opts.allowedTools.join(","));
     const r = await runProcess(
@@ -138,6 +153,7 @@ export class ClaudeCli implements TextAdapter {
 export class CodexCli implements TextAdapter {
   family: ModelFamily = "gpt";
   name = "codex exec";
+  readonly supportsOutputSchema = true;
   /** Model comes from ~/.codex/config.toml unless overridden. */
   constructor(public model = "codex-default") {}
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
@@ -154,14 +170,21 @@ export class CodexCli implements TextAdapter {
       out,
     ];
     if (this.model !== "codex-default") args.push("-m", this.model);
+    const schema = opts.outputSchema ? writeSchemaFile(opts.outputSchema) : undefined;
+    if (schema) args.push("--output-schema", schema.file);
     args.push("-"); // prompt from stdin
-    const r = await runProcess(
-      "codex",
-      args,
-      prompt,
-      opts.cwd,
-      opts.timeoutMs ?? 30 * 60_000,
-    );
+    let r: ProcResult;
+    try {
+      r = await runProcess(
+        "codex",
+        args,
+        prompt,
+        opts.cwd,
+        opts.timeoutMs ?? 30 * 60_000,
+      );
+    } finally {
+      if (schema) fs.rmSync(schema.dir, { recursive: true, force: true });
+    }
     let text = "";
     if (fs.existsSync(out)) {
       text = fs.readFileSync(out, "utf8");

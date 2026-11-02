@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { runProcess } from "./adapters";
+import { ORCH_CLAUDE_SETTINGS, runProcess } from "./adapters";
 import type { Order } from "./types";
 
 export const PANEL_DATA_SOURCE_ID = "93d450d0-fabd-4e29-8f09-decda4ad45b6";
@@ -191,6 +191,8 @@ export class McpPanelSink implements PanelSink {
         "-p",
         "--model",
         "sonnet",
+        "--settings",
+        ORCH_CLAUDE_SETTINGS,
         "--allowedTools",
         tool,
         "--output-format",

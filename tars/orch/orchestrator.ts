@@ -14,7 +14,7 @@ import { scanSecrets } from "./secret-scan";
 import { isActionable, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
 import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
-import { parseVerdict } from "./departments";
+import { callChecker } from "./departments";
 import type { Department, LogEntry, Order } from "./types";
 
 export interface OrchestratorDeps {
@@ -59,6 +59,9 @@ export class SecretScanningAdapter implements TextAdapter {
   }
   get family() {
     return this.inner.family;
+  }
+  get supportsOutputSchema() {
+    return this.inner.supportsOutputSchema;
   }
   async run(prompt: string, opts: Parameters<TextAdapter["run"]>[1]): Promise<AdapterResult> {
     const r = await this.inner.run(prompt, opts);
@@ -313,8 +316,7 @@ export class Orchestrator {
           }
           const deptSources = sourcesBlock(loaded.filter((l) => required.includes(l.key)));
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const c = await this.d.briefChecker.run(buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources), { cwd: this.d.store.orderDir(order.id) });
-          const v = c.ok ? parseVerdict(c.text) : undefined;
+          const { r: c, v } = await callChecker(this.d.briefChecker, buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources, Boolean(this.d.briefChecker.supportsOutputSchema)), this.d.store.orderDir(order.id));
           this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
           if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
           this.d.store.writeFile(order.id, `brief-check-a${attempt}.md`, c.text);

@@ -3,7 +3,7 @@
 //  2) otherwise → official Notion MCP connector inside `claude -p` (subscription), with a
 //     tool allowlist of exactly one Notion tool. The model only transports; code validates
 //     the returned URL. No key is ever read from disk, printed or logged by this module.
-import { runProcess, type TextAdapter } from "./adapters";
+import { ORCH_CLAUDE_SETTINGS, runProcess, type TextAdapter } from "./adapters";
 import { scanSecrets } from "./secret-scan";
 
 export interface NotionPage {
@@ -61,7 +61,7 @@ export class McpNotion implements NotionClient {
   async fetchPage(pageId: string): Promise<string> {
     const r = await runProcess(
       "claude",
-      ["-p", "--model", "sonnet", "--allowedTools", "mcp__claude_ai_Notion__notion-fetch", "--output-format", "stream-json", "--verbose"],
+      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", "mcp__claude_ai_Notion__notion-fetch", "--output-format", "stream-json", "--verbose"],
       `Zavolej nástroj mcp__claude_ai_Notion__notion-fetch s id ${pageId} a odpověz jen slovem HOTOVO.`,
       this.cwd,
       5 * 60_000,
