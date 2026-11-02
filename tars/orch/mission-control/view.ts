@@ -218,7 +218,11 @@ export const CREATOR_BY_DEPT: Record<string, TeamKey> = { copy: "copywriter", vi
  * exists, otherwise the global runs/.lock. A dead order lock is never overridden by a live global one.
  */
 export function lockFor(input: McInput, id: string | undefined): LockInfo {
-  return (id !== undefined ? input.orderLocks?.[id] : undefined) ?? input.lock;
+  const own = id !== undefined ? input.orderLocks?.[id] : undefined;
+  if (own) return own;
+  // the global runs/.lock is the orchestrator's; it runs only wo-* orders and proves nothing about
+  // dev-* runs of the dispatch bridge (or any other id), whatever mission is shown as main
+  return id === undefined || id.startsWith("wo-") ? input.lock : { present: false, alive: false };
 }
 
 /** Text from data is shown only when it carries no secret pattern. */
@@ -854,6 +858,9 @@ export function proofLock(input: McInput, o: Order, main = mainMission(input.ord
   return isBackground(o, main) ? (input.orderLocks?.[o.id] ?? { present: false, alive: false }) : lockFor(input, o.id);
 }
 
+/** Order states whose text from a running process (meta.last_step, info log) is still current. */
+const RUNNING_TEXT_OK = (o: Order) => ACTIVE_STATES.includes(o.state) && o.state !== "PAUSED";
+
 /** Orders whose work is proven right now: active, not paused, run lock held by a live process. */
 export function isLive(input: McInput, o: Order, main = mainMission(input.orders)): boolean {
   return ACTIVE_STATES.includes(o.state) && o.state !== "PAUSED" && proofLock(input, o, main).alive;
@@ -907,9 +914,16 @@ export function buildBackground(input: McInput, orders: Order[] = input.orders, 
                 : live
                   ? "working"
                   : "unknown"; // UNKNOWN, or active without a live process
-      const lastLog = input.log.filter((e) => e.order === o.id && (e.kind === "info" || e.kind === "transition" || e.kind === "error")).at(-1);
+      // a running order may say what it is doing now; a finished one only what the record proves,
+      // so a stale „Čeká na tvoje GO“ in meta.last_step never outlives the state
+      const running = RUNNING_TEXT_OK(o);
+      const lastLog = input.log.filter((e) => e.order === o.id && (running ? e.kind === "info" || e.kind === "transition" || e.kind === "error" : e.kind === "transition")).at(-1);
       const fromLog = lastLog ? (lastLog.kind === "transition" ? eventText(lastLog, [], o.state) : lastLog.kind === "error" ? `Chyba: ${safe(lastLog.result, 120)}` : safe(lastLog.reason ?? lastLog.result, 160)) : "";
-      const lastStep = safe(o.meta?.last_step, 160) || fromLog || STATE_LABEL[o.state] || "Nelze ověřit";
+      const lastStep = isSuperseded(o)
+        ? "Nahrazeno novější zakázkou"
+        : o.state === "FAILED"
+          ? humanProblem(o.failure_reason)
+          : (running ? safe(o.meta?.last_step, 160) : "") || fromLog || STATE_LABEL[o.state] || "Nelze ověřit";
       return {
         id: o.id,
         title: safe(o.brief?.title, 140) || o.id,

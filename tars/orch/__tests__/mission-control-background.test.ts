@@ -205,3 +205,78 @@ describe("live runs directory with dev-* orders (read-only, no paths or secrets 
     expect(fs.readdirSync(dir).sort()).toEqual(before);
   });
 });
+
+// ---- GPT review of PR #83 ----
+
+describe("review #83: local paths of every form are hidden", () => {
+  it("file:// URIs, /etc, /usr/local, Windows paths – but panel routes stay intact", async () => {
+    const { redactPaths } = await import("../secret-scan");
+    for (const p of ["file:///Users/janbindr/x.txt", "/etc/hosts", "/usr/local/bin/codex", "C:\\Users\\jan\\x", "~/Projects/muj-web", "/Library/LaunchAgents/x.plist"])
+      expect(redactPaths(`a ${p} b`)).toBe("a [cesta skryta] b");
+    for (const r of ["/role/claude-code", "/zakazka/dev-run3", "/api/state", "/preview/a", "/?focus=x", "/detail"]) expect(redactPaths(r)).toBe(r);
+  });
+
+  it("server output carries none of them", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-bg2-"));
+    const d = dev("dev-run3", "DOING", { lastStep: "Čte file:///Users/janbindr/a.md a /etc/hosts a /usr/local/bin/x" });
+    fs.mkdirSync(path.join(dir, d.id));
+    fs.writeFileSync(path.join(dir, d.id, "state.json"), JSON.stringify(d));
+    fs.writeFileSync(path.join(dir, d.id, ".lock"), String(process.pid));
+    const srv = http.createServer(handler(dir, "/nonexistent-cards"));
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    for (const p of ["/", "/p0", "/api/state", "/zakazka/dev-run3"]) {
+      const t = await (await fetch(`http://127.0.0.1:${port}${p}`)).text();
+      expect(t).not.toMatch(/file:\/\/|\/etc\/hosts|\/usr\/local/);
+    }
+    srv.close();
+  });
+});
+
+describe("review #83: a dev-* order is never proven by the orchestrator's global lock", () => {
+  it("only dev-* orders (dev becomes the main mission), global lock alive, no own lock → Nelze ověřit", () => {
+    const base = scenario("aktivita", NOW); // global lock alive
+    const i: McInput = { ...base, demo: false, orders: [dev("dev-solo", "DOING")], orderLocks: {} };
+    const f = buildFinal(i);
+    expect(f.focus?.id).toBe("dev-solo");
+    expect(f.focus?.verified).toBe(false);
+    expect(f.status).toBe("unknown");
+    expect(buildView(i).liveOrders).toBe(0);
+    expect(buildView(i).status).toBe("unknown");
+    expect(renderFinal(f, qs)).not.toMatch(/data-sys class="sys live"/);
+  });
+});
+
+describe("review #83: opening a background order keeps its roles", () => {
+  it("?focus=dev-run3 shows the working role, its role page exists", async () => {
+    const i = withBackground(scenario("aktivita", NOW), [dev("dev-run3", "DOING")], { "dev-run3": true });
+    const f = buildFinal(i, "dev-run3");
+    expect(f.focus?.activeRole).toBe("claude-code");
+    expect(f.roles.find((r) => r.id === "claude-code")?.status).toBe("working");
+    const html = renderFinal(f, qs);
+    expect(html).not.toContain("Nikdo teď nepracuje");
+    expect(html).toContain("/role/claude-code");
+    const { buildRolePage } = await import("../mission-control/final");
+    expect(buildRolePage(i, "claude-code")).toBeDefined();
+  });
+});
+
+describe("review #83: stale running text never outlives the state", () => {
+  it("SUPERSEDED / DONE / FAILED ignore meta.last_step and info logs", () => {
+    const i = withBackground(
+      scenario("aktivita", NOW),
+      [
+        dev("dev-sup", "SUPERSEDED", { lastStep: "Čeká na tvoje GO", from: "WAITING_OWNER" }),
+        dev("dev-done", "DONE", { lastStep: "Spouští příkaz v terminálu." }),
+        { ...dev("dev-fail", "FAILED", { lastStep: "Spouští příkaz v terminálu." }), failure_reason: "fix limit 3 exhausted" },
+      ],
+      {},
+    );
+    i.log = [...i.log, { ts: NOW, order: "dev-done", kind: "info", role: "orchestrator", result: "Spouští příkaz", reason: "Spouští příkaz" }];
+    const by = Object.fromEntries(buildView(i).background.map((b) => [b.id, b.lastStep]));
+    expect(by["dev-sup"]).toBe("Nahrazeno novější zakázkou");
+    expect(by["dev-done"]).not.toMatch(/Spouští/);
+    expect(by["dev-fail"]).toBe("Vyčerpán limit 3 kol oprav.");
+    expect(renderFinal(buildFinal(i), qs)).not.toMatch(/(?<!ne)[Čč]eká na tvoje GO/);
+  });
+});

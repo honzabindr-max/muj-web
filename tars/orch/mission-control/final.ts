@@ -319,7 +319,8 @@ function liveOrder(input: McInput, o: Order, calls: CallInfo[], cards: Record<st
   };
 }
 
-export function buildFinal(input: McInput, focusId?: string): FinalView {
+/** allRoles: every recipe role of every order (role pages), not only the main mission's team. */
+export function buildFinal(input: McInput, focusId?: string, opts: { allRoles?: boolean } = {}): FinalView {
   const view = buildView(input);
   const orders = [...input.orders].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const calls = classifyCalls(orders, input.log);
@@ -344,10 +345,12 @@ export function buildFinal(input: McInput, focusId?: string): FinalView {
 
   // roles: core + recipe roles + every card on disk
   const ids = new Set<string>(CORE_ORDER);
-  for (const o of input.orders.filter((x) => mainIds.has(x.id))) recipeOf(o)?.steps.forEach((s) => (s.kind ?? "create") !== "deliver" && (s.kind ?? "create") !== "owner" && ids.add(s.role));
+  // team = main mission + the focused order (a background order opened from „Na pozadí“ keeps its roles)
+  for (const o of input.orders.filter((x) => opts.allRoles || mainIds.has(x.id) || x.id === focus?.id)) recipeOf(o)?.steps.forEach((s) => (s.kind ?? "create") !== "deliver" && (s.kind ?? "create") !== "owner" && ids.add(s.role));
   for (const k of Object.keys(cards)) if (ROLE_RE.test(k)) ids.add(k);
   const labelOf = new Map<string, string>();
-  for (const o of input.orders.filter((x) => mainIds.has(x.id))) recipeOf(o)?.steps.forEach((s) => s.label && labelOf.set(s.role, s.label));
+  // team = main mission + the focused order (a background order opened from „Na pozadí“ keeps its roles)
+  for (const o of input.orders.filter((x) => opts.allRoles || mainIds.has(x.id) || x.id === focus?.id)) recipeOf(o)?.steps.forEach((s) => s.label && labelOf.set(s.role, s.label));
   const today = calls.filter((c) => new Date(c.ts).toDateString() === new Date(input.now).toDateString());
   const guardLast = input.log.filter((e) => e.kind === "guard").at(-1);
   const roles: RoleView[] = [...ids].map((id) => {
@@ -428,7 +431,7 @@ export interface RolePage {
 
 export function buildRolePage(input: McInput, id: string): RolePage | undefined {
   if (!ROLE_RE.test(id)) return undefined;
-  const f = buildFinal(input);
+  const f = buildFinal(input, undefined, { allRoles: true });
   const role = f.roles.find((r) => r.id === id);
   if (!role) return undefined;
   const orders = [...input.orders].sort((a, b) => a.created_at.localeCompare(b.created_at));

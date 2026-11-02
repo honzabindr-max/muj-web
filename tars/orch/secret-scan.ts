@@ -62,10 +62,14 @@ export function redactDeep<T>(value: T): T {
 
 export const PATH_HIDDEN = "[cesta skryta]";
 // Absolute local paths (home, worktrees, temp) – the panel never shows where files live on disk.
-const LOCAL_PATH = /(?<![\w.:/~-])(?:~\/|\/(?:Users|home|private|var|tmp|opt|Volumes|root|srv|mnt)\/)[^\s"'<>)\]]*/g;
+// System roots are listed explicitly so the panel's own routes (/role, /zakazka, /api …) stay intact.
+const ROOTS = "Users|home|private|var|tmp|opt|Volumes|root|srv|mnt|etc|usr|Library|System|Applications|bin|sbin|dev|proc|run|nix|snap|lib|cores|Network";
+const FILE_URI = /\bfile:\/\/[^\s"'<>)\]]*/gi;
+const LOCAL_PATH = new RegExp(`(?<![\\w.:/~-])(?:~\\/|\\/(?:${ROOTS})(?=[/\\s"'<>)\\]]|$))[^\\s"'<>)\\]]*`, "g");
+const WIN_PATH = /\b[A-Za-z]:\\[^\s"'<>)\]]*/g;
 
 export function redactPaths(text: string): string {
-  return text.replace(LOCAL_PATH, PATH_HIDDEN);
+  return text.replace(FILE_URI, PATH_HIDDEN).replace(LOCAL_PATH, PATH_HIDDEN).replace(WIN_PATH, PATH_HIDDEN);
 }
 
 /** Panel output filter: secrets first (whole PEM blocks), then local paths. */
