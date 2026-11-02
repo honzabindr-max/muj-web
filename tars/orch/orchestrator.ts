@@ -1,5 +1,6 @@
 // Deterministic driver. One tick = guard → lock → resume/advance one order step by step.
 // "Kód hlídá, LLM rozhoduje": every gate, limit and record lives here, not in a prompt.
+import crypto from "node:crypto";
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
@@ -17,7 +18,7 @@ import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_
 import { parseVerdict } from "./departments";
 import { archiveMarkdown, readPackage, writePackage, type AdvocateQuestion, type DecisionPackage, type Konzilium } from "./konzilium";
 import type { MergeResult, MergeRunner } from "./merge-policy";
-import { executeOwnerDecision, mergeDecisionPackage, ownerGate, withOrderLockSync } from "./owner-gate";
+import { executeOwnerDecision, mergeConstraints, mergeDecisionPackage, ownerGate, withOrderLockSync } from "./owner-gate";
 import { prepBrief } from "./prep";
 import type { Department, LogEntry, Order, OwnerChoice } from "./types";
 
@@ -501,7 +502,10 @@ export class Orchestrator {
     if (!pr) return this.apply(o, { type: "unknown", reason: `merge: nelze zjistit číslo PR z ${o.delivered_url}` }, { role: "merge" });
     let r;
     try {
-      r = await this.d.merge!.run(pr, dept.creatorFamily, { forceOwner: sponsorReasons });
+      // Same persisted constraints as `cli.ts merge`: an open card or Sponsor reasons of any order about this PR.
+      const cons = mergeConstraints(this.d.store, pr, o.id);
+      if (cons.refuse) return this.apply(o, { type: "unknown", reason: `merge: ${cons.refuse}` }, { role: "merge" });
+      r = await this.d.merge!.run(pr, dept.creatorFamily, { forceOwner: [...new Set([...sponsorReasons, ...cons.forceOwner])] });
     } catch (e) {
       return this.apply(o, { type: "unknown", reason: `merge: ${(e as Error).message}` }, { role: "merge" });
     }
@@ -518,7 +522,7 @@ export class Orchestrator {
   openMergeCard(pr: string, prUrl: string, authorFamily: "claude" | "gpt", r: Exclude<MergeResult, { status: "merged" } | { status: "pending" }>): Order {
     const t = this.now();
     const iso = t.toISOString();
-    const id = `wo-${iso.replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")}-m${pr}`;
+    const id = `wo-${iso.replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")}-m${pr}-${crypto.randomBytes(2).toString("hex")}`;
     const title = `Merge PR #${pr} (DR-024 ${r.status === "owner" ? "třída B" : "zablokováno"})`;
     const pkg = mergeDecisionPackage({ id, title, milestone: "TARS", pr_url: prUrl }, r, { role: "autor PR", model: authorFamily, family: authorFamily }, authorFamily, iso);
     const o: Order = {
@@ -567,13 +571,14 @@ export class Orchestrator {
    * Same path for the CLI and the visual card (POST /rozhodnuti/<id> spawns `cli.ts owner`).
    * GO on a merge card (DR-024 class B) makes TARS merge — only the diff the owner saw; a failed merge keeps WAITING_OWNER.
    */
-  async owner(id: string, decision: OwnerChoice, via = "cli"): Promise<Order> {
+  async owner(id: string, decision: OwnerChoice, via = "cli", rev?: string): Promise<Order> {
     // The decision itself (lock, checks, merge after GO) lives in the gate module owner-gate.ts.
     return executeOwnerDecision(
       { store: this.d.store, merge: this.d.merge, iso: () => this.iso(), log: (e) => this.log(e), apply: (o, ev, extra) => this.apply(o, ev, extra) },
       id,
       decision,
       via,
+      rev,
     );
   }
 

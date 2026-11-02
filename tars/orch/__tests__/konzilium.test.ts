@@ -1,4 +1,5 @@
 // Konzilium (§2e), decision card (/rozhodnuti) and merge policy (DR-024) — mocked models, no network.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -37,6 +38,7 @@ import {
 } from "../konzilium";
 import {
   classifyPaths,
+  GATE_FILES,
   MAX_REVIEW_DIFF,
   MergeRunner,
   mergeRunnerFor,
@@ -643,6 +645,7 @@ describe("decision card /rozhodnuti/<id>", () => {
       path.join(root, "wo-1", "decision.json"),
       JSON.stringify(pkg()),
     );
+    const rev1 = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, "wo-1", "decision.json"))).digest("hex");
     fs.writeFileSync(
       path.join(root, "wo-1", "state.json"),
       JSON.stringify({ id: "wo-1", state: "WAITING_OWNER" }),
@@ -664,7 +667,7 @@ describe("decision card /rozhodnuti/<id>", () => {
     const base = `http://127.0.0.1:${port}`;
     const get = await fetch(`${base}/rozhodnuti/wo-1`);
     expect(get.status).toBe(200);
-    expect(await get.text()).toContain(csrfToken("wo-1", secret));
+    expect(await get.text()).toContain(csrfToken(`wo-1:${rev1}`, secret));
     const post = (body: string, headers: Record<string, string> = {}) =>
       fetch(`${base}/rozhodnuti/wo-1`, {
         method: "POST",
@@ -678,15 +681,15 @@ describe("decision card /rozhodnuti/<id>", () => {
     expect((await post("choice=GO&csrf=bad")).status).toBe(403);
     expect(
       (
-        await post(`choice=GO&csrf=${csrfToken("wo-1", secret)}`, {
+        await post(`choice=GO&rev=${rev1}&csrf=${csrfToken(`wo-1:${rev1}`, secret)}`, {
           Origin: "https://evil.example",
         })
       ).status,
     ).toBe(403);
     expect(
-      (await post(`choice=HACK&csrf=${csrfToken("wo-1", secret)}`)).status,
+      (await post(`choice=HACK&rev=${rev1}&csrf=${csrfToken(`wo-1:${rev1}`, secret)}`)).status,
     ).toBe(403);
-    const ok = await post(`choice=ALT&csrf=${csrfToken("wo-1", secret)}`, {
+    const ok = await post(`choice=ALT&rev=${rev1}&csrf=${csrfToken(`wo-1:${rev1}`, secret)}`, {
       Origin: base,
     });
     expect(ok.status).toBe(303);
@@ -701,12 +704,11 @@ describe("decision card /rozhodnuti/<id>", () => {
 describe("merge policy DR-024", () => {
   it("class A: tars/**, docs/**, tests", () => {
     expect(
-      classifyPaths([
-        "tars/orch/konzilium.ts",
+      classifyPaths(["tars/orch/konzilium.ts",
         "tars/orch/__tests__/x.test.ts",
         "docs/a.md",
         "README.md",
-      ]).cls,
+      ], undefined, []).cls,
     ).toBe("A");
   });
   it.each([
@@ -1116,5 +1118,51 @@ describe("review round 5 fixes", () => {
     const gpt = new Mock("gpt", "g", () => ({}));
     const r = mergeRunnerFor("claude", { exec: () => ({ code: 0, out: "" }), cwd: "/", adapters: { claude, gpt }, guard: () => ({ alarm: false, summary: "" }) });
     expect((r as unknown as { d: { reviewer: TextAdapter } }).d.reviewer).toBe(gpt);
+  });
+});
+
+describe("review round 6 fixes", () => {
+  it("enforcement files: changed lines touching gate symbols are class B once gates are on main", () => {
+    const diff = "diff --git a/tars/orch/orchestrator.ts b/tars/orch/orchestrator.ts\n--- a/x\n+++ b/x\n-    const gate = ownerGate(o, dept!, true);\n+    const gate = { ownerNeeded: false };\n";
+    expect(classifyPaths(["tars/orch/orchestrator.ts"], undefined, GATE_FILES, diff).cls).toBe("B");
+    const harmless = "diff --git a/tars/orch/orchestrator.ts b/tars/orch/orchestrator.ts\n+    // comment about panel rows\n";
+    expect(classifyPaths(["tars/orch/orchestrator.ts"], undefined, GATE_FILES, harmless).cls).toBe("A");
+    expect(classifyPaths(["tars/orch/orchestrator.ts"], undefined, GATE_FILES).cls).toBe("B"); // no diff = cannot verify
+    expect(classifyPaths(["tars/orch/orchestrator.ts"], undefined, [], diff).cls).toBe("A"); // bootstrap
+  });
+
+  it("base other than main, or base moving during review, blocks", async () => {
+    let n = 0;
+    const ex = (base: () => [string, string]): Exec => (cmd, args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        const [name, oid] = base();
+        return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: name, baseRefOid: oid, isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", headRefOid: "a" }) };
+      }
+      if (cmd === "git" && args[1] === "--name-status") return { code: 0, out: "M\ttars/x.ts" };
+      if (args[0] === "pr" && args[1] === "checks") return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
+      return { code: 0, out: "" };
+    };
+    const pass = new Mock("gpt", "g", () => ({ text: J({ verdict: "PASS", issues: [] }) }));
+    const g = () => ({ alarm: false, summary: "" });
+    expect((await new MergeRunner({ exec: ex(() => ["release", "b"]), cwd: "/", reviewer: pass, guard: g }).run(1, "claude")).status).toBe("blocked");
+    const moved = await new MergeRunner({ exec: ex(() => (n++ === 0 ? ["main", "b0"] : ["main", "b1"])), cwd: "/", reviewer: pass, guard: g }).run(1, "claude");
+    expect(moved).toMatchObject({ status: "blocked" });
+    expect((moved as { reason: string }).reason).toMatch(/základ/);
+  });
+
+  it("owner decision is refused when the card revision changed between GET and POST", async () => {
+    const { o } = build();
+    const card = o.openMergeCard("78", "https://github.com/x/y/pull/78", "claude", { status: "owner", cls: "B", reasons: ["app/x"], binding: { head: "h", diff_sha256: "s" }, log: [] });
+    await expect(o.owner(card.id, "REJECT", "panel", "0".repeat(64))).rejects.toThrow(/mezitím změnila/);
+    const rev = crypto.createHash("sha256").update(fs.readFileSync(path.join(store.orderDir(card.id), "decision.json"))).digest("hex");
+    expect((await o.owner(card.id, "REJECT", "panel", rev)).state).toBe("FAILED");
+  });
+
+  it("two merge cards for the same PR in the same second get distinct ids", () => {
+    const { o } = build();
+    const r = { status: "owner" as const, cls: "B" as const, reasons: ["x"], binding: { head: "h", diff_sha256: "s" }, log: [] };
+    const a = o.openMergeCard("79", "u", "claude", r);
+    const b = o.openMergeCard("79", "u", "claude", r);
+    expect(a.id).not.toBe(b.id);
   });
 });

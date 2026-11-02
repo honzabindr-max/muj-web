@@ -129,6 +129,7 @@ export function renderDecisionPage(
   order: Order | undefined,
   token: string,
   notice = "",
+  rev = "",
 ): string {
   const decided = order && order.state !== "WAITING_OWNER";
   const state = order?.state ?? "UNKNOWN";
@@ -139,6 +140,7 @@ export function renderDecisionPage(
     ? `<p class="decided">Rozhodnuto: <b>${esc(order?.owner_choice ?? state)}</b> (stav zakázky ${esc(state)}).</p>`
     : `<form method="post" action="/rozhodnuti/${esc(pkg.order)}" class="actions">
 <input type="hidden" name="csrf" value="${esc(token)}">
+<input type="hidden" name="rev" value="${esc(rev)}">
 ${pkg.merge?.blocked ? `<span class="mute">Automatický merge zablokován — GO nejde.</span>` : `<button name="choice" value="GO" class="b go">GO — doporučená verze</button>`}
 ${pkg.alternative ? `<button name="choice" value="ALT" class="b altb">Zvolit alternativu</button>` : ""}
 <button name="choice" value="REJECT" class="b rej">REJECT</button></form>`;
@@ -222,6 +224,7 @@ export interface DecisionRouteOpts {
   runOwner?: (
     id: string,
     choice: OwnerChoice,
+    rev: string,
   ) => Promise<{ code: number; out: string }>;
   secret?: Buffer;
 }
@@ -233,6 +236,12 @@ function loadOrder(root: string, id: string): Order | undefined {
     : undefined;
 }
 
+/** sha256 of decision.json bytes — the revision the page shows and the POST must carry. */
+function rev(root: string, id: string): string {
+  const f = path.join(root, id, "decision.json");
+  return fs.existsSync(f) ? crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex") : "";
+}
+
 function loadPkg(root: string, id: string): DecisionPackage | undefined {
   const f = path.join(root, id, "decision.json");
   return fs.existsSync(f)
@@ -242,13 +251,13 @@ function loadPkg(root: string, id: string): DecisionPackage | undefined {
 
 export function spawnOwnerCli(
   root: string,
-): (id: string, choice: OwnerChoice) => Promise<{ code: number; out: string }> {
+): (id: string, choice: OwnerChoice, rev: string) => Promise<{ code: number; out: string }> {
   const repoRoot = path.resolve(here, "../..");
-  return (id, choice) =>
+  return (id, choice, rev) =>
     new Promise((resolve) => {
-      if (!ORDER_RE.test(id) || !CHOICES.includes(choice))
+      if (!ORDER_RE.test(id) || !CHOICES.includes(choice) || !/^[0-9a-f]{64}$/.test(rev))
         return resolve({ code: 2, out: "neplatný vstup" });
-      const p = spawn("npx", ["tsx", "tars/orch/cli.ts", "owner", id, choice], {
+      const p = spawn("npx", ["tsx", "tars/orch/cli.ts", "owner", id, choice, "--rev", rev], {
         cwd: repoRoot,
         env: { ...process.env, TARS_RUNS_DIR: root, TARS_OWNER_VIA: "panel /rozhodnuti" },
         stdio: ["ignore", "pipe", "pipe"],
@@ -317,8 +326,9 @@ export function decisionRoute(root: string, opts: DecisionRouteOpts = {}) {
           renderDecisionPage(
             pkg,
             loadOrder(root, id),
-            csrfToken(id, secret),
+            csrfToken(`${id}:${rev(root, id)}`, secret),
             notice,
+            rev(root, id),
           ),
         );
       return true;
@@ -343,7 +353,8 @@ export function decisionRoute(root: string, opts: DecisionRouteOpts = {}) {
       const form = new URLSearchParams(body);
       const choice = form.get("choice") as OwnerChoice | null;
       if (
-        !csrfOk(id, form.get("csrf") ?? "", secret) ||
+        !/^[0-9a-f]{64}$/.test(form.get("rev") ?? "") ||
+        !csrfOk(`${id}:${form.get("rev")}`, form.get("csrf") ?? "", secret) ||
         !choice ||
         !CHOICES.includes(choice) ||
         (choice === "ALT" && !pkg.alternative) ||
@@ -361,7 +372,8 @@ export function decisionRoute(root: string, opts: DecisionRouteOpts = {}) {
           .end();
         return;
       }
-      void runOwner(id, choice).then((r) => {
+      // The CLI re-checks under the order lock that decision.json still has this revision.
+      void runOwner(id, choice, form.get("rev")!).then((r) => {
         res
           .writeHead(303, {
             Location: `/rozhodnuti/${id}${r.code === 0 ? "?ok=1" : `?err=${encodeURIComponent(r.out.split("\n").filter(Boolean).at(-1) ?? "chyba")}`}`,

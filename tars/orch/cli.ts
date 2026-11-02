@@ -151,10 +151,11 @@ async function main() {
       return;
     }
     case "owner": {
-      const [id, decision] = args;
-      if (!id || (decision !== "GO" && decision !== "ALT" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|ALT|REJECT");
+      const [id, decision, ...rest] = args;
+      if (!id || (decision !== "GO" && decision !== "ALT" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|ALT|REJECT [--rev <sha256 decision.json>]");
+      const ri = rest.indexOf("--rev");
       const orch = build();
-      const o = await orch.owner(id, decision, process.env.TARS_OWNER_VIA ?? "cli");
+      const o = await orch.owner(id, decision, process.env.TARS_OWNER_VIA ?? "cli", ri >= 0 ? rest[ri + 1] : undefined);
       await orch.flushPanel();
       console.log(`${o.id} → ${o.state}`);
       return;

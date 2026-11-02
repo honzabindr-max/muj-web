@@ -211,9 +211,17 @@ export interface OwnerDecisionDeps {
  * GO / ALT / REJECT under the exclusive per-order lock (state re-read under it). GO on a merge card merges ONLY the
  * diff bound on the card, with the stored author family; a failed or blocked merge keeps WAITING_OWNER.
  */
-export async function executeOwnerDecision(d: OwnerDecisionDeps, id: string, decision: OwnerChoice, via: string): Promise<Order> {
+/** Revision of the decision package = sha256 of decision.json bytes (what the owner saw on the card). */
+export function decisionRevision(orderDir: string): string | undefined {
+  const f = path.join(orderDir, "decision.json");
+  return fs.existsSync(f) ? crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex") : undefined;
+}
+
+export async function executeOwnerDecision(d: OwnerDecisionDeps, id: string, decision: OwnerChoice, via: string, rev?: string): Promise<Order> {
   const dir = d.store.orderDir(id);
   return withOrderLock(dir, id, async () => {
+    // The decision applies only to the package revision the owner saw (panel always sends it).
+    if (rev !== undefined && decisionRevision(dir) !== rev) throw new Error("rozhodovací karta se mezitím změnila — načti ji znovu");
     let o = d.store.load(id);
     if (o.state !== "WAITING_OWNER") throw new Error(`zakázka ${id} je ${o.state}, nečeká na vlastníka`);
     const pkg = readPackage(dir);
@@ -237,8 +245,8 @@ export async function executeOwnerDecision(d: OwnerDecisionDeps, id: string, dec
  * Owner consent persists across entry points: any recorded order about this PR that waits for the owner, or that
  * carries Sponsor-reserved reasons, forbids a self-merge from `cli.ts merge` (forceOwner / refuse).
  */
-export function mergeConstraints(store: Store, pr: string): { refuse?: string; forceOwner: string[] } {
-  const about = store.listOrders().filter((o) => o.meta.merge_pr === pr || new RegExp(`/pull/${pr}$`).test(o.delivered_url ?? ""));
+export function mergeConstraints(store: Store, pr: string, excludeId?: string): { refuse?: string; forceOwner: string[] } {
+  const about = store.listOrders().filter((o) => o.id !== excludeId).filter((o) => o.meta.merge_pr === pr || new RegExp(`/pull/${pr}$`).test(o.delivered_url ?? ""));
   const waiting = about.find((o) => o.state === "WAITING_OWNER");
   if (waiting) return { refuse: `PR #${pr} už čeká na vlastníka (karta ${waiting.id})`, forceOwner: [] };
   const forced = about.flatMap((o) => [...(o.brief?.owner_decisions ?? []), ...(o.owner_reasons ?? []).filter((r) => !/^automatický merge zastaven/.test(r))]);

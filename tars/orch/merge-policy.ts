@@ -96,12 +96,44 @@ export const GATE_FILES = [
   "tars/orch/secret-scan.ts",
 ];
 
+/** Files that CALL the gates. A changed line there that touches a gate symbol is class B (once gates are on main). */
+export const ENFORCEMENT_FILES = ["tars/orch/orchestrator.ts", "tars/orch/cli.ts", "tars/orch/adapters.ts", "tars/orch/departments.ts", "tars/orch/prep.ts", "tars/orch/konzilium.ts", "tars/orch/panel-server.ts", "tars/orch/store.ts"];
+export const GATE_SYMBOL_RE =
+  /\b(ownerGate|executeOwnerDecision|mergeConstraints|mergeDecisionPackage|withOrderLock\w*|lockOrder|mergeRunnerFor|MergeRunner|realExec|claudeArgs|dosahToolOpts|childEnv|STRIP_ENV|runGuard\w*|guard|decisionRoute|acquireLock|releaseLock|SecretScanningAdapter|scanSecrets|alwaysOwner|owner_needed|ownerNeeded|forceOwner|ownerGo|--tools|disallowedTools|allowedTools|strict-mcp)\b/;
+
+/** Changed lines (+/-) per file from a unified diff. */
+export function changedLinesByFile(diff: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  let cur = "";
+  for (const line of diff.split("\n")) {
+    const m = /^diff --git a\/(\S+) b\/(\S+)/.exec(line);
+    if (m) {
+      cur = m[2];
+      out.set(cur, out.get(cur) ?? []);
+      continue;
+    }
+    if (!cur || line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+") || line.startsWith("-")) out.get(cur)!.push(line.slice(1));
+  }
+  return out;
+}
+
 export function classifyPaths(
   paths: string[],
   pkg?: { before?: string; after?: string },
   gatesOnBase: string[] = GATE_FILES,
+  diff?: string,
 ): Classification {
   const reasons: string[] = [];
+  if (gatesOnBase.length && diff !== undefined) {
+    const lines = changedLinesByFile(diff);
+    for (const f of ENFORCEMENT_FILES) {
+      const hit = (lines.get(f) ?? []).find((l) => GATE_SYMBOL_RE.test(l));
+      if (hit) reasons.push(`${f}: mění volání schvalovací brány („${hit.trim().slice(0, 80)}“)`);
+    }
+  } else if (gatesOnBase.length && paths.some((p) => ENFORCEMENT_FILES.includes(p))) {
+    reasons.push("vynucovací soubory změněny a diff nelze ověřit (bezpečně B)");
+  }
   for (const p of paths) {
     if (GATE_FILES.includes(p) && gatesOnBase.includes(p)) {
       reasons.push(`${p}: schvalovací brána TARS (existuje na main)`);
@@ -269,7 +301,7 @@ export class MergeRunner {
       if (r.out.trim() === g) gates.push(g);
     }
     void info;
-    return classifyPaths(snap.files, pkg, gates);
+    return classifyPaths(snap.files, pkg, gates, snap.text);
   }
 
   /** Review by another model family than the author; PASS required for any merge. Fails closed. */
@@ -318,6 +350,7 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
     const info = this.info(pr);
     if (info.state === "MERGED") return { status: "merged", cls: "B", log: ["PR už je mergnutý (třída neověřena)"] };
     if (info.state !== "OPEN") return { status: "blocked", reason: `PR je ${info.state}`, log };
+    if (info.baseRefName !== "main") return { status: "blocked", reason: `cílová větev PR je ${info.baseRefName}, merge politika pracuje jen s main`, log };
     // Classification, review and binding all use ONE snapshot at fixed base/head SHAs.
     const snap = this.snapshot(info);
     const c = this.classify(info, snap);
@@ -355,6 +388,7 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
     // Content must not have moved between review and merge.
     const again = this.info(pr);
     if (again.headRefOid !== info.headRefOid) return { status: "blocked", reason: "head PR se změnil během review", log };
+    if (again.baseRefName !== "main" || again.baseRefOid !== info.baseRefOid) return { status: "blocked", reason: "základ PR se změnil během review (base/oid) — nový snapshot a review", log };
     if (info.isDraft) {
       const gr = guardOk();
       if (gr) return { status: "blocked", reason: gr, log };
