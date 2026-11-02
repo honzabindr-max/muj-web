@@ -394,7 +394,8 @@ export class Orchestrator {
         }
         const sponsorReasons = [...o.brief!.owner_decisions, ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map((k) => `zadání se dotýká: ${k}`)];
         // DR-024: a PR without Sponsor-reserved decisions goes through the merge policy (class A = TARS merges).
-        if (o.brief!.department === "dev" && this.d.merge && o.delivered_url && !sponsorReasons.length) return this.mergeStep(o, dept!);
+        // Every dev PR goes through it; Sponsor-reserved decisions force the owner card (never self-merge).
+        if (o.brief!.department === "dev" && this.d.merge && o.delivered_url) return this.mergeStep(o, dept!, sponsorReasons);
         const reasons = [...(dept!.alwaysOwner && o.brief!.department === "dev" ? ["výstup je PR do main — merge po GO vlastníka (DR-024 třída B)"] : []), ...sponsorReasons];
         const ownerNeeded = reasons.length > 0 || (dept!.alwaysOwner && o.brief!.department !== "dev");
         // §2e: every owner-bound output passes the Konzilium first (when the department has a recipe for it).
@@ -489,12 +490,12 @@ export class Orchestrator {
   }
 
   /** DR-024 for dev PRs: class A → TARS merges after green CI + PASS review of the other family; class B → owner card. */
-  private async mergeStep(o: Order, dept: DepartmentRunner): Promise<Order> {
+  private async mergeStep(o: Order, dept: DepartmentRunner, sponsorReasons: string[] = []): Promise<Order> {
     const pr = /\/pull\/(\d+)/.exec(o.delivered_url!)?.[1];
     if (!pr) return this.apply(o, { type: "unknown", reason: `merge: nelze zjistit číslo PR z ${o.delivered_url}` }, { role: "merge" });
     let r;
     try {
-      r = await this.d.merge!.run(pr, dept.creatorFamily);
+      r = await this.d.merge!.run(pr, dept.creatorFamily, { forceOwner: sponsorReasons });
     } catch (e) {
       return this.apply(o, { type: "unknown", reason: `merge: ${(e as Error).message}` }, { role: "merge" });
     }
@@ -522,7 +523,7 @@ export class Orchestrator {
       honest_note: "Merge třídy B dělá TARS až po GO vlastníka. Ruleset main (PR, test + janitor) platí dál.",
       drafts: {},
       prep_orders: [],
-      merge: { pr: o.delivered_url!, cls: r.status === "owner" ? r.cls : "B", reasons, files: [], review: r.review?.slice(0, 4000) },
+      merge: { pr: o.delivered_url!, cls: r.status === "owner" ? r.cls : "B", reasons, files: [], review: r.review?.slice(0, 4000), binding: r.status === "owner" ? r.binding : undefined, blocked: r.status === "blocked" },
     };
     writePackage(this.d.store.orderDir(o.id), pkg);
     return this.apply({ ...o, decision_file: "decision.json", owner_reasons: reasons, meta: { ...o.meta, merge_pr: pr, merge_blocked: r.status === "blocked" ? "1" : "" } }, { type: "delivered", owner_needed: true }, { role: "merge", result: decisionCardUrl(o.id) });
@@ -541,20 +542,27 @@ export class Orchestrator {
    * GO on a merge card (DR-024 class B) makes TARS merge; if the merge fails the order stays WAITING_OWNER.
    */
   async owner(id: string, decision: OwnerChoice, via = "cli"): Promise<Order> {
-    let o = this.d.store.load(id);
-    if (o.state !== "WAITING_OWNER") throw new Error(`zakázka ${id} je ${o.state}, nečeká na vlastníka`);
-    const dir = this.d.store.orderDir(id);
-    const pkg = readPackage(dir);
-    if (decision === "ALT" && !pkg?.alternative) throw new Error("rozhodovací balíček nemá alternativu");
-    if (decision === "GO" && pkg?.kind === "merge" && o.meta.merge_pr && o.meta.merge_blocked !== "1") {
-      if (!this.d.merge) throw new Error("merge runner není nakonfigurován");
-      const r = await this.d.merge.run(o.meta.merge_pr, this.d.departments.dev?.creatorFamily ?? "claude", { ownerGo: true, waitMs: 25 * 60_000, reviewText: pkg.merge?.review });
-      this.log({ order: id, kind: "info", role: "merge", result: r.status, reason: r.log.join(" | ").slice(0, 500) });
-      if (r.status !== "merged") throw new Error(`merge po GO neproběhl: ${"reason" in r ? r.reason : r.status}`);
-      o = { ...o, meta: { ...o.meta, merged: "1" } };
+    // Per-order decision lock across processes (panel POST, CLI): concurrent GO/REJECT can never both apply.
+    if (!this.d.store.acquireOrderLock(id, "owner")) throw new Error(`o zakázce ${id} se právě rozhoduje jinde`);
+    try {
+      let o = this.d.store.load(id); // re-read under the lock
+      if (o.state !== "WAITING_OWNER") throw new Error(`zakázka ${id} je ${o.state}, nečeká na vlastníka`);
+      const dir = this.d.store.orderDir(id);
+      const pkg = readPackage(dir);
+      if (decision === "ALT" && !pkg?.alternative) throw new Error("rozhodovací balíček nemá alternativu");
+      if (decision === "GO" && pkg?.kind === "merge") {
+        if (pkg.merge?.blocked || o.meta.merge_blocked === "1") throw new Error("automatický merge byl zablokován — GO nejde, jen REJECT (oprava novou zakázkou)");
+        if (!this.d.merge || !o.meta.merge_pr) throw new Error("merge runner není nakonfigurován");
+        const r = await this.d.merge.run(o.meta.merge_pr, this.d.departments.dev?.creatorFamily ?? "claude", { ownerGo: true, binding: pkg.merge?.binding, waitMs: 25 * 60_000, reviewText: pkg.merge?.review });
+        this.log({ order: id, kind: "info", role: "merge", result: r.status, reason: r.log.join(" | ").slice(0, 500) });
+        if (r.status !== "merged") throw new Error(`merge po GO neproběhl: ${"reason" in r ? r.reason : r.status}`);
+        o = { ...o, meta: { ...o.meta, merged: "1" } };
+      }
+      if (pkg) writePackage(dir, { ...pkg, owner_decision: { choice: decision, at: this.iso(), via } });
+      return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}${pkg ? ` (${decision === "ALT" ? pkg.alternative?.label : decision === "GO" ? pkg.recommended.label : "REJECT"})` : ""}` });
+    } finally {
+      this.d.store.releaseOrderLock(id, "owner");
     }
-    if (pkg) writePackage(dir, { ...pkg, owner_decision: { choice: decision, at: this.iso(), via } });
-    return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}${pkg ? ` (${decision === "ALT" ? pkg.alternative?.label : decision === "GO" ? pkg.recommended.label : "REJECT"})` : ""}` });
   }
 
   /** Owner replaced the order by a newer recipe (not REJECT). Frees the WIP limit; `redo` = supervisor proposes it again. */

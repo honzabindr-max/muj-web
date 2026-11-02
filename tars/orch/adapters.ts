@@ -14,15 +14,18 @@ export interface RunOpts {
   allowedTools?: string[];
   /** claude only: tools that must never run (Dosah of a card, enforced by the adapter). */
   disallowedTools?: string[];
+  /** claude only: load no MCP servers at all (`--strict-mcp-config` without configs). */
+  noMcp?: boolean;
 }
 
 /** Built-in Claude Code tools. A card's Dosah allows a subset; the rest is disallowed explicitly. */
 export const CLAUDE_BUILTIN_TOOLS = ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Read", "Glob", "Grep", "WebSearch", "WebFetch", "Task", "Agent", "TodoWrite"];
 
 /** Dosah → CLI flags: allowed tools from the card, every other built-in tool disallowed. */
-export function dosahToolOpts(allowed: string[]): Pick<RunOpts, "allowedTools" | "disallowedTools"> {
+export function dosahToolOpts(allowed: string[]): Pick<RunOpts, "allowedTools" | "disallowedTools" | "noMcp"> {
   const allow = allowed.filter((t) => CLAUDE_BUILTIN_TOOLS.includes(t));
-  return { allowedTools: allow, disallowedTools: CLAUDE_BUILTIN_TOOLS.filter((t) => !allow.includes(t)) };
+  // MCP servers are never part of a Konzilium/research Dosah → none are loaded.
+  return { allowedTools: allow, disallowedTools: CLAUDE_BUILTIN_TOOLS.filter((t) => !allow.includes(t)), noMcp: true };
 }
 
 export interface AdapterResult {
@@ -116,6 +119,7 @@ export class ClaudeCli implements TextAdapter {
       args.push("--allowedTools", opts.allowedTools.join(","));
     if (opts.disallowedTools?.length)
       args.push("--disallowedTools", opts.disallowedTools.join(","));
+    if (opts.noMcp) args.push("--strict-mcp-config");
     const r = await runProcess(
       "claude",
       args,

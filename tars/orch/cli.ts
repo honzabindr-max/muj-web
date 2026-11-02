@@ -176,6 +176,14 @@ async function main() {
       const author = fam === "gpt" ? "gpt" : "claude";
       const reviewer = author === "claude" ? new SecretScanningAdapter(new CodexCli()) : new SecretScanningAdapter(new ClaudeCli("opus"));
       const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer }).run(pr, author, { waitMs: 25 * 60_000 });
+      // Review text is evidence: stored locally (gitignored runs/), issues printed.
+      const review = "review" in r ? r.review : undefined;
+      if (review) {
+        const f = path.join(runsDir, `merge-pr-${pr}`, `review-${new Date().toISOString().replace(/[:.]/g, "")}.md`);
+        fs.mkdirSync(path.dirname(f), { recursive: true });
+        fs.writeFileSync(f, review);
+        console.log(`review: ${f}`);
+      }
       console.log(JSON.stringify({ ...r, review: undefined }, null, 2));
       process.exitCode = r.status === "merged" ? 0 : 3;
       return;

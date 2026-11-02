@@ -139,7 +139,7 @@ export function renderDecisionPage(
     ? `<p class="decided">Rozhodnuto: <b>${esc(order?.owner_choice ?? state)}</b> (stav zakázky ${esc(state)}).</p>`
     : `<form method="post" action="/rozhodnuti/${esc(pkg.order)}" class="actions">
 <input type="hidden" name="csrf" value="${esc(token)}">
-<button name="choice" value="GO" class="b go">GO — doporučená verze</button>
+${pkg.merge?.blocked ? `<span class="mute">Automatický merge zablokován — GO nejde.</span>` : `<button name="choice" value="GO" class="b go">GO — doporučená verze</button>`}
 ${pkg.alternative ? `<button name="choice" value="ALT" class="b altb">Zvolit alternativu</button>` : ""}
 <button name="choice" value="REJECT" class="b rej">REJECT</button></form>`;
   const kind =
@@ -340,7 +340,8 @@ export function decisionRoute(root: string, opts: DecisionRouteOpts = {}) {
         !csrfOk(id, form.get("csrf") ?? "", secret) ||
         !choice ||
         !CHOICES.includes(choice) ||
-        (choice === "ALT" && !pkg.alternative)
+        (choice === "ALT" && !pkg.alternative) ||
+        (choice === "GO" && pkg.merge?.blocked)
       ) {
         res.writeHead(403).end("forbidden");
         return;

@@ -112,6 +112,10 @@ export interface DecisionPackage {
     reasons: string[];
     files: string[];
     review?: string;
+    /** Approval is valid only for this exact PR content. */
+    binding?: { head: string; diff_sha256: string };
+    /** Automatic merge was blocked (CI/review): GO is not offered, only REJECT. */
+    blocked?: boolean;
   };
   notion_archive_url?: string;
   owner_decision?: { choice: OwnerChoice; at: string; via: string };

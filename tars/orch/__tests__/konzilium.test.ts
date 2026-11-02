@@ -35,6 +35,7 @@ import {
 } from "../konzilium";
 import {
   classifyPaths,
+  MAX_REVIEW_DIFF,
   MergeRunner,
   packageJsonDepsChanged,
   parseChecks,
@@ -757,11 +758,12 @@ describe("merge policy DR-024", () => {
   });
 
   function fakeGh(
-    files: string[],
-    opts: { behind?: boolean; draft?: boolean } = {},
+    files: Array<string | [string, string]>,
+    opts: { behind?: boolean; draft?: boolean; diff?: () => string; head?: () => string } = {},
   ) {
     const calls: string[] = [];
     let merged = false;
+    let updated = false;
     const exec: Exec = (cmd, args) => {
       calls.push(`${cmd} ${args.join(" ")}`);
       if (args[0] === "pr" && args[1] === "view")
@@ -772,82 +774,101 @@ describe("merge policy DR-024", () => {
             headRefName: "h",
             baseRefName: "main",
             isDraft: opts.draft ?? true,
-            mergeStateStatus: opts.behind ? "BEHIND" : "CLEAN",
+            mergeStateStatus: opts.behind && !updated ? "BEHIND" : "CLEAN",
             state: merged ? "MERGED" : "OPEN",
-            files: files.map((p) => ({ path: p })),
-            headRefOid: "abc",
+            headRefOid: opts.head ? opts.head() : updated ? "def" : "abc",
           }),
         };
+      if (args[0] === "api") return { code: 0, out: files.map((f) => (Array.isArray(f) ? `${f[0]}\t${f[1]}` : `${f}\t`)).join("\n") };
       if (args[0] === "pr" && args[1] === "checks")
-        return {
-          code: 0,
-          out: JSON.stringify([
-            { name: "test", bucket: "pass" },
-            { name: "janitor", bucket: "pass" },
-          ]),
-        };
-      if (args[0] === "pr" && args[1] === "diff")
-        return { code: 0, out: "diff --git a/x b/x" };
+        return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
+      if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: opts.diff ? opts.diff() : "diff --git a/x b/x" };
+      if (args[0] === "pr" && args[1] === "update-branch") updated = true;
       if (args[0] === "pr" && args[1] === "merge") merged = true;
       return { code: 0, out: "" };
     };
     return { exec, calls };
   }
-  const reviewer = (verdict: string, family: ModelFamily = "gpt") =>
-    new Mock(family, "gpt-x", () => ({
-      text: J({ verdict, issues: verdict === "PASS" ? [] : ["x"] }),
-    }));
+  const reviewer = (verdict: string, family: ModelFamily = "gpt", extra: Partial<AdapterResult> = {}) =>
+    new Mock(family, "gpt-x", () => ({ text: J({ verdict, issues: verdict === "PASS" ? [] : ["x"] }), ...extra }));
+  const runner = (g: ReturnType<typeof fakeGh>, rv = reviewer("PASS")) => new MergeRunner({ exec: g.exec, cwd: "/", reviewer: rv, sleep: async () => {} });
 
-  it("class A + green CI + PASS review of the other family → ready → update-branch → squash merge", async () => {
+  it("class A + green CI + PASS review of the other family → ready → update-branch → squash merge pinned to head", async () => {
     const g = fakeGh(["tars/orch/a.ts"], { behind: true });
-    const r = await new MergeRunner({
-      exec: g.exec,
-      cwd: "/",
-      reviewer: reviewer("PASS"),
-      sleep: async () => {},
-    }).run(9, "claude");
+    const r = await runner(g).run(9, "claude");
     expect(r.status).toBe("merged");
-    const seq = g.calls.filter((c) => /pr (ready|update-branch|merge)/.test(c));
-    expect(seq).toEqual([
-      "gh pr ready 9",
-      "gh pr update-branch 9",
-      "gh pr merge 9 --squash --delete-branch",
-    ]);
+    expect(g.calls.filter((c) => /pr (ready|update-branch|merge)/.test(c))).toEqual(["gh pr ready 9", "gh pr update-branch 9", "gh pr merge 9 --squash --delete-branch --match-head-commit def"]);
   });
-  it("class B → owner card, never merged without ownerGo", async () => {
+  it("reviewer prompt carries DR-024 authority; diff is data", async () => {
+    const rv = reviewer("PASS");
+    await runner(fakeGh(["tars/orch/a.ts"]), rv).run(9, "claude");
+    expect(rv.calls[0].prompt).toContain("DR-024");
+  });
+  it("class B → owner card with binding; GO merges only the same diff", async () => {
     const g = fakeGh(["app/mezi-vami/page.tsx"]);
-    const r = await new MergeRunner({
-      exec: g.exec,
-      cwd: "/",
-      reviewer: reviewer("PASS"),
-    }).run(9, "claude");
+    const r = await runner(g).run(9, "claude");
     expect(r.status).toBe("owner");
     expect(g.calls.some((c) => c.includes("pr merge"))).toBe(false);
-    const ok = await new MergeRunner({
-      exec: g.exec,
-      cwd: "/",
-      reviewer: reviewer("PASS"),
-      sleep: async () => {},
-    }).run(9, "claude", { ownerGo: true });
-    expect(ok.status).toBe("merged");
+    if (r.status !== "owner") throw new Error();
+    expect((await runner(g).run(9, "claude", { ownerGo: true })).status).toBe("blocked"); // no binding
+    expect((await runner(g).run(9, "claude", { ownerGo: true, binding: { head: "abc", diff_sha256: "x" } })).status).toBe("blocked");
+    expect((await runner(g).run(9, "claude", { ownerGo: true, binding: r.binding })).status).toBe("merged");
   });
-  it("review FIX blocks; same-family reviewer is refused", async () => {
-    const g = fakeGh(["tars/orch/a.ts"]);
-    expect(
-      (
-        await new MergeRunner({
-          exec: g.exec,
-          cwd: "/",
-          reviewer: reviewer("FIX"),
-        }).run(9, "claude")
-      ).status,
-    ).toBe("blocked");
-    await expect(
-      new MergeRunner({
-        exec: g.exec,
-        cwd: "/",
-        reviewer: reviewer("PASS", "claude"),
-      }).run(9, "claude"),
-    ).rejects.toThrow(/jiná rodina/);
+  it("Sponsor-reserved decision forces class B even for class-A paths", async () => {
+    const r = await runner(fakeGh(["tars/orch/a.ts"])).run(9, "claude", { forceOwner: ["cena"] });
+    expect(r.status).toBe("owner");
+  });
+  it("review fails closed: FIX, adapter error with PASS text, oversized diff; same family refused", async () => {
+    expect((await runner(fakeGh(["tars/orch/a.ts"]), reviewer("FIX")).run(9, "claude")).status).toBe("blocked");
+    const err = await runner(fakeGh(["tars/orch/a.ts"]), reviewer("PASS", "gpt", { ok: false, error: "exit 1" })).run(9, "claude");
+    expect(err).toMatchObject({ status: "blocked", reason: "review UNKNOWN" });
+    const big = await runner(fakeGh(["tars/orch/a.ts"], { diff: () => "x".repeat(MAX_REVIEW_DIFF + 1) })).run(9, "claude");
+    expect(big).toMatchObject({ status: "blocked", reason: "review UNKNOWN" });
+    await expect(runner(fakeGh(["tars/orch/a.ts"]), reviewer("PASS", "claude")).run(9, "claude")).rejects.toThrow(/jiná rodina/);
+  });
+  it("head moving during review or diff changing after update-branch blocks the merge", async () => {
+    let n = 0;
+    const moving = fakeGh(["tars/orch/a.ts"], { head: () => (n++ === 0 ? "abc" : "zzz") });
+    expect(await runner(moving).run(9, "claude")).toMatchObject({ status: "blocked", reason: "head PR se změnil během review" });
+    let d = 0;
+    const drift = fakeGh(["tars/orch/a.ts"], { behind: true, diff: () => (d++ === 0 ? "diff A" : "diff B") });
+    expect((await runner(drift).run(9, "claude")).status).toBe("blocked");
+    expect(drift.calls.some((c) => c.includes("pr merge"))).toBe(false);
+  });
+  it("renames are classified on both sides (app/** moved to docs/** is class B)", async () => {
+    const r = await runner(fakeGh([["docs/old-page.tsx", "app/mezi-vami/page.tsx"]])).run(9, "claude");
+    expect(r.status).toBe("owner");
+  });
+});
+
+describe("owner decisions (locks, blocked merge)", () => {
+  function waiting(id: string, pkgExtra: Partial<DecisionPackage> = {}): Store {
+    const st = new Store(fs.mkdtempSync(path.join(os.tmpdir(), "tars-own-")));
+    st.save({ id, mission: "m", state: "WAITING_OWNER", created_at: NOW, updated_at: NOW, fix_rounds: 0, manual_interventions: 0, history: [], meta: { merge_pr: "9", merge_blocked: "1" } });
+    fs.writeFileSync(path.join(st.orderDir(id), "decision.json"), JSON.stringify({ kind: "merge", recommended: { label: "x", summary: "", blocks: [] }, alternative: null, merge: { pr: "u", cls: "B", reasons: [], files: [], blocked: true }, ...pkgExtra }));
+    return st;
+  }
+  function orchFor(st: Store) {
+    const a = new Mock("claude", "o", () => ({ text: "" }));
+    const g = new Mock("gpt", "g", () => ({ text: "" }));
+    return new Orchestrator({ store: st, supervisor: a, briefChecker: g, departments: {}, cards: new CardRegistry(CARDS_DIR), ladder: { hasCli: () => true, browserReady: () => ({ ok: false, reasons: [] }), desktopReady: () => ({ ok: false, reasons: [] }) }, notion: new MockNotion(), guard: () => ({ alarm: false, summary: "" }), draftParentId: "p", repoRoot: "/", capsulePath: "/x" });
+  }
+  it("GO on a blocked merge card is refused; REJECT works", async () => {
+    const st = waiting("wo-b");
+    const o = orchFor(st);
+    await expect(o.owner("wo-b", "GO")).rejects.toThrow(/zablokován/);
+    expect((await o.owner("wo-b", "REJECT")).state).toBe("FAILED");
+  });
+  it("concurrent decisions: a held per-order lock refuses the second decision", async () => {
+    const st = waiting("wo-c");
+    const o = orchFor(st);
+    expect(st.acquireOrderLock("wo-c", "owner")).toBe(true);
+    await expect(o.owner("wo-c", "REJECT")).rejects.toThrow(/rozhoduje jinde/);
+    st.releaseOrderLock("wo-c", "owner");
+    expect((await o.owner("wo-c", "REJECT")).state).toBe("FAILED");
+    await expect(o.owner("wo-c", "REJECT")).rejects.toThrow(/nečeká/);
+  });
+  it("Dosah of Konzilium roles loads no MCP servers", () => {
+    expect(dosahToolOpts([]).noMcp).toBe(true);
   });
 });
