@@ -6,7 +6,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
-import { looksLikeLimit } from "../adapters";
+import { AiChain, looksLikeLimit } from "../adapters";
 import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
 import { CardRegistry, validateCardText } from "../cards";
 import {
@@ -32,11 +32,11 @@ import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../c
 import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
 import { extractNotionUrl } from "../notion";
-import { assertFamilies, Orchestrator, SecretScanningAdapter } from "../orchestrator";
+import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
-import { parseBrief, reservedDecisionHits } from "../supervisor";
+import { buildBriefCheckPrompt, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "../supervisor";
 import type { ModelFamily, Order } from "../types";
 
 const NOW = "2026-11-02T12:00:00.000Z";
@@ -526,6 +526,18 @@ describe("Notion panel (mocked)", () => {
     expect(errs).toHaveLength(2);
   });
 
+  it("panel-sync rewrites the current row without a transition", async () => {
+    const panel = new MockPanel();
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = await o.tick();
+    const n = panel.rows.length;
+    const before = store.load((r as { order: string }).order);
+    await o.resyncPanel(before.id);
+    expect(panel.rows).toHaveLength(n + 1);
+    expect(panel.rows.at(-1)!.row).toEqual(panel.rows.at(-2)!.row);
+    expect(store.load(before.id).state).toBe(before.state);
+  });
+
   it("row values are deterministic from state", () => {
     const o = transition(blank("CHECKING"), { type: "verdict", verdict: "FIX", issues: ["x"] }, NOW);
     expect(lastStepSentence(o)).toBe("Kontrolor vrátil opravy (kolo 1).");
@@ -710,5 +722,42 @@ describe("variant B identity (fail-closed)", () => {
     fs.mkdirSync(path.join(d, "Default"));
     fs.writeFileSync(path.join(d, "Default", "Preferences"), JSON.stringify({ account_info: [{}, {}] }));
     expect(googleAccountCount(d)).toBe(2);
+  });
+});
+
+describe("run 2 scope and models", () => {
+  it("TARS_DEPARTMENTS keeps only the listed departments", () => {
+    const all = { copy: 1, dev: 2, vizual: 3 };
+    expect(onlyEnabled(["copy"], all)).toEqual({ copy: 1 });
+    expect(onlyEnabled([], all)).toEqual(all);
+  });
+
+  it("AI Chain implementer runs on Sonnet via IMPLEMENTER_MODEL", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-chain-"));
+    const runSh = path.join(dir, "run.sh");
+    fs.writeFileSync(runSh, 'mkdir -p runs/1 && printf "STATUS: DONE\\nmodel=%s\\n" "$IMPLEMENTER_MODEL" > runs/1/05-final.md\n');
+    const r = await new AiChain(runSh).run("zadani.md", dir, dir, 10_000);
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("DONE");
+    expect(r.text).toContain("model=sonnet");
+  });
+});
+
+describe("acceptance feasibility (fix after run 2 order 1)", () => {
+  it("supervisor and brief checker require criteria satisfiable from sources, UNKNOWN allowed where sources are silent", () => {
+    const sup = buildSupervisorPrompt("capsule", [], []);
+    expect(sup).toContain("SPLNITELNOST");
+    expect(sup).toContain("UNKNOWN");
+    const brief = parseBrief('```json\n{"title":"t","department":"copy","milestone":"3.1","why":"w","goal":"g","inputs":["i"],"acceptance":["a"],"owner_decisions":[],"sources":["funnel"]}\n```');
+    const chk = buildBriefCheckPrompt(brief, "handoff", "card", "", ["funnel"], "");
+    expect(chk).toMatch(/7\. Každé akceptační kritérium jde splnit jen ze zadání a povinných zdrojů/);
+  });
+});
+
+describe("shared card rules (fix after run 2 order 2)", () => {
+  it("card text carries _spolecne.md when the card refers to it", () => {
+    const t = new CardRegistry(CARDS_DIR).text("copy-studio");
+    expect(t).toContain("<<<_spolecne.md");
+    expect(t).toContain(fs.readFileSync(path.join(CARDS_DIR, "_spolecne.md"), "utf8").split("\n")[0]);
   });
 });

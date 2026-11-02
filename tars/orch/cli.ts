@@ -7,12 +7,12 @@ import { fileURLToPath } from "node:url";
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
 import { BrowserAdapter } from "./browser";
 import { CardRegistry } from "./cards";
-import { CopyDepartment, DevDepartment, VizualDepartment } from "./departments";
+import { CopyDepartment, DevDepartment, VizualDepartment, type DepartmentRunner } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import { runGuardWithI8 } from "./guard";
 import { makeNotion } from "./notion";
-import { Orchestrator, SecretScanningAdapter } from "./orchestrator";
+import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
 import { McpPanelSink, PanelIndex } from "./panel";
 import { SourceLoader } from "./sources";
 import { Store } from "./store";
@@ -28,6 +28,8 @@ const aiChain = process.env.TARS_AI_CHAIN ?? path.join(os.homedir(), "Projects/a
 const cardsDir = path.join(here, "specialists/mezi-vami");
 const browserStatusFile = path.join(runsDir, "browser-status.json");
 const BROWSER_STATUS_TTL_MS = 6 * 60 * 60 * 1000;
+/** Run scope: TARS_DEPARTMENTS=copy wires only the copy department (comma list; empty = all). */
+const enabledDepartments = (process.env.TARS_DEPARTMENTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 /** Rung 3 readiness is cached by `browser-check` / start of tick (login check is async). */
 function browserReady(): PreflightResult {
@@ -71,11 +73,11 @@ function build(): Orchestrator {
     store,
     supervisor: opus,
     briefChecker: codex, // karta supervizor.md bod 6: GPT kontroluje zadání
-    departments: {
+    departments: onlyEnabled<DepartmentRunner>(enabledDepartments, {
       copy: new CopyDepartment(codex, opus, cardText("copy-studio")), // GPT creates, Claude checks
       dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "ai-chain-mezi-vami/invariant-sentinel.md")), // Claude chain creates, GPT reviews
       vizual: new VizualDepartment(new BrowserAdapter(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
-    },
+    }),
     notion,
     sources: new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache")),
     guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot),
@@ -91,7 +93,8 @@ async function main() {
   const store = new Store(runsDir);
   switch (cmd) {
     case "tick": {
-      await refreshBrowserStatus();
+      // Rung 3 login check opens Chrome — only when the vizual department is in scope.
+      if (!enabledDepartments.length || enabledDepartments.includes("vizual")) await refreshBrowserStatus();
       const r = await build().tick();
       console.log(JSON.stringify(r));
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;
@@ -123,6 +126,15 @@ async function main() {
       console.log(`${o.id} → ${o.state}`);
       return;
     }
+    case "panel-sync": {
+      const [id] = args;
+      if (!id) throw new Error("usage: panel-sync <order-id>");
+      await build().resyncPanel(id);
+      const last = store.readLog(50).filter((e) => e.order === id && e.role === "transport").at(-1);
+      console.log(`${id} panel: ${last?.result ?? "?"} ${last?.reason ?? ""}`.trim());
+      process.exitCode = last?.kind === "error" ? 1 : 0;
+      return;
+    }
     case "owner": {
       const [id, decision] = args;
       if (!id || (decision !== "GO" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|REJECT");
@@ -133,7 +145,7 @@ async function main() {
       return;
     }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|REJECT");
+      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|REJECT | panel-sync <id>");
       process.exitCode = 1;
   }
 }
