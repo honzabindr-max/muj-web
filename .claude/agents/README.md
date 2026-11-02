@@ -13,6 +13,8 @@ Jediný zdroj pravdy pro specialisty orchestrátoru `tars/orch` (DR-029, krok 2)
 | copy-studio | GPT | GPT přes codex (krok 1) | `gpt/copy-studio.md` |
 | brana | GPT | GPT přes codex (krok 1) | `gpt/brana.md` |
 
+Konzilium (advokát, rada odborníků, soudce) má vlastní karty ve složce `konzilium/`. Spouští je jen uložený workflow `/konzilium` (`.claude/workflows/konzilium.js`, krok 3), viz `konzilium/README.md`. Orchestrátor `tars/orch` je jako specialisty oddělení nepoužívá.
+
 Každá definice obsahuje: frontmatter (`name`, `description` = kdy roli použít, `model`, `tools`, plus pole TARS: `kind`, `department`, `title`, `executor`, `family`, `adapter`, `rung`, `checker`, `checker_family`, `sources`, `max_fix_rounds`) a tělo se sedmi sekcemi karty (role a model, povinné zdroje, zákazy, výstup, kritéria přijetí, kontrolor, eskalace, příčka) a sekcí „Společné podklady“ (dřívější `_spolecne.md`, ve všech definicích shodná).
 
 ## GPT přes codex (krok 1)
