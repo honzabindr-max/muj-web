@@ -40,7 +40,7 @@ function bar(f: FinalView, qs: Qs) {
   return `<header class="bar">
   <a class="brand" href="/${qs.base}"><span class="logo" aria-hidden="true">${symbol("vedouci", 16)}</span><b>TARS</b><span class="sep">/</span><span>Mission Control</span></a>
   <div class="bar-mid">
-    <span class="sys ${SYS_TONE[f.status]}"><i class="led" aria-hidden="true"></i>${esc(f.statusLabel)}</span>
+    <span data-sys class="sys ${SYS_TONE[f.status]}"><i class="led" aria-hidden="true"></i>${esc(f.statusLabel)}</span>
     <span class="bar-kv"><span>Mise</span>${esc(f.focus?.mission ?? v.mission)}</span>
     <span class="bar-kv"><span>Běží zakázek</span>${f.orders.filter((o) => o.active).length}</span>
     <span class="bar-kv"><span>Rozhodnutí</span>${v.decisionsCount}</span>
@@ -223,7 +223,7 @@ export function renderRole(p: RolePage, f: FinalView, qs: Qs): string {
   const r = p.role;
   const undefinedBlock = `<p class="undef">Zatím nedefinováno</p><p class="quiet small">${r.card ? "Karta specialisty tuto sekci (§2c) zatím nemá." : "Role nemá vlastní kartu specialisty."} Panel nic nedomýšlí.</p>`;
   const cardInfo = r.card
-    ? `<dl class="kv"><dt>Karta</dt><dd><code>${esc(r.card.file)}</code></dd><dt>Model podle karty</dt><dd>${esc(r.card.model ?? "—")}</dd><dt>Adaptér</dt><dd>${esc(r.card.adapter ?? "—")}</dd><dt>Příčka §2b</dt><dd>${esc(r.card.rung ?? "—")}</dd></dl>`
+    ? `<dl class="kv"><dt>Karta</dt><dd><code>${esc(safe(r.card.file, 200))}</code></dd><dt>Model podle karty</dt><dd>${esc(safe(r.card.model, 120) || "—")}</dd><dt>Adaptér</dt><dd>${esc(safe(r.card.adapter, 120) || "—")}</dd><dt>Příčka §2b</dt><dd>${esc(safe(r.card.rung, 120) || "—")}</dd></dl>`
     : `<p class="quiet">${r.id === "kontrolor" ? "Kontrolor nemá vlastní kartu: jeho checklist je v kartě každého tvůrce (bod 6. Kontrolor)." : r.id === "strazce" ? "Strážce je deterministický skript TARS-GUARD (hook), ne model; nemá kartu specialisty." : "Karta specialisty pro tuto roli v repu chybí. Podle §2a se role bez karty nesmí spustit."}</p>`;
   const assign = (list: RoleView["works"], empty: string) =>
     list.length ? `<ul class="alist">${list.map((a) => `<li><a href="/${qs.with("focus", a.order)}"><b>${esc(a.title)}</b><span>${esc(a.step)} · ${esc(a.order)}${a.verified ? "" : " · nelze ověřit"}</span></a></li>`).join("")}</ul>` : `<p class="quiet">${empty}</p>`;

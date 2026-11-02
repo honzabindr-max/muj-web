@@ -198,6 +198,14 @@ export const TEAM_BASE: Record<TeamKey, { name: string; role: string; card?: str
 
 export const CREATOR_BY_DEPT: Record<string, TeamKey> = { copy: "copywriter", vizual: "designer", dev: "vyvojar" };
 
+/**
+ * Run lock that proves work on one order (TARS-ORCH-001 §2d bod 6): the order's own lock when it
+ * exists, otherwise the global runs/.lock. A dead order lock is never overridden by a live global one.
+ */
+export function lockFor(input: McInput, id: string | undefined): LockInfo {
+  return (id !== undefined ? input.orderLocks?.[id] : undefined) ?? input.lock;
+}
+
 /** Text from data is shown only when it carries no secret pattern. */
 export function safe(text: string | undefined | null, max = 240): string {
   const t = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -287,7 +295,8 @@ export function classifyCalls(orders: Order[], log: LogEntry[]): CallInfo[] {
     if (e.role === "supervisor") member = "vedouci";
     else if (e.role === "checker") member = phase === "work" && dept === "vizual" ? "brana" : "kontrolor";
     else if (e.role === "creator") member = CREATOR_BY_DEPT[dept];
-    if (member) out.push({ ...e, member, phase });
+    // model names come from the log (data): filtered once here, so no consumer can leak them
+    if (member) out.push({ ...e, model: e.model === undefined ? undefined : safe(e.model, 80) || undefined, member, phase });
   }
   return out;
 }
@@ -512,7 +521,7 @@ function membersFor(input: McInput, calls: CallInfo[], current: Order | undefine
   const today = calls.filter((c) => sameDay(c.ts, input.now));
   const curStep = currentView?.flow.find((f) => f.status === "current");
   const activeVerified = Boolean(currentView?.verified);
-  const unknownActive = Boolean(current && ACTIVE_STATES.includes(current.state) && current.state !== "PAUSED" && !input.lock.alive);
+  const unknownActive = Boolean(current && ACTIVE_STATES.includes(current.state) && current.state !== "PAUSED" && !lockFor(input, current.id).alive);
   const dept = current?.brief?.department;
   const curMember: TeamKey | undefined = (() => {
     if (!curStep || !current) return undefined;
@@ -613,7 +622,7 @@ export function buildView(input: McInput): McView {
   const active = orders.filter((o) => ACTIVE_STATES.includes(o.state));
   const waiting = orders.filter((o) => o.state === "WAITING_OWNER");
   const current = active.at(-1) ?? waiting.at(-1) ?? orders.at(-1);
-  const views = orders.map((o) => orderView(o, calls, input.lock, input.log));
+  const views = orders.map((o) => orderView(o, calls, lockFor(input, o.id), input.log));
   const currentView = current ? views.find((v) => v.id === current.id) : undefined;
   const team = membersFor(input, calls, current, currentView);
   const guardLast = input.log.filter((e) => e.kind === "guard").at(-1);
@@ -628,8 +637,9 @@ export function buildView(input: McInput): McView {
     status = "problem";
     statusSentence = "Strážce hlásí poplach. Supervizor se zastavil.";
   } else if (current && ACTIVE_STATES.includes(current.state) && current.state !== "PAUSED") {
-    status = input.lock.alive ? "working" : "unknown";
-    statusSentence = input.lock.alive ? "Tým pracuje na zakázce." : "Zakázka je podle záznamu rozpracovaná, ale orchestrátor neběží.";
+    const alive = lockFor(input, current.id).alive;
+    status = alive ? "working" : "unknown";
+    statusSentence = alive ? "Tým pracuje na zakázce." : "Zakázka je podle záznamu rozpracovaná, ale orchestrátor neběží.";
   } else if (current?.state === "PAUSED") {
     status = "paused";
     statusSentence = "Práce je pozastavená kvůli limitu předplatného.";
@@ -727,7 +737,7 @@ export function buildView(input: McInput): McView {
     next = {
       what: nx ? `${nx.label} převezme práci po kroku ${currentView.flow[i]?.label ?? "—"}` : "Dokončení zakázky",
       who: nx?.label ?? "—",
-      blocker: !input.lock.alive && currentView.state !== "PAUSED" ? "Orchestrátor neběží — žádný proces nedrží běhový zámek." : currentView.state === "PAUSED" ? "Limit předplatného." : undefined,
+      blocker: !lockFor(input, currentView.id).alive && currentView.state !== "PAUSED" ? "Orchestrátor neběží — žádný proces nedrží běhový zámek." : currentView.state === "PAUSED" ? "Limit předplatného." : undefined,
     };
   } else if (waiting.length) next = { what: "Rozhodnutí GO / REJECT", who: "Ty", blocker: "Bez tvého rozhodnutí zakázka nepokračuje." };
   else
@@ -747,6 +757,7 @@ export function buildView(input: McInput): McView {
     ...input.log.map((e) => e.ts),
     ...orders.map((o) => o.updated_at),
     ...(input.lock.alive && input.lock.mtime ? [input.lock.mtime] : []),
+    ...Object.values(input.orderLocks ?? {}).flatMap((l) => (l.alive && l.mtime ? [l.mtime] : [])),
   ].filter((x) => Number.isFinite(ms(x)));
   const lastContact = contactCandidates.sort().at(-1);
 
@@ -794,7 +805,7 @@ export function buildFocus(input: McInput, id: string): FocusView | undefined {
   const o = input.orders.find((x) => x.id === id);
   if (!o) return undefined;
   const calls = classifyCalls(input.orders, input.log);
-  const ov = orderView(o, calls, input.lock, input.log);
+  const ov = orderView(o, calls, lockFor(input, o.id), input.log);
   const mine = input.log.filter((e) => e.order === id && (e.kind === "transition" || e.kind === "call" || e.kind === "error"));
   const chronology = mine.map((e) => {
     const c = calls.find((x) => x.ts === e.ts && x.order === e.order && x.role === e.role && e.kind === "call");

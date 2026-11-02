@@ -17,12 +17,12 @@ import {
   CREATOR_BY_DEPT,
   formatAgo,
   humanProblem,
+  lockFor,
   missionName,
   safe,
   STATE_LABEL,
   type CallInfo,
   type CardDoc,
-  type LockInfo,
   type McInput,
   type McView,
   type TeamKey,
@@ -167,10 +167,6 @@ function roleOfCall(c: CallInfo): string {
   return card && ROLE_RE.test(card) ? card : TEAM_TO_ROLE[c.member];
 }
 
-function lockFor(input: McInput, id: string): LockInfo {
-  return input.orderLocks?.[id] ?? input.lock;
-}
-
 function ownerNeeded(o: Order): boolean {
   if (o.owner_needed !== undefined) return o.owner_needed;
   return o.brief?.department === "dev" || (o.brief?.owner_decisions?.length ?? 0) > 0;
@@ -182,7 +178,7 @@ export function stepsOf(o: Order, calls: CallInfo[], cards: Record<string, CardD
   const modelOf = (role: string) => safe(mine.filter((c) => roleOfCall(c) === role && c.model).at(-1)?.model, 60) || undefined;
   const steps: Step[] = [
     { id: "lead", roleId: "supervizor", label: "Vedoucí", stepName: "Plán zakázky", kind: "plan", status: "future", returns: 0, who: modelOf("supervizor") },
-    { id: "brief", roleId: "kontrolor", label: "Zadání", stepName: "Kontrola zadání", kind: "check", status: "future", returns: 0, who: mine.filter((c) => c.phase === "brief" && c.member === "kontrolor").at(-1)?.model },
+    { id: "brief", roleId: "kontrolor", label: "Zadání", stepName: "Kontrola zadání", kind: "check", status: "future", returns: 0, who: safe(mine.filter((c) => c.phase === "brief" && c.member === "kontrolor").at(-1)?.model, 60) || undefined },
   ];
   const recipe = recipeOf(o);
   const dept = o.brief?.department ?? "";
@@ -194,7 +190,7 @@ export function stepsOf(o: Order, calls: CallInfo[], cards: Record<string, CardD
     const creator = CREATOR_BY_DEPT[dept] ? TEAM_TO_ROLE[CREATOR_BY_DEPT[dept]] : undefined;
     const checker = dept === "vizual" ? "brana" : "kontrolor";
     steps.push({ id: "create", roleId: creator, label: creator ? roleName(creator) : "Tvůrce", stepName: "Tvorba", kind: "create", status: "future", returns: 0, who: creator ? modelOf(creator) : undefined });
-    steps.push({ id: "check", roleId: checker, label: dept === "dev" ? "Kontrolor · CI" : roleName(checker), stepName: "Kontrola", kind: "check", status: "future", returns: 0, who: mine.filter((c) => c.phase === "work" && (c.member === "kontrolor" || c.member === "brana")).at(-1)?.model });
+    steps.push({ id: "check", roleId: checker, label: dept === "dev" ? "Kontrolor · CI" : roleName(checker), stepName: "Kontrola", kind: "check", status: "future", returns: 0, who: safe(mine.filter((c) => c.phase === "work" && (c.member === "kontrolor" || c.member === "brana")).at(-1)?.model, 60) || undefined });
   }
   if (!steps.some((s) => s.kind === "deliver")) steps.push({ id: "delivery", label: "Doručení", stepName: "Doručení", kind: "deliver", status: "future", returns: 0, who: dept === "dev" ? "PR draft" : "Notion DRAFT" });
   if (ownerNeeded(o) && !steps.some((s) => s.kind === "owner")) steps.push({ id: "owner", label: "Moje GO", stepName: "Rozhodnutí vlastníka", kind: "owner", status: "future", returns: 0, who: "vlastník" });

@@ -49,7 +49,7 @@ function commandBar(v: McView, qs: string) {
   return `<header class="bar">
   <a class="brand" href="/${qs}"><span class="logo" aria-hidden="true"></span><span>TARS</span><span class="slash">/</span><span class="mute">Mission Control</span></a>
   <div class="bar-items">
-    <div class="pill ${tone}" title="${esc(v.statusSentence)}"><span class="dot ${tone}${v.status === "working" ? " pulse" : ""}" aria-hidden="true"></span><span>${esc(v.statusLabel)}</span></div>
+    <div class="pill ${tone}" data-sys title="${esc(v.statusSentence)}"><span class="dot ${tone}${v.status === "working" ? " pulse" : ""}" aria-hidden="true"></span><span>${esc(v.statusLabel)}</span></div>
     <div class="kv"><span class="k">Mise</span><span class="v">${esc(v.mission)}</span></div>
     <div class="kv"><span class="k">Pracuje</span><span class="v">${v.workingCount} ${v.workingCount === 1 ? "specialista" : v.workingCount >= 2 && v.workingCount <= 4 ? "specialisté" : "specialistů"}</span></div>
     <div class="kv"><span class="k">Rozhodnutí</span><span class="v${v.decisionsCount ? " accent" : ""}">${v.decisionsCount}</span></div>
@@ -322,12 +322,24 @@ function ago(ms){if(!isFinite(ms))return 'nelze ověřit';var s=Math.max(0,Math.
 function tick(){var n=Date.now();document.querySelectorAll('time[data-since]').forEach(function(t){t.textContent=dur(n-Date.parse(t.dataset.since))});document.querySelectorAll('time[data-ago]').forEach(function(t){t.textContent=ago(n-Date.parse(t.dataset.ago))})}
 function bind(){var b=document.getElementById('theme');if(b)b.onclick=function(){var cur=root.getAttribute('data-theme')==='light'?'light':'dark';var nx=cur==='light'?'dark':'light';apply(nx);try{localStorage.setItem('tars-theme',nx)}catch(e){}}}
 var app=document.getElementById('app');var norm=function(h){return h.replace(/(<time[^>]*>)[^<]*(<\\/time>)/g,'$1$2')};var last=norm(app.innerHTML);var ph0=app.querySelector('[data-phase]');var lastPhase=ph0?ph0.dataset.phase:null;
-async function refresh(){try{var r=await fetch(app.dataset.src,{cache:'no-store'});if(!r.ok)throw new Error(r.status);var h=await r.text();var n=norm(h);if(n!==last){var open=[].map.call(document.querySelectorAll('details[open]'),function(d){return d.id});app.innerHTML=h;var ph=app.querySelector('[data-phase]');if(ph&&lastPhase&&ph.dataset.phase!==lastPhase){ph.classList.add('phase-changed');setTimeout(function(){ph.classList.remove('phase-changed')},2400)}lastPhase=ph?ph.dataset.phase:null;open.forEach(function(id){var d=document.getElementById(id);if(d)d.open=true});last=n;bind()}document.body.classList.remove('offline');tick()}catch(e){document.body.classList.add('offline');var p=document.querySelector('.pill');if(p){p.className='pill bad';p.lastChild.textContent='Nedostupné'}}}
+var okAt=Date.now();
+function swap(el,from,to){from.forEach(function(c){if(el.classList.contains(c)){el.classList.remove(c);el.classList.add(to)}})}
+function offline(){document.body.classList.add('offline');last=null;
+var b=document.getElementById('offline');if(b)b.textContent='Panel neodpovídá – stav nelze ověřit. Zobrazená data jsou z '+new Date(okAt).toLocaleTimeString('cs-CZ')+' a nemusí platit.';
+var s=document.querySelector('[data-sys]');if(s){['live','wait','bad','ok','check'].forEach(function(c){s.classList.remove(c)});s.classList.add('unknown');s.setAttribute('title','Spojení s panelem přerušeno');s.lastChild.textContent='Nelze ověřit'}
+app.querySelectorAll('.pulse,.is-live').forEach(function(el){el.classList.remove('pulse','is-live')});
+app.querySelectorAll('.t-live,.t-check').forEach(function(el){swap(el,['t-live','t-check'],'t-unknown')});
+app.querySelectorAll('.st-working,.st-checking').forEach(function(el){swap(el,['st-working','st-checking'],'st-unknown');var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode())){if(n.nodeValue.indexOf('Pracuje')===0||n.nodeValue.indexOf('Kontroluje')===0)n.nodeValue=n.nodeValue.replace(/^(Pracuje|Kontroluje)/,'Nelze ověřit')}})}
+async function refresh(){try{var r=await fetch(app.dataset.src,{cache:'no-store'});if(!r.ok)throw new Error(r.status);var h=await r.text();var n=norm(h);if(n!==last){var open=[].map.call(document.querySelectorAll('details[open]'),function(d){return d.id});app.innerHTML=h;var ph=app.querySelector('[data-phase]');if(ph&&lastPhase&&ph.dataset.phase!==lastPhase){ph.classList.add('phase-changed');setTimeout(function(){ph.classList.remove('phase-changed')},2400)}lastPhase=ph?ph.dataset.phase:null;open.forEach(function(id){var d=document.getElementById(id);if(d)d.open=true});last=n;bind()}document.body.classList.remove('offline');okAt=Date.now();tick()}catch(e){offline()}}
 bind();tick();setInterval(tick,1000);if(app.dataset.src)setInterval(refresh,3000);
 })();`;
 
+/** Refresh failure: nothing on the page may keep looking live (shared by every page). */
+const OFFLINE_CSS = `#offline{display:none}body.offline #offline{display:block;position:sticky;top:0;z-index:99;padding:10px 16px;text-align:center;font:600 14px/1.4 -apple-system,system-ui,sans-serif;background:#3a2a10;color:#ffd99a}
+body.offline #app{filter:grayscale(1);opacity:.6}body.offline *,body.offline *::before,body.offline *::after{animation:none!important;transition:none!important}`;
+
 export function renderDocument(title: string, fragment: string, src: string, css = CSS): string {
   return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark light"><title>${esc(title)}</title><style>${css}</style></head>
-<body><div id="app" data-src="${esc(src)}">${fragment}</div><script>${SCRIPT}</script></body></html>`;
+<meta name="color-scheme" content="dark light"><title>${esc(title)}</title><style>${css}</style><style>${OFFLINE_CSS}</style></head>
+<body><div id="offline" role="status" aria-live="polite"></div><div id="app" data-src="${esc(src)}">${fragment}</div><script>${SCRIPT}</script></body></html>`;
 }

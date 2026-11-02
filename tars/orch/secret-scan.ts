@@ -34,3 +34,24 @@ export function scanSecrets(text: string): SecretScanResult {
   const kinds = PATTERNS.filter(([, re]) => re.test(text)).map(([k]) => k);
   return { clean: kinds.length === 0, kinds };
 }
+
+export const REDACTED = "[skryto: citlivý údaj]";
+
+/** Replaces every match of every pattern with REDACTED (last-line output guard for the panel). */
+export function redactSecrets(text: string): string {
+  let out = text;
+  for (const [, re] of PATTERNS) out = out.replace(new RegExp(re.source, `${re.flags.replace("g", "")}g`), REDACTED);
+  return out;
+}
+
+/** Deep copy of JSON-like data with every string passed through redactSecrets (keys included). */
+export function redactDeep<T>(value: T): T {
+  if (typeof value === "string") return redactSecrets(value) as T;
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v)) as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[redactSecrets(k)] = redactDeep(v);
+    return out as T;
+  }
+  return value;
+}

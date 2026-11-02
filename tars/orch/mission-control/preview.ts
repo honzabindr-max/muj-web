@@ -28,7 +28,7 @@ function bar(s: Story, qs: string, variant: "a" | "b") {
   return `<header class="bar">
   <a class="brand" href="/preview/${variant}${qs}"><span class="logo" aria-hidden="true">${symbol("vedouci", 16)}</span><b>TARS</b><span class="sep">/</span><span>${variant === "a" ? "Mission Control" : "Command Center"}</span></a>
   <div class="bar-mid">
-    <span class="sys ${tone}"><i class="led" aria-hidden="true"></i>${esc(v.statusLabel)}</span>
+    <span data-sys class="sys ${tone}"><i class="led" aria-hidden="true"></i>${esc(v.statusLabel)}</span>
     <span class="bar-kv"><span>Mise</span>${esc(v.mission)}</span>
     <span class="bar-kv"><span>Poslední potvrzení</span>${ago(v.lastContact, v.now)}</span>
   </div>

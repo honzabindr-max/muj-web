@@ -8,6 +8,7 @@ import {
   classifyCalls,
   CREATOR_BY_DEPT,
   humanProblem,
+  lockFor,
   safe,
   TEAM_BASE,
   type CallInfo,
@@ -195,7 +196,8 @@ export function buildStory(input: McInput): Story {
   const orders = [...input.orders].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const calls = classifyCalls(orders, input.log);
   const cur = view.current ? orders.find((o) => o.id === view.current!.id) : undefined;
-  const hl = cur ? headline(cur, calls, input.lock.alive, view.current?.problem?.what) : undefined;
+  const alive = cur ? lockFor(input, cur.id).alive : input.lock.alive;
+  const hl = cur ? headline(cur, calls, alive, view.current?.problem?.what) : undefined;
   const rank = (m: Member) => (m.status === "working" || m.status === "checking" || (m.status === "unknown" && m.key !== "strazce") ? 0 : m.status === "waiting" ? 1 : 2);
   const primary = view.team.find((m) => rank(m) === 0);
   const secondary = view.team.find((m) => rank(m) === 1);
@@ -207,7 +209,7 @@ export function buildStory(input: McInput): Story {
   return {
     view,
     headline: hl,
-    phaseKey: cur ? `${cur.id}|${cur.state}|${cur.fix_rounds}|${input.lock.alive ? 1 : 0}` : "none",
+    phaseKey: cur ? `${cur.id}|${cur.state}|${cur.fix_rounds}|${alive ? 1 : 0}` : "none",
     primary,
     secondary,
     others,

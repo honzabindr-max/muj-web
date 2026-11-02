@@ -4,31 +4,34 @@ import os from "node:os";
 import path from "node:path";
 
 import type { LogEntry, Order } from "../types";
-import type { CardDoc, LockInfo, McInput } from "./view";
+import { safe, type CardDoc, type LockInfo, type McInput } from "./view";
 
 const ORDER_RE = /^wo-[0-9A-Za-z-]+$/;
 
-function readOrders(runsDir: string): Order[] {
+export function readOrders(runsDir: string): Order[] {
   if (!fs.existsSync(runsDir)) return [];
   const out: Order[] = [];
   for (const d of fs.readdirSync(runsDir).sort()) {
     if (!ORDER_RE.test(d)) continue;
     const f = path.join(runsDir, d, "state.json");
-    if (!fs.existsSync(f)) continue;
     try {
       out.push(JSON.parse(fs.readFileSync(f, "utf8")) as Order);
     } catch {
-      // half-written or broken file: skip, the next refresh will retry
+      // missing, half-written or broken file: skip, the next refresh will retry
     }
   }
   return out;
 }
 
-function readLog(runsDir: string): LogEntry[] {
-  const f = path.join(runsDir, "log.jsonl");
-  if (!fs.existsSync(f)) return [];
+export function readLog(runsDir: string): LogEntry[] {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(runsDir, "log.jsonl"), "utf8");
+  } catch {
+    return []; // missing (or removed meanwhile): no documented events
+  }
   const out: LogEntry[] = [];
-  for (const l of fs.readFileSync(f, "utf8").split("\n")) {
+  for (const l of text.split("\n")) {
     if (!l.trim()) continue;
     try {
       out.push(JSON.parse(l) as LogEntry);
@@ -40,20 +43,7 @@ function readLog(runsDir: string): LogEntry[] {
 }
 
 export function readLock(runsDir: string): LockInfo {
-  const f = path.join(runsDir, ".lock");
-  if (!fs.existsSync(f)) return { present: false, alive: false };
-  const st = fs.statSync(f);
-  const pid = Number(fs.readFileSync(f, "utf8").trim());
-  let alive = false;
-  if (Number.isInteger(pid) && pid > 0) {
-    try {
-      process.kill(pid, 0); // signal 0 = existence check only
-      alive = true;
-    } catch (e) {
-      alive = (e as NodeJS.ErrnoException).code === "EPERM";
-    }
-  }
-  return { present: true, alive, mtime: st.mtime.toISOString() };
+  return lockAt(path.join(runsDir, ".lock")) ?? { present: false, alive: false };
 }
 
 /** First sentence of section „## 1. Mise role a model“ of each card. */
@@ -93,17 +83,20 @@ export function parseCard(text: string, file: string): CardDoc | undefined {
   const role = get("role");
   if (!role) return undefined;
   const sec = /## 1\. Mise role a model\s*\n+([^\n]+)/.exec(text)?.[1];
+  // Card text is data: every field passes the secret filter before it can reach a page.
+  const meta = (k: string, max = 120) => safe(get(k), max) || undefined;
+  const lines = (name: string) => cardSection(text, name)?.map((l) => safe(l, 600));
   return {
-    role,
-    title: get("title") ?? role,
-    model: get("model"),
-    family: get("family"),
-    adapter: get("adapter"),
-    rung: get("rung"),
-    file,
-    mission: sec ? (/^(.+?[.!?])(\s|$)/.exec(sec)?.[1] ?? sec).replace(/`/g, "") : undefined,
-    postup: cardSection(text, "Postup"),
-    dosah: cardSection(text, "Dosah"),
+    role: safe(role, 60),
+    title: meta("title", 160) ?? safe(role, 60),
+    model: meta("model"),
+    family: meta("family"),
+    adapter: meta("adapter"),
+    rung: meta("rung"),
+    file: safe(file, 200),
+    mission: sec ? safe((/^(.+?[.!?])(\s|$)/.exec(sec)?.[1] ?? sec).replace(/`/g, ""), 400) : undefined,
+    postup: lines("Postup"),
+    dosah: lines("Dosah"),
   };
 }
 
@@ -118,30 +111,45 @@ export function readCardDocs(cardsDir: string): Record<string, CardDoc> {
   return out;
 }
 
-/** Lock file with a PID → is that process alive? */
-function lockAt(f: string): LockInfo | undefined {
-  if (!fs.existsSync(f)) return undefined;
-  const st = fs.statSync(f);
-  const pid = Number(fs.readFileSync(f, "utf8").trim());
+/**
+ * Lock file with a PID → is that process alive? undefined = no lock file.
+ * The orchestrator may delete the lock at any moment (between stat and read), so every
+ * filesystem step is guarded: a vanished lock is „no lock“, an unreadable one is present but
+ * not proven alive. Never throws.
+ */
+export function lockAt(f: string): LockInfo | undefined {
+  let mtime: string;
+  let text: string;
+  try {
+    mtime = fs.statSync(f).mtime.toISOString();
+    text = fs.readFileSync(f, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    return { present: true, alive: false };
+  }
+  const pid = Number(text.trim());
   let alive = false;
   if (Number.isInteger(pid) && pid > 0) {
     try {
-      process.kill(pid, 0);
+      process.kill(pid, 0); // signal 0 = existence check only
       alive = true;
     } catch (e) {
       alive = (e as NodeJS.ErrnoException).code === "EPERM";
     }
   }
-  return { present: true, alive, mtime: st.mtime.toISOString() };
+  return { present: true, alive, mtime };
 }
 
 function listFiles(orderDir: string): string[] {
-  if (!fs.existsSync(orderDir)) return [];
   const out: string[] = [];
-  for (const e of fs.readdirSync(orderDir, { withFileTypes: true })) {
-    if (e.isFile()) out.push(e.name);
-    else if (e.isDirectory() && e.name.startsWith("shots-"))
-      for (const f of fs.readdirSync(path.join(orderDir, e.name)).sort()) out.push(`${e.name}/${f}`);
+  try {
+    for (const e of fs.readdirSync(orderDir, { withFileTypes: true })) {
+      if (e.isFile()) out.push(e.name);
+      else if (e.isDirectory() && e.name.startsWith("shots-"))
+        for (const f of fs.readdirSync(path.join(orderDir, e.name)).sort()) out.push(`${e.name}/${f}`);
+    }
+  } catch {
+    // directory removed while reading: show what was listed
   }
   return out.sort();
 }
