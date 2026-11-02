@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 
 import { ClaudeCli, CodexCli } from "./adapters";
 import { briefMarkdown, copyDeterministicIssues } from "./departments";
-import { makeNotion } from "./notion";
+import { McpNotion } from "./notion";
 import { McpPanelSink, type PanelRow, type PanelSink } from "./panel";
 import { scanSecrets } from "./secret-scan";
 import { reservedDecisionHits } from "./supervisor";
@@ -1110,6 +1110,9 @@ export function konziliumPanelRow(run: RunFile, pkg: DecisionPackage, link: stri
     "Ruční zásahy": 0,
     "Odkaz na výstup": link,
     "Čeká na vlastníka": "__YES__",
+    "Kde běží": "Mac",
+    "Proč tento model": `Tvůrce ${run.creator.model} a soudce ${pkg.author.model} jsou z různých modelových rodin (pravidlo „kontroluje jiná rodina“).`,
+    "Karta rozhodnutí": null,
   };
 }
 
@@ -1269,7 +1272,7 @@ const realIO: BridgeIO = {
     return { run: (p, o) => codex.run(p, o), model: () => codex.model };
   },
   panelDeps: (out) => {
-    const notion = makeNotion(new ClaudeCli("sonnet"), kdir(out));
+    const notion = new McpNotion(new ClaudeCli("sonnet"), kdir(out));
     return { sink: new McpPanelSink(kdir(out)), archive: async (parent, title, md) => (await notion.createPage(parent, title, md)).url };
   },
   now: () => new Date().toISOString(),
