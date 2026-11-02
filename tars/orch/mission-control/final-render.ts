@@ -2,7 +2,7 @@
 import { formatDuration, safe, unreadableSentence } from "./view";
 import { type FinalView, type LiveOrder, type RolePage, type RoleView, type Step } from "./final";
 import { CSS_A } from "./preview";
-import { ago, clock, esc, running } from "./render";
+import { ago, clock, CSS_BG, esc, liveCount, renderBackground, running } from "./render";
 import { IDENTITY, symbol, type KeyEvent } from "./story";
 
 const SYS_TONE: Record<string, string> = { working: "live", waiting: "wait", paused: "wait", problem: "bad", unavailable: "bad", unknown: "unknown" };
@@ -42,7 +42,7 @@ function bar(f: FinalView, qs: Qs) {
   <div class="bar-mid">
     <span data-sys class="sys ${SYS_TONE[f.status]}"><i class="led" aria-hidden="true"></i>${esc(f.statusLabel)}</span>
     <span class="bar-kv"><span>Mise</span>${esc(f.focus?.mission ?? v.mission)}</span>
-    <span class="bar-kv"><span>Běží zakázek</span>${f.orders.filter((o) => o.active).length}</span>
+    <span class="bar-kv"><span>Pracuje</span><b data-live-count style="font-weight:inherit">${esc(liveCount(v.liveOrders))}</b></span>
     <span class="bar-kv"><span>Rozhodnutí</span>${v.decisionsCount}</span>
     <span class="bar-kv"><span>Poslední potvrzení</span>${ago(v.lastContact, v.now)}</span>
   </div>
@@ -166,7 +166,7 @@ function lower(f: FinalView, qs: Qs) {
   const dels = v.deliveries.map((d) => `<li class="del"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.title)} ↗</a><span>${esc(d.status)} · vytvořil ${esc(d.creator)} · ověřil ${esc(d.checker)} · ${esc(clock(d.at))}</span></li>`).join("");
   const ord = f.orders
     .slice(0, 6)
-    .map((o) => `<li><a class="oline ${o.state === "FAILED" ? "bad" : o.state === "UNKNOWN" ? "unknown" : o.active ? "live" : o.state === "WAITING_OWNER" ? "wait" : "ok"}" href="/${qs.with("focus", o.id)}"><i class="led" aria-hidden="true"></i><span class="ot">${esc(o.headline.technical)}</span><span class="os">${esc(o.stateLabel)} · ${esc(clock(o.startedAt))}</span></a></li>`)
+    .map((o) => `<li><a class="oline ${o.state === "FAILED" ? "bad" : o.state === "UNKNOWN" || (o.state as string) === "SUPERSEDED" ? "unknown" : o.active ? "live" : o.state === "WAITING_OWNER" ? "wait" : "ok"}" href="/${qs.with("focus", o.id)}"><i class="led" aria-hidden="true"></i><span class="ot">${esc(o.headline.technical)}</span><span class="os">${esc(o.stateLabel)} · ${esc(clock(o.startedAt))}</span></a></li>`)
     .join("");
   let lastOrder = "";
   const evs = f.events.length
@@ -194,7 +194,7 @@ const FOOT = `<footer class="foot">Jen čtení · obnova 3 s · stav počítá k
 
 export function renderFinal(f: FinalView, qs: Qs): string {
   const unread = f.view.unreadable && f.focus ? `<p class="unread" role="status">${esc(unreadableSentence(f.view.unreadable))}</p>` : "";
-  return `${demoBanner(f)}${bar(f, qs)}<main class="a">${unread}${stage(f, qs)}${decisionsBlock(f)}${runningRows(f, qs)}${team(f, qs)}${lower(f, qs)}${FOOT}</main>`;
+  return `${demoBanner(f)}${bar(f, qs)}<main class="a">${unread}${stage(f, qs)}${renderBackground(f.view.background, f.view.now, (id) => `/${qs.with("focus", id)}`)}${decisionsBlock(f)}${runningRows(f, qs)}${team(f, qs)}${lower(f, qs)}${FOOT}</main>`;
 }
 
 /** Card section lines → small safe HTML (lists and paragraphs, inline code). */
@@ -255,6 +255,7 @@ export function renderRole(p: RolePage, f: FinalView, qs: Qs): string {
 
 export const CSS_FINAL =
   CSS_A +
+  CSS_BG +
   `
 .flow .s-current.owner-wait .orb{border-style:solid;border-color:var(--wait);color:var(--wait);background:var(--wait-s)}.flow .s-current.owner-wait .ns{color:var(--wait)}
 a.spot{display:block;color:inherit}a.spot:hover{color:inherit;border-color:var(--acc)}a.nextm{display:block;color:inherit}a.nextm:hover{color:inherit;border-color:var(--line2)}

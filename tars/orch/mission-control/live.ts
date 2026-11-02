@@ -7,9 +7,11 @@ import { scanSecrets } from "../secret-scan";
 import { STATES, type LogEntry, type Order } from "../types";
 import { safe, type CardDoc, type LockInfo, type McInput } from "./view";
 
-const ORDER_RE = /^wo-[0-9A-Za-z-]+$/;
+/** wo-* = orchestrator orders, dev-* = TARS development runs written by the dispatch bridge. */
+export const ORDER_RE = /^(?:wo|dev)-[0-9A-Za-z-]+$/;
 
-const STATE_SET = new Set<string>(STATES);
+// SUPERSEDED comes from the dispatch bridge (run 3); the panel reads it, the orchestrator never sets it.
+const STATE_SET = new Set<string>([...STATES, "SUPERSEDED"]);
 const isStr = (x: unknown): x is string => typeof x === "string";
 const isCount = (x: unknown) => Number.isInteger(x) && (x as number) >= 0;
 const isTime = (x: unknown) => isStr(x) && Number.isFinite(Date.parse(x));

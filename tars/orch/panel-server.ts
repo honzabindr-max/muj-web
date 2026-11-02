@@ -9,20 +9,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scenario, SCENARIOS, type Scenario } from "./mission-control/fixtures";
-import { readLiveInput, readLog, readOrdersChecked } from "./mission-control/live";
+import { ORDER_RE, readLiveInput, readLog, readOrdersChecked } from "./mission-control/live";
 import { buildFinal, buildRolePage } from "./mission-control/final";
 import { CSS_FINAL, makeQs, renderFinal, renderRole } from "./mission-control/final-render";
 import { CSS_A, CSS_B, renderPreviewA, renderPreviewB } from "./mission-control/preview";
 import { q, renderDocument, renderFocusFragment, renderMainFragment } from "./mission-control/render";
 import { buildStory } from "./mission-control/story";
 import { buildFocus, buildView, type McInput } from "./mission-control/view";
-import { redactDeep, redactSecrets } from "./secret-scan";
+import { scrub, scrubDeep } from "./secret-scan";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runsDir = process.env.TARS_RUNS_DIR ?? path.resolve(here, "../../runs");
 const port = Number(process.env.TARS_PANEL_PORT ?? 4747);
 const cardsDir = path.resolve(here, "specialists/mezi-vami");
-const ORDER_RE = /^wo-[0-9A-Za-z-]+$/;
 
 export function listShots(orderDir: string): string[] {
   const out: string[] = [];
@@ -61,7 +60,7 @@ export function snapshot(root: string) {
   const generated_at = new Date().toISOString();
   if (!fs.existsSync(root)) return { generated_at, orders: [], log: [], unavailable: "složka runs neexistuje" };
   const { orders, unreadable } = readOrdersChecked(root);
-  return redactDeep({
+  return scrubDeep({
     generated_at,
     unreadable,
     orders: orders.map((o) => ({
@@ -133,7 +132,7 @@ const SECURITY = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-r
 
 function route(root: string, cards: string, req: http.IncomingMessage, res: http.ServerResponse) {
   // Last-line guard: no text response leaves the panel with a secret pattern in it.
-  const send = (status: number, headers: Record<string, string>, body = "") => res.writeHead(status, { ...SECURITY, ...headers }).end(redactSecrets(body));
+  const send = (status: number, headers: Record<string, string>, body = "") => res.writeHead(status, { ...SECURITY, ...headers }).end(scrub(body));
   if (req.method !== "GET") {
     send(405, {});
     return;
@@ -168,7 +167,7 @@ function route(root: string, cards: string, req: http.IncomingMessage, res: http
     send(200, HTML, frag ? body : renderDocument(`TARS · ${p.role.name}`, body, selfSrc(), CSS_FINAL));
     return;
   }
-  const focusId = /^\/zakazka\/(wo-[0-9A-Za-z-]+)$/.exec(url.pathname)?.[1];
+  const focusId = /^\/zakazka\/((?:wo|dev)-[0-9A-Za-z-]+)$/.exec(url.pathname)?.[1];
   const pv = /^\/preview\/(a|b)$/.exec(url.pathname)?.[1] ?? (url.pathname === "/fragment" ? url.searchParams.get("preview") : null);
   if (pv === "a" || pv === "b") {
     // V2 compositions for the owner's choice; production `/` stays unchanged.

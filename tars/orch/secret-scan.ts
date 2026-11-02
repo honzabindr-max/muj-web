@@ -59,3 +59,31 @@ export function redactDeep<T>(value: T): T {
   }
   return value;
 }
+
+export const PATH_HIDDEN = "[cesta skryta]";
+// Absolute local paths (home, worktrees, temp) – the panel never shows where files live on disk.
+// A path may follow any separator incl. „:“ (cwd:/Users/…); host names and route segments may not.
+// System roots are listed explicitly so the panel's own routes (/role, /zakazka, /api …) stay intact.
+const ROOTS = "Users|home|private|var|tmp|opt|Volumes|root|srv|mnt|etc|usr|Library|System|Applications|bin|sbin|dev|proc|run|nix|snap|lib|cores|Network";
+const FILE_URI = /\bfile:\/\/[^\s"'<>)\]]*/gi;
+const LOCAL_PATH = new RegExp(`(?<![\\w./~-])(?:~\\/|\\/(?:${ROOTS})(?=[/\\s"'<>)\\]]|$))[^\\s"'<>)\\]]*`, "g");
+const WIN_PATH = /\b[A-Za-z]:\\[^\s"'<>)\]]*/g;
+
+export function redactPaths(text: string): string {
+  return text.replace(FILE_URI, PATH_HIDDEN).replace(LOCAL_PATH, PATH_HIDDEN).replace(WIN_PATH, PATH_HIDDEN);
+}
+
+/** Panel output filter: secrets first (whole PEM blocks), then local paths. */
+export const scrub = (text: string): string => redactPaths(redactSecrets(text));
+
+/** Deep copy of JSON-like data with every string (keys included) passed through scrub. */
+export function scrubDeep<T>(value: T): T {
+  if (typeof value === "string") return scrub(value) as T;
+  if (Array.isArray(value)) return value.map((v) => scrubDeep(v)) as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[scrub(k)] = scrubDeep(v);
+    return out as T;
+  }
+  return value;
+}

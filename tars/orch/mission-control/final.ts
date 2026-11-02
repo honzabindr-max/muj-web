@@ -17,7 +17,10 @@ import {
   CREATOR_BY_DEPT,
   formatAgo,
   humanProblem,
-  lockFor,
+  proofLock,
+  isBackground,
+  isSuperseded,
+  mainMission,
   missionName,
   safe,
   STATE_LABEL,
@@ -233,7 +236,13 @@ export function stepsOf(o: Order, calls: CallInfo[], cards: Record<string, CardD
   steps[dlv].at = o.history.find((h) => h.from === "DELIVERED")?.at;
 
   if (o.state === "DONE") steps.forEach((x) => (x.status = "done"));
-  else if (o.state === "FAILED" || o.state === "UNKNOWN") {
+  else if (isSuperseded(o)) {
+    const last = o.history.at(-1);
+    const i = Math.max(0, indexOf(last?.from ?? "NEW"));
+    mark(i, "skipped");
+    steps[i].note = "nahrazeno";
+    steps.slice(i + 1).forEach((x) => (x.status = "skipped"));
+  } else if (o.state === "FAILED" || o.state === "UNKNOWN") {
     const last = o.history.at(-1);
     const from = last?.from === "PAUSED" && o.paused_from ? o.paused_from : (last?.from ?? "NEW");
     const i = Math.max(0, indexOf(from));
@@ -275,12 +284,16 @@ function headlineFor(o: Order, steps: Step[], calls: CallInfo[], verified: boole
     return { ...base, tone: "check", title: `${name} ${o.fix_rounds ? "znovu " : ""}kontroluje výstup`, subtitle: `Ověřuje výstup předchozího kroku receptu. ${then}`.trim() };
   if (o.state === "FIXING")
     return { ...base, tone: "fix", title: `${name} ${v?.fix ?? "upravuje výstup po kontrole"}`, subtitle: `Zapracovává připomínky z ${o.fix_rounds}. kola. Následně proběhne opakovaná kontrola.` };
-  return { ...base, tone: "live", title: `${name} ${v?.work ?? "pracuje na svém kroku"}`, subtitle: `Krok ${steps.indexOf(cur) - 1} z ${steps.filter((s, i) => i >= 2 && s.kind !== "deliver" && s.kind !== "owner").length} receptu ${safe(recipeOf(o)!.id, 30)}. ${then}`.trim() };
+  // position and total both count the recipe's own steps (a delivery step such as „merge“ included)
+  const r = recipeOf(o)!;
+  const pos = /^r(\d+)$/.exec(cur.id);
+  const where = pos ? `Krok ${Number(pos[1]) + 1} z ${r.steps.length} receptu ${safe(r.id, 30)}.` : `Recept ${safe(r.id, 30)}.`;
+  return { ...base, tone: "live", title: `${name} ${v?.work ?? "pracuje na svém kroku"}`, subtitle: `${where} ${then}`.trim() };
 }
 
 function liveOrder(input: McInput, o: Order, calls: CallInfo[], cards: Record<string, CardDoc>, view: McView): LiveOrder {
   const active = ACTIVE_STATES.includes(o.state);
-  const verified = active && o.state !== "PAUSED" && lockFor(input, o.id).alive;
+  const verified = active && o.state !== "PAUSED" && proofLock(input, o).alive;
   const steps = stepsOf(o, calls, cards);
   const ov = view.orders.find((x) => x.id === o.id);
   const problem = o.state === "FAILED" || o.state === "UNKNOWN" ? { what: humanProblem(o.failure_reason), consequence: consequence(o.state) } : undefined;
@@ -310,14 +323,18 @@ function liveOrder(input: McInput, o: Order, calls: CallInfo[], cards: Record<st
   };
 }
 
-export function buildFinal(input: McInput, focusId?: string): FinalView {
+/** allRoles: every recipe role of every order (role pages), not only the main mission's team. */
+export function buildFinal(input: McInput, focusId?: string, opts: { allRoles?: boolean } = {}): FinalView {
   const view = buildView(input);
   const orders = [...input.orders].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const calls = classifyCalls(orders, input.log);
   const cards = input.cardDocs ?? {};
   const all = orders.map((o) => liveOrder(input, o, calls, cards, view));
-  const open = all.filter((o) => o.active || o.state === "WAITING_OWNER").sort((a, b) => a.rank - b.rank || a.startedAt.localeCompare(b.startedAt));
-  const focus = all.find((o) => o.id === focusId) ?? open[0] ?? all.at(-1);
+  // main card, running rows and team belong to the main mission; other missions go to „Na pozadí“
+  const main = mainMission(orders);
+  const mainIds = new Set(orders.filter((o) => !isBackground(o, main)).map((o) => o.id));
+  const open = all.filter((o) => mainIds.has(o.id) && (o.active || o.state === "WAITING_OWNER")).sort((a, b) => a.rank - b.rank || a.startedAt.localeCompare(b.startedAt));
+  const focus = all.find((o) => o.id === focusId) ?? open[0] ?? all.filter((o) => mainIds.has(o.id)).at(-1);
   const running = open.filter((o) => o !== focus);
 
   // status across orders (any verified work → working; active but unverified → unknown)
@@ -332,10 +349,16 @@ export function buildFinal(input: McInput, focusId?: string): FinalView {
 
   // roles: core + recipe roles + every card on disk
   const ids = new Set<string>(CORE_ORDER);
-  for (const o of input.orders) recipeOf(o)?.steps.forEach((s) => (s.kind ?? "create") !== "deliver" && (s.kind ?? "create") !== "owner" && ids.add(s.role));
+  // team = main mission + the focused order (a background order opened from „Na pozadí“ keeps its roles)
+  for (const o of input.orders.filter((x) => opts.allRoles || mainIds.has(x.id) || x.id === focus?.id)) recipeOf(o)?.steps.forEach((s) => (s.kind ?? "create") !== "deliver" && (s.kind ?? "create") !== "owner" && ids.add(s.role));
   for (const k of Object.keys(cards)) if (ROLE_RE.test(k)) ids.add(k);
+  // a delivery step (e.g. „merge“ of a dev run) is not a standing team member, but while an order is
+  // in that step it is the role doing the work: it must be shown and have its role page
+  for (const o of all) if (o.active && o.activeRole && ROLE_RE.test(o.activeRole) && (opts.allRoles || mainIds.has(o.id) || o.id === focus?.id)) ids.add(o.activeRole);
+  if (opts.allRoles) for (const o of input.orders) recipeOf(o)?.steps.forEach((s) => s.kind === "deliver" && ids.add(s.role));
   const labelOf = new Map<string, string>();
-  for (const o of input.orders) recipeOf(o)?.steps.forEach((s) => s.label && labelOf.set(s.role, s.label));
+  // team = main mission + the focused order (a background order opened from „Na pozadí“ keeps its roles)
+  for (const o of input.orders.filter((x) => opts.allRoles || mainIds.has(x.id) || x.id === focus?.id)) recipeOf(o)?.steps.forEach((s) => s.label && labelOf.set(s.role, s.label));
   const today = calls.filter((c) => new Date(c.ts).toDateString() === new Date(input.now).toDateString());
   const guardLast = input.log.filter((e) => e.kind === "guard").at(-1);
   const roles: RoleView[] = [...ids].map((id) => {
@@ -416,7 +439,7 @@ export interface RolePage {
 
 export function buildRolePage(input: McInput, id: string): RolePage | undefined {
   if (!ROLE_RE.test(id)) return undefined;
-  const f = buildFinal(input);
+  const f = buildFinal(input, undefined, { allRoles: true });
   const role = f.roles.find((r) => r.id === id);
   if (!role) return undefined;
   const orders = [...input.orders].sort((a, b) => a.created_at.localeCompare(b.created_at));
