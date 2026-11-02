@@ -60,6 +60,8 @@ export interface McInput {
   orderLocks?: Record<string, LockInfo>;
   /** Data source could not be read at all. */
   unavailable?: string;
+  /** Order directories whose state.json is missing fields, broken or unreadable (never guessed). */
+  unreadable?: string[];
 }
 
 export type TeamKey = "vedouci" | "copywriter" | "designer" | "vyvojar" | "kontrolor" | "brana" | "strazce";
@@ -163,6 +165,8 @@ export interface McView {
   today: { total: number; delivered: number; failed: number; unknown: number };
   orders: OrderView[];
   guard?: { at: string; ok: boolean };
+  /** Number of orders whose state.json cannot be used; > 0 = the overview cannot be verified. */
+  unreadable: number;
 }
 
 export const ACTIVE_STATES: readonly OrderState[] = ["NEW", "PLANNED", "DOING", "CHECKING", "FIXING", "DELIVERED", "PAUSED"];
@@ -626,6 +630,7 @@ export function buildView(input: McInput): McView {
   const currentView = current ? views.find((v) => v.id === current.id) : undefined;
   const team = membersFor(input, calls, current, currentView);
   const guardLast = input.log.filter((e) => e.kind === "guard").at(-1);
+  const unreadable = input.unreadable?.length ?? 0;
 
   // status (zadání §3A: pracuje, čeká, pozastaveno, problém, nedostupné, neznámé)
   let status: SysStatus;
@@ -636,6 +641,9 @@ export function buildView(input: McInput): McView {
   } else if (guardLast && guardLast.result !== "OK") {
     status = "problem";
     statusSentence = "Strážce hlásí poplach. Supervizor se zastavil.";
+  } else if (unreadable) {
+    status = "unknown";
+    statusSentence = unreadableSentence(unreadable);
   } else if (current && ACTIVE_STATES.includes(current.state) && current.state !== "PAUSED") {
     const alive = lockFor(input, current.id).alive;
     status = alive ? "working" : "unknown";
@@ -752,6 +760,8 @@ export function buildView(input: McInput): McView {
             : undefined,
     };
 
+  if (unreadable && status !== "unavailable") next = { ...next, blocker: next.blocker ?? `${unreadableSentence(unreadable)} Další krok nelze ověřit.` };
+
   const todayOrders = orders.filter((o) => sameDay(o.created_at, input.now));
   const contactCandidates = [
     ...input.log.map((e) => e.ts),
@@ -786,7 +796,14 @@ export function buildView(input: McInput): McView {
     },
     orders: views.slice().reverse(),
     guard: guardLast ? { at: guardLast.ts, ok: guardLast.result === "OK" } : undefined,
+    unreadable,
   };
+}
+
+/** Wording for orders whose state.json cannot be used. */
+export function unreadableSentence(n: number): string {
+  const z = n === 1 ? "1 zakázku" : n >= 2 && n <= 4 ? `${n} zakázky` : `${n} zakázek`;
+  return `Nelze ověřit: ${z} nejde přečíst (state.json je poškozený nebo neúplný). Přehled může být neúplný.`;
 }
 
 /** Focus Mode: full documented chronology of one order. */

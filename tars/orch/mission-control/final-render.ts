@@ -1,5 +1,5 @@
 // Mission Control V2-A (final) — main page, role page. Same visual language as preview A.
-import { formatDuration, safe } from "./view";
+import { formatDuration, safe, unreadableSentence } from "./view";
 import { type FinalView, type LiveOrder, type RolePage, type RoleView, type Step } from "./final";
 import { CSS_A } from "./preview";
 import { ago, clock, esc, running } from "./render";
@@ -102,7 +102,7 @@ function decisionsChip(f: FinalView) {
 
 function stage(f: FinalView, qs: Qs) {
   const o = f.focus;
-  if (!o) return `<section class="stage empty" data-phase="none"><div class="eyebrow">Teď</div><h1 class="h-title">Zatím žádná zakázka</h1><p class="h-sub">${esc(f.view.statusSentence)}</p></section>`;
+  if (!o) return `<section class="stage empty" data-phase="none"><div class="eyebrow">Teď</div><h1 class="h-title">${f.view.unreadable ? "Stav zakázek nelze ověřit" : "Zatím žádná zakázka"}</h1><p class="h-sub">${esc(f.view.statusSentence)}</p></section>`;
   const h = o.headline;
   const primary = o.active && o.activeRole ? f.roles.find((r) => r.id === o.activeRole) : undefined;
   const next = o.active && o.verified && o.nextRole ? f.roles.find((r) => r.id === o.nextRole) : undefined;
@@ -193,7 +193,8 @@ function decisionsBlock(f: FinalView) {
 const FOOT = `<footer class="foot">Jen čtení · obnova 3 s · stav počítá kód z runs/*/state.json, runs/log.jsonl a zámků běhu · titulky skládá kód ze stavu, receptu a role, ne model</footer>`;
 
 export function renderFinal(f: FinalView, qs: Qs): string {
-  return `${demoBanner(f)}${bar(f, qs)}<main class="a">${stage(f, qs)}${decisionsBlock(f)}${runningRows(f, qs)}${team(f, qs)}${lower(f, qs)}${FOOT}</main>`;
+  const unread = f.view.unreadable && f.focus ? `<p class="unread" role="status">${esc(unreadableSentence(f.view.unreadable))}</p>` : "";
+  return `${demoBanner(f)}${bar(f, qs)}<main class="a">${unread}${stage(f, qs)}${decisionsBlock(f)}${runningRows(f, qs)}${team(f, qs)}${lower(f, qs)}${FOOT}</main>`;
 }
 
 /** Card section lines → small safe HTML (lists and paragraphs, inline code). */
@@ -269,6 +270,7 @@ a.pill{display:flex;align-items:center;gap:12px;color:inherit;max-width:420px}a.
 .pill.st-working{border-color:color-mix(in srgb,var(--live) 45%,var(--line))}.pill.st-working .ps{color:var(--live)}.pill.st-checking{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}.pill.st-checking .ps{color:var(--acc)}.pill.st-waiting .ps{color:var(--ink2)}
 .back{color:var(--mute);font-size:14px}.role-head{padding-bottom:28px}.rh{display:flex;align-items:center;gap:20px;margin-bottom:18px}.rh>div{flex:1}.rh .mark{width:76px;height:76px;border-radius:22px;background:color-mix(in srgb,var(--c) 12%,transparent);border:1px solid color-mix(in srgb,var(--c) 30%,transparent)}
 .rh .h-title{margin:0}.rh-sub{margin:4px 0 0;color:var(--mute)}.role-head .vitals{margin:6px 0 0;grid-template-columns:1fr 1fr 1.4fr}
+.unread{margin:0 0 16px;padding:10px 14px;border-radius:12px;background:var(--wait-s);color:var(--wait);font-weight:600}
 .undef{font-size:17px;font-weight:600;color:var(--ink2);margin:0 0 6px}.small{font-size:13px}
 .md{font-size:14.5px;color:var(--ink2)}.md ul,.md ol{margin:0 0 10px;padding-left:20px}.md li{margin:4px 0}.md p{margin:0 0 8px}.md code,.kv code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px;color:var(--ink)}.md .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;white-space:pre-wrap}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0;font-size:14px}.kv dt{color:var(--mute)}.kv dd{margin:0;overflow-wrap:anywhere}

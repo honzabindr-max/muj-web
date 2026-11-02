@@ -325,6 +325,7 @@ export function buildFinal(input: McInput, focusId?: string): FinalView {
   const activeAll = all.filter((o) => o.active && o.state !== "PAUSED");
   if (!input.unavailable) {
     if (view.guard && !view.guard.ok) status = "problem";
+    else if (view.unreadable) status = "unknown"; // an order we cannot read may be the one running
     else if (activeAll.some((o) => o.verified)) status = "working";
     else if (activeAll.length) status = "unknown";
   }

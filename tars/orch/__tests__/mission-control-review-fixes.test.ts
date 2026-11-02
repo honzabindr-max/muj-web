@@ -11,10 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildFinal, buildRolePage } from "../mission-control/final";
 import { makeQs, renderFinal, renderRole } from "../mission-control/final-render";
 import { scenario } from "../mission-control/fixtures";
-import { lockAt, parseCard, readLiveInput, readLock } from "../mission-control/live";
+import { lockAt, parseCard, readLiveInput, readLock, readOrdersChecked } from "../mission-control/live";
 import { renderDocument, renderFocusFragment } from "../mission-control/render";
 import { buildStory } from "../mission-control/story";
-import { buildFocus, buildView } from "../mission-control/view";
+import { buildFocus, buildView, type McInput } from "../mission-control/view";
 import { handler, snapshot } from "../panel-server";
 import { redactDeep, redactSecrets } from "../secret-scan";
 
@@ -243,5 +243,130 @@ describe("P2: refresh failure marks the system state, not a team member", () => 
     expect(d.body.classList.contains("offline")).toBe(false);
     expect(d.querySelector("[data-sys]")!.textContent).toBe("Pracuje");
     expect(d.querySelectorAll(".st-working,.st-checking").length).toBeGreaterThan(0);
+  });
+});
+
+// ---- second review round (GPT on acdb6ec) ----
+
+const PEM_BODY = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" + "Q".repeat(40);
+const PEM = `-----BEGIN PRIVATE KEY-----\n${PEM_BODY}\n${"R".repeat(64)}\n-----END PRIVATE KEY-----`;
+
+function runsWith(write: (dir: string) => void): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-r2-"));
+  write(dir);
+  return dir;
+}
+const putOrder = (dir: string, o: unknown, id: string) => {
+  fs.mkdirSync(path.join(dir, id), { recursive: true });
+  fs.writeFileSync(path.join(dir, id, "state.json"), typeof o === "string" ? o : JSON.stringify(o));
+};
+
+describe("round 2 / P1: a private key is redacted as a whole block", () => {
+  it("redactSecrets removes header, body and footer (also when unterminated)", () => {
+    const out = redactSecrets(`a ${PEM} b`);
+    expect(out).not.toContain(PEM_BODY);
+    expect(out).not.toContain("RRRR");
+    expect(out).toMatch(/^a .* b$/);
+    expect(redactSecrets(`x -----BEGIN RSA PRIVATE KEY-----\n${PEM_BODY}`)).not.toContain(PEM_BODY);
+  });
+
+  it("/api/state and the pages never carry the key body", async () => {
+    const o = scenario("aktivita", NOW).orders[1];
+    const dir = runsWith((d) => putOrder(d, { ...o, brief: { ...o.brief!, goal: PEM }, failure_reason: PEM }, o.id));
+    fs.writeFileSync(path.join(dir, "log.jsonl"), JSON.stringify({ ts: NOW, order: o.id, kind: "call", role: "checker", model: "m", reason: PEM }) + "\n");
+    expect(JSON.stringify(snapshot(dir))).not.toContain(PEM_BODY);
+    const { srv, get } = await serve(dir);
+    for (const p of ["/api/state", "/", `/zakazka/${o.id}`, "/p0"]) expect(await (await get(p)).text()).not.toContain(PEM_BODY);
+    srv.close();
+  });
+
+  it("a key spread over several card lines is hidden as a whole section", () => {
+    const text = `---\nrole: x\n---\n## Postup\n\n${PEM}\n`;
+    expect(JSON.stringify(parseCard(text, "x.md"))).not.toContain(PEM_BODY);
+  });
+});
+
+describe("round 2 / P2: state.json is validated, a broken one is „Nelze ověřit“, never silently dropped", () => {
+  it("broken, malformed or mistyped state.json is reported as unreadable; missing state.json is not", () => {
+    const good = scenario("aktivita", NOW).orders[1];
+    const dir = runsWith((d) => {
+      putOrder(d, good, good.id);
+      putOrder(d, "{broken", "wo-broken");
+      putOrder(d, { ...good, id: "wo-typed", fix_rounds: '<img src=x onerror="alert(1)">' }, "wo-typed");
+      putOrder(d, { ...good, id: "wo-other" }, "wo-mismatch"); // id differs from its directory
+      putOrder(d, { ...good, id: "wo-state", state: "<b>X</b>" }, "wo-state");
+      fs.mkdirSync(path.join(d, "wo-new")); // directory created, state.json not written yet
+    });
+    const r = readOrdersChecked(dir);
+    expect(r.orders.map((o) => o.id)).toEqual([good.id]);
+    expect(r.unreadable.sort()).toEqual(["wo-broken", "wo-mismatch", "wo-state", "wo-typed"]);
+    expect(readLiveInput(dir, "/nonexistent-cards", NOW).unreadable).toHaveLength(4);
+  });
+
+  it("only broken orders → no „Zatím žádná zakázka“, status Nelze ověřit everywhere", async () => {
+    const dir = runsWith((d) => putOrder(d, "{broken", "wo-broken"));
+    const input = readLiveInput(dir, "/nonexistent-cards", NOW);
+    const v = buildView(input);
+    expect(v.status).toBe("unknown");
+    expect(v.statusSentence).toMatch(/Nelze ověřit: 1 zakázku nejde přečíst/);
+    const f = buildFinal(input);
+    expect(f.statusLabel).toBe("Nelze ověřit");
+    const html = renderFinal(f, qs);
+    expect(html).toContain("Stav zakázek nelze ověřit");
+    expect(html).not.toContain("Zatím žádná zakázka");
+    const { srv, get } = await serve(dir);
+    for (const p of ["/", "/p0", "/preview/a", "/preview/b"]) {
+      const t = await (await get(p)).text();
+      expect(t).not.toMatch(/Zatím žádná zakázka/);
+      expect(t).toMatch(/nelze ověřit/i);
+    }
+    const api = (await (await get("/api/state")).json()) as { unreadable: string[] };
+    expect(api.unreadable).toEqual(["wo-broken"]);
+    srv.close();
+  });
+
+  it("a broken order next to a running one: system status is not „Pracuje“, warning is shown", () => {
+    const base = scenario("paralel", NOW);
+    const input: McInput = { ...base, demo: false, unreadable: ["wo-broken"] };
+    const f = buildFinal(input);
+    expect(f.status).toBe("unknown");
+    expect(renderFinal(f, qs)).toContain("Nelze ověřit: 1 zakázku nejde přečíst");
+  });
+
+  it("Focus Mode escapes counters even if a caller bypasses validation", () => {
+    const input = scenario("oprava", NOW);
+    const id = input.orders[1].id;
+    (input.orders[1] as unknown as Record<string, unknown>).fix_rounds = '<img src=x onerror="alert(1)">';
+    (input.orders[1] as unknown as Record<string, unknown>).manual_interventions = "<svg onload=alert(2)>";
+    const html = renderFocusFragment(buildFocus(input, id)!, buildView(input));
+    expect(html).not.toContain("<img src=x");
+    expect(html).not.toContain("<svg onload");
+  });
+});
+
+describe("round 2 / P2: /detail never links a non-https URL", () => {
+  async function detail(deliveredUrl: string) {
+    const { srv, get } = await serve("/nonexistent-runs-detail");
+    const page = await (await get("/detail")).text();
+    srv.close();
+    const o = { ...scenario("aktivita", NOW).orders[1], delivered_url: deliveredUrl, shots: [] };
+    const data = { generated_at: NOW, unreadable: [], orders: [o], log: [] };
+    const dom = new JSDOM(page, {
+      url: "http://127.0.0.1:4747/detail",
+      runScripts: "dangerously",
+      beforeParse(w) {
+        Object.assign(w, { fetch: () => Promise.resolve({ json: () => Promise.resolve(data) }), setInterval: () => 0 });
+      },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    return dom.window.document;
+  }
+
+  it("javascript: URL is shown as inert text, https URL stays a link", async () => {
+    const bad = await detail("javascript:alert(document.domain)");
+    expect(bad.querySelector('a[href^="javascript"]')).toBeNull();
+    expect(bad.getElementById("app")!.textContent).toContain("neaktivní");
+    const good = await detail("https://github.com/x/y/pull/1");
+    expect(good.querySelector('a[href="https://github.com/x/y/pull/1"]')).not.toBeNull();
   });
 });

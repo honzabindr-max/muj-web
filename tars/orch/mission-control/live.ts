@@ -3,24 +3,73 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { LogEntry, Order } from "../types";
+import { scanSecrets } from "../secret-scan";
+import { STATES, type LogEntry, type Order } from "../types";
 import { safe, type CardDoc, type LockInfo, type McInput } from "./view";
 
 const ORDER_RE = /^wo-[0-9A-Za-z-]+$/;
 
-export function readOrders(runsDir: string): Order[] {
-  if (!fs.existsSync(runsDir)) return [];
-  const out: Order[] = [];
+const STATE_SET = new Set<string>(STATES);
+const isStr = (x: unknown): x is string => typeof x === "string";
+const isCount = (x: unknown) => Number.isInteger(x) && (x as number) >= 0;
+const isTime = (x: unknown) => isStr(x) && Number.isFinite(Date.parse(x));
+
+/**
+ * state.json → Order only when the fields the panel computes with have the documented shape
+ * (id = directory, known state, ISO times, history of transitions, non-negative counters).
+ * Anything else is „unreadable“: the panel must say it cannot verify, never guess or drop silently.
+ */
+export function validOrder(raw: unknown, dir: string): raw is Order {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const o = raw as Record<string, unknown>;
+  const optStr = (k: string) => o[k] === undefined || isStr(o[k]);
+  return (
+    o.id === dir &&
+    STATE_SET.has(o.state as string) &&
+    isStr(o.mission) &&
+    isTime(o.created_at) &&
+    isTime(o.updated_at) &&
+    isCount(o.fix_rounds) &&
+    isCount(o.manual_interventions) &&
+    (o.max_fix_rounds === undefined || isCount(o.max_fix_rounds)) &&
+    (o.paused_from === undefined || STATE_SET.has(o.paused_from as string)) &&
+    ["delivered_url", "owner_card_url", "failure_reason", "card_role", "resume_after", "draft_file"].every(optStr) &&
+    (o.brief === undefined || (typeof o.brief === "object" && o.brief !== null && !Array.isArray(o.brief))) &&
+    Array.isArray(o.history) &&
+    o.history.every(
+      (h) => h && typeof h === "object" && STATE_SET.has((h as Record<string, unknown>).from as string) && STATE_SET.has((h as Record<string, unknown>).to as string) && isStr((h as Record<string, unknown>).event) && isTime((h as Record<string, unknown>).at),
+    )
+  );
+}
+
+/** Orders with a valid state.json, plus ids of order directories whose state.json cannot be used. */
+export function readOrdersChecked(runsDir: string): { orders: Order[]; unreadable: string[] } {
+  const orders: Order[] = [];
+  const unreadable: string[] = [];
+  if (!fs.existsSync(runsDir)) return { orders, unreadable };
   for (const d of fs.readdirSync(runsDir).sort()) {
     if (!ORDER_RE.test(d)) continue;
-    const f = path.join(runsDir, d, "state.json");
+    let text: string;
     try {
-      out.push(JSON.parse(fs.readFileSync(f, "utf8")) as Order);
+      text = fs.readFileSync(path.join(runsDir, d, "state.json"), "utf8");
+    } catch (e) {
+      // no state.json yet (the orchestrator creates the directory first) = no order yet
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") unreadable.push(d);
+      continue;
+    }
+    try {
+      const raw: unknown = JSON.parse(text);
+      if (validOrder(raw, d)) orders.push(raw);
+      else unreadable.push(d);
     } catch {
-      // missing, half-written or broken file: skip, the next refresh will retry
+      unreadable.push(d); // state.json is written atomically (tmp + rename): broken = really broken
     }
   }
-  return out;
+  return { orders, unreadable };
+}
+
+export function readOrders(runsDir: string): Order[] {
+  return readOrdersChecked(runsDir).orders;
 }
 
 export function readLog(runsDir: string): LogEntry[] {
@@ -34,7 +83,8 @@ export function readLog(runsDir: string): LogEntry[] {
   for (const l of text.split("\n")) {
     if (!l.trim()) continue;
     try {
-      out.push(JSON.parse(l) as LogEntry);
+      const e = JSON.parse(l) as LogEntry;
+      if (e && typeof e === "object" && isTime(e.ts) && isStr(e.order) && isStr(e.kind)) out.push(e);
     } catch {
       // partial last line while the orchestrator appends
     }
@@ -85,7 +135,12 @@ export function parseCard(text: string, file: string): CardDoc | undefined {
   const sec = /## 1\. Mise role a model\s*\n+([^\n]+)/.exec(text)?.[1];
   // Card text is data: every field passes the secret filter before it can reach a page.
   const meta = (k: string, max = 120) => safe(get(k), max) || undefined;
-  const lines = (name: string) => cardSection(text, name)?.map((l) => safe(l, 600));
+  // a multi-line secret (PEM body) is caught only on the whole section, not line by line
+  const lines = (name: string) => {
+    const sec = cardSection(text, name);
+    if (!sec) return undefined;
+    return scanSecrets(sec.join("\n")).clean ? sec.map((l) => safe(l, 600)) : ["[skryto: text obsahoval citlivý údaj]"];
+  };
   return {
     role: safe(role, 60),
     title: meta("title", 160) ?? safe(role, 60),
@@ -157,7 +212,7 @@ function listFiles(orderDir: string): string[] {
 export function readLiveInput(runsDir: string, cardsDir: string, now = new Date().toISOString()): McInput {
   if (!fs.existsSync(runsDir))
     return { orders: [], log: [], lock: { present: false, alive: false }, cards: readCards(cardsDir), files: {}, now, unavailable: "složka runs neexistuje" };
-  const orders = readOrders(runsDir);
+  const { orders, unreadable } = readOrdersChecked(runsDir);
   const files: Record<string, string[]> = {};
   for (const o of orders) files[o.id] = listFiles(path.join(runsDir, o.id));
   const plist = path.join(os.homedir(), "Library/LaunchAgents/work.good-inventions.tars-orch.plist");
@@ -176,5 +231,6 @@ export function readLiveInput(runsDir: string, cardsDir: string, now = new Date(
     files,
     scheduler: process.platform === "darwin" ? fs.existsSync(plist) : undefined,
     now,
+    ...(unreadable.length ? { unreadable } : {}),
   };
 }

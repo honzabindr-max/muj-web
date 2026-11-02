@@ -169,7 +169,7 @@ export function renderPreviewA(s: Story, qs = q(s.view.demo)): string {
   const h = s.headline;
   const o = v.current;
   const stage = !h || !o
-    ? `<section class="stage empty" data-phase="${esc(s.phaseKey)}"><div class="eyebrow">Teď</div><h1 class="h-title">Zatím žádná zakázka</h1><p class="h-sub">${esc(v.statusSentence)}</p></section>`
+    ? `<section class="stage empty" data-phase="${esc(s.phaseKey)}"><div class="eyebrow">Teď</div><h1 class="h-title">${v.unreadable ? "Stav zakázek nelze ověřit" : "Zatím žádná zakázka"}</h1><p class="h-sub">${esc(v.statusSentence)}</p></section>`
     : `<section class="stage t-${h.tone}${h.live ? " is-live" : ""}" data-phase="${esc(s.phaseKey)}">
   <div class="stage-top"><div class="eyebrow"><i class="led" aria-hidden="true"></i>${h.live ? "Právě teď" : "Poslední zakázka"} · ${esc(o.mission)} · ${esc(o.department)}</div>${decisions(s, true)}</div>
   <div class="stage-grid">
@@ -202,7 +202,7 @@ export function renderPreviewB(s: Story, qs = q(s.view.demo)): string {
   const h = s.headline;
   const o = v.current;
   const lead = !h || !o
-    ? `<section class="lead" data-phase="${esc(s.phaseKey)}"><div class="kicker">Stav k ${esc(clock(v.now))}</div><h1 class="serif">Zatím žádná zakázka.</h1><p class="lede">${esc(v.statusSentence)}</p></section>`
+    ? `<section class="lead" data-phase="${esc(s.phaseKey)}"><div class="kicker">Stav k ${esc(clock(v.now))}</div><h1 class="serif">${v.unreadable ? "Stav zakázek nelze ověřit." : "Zatím žádná zakázka."}</h1><p class="lede">${esc(v.statusSentence)}</p></section>`
     : `<section class="lead t-${h.tone}${h.live ? " is-live" : ""}" data-phase="${esc(s.phaseKey)}">
   <div class="kicker"><i class="led" aria-hidden="true"></i>${h.live ? "Právě teď" : "Poslední zakázka"} · ${esc(o.mission)} · ${esc(o.department)}</div>
   <h1 class="serif">${esc(h.title)}</h1>

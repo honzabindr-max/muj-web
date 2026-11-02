@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scenario, SCENARIOS, type Scenario } from "./mission-control/fixtures";
-import { readLiveInput, readLog, readOrders } from "./mission-control/live";
+import { readLiveInput, readLog, readOrdersChecked } from "./mission-control/live";
 import { buildFinal, buildRolePage } from "./mission-control/final";
 import { CSS_FINAL, makeQs, renderFinal, renderRole } from "./mission-control/final-render";
 import { CSS_A, CSS_B, renderPreviewA, renderPreviewB } from "./mission-control/preview";
@@ -60,9 +60,10 @@ export function safeShotPath(
 export function snapshot(root: string) {
   const generated_at = new Date().toISOString();
   if (!fs.existsSync(root)) return { generated_at, orders: [], log: [], unavailable: "složka runs neexistuje" };
-  const orders = readOrders(root);
+  const { orders, unreadable } = readOrdersChecked(root);
   return redactDeep({
     generated_at,
+    unreadable,
     orders: orders.map((o) => ({
       ...o,
       shots: listShots(path.join(root, o.id)),
@@ -85,17 +86,19 @@ code{font-size:12px}</style></head><body><main>
 <div class="mute"><a style="color:var(--acc)" href="/">← Mission Control</a></div><h1>TARS — technický detail <span class="mute" id="ts"></span></h1><div class="mute">Jen čtení · obnova každé 3 s · zdroj runs/*/state.json a runs/log.jsonl</div>
 <div id="app"></div></main><script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const su=u=>/^https:\\/\\/[^\\s"'<>]+$/.test(String(u??''))?String(u):'';
 const t=s=>s?new Date(s).toLocaleTimeString('cs-CZ'):'';const dur=ms=>ms==null?'':(ms/1000).toFixed(1)+' s';
 async function load(){const r=await fetch('/api/state',{cache:'no-store'});const d=await r.json();document.getElementById('ts').textContent='· '+t(d.generated_at);
 const active=['NEW','PLANNED','DOING','CHECKING','FIXING','DELIVERED','PAUSED'];
 if(d.unavailable){document.getElementById('app').innerHTML='<div class="card">Data nejsou dostupná: '+esc(d.unavailable)+'</div>';return}
 const cur=d.orders.find(o=>active.includes(o.state))||d.orders.find(o=>o.state==='WAITING_OWNER')||d.orders[d.orders.length-1];
-let h='';if(!cur){h='<div class="card">Žádná zakázka.</div>'}else{
+let h='';if((d.unreadable||[]).length)h+='<div class="card UNKNOWN">Nelze ověřit: '+esc(d.unreadable.length)+' zakázek nejde přečíst (state.json je poškozený nebo neúplný): '+esc(d.unreadable.join(', '))+'</div>';
+if(!cur){h+='<div class="card">'+((d.unreadable||[]).length?'Stav zakázek nelze ověřit.':'Žádná zakázka.')+'</div>'}else{
 const log=d.log.filter(e=>e.order===cur.id);
 const calls=log.filter(e=>e.kind==='call');const roles={};calls.forEach(c=>{roles[c.role]=c.model+(c.family?' · '+c.family:'')});
 h+='<h2>Aktuální zakázka</h2><div class="card"><div><b>'+esc(cur.brief?.title||cur.id)+'</b> <span class="st '+esc(cur.state)+'">'+esc(cur.state)+'</span></div>'+
 '<div class="mute">'+esc(cur.id)+' · oddělení '+esc(cur.brief?.department||'—')+' · kolo oprav '+esc(cur.fix_rounds)+' · ruční zásahy '+esc(cur.manual_interventions)+'</div>'+
-(cur.delivered_url?'<div>Výstup: <a style="color:var(--acc)" href="'+esc(cur.delivered_url)+'">'+esc(cur.delivered_url)+'</a></div>':'')+
+(su(cur.delivered_url)?'<div>Výstup: <a style="color:var(--acc)" rel="noreferrer" href="'+esc(su(cur.delivered_url))+'">'+esc(cur.delivered_url)+'</a></div>':cur.delivered_url?'<div>Výstup: '+esc(cur.delivered_url)+' <span class="mute">(odkaz není https – neaktivní)</span></div>':'')+
 (cur.failure_reason?'<div class="FAILED">'+esc(cur.failure_reason)+'</div>':'')+'</div>';
 h+='<h2>Modely v rolích</h2><div class="card"><table>'+Object.entries(roles).map(([r,m])=>'<tr><th>'+esc(r)+'</th><td>'+esc(m)+'</td></tr>').join('')+'</table></div>';
 h+='<h2>Časová osa</h2><div class="card"><table><tr><th>čas</th><th>přechod / volání</th><th>role · model</th><th>trvání</th><th>výsledek</th></tr>'+

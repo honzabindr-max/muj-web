@@ -38,8 +38,12 @@ export function scanSecrets(text: string): SecretScanResult {
 export const REDACTED = "[skryto: citlivý údaj]";
 
 /** Replaces every match of every pattern with REDACTED (last-line output guard for the panel). */
+// A PEM block spans many lines: redact header, body and footer together (an unterminated block
+// is redacted to the end of the text). Must run before the single-line patterns.
+const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
+
 export function redactSecrets(text: string): string {
-  let out = text;
+  let out = text.replace(PRIVATE_KEY_BLOCK, REDACTED);
   for (const [, re] of PATTERNS) out = out.replace(new RegExp(re.source, `${re.flags.replace("g", "")}g`), REDACTED);
   return out;
 }

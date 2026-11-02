@@ -82,7 +82,7 @@ function flowMap(o: OrderView, qs: string) {
 function liveMission(v: McView, qs: string) {
   const o = v.current;
   if (!o)
-    return `<section class="card mission empty" aria-labelledby="lm"><div class="eyebrow" id="lm">Live Mission</div><h1 class="hero">Zatím žádná zakázka.</h1><p class="lede">${esc(v.statusSentence)}</p></section>`;
+    return `<section class="card mission empty" aria-labelledby="lm"><div class="eyebrow" id="lm">Live Mission</div><h1 class="hero">${v.unreadable ? "Stav zakázek nelze ověřit." : "Zatím žádná zakázka."}</h1><p class="lede">${esc(v.statusSentence)}</p></section>`;
   return `<section class="card mission tone-${o.tone}" aria-labelledby="lm">
   <div class="mission-head">
     <div class="eyebrow" id="lm">Live Mission · ${esc(o.mission)} · ${esc(o.department)}</div>
@@ -202,8 +202,8 @@ export function renderFocusFragment(f: FocusView, v: McView, qs = q(v.demo)): st
     ${o.problem ? `<div class="problem" role="status"><div class="pt">Blokace</div><div>${esc(o.problem.what)}</div><div class="pc">${esc(o.problem.consequence)}</div></div>` : ""}
     <dl class="facts">
       <div><dt>${o.endedAt ? "Doba běhu" : "Běží"}</dt><dd>${running(o.startedAt, o.endedAt, v.now)}</dd></div>
-      <div><dt>Kola oprav</dt><dd>${f.fixRounds}</dd></div>
-      <div><dt>Ruční zásahy</dt><dd>${f.manualInterventions}</dd></div>
+      <div><dt>Kola oprav</dt><dd>${esc(f.fixRounds)}</dd></div>
+      <div><dt>Ruční zásahy</dt><dd>${esc(f.manualInterventions)}</dd></div>
       <div><dt>Výstup</dt><dd>${o.deliveredUrl ? `<a href="${esc(o.deliveredUrl)}" target="_blank" rel="noopener noreferrer">otevřít ↗</a>` : "nedoručen"}${o.ownerCardUrl ? ` · <a href="${esc(o.ownerCardUrl)}" target="_blank" rel="noopener noreferrer">GO karta ↗</a>` : ""}</dd></div>
     </dl>
   </section>
