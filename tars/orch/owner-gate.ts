@@ -6,10 +6,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { DepartmentRunner } from "./departments";
-import type { DecisionPackage } from "./konzilium";
-import type { MergeResult } from "./merge-policy";
+import { readPackage, writePackage, type DecisionPackage } from "./konzilium";
+import type { MergeResult, MergeRunner } from "./merge-policy";
+import type { OrderEvent } from "./state-machine";
+import type { Store } from "./store";
 import { reservedDecisionHits } from "./supervisor";
-import type { ModelFamily, Order } from "./types";
+import type { LogEntry, ModelFamily, Order, OwnerChoice } from "./types";
 
 export interface OwnerGateDecision {
   /** Sponsor-reserved decisions found in the brief (model list + code regex). */
@@ -114,39 +116,49 @@ export function mergeDecisionPackage(
 const STALE_MS = 60 * 60 * 1000;
 
 /**
- * Exclusive lock runs/<id>/.owner.lock. Create is O_EXCL; stale recovery renames the stale file to a unique name
- * first (atomic: only one process wins the rename), then retries the exclusive create. Release only by the token owner.
+ * Exclusive lock runs/<id>/.owner.lock (O_EXCL create). Stale recovery runs under a second O_EXCL mutex
+ * `.owner.lock.recover`; the holder RE-CHECKS staleness of the current lock before replacing it, so a lock that
+ * another process just recovered (fresh mtime) is never removed. Release only by the token holder.
  */
-export function lockOrder(
-  orderDir: string,
-  staleMs = STALE_MS,
-): (() => void) | undefined {
+export function lockOrder(orderDir: string, staleMs = STALE_MS): (() => void) | undefined {
   fs.mkdirSync(orderDir, { recursive: true });
   const f = path.join(orderDir, ".owner.lock");
+  const rec = `${f}.recover`;
   const token = `${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
-  const tryCreate = () => {
+  const create = (file: string) => {
     try {
-      fs.writeFileSync(f, token, { flag: "wx" });
+      fs.writeFileSync(file, token, { flag: "wx" });
       return true;
     } catch {
       return false;
     }
   };
-  if (!tryCreate()) {
-    let stale = false;
+  const isStale = () => {
     try {
-      stale = Date.now() - fs.statSync(f).mtimeMs > staleMs;
+      return Date.now() - fs.statSync(f).mtimeMs > staleMs;
     } catch {
-      stale = true; // vanished meanwhile
+      return true; // vanished
     }
-    if (!stale) return undefined;
+  };
+  if (!create(f)) {
+    if (!isStale()) return undefined;
+    // Recovery mutex; itself stale only after a crash inside the few lines below (then 10× staleMs).
+    if (!create(rec)) {
+      try {
+        if (Date.now() - fs.statSync(rec).mtimeMs < staleMs * 10) return undefined;
+        fs.rmSync(rec, { force: true });
+      } catch {
+        /* gone */
+      }
+      if (!create(rec)) return undefined;
+    }
     try {
-      fs.renameSync(f, `${f}.stale-${token}`);
-      fs.rmSync(`${f}.stale-${token}`, { force: true });
-    } catch {
-      /* another process recovered it first */
+      if (!isStale()) return undefined; // someone else recovered meanwhile → their lock is valid
+      fs.rmSync(f, { force: true });
+      if (!create(f)) return undefined;
+    } finally {
+      fs.rmSync(rec, { force: true });
     }
-    if (!tryCreate()) return undefined;
   }
   return () => {
     try {
@@ -183,4 +195,52 @@ export function withOrderLockSync<T>(
   } finally {
     release();
   }
+}
+
+// ───────────────────────────── owner decision ─────────────────────────────
+
+export interface OwnerDecisionDeps {
+  store: Store;
+  merge?: MergeRunner;
+  iso: () => string;
+  log: (e: Omit<LogEntry, "ts">) => void;
+  apply: (o: Order, ev: OrderEvent, extra?: Partial<LogEntry>) => Order;
+}
+
+/**
+ * GO / ALT / REJECT under the exclusive per-order lock (state re-read under it). GO on a merge card merges ONLY the
+ * diff bound on the card, with the stored author family; a failed or blocked merge keeps WAITING_OWNER.
+ */
+export async function executeOwnerDecision(d: OwnerDecisionDeps, id: string, decision: OwnerChoice, via: string): Promise<Order> {
+  const dir = d.store.orderDir(id);
+  return withOrderLock(dir, id, async () => {
+    let o = d.store.load(id);
+    if (o.state !== "WAITING_OWNER") throw new Error(`zakázka ${id} je ${o.state}, nečeká na vlastníka`);
+    const pkg = readPackage(dir);
+    if (decision === "ALT" && !pkg?.alternative) throw new Error("rozhodovací balíček nemá alternativu");
+    if (decision === "GO" && pkg?.kind === "merge") {
+      if (pkg.merge?.blocked || o.meta.merge_blocked === "1") throw new Error("automatický merge byl zablokován — GO nejde, jen REJECT (oprava novou zakázkou)");
+      const fam = pkg.merge?.author_family ?? (o.meta.merge_author_family as ModelFamily | undefined);
+      if (!d.merge || !o.meta.merge_pr || !fam) throw new Error("merge runner nebo rodina autora PR chybí");
+      const r = await d.merge.run(o.meta.merge_pr, fam, { ownerGo: true, binding: pkg.merge?.binding, waitMs: 25 * 60_000, reviewText: pkg.merge?.review });
+      d.log({ order: id, kind: "info", role: "merge", result: r.status, reason: r.log.join(" | ").slice(0, 500) });
+      if (r.status !== "merged") throw new Error(`merge po GO neproběhl: ${"reason" in r ? r.reason : r.status}`);
+      o = { ...o, meta: { ...o.meta, merged: "1" } };
+    }
+    if (pkg) writePackage(dir, { ...pkg, owner_decision: { choice: decision, at: d.iso(), via } });
+    const label = pkg ? ` (${decision === "ALT" ? pkg.alternative?.label : decision === "GO" ? pkg.recommended.label : "REJECT"})` : "";
+    return d.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}${label}` });
+  });
+}
+
+/**
+ * Owner consent persists across entry points: any recorded order about this PR that waits for the owner, or that
+ * carries Sponsor-reserved reasons, forbids a self-merge from `cli.ts merge` (forceOwner / refuse).
+ */
+export function mergeConstraints(store: Store, pr: string): { refuse?: string; forceOwner: string[] } {
+  const about = store.listOrders().filter((o) => o.meta.merge_pr === pr || new RegExp(`/pull/${pr}$`).test(o.delivered_url ?? ""));
+  const waiting = about.find((o) => o.state === "WAITING_OWNER");
+  if (waiting) return { refuse: `PR #${pr} už čeká na vlastníka (karta ${waiting.id})`, forceOwner: [] };
+  const forced = about.flatMap((o) => [...(o.brief?.owner_decisions ?? []), ...(o.owner_reasons ?? []).filter((r) => !/^automatický merge zastaven/.test(r))]);
+  return { forceOwner: [...new Set(forced)] };
 }

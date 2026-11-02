@@ -39,13 +39,14 @@ import {
   classifyPaths,
   MAX_REVIEW_DIFF,
   MergeRunner,
+  mergeRunnerFor,
   packageJsonDepsChanged,
   parseChecks,
   type Exec,
 } from "../merge-policy";
 import type { NotionClient } from "../notion";
 import { Orchestrator, SecretScanningAdapter } from "../orchestrator";
-import { lockOrder } from "../owner-gate";
+import { lockOrder, mergeConstraints } from "../owner-gate";
 import { DecisionPrepDepartment, prepDeterministicIssues } from "../prep";
 import { SourceLoader } from "../sources";
 import { transition } from "../state-machine";
@@ -783,10 +784,11 @@ describe("merge policy DR-024", () => {
             baseRefOid: "base0",
           }),
         };
-      if (args[0] === "api") return { code: 0, out: files.map((f) => (Array.isArray(f) ? `${f[0]}\t${f[1]}` : `${f}\t`)).join("\n") };
+      if (cmd === "git" && args[0] === "diff" && args[1] === "--name-status") return { code: 0, out: files.map((f) => (Array.isArray(f) ? `R100\t${f[1]}\t${f[0]}` : `M\t${f}`)).join("\n") };
+      if (cmd === "git" && args[0] === "diff") return { code: 0, out: opts.diff ? opts.diff() : "diff --git a/x b/x" };
       if (args[0] === "pr" && args[1] === "checks")
         return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
-      if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: opts.diff ? opts.diff() : "diff --git a/x b/x" };
+
       if (args[0] === "pr" && args[1] === "update-branch") updated = true;
       if (args[0] === "pr" && args[1] === "merge") merged = true;
       return { code: 0, out: "" };
@@ -882,10 +884,10 @@ describe("owner decisions (locks, blocked merge)", () => {
 
 describe("review round 2 fixes", () => {
   const files = (paths: string[]): Exec => (cmd, args) => {
-    if (args[0] === "api") return { code: 0, out: paths.map((p) => `${p}\t`).join("\n") };
+    if (cmd === "git" && args[0] === "diff" && args[1] === "--name-status") return { code: 0, out: paths.map((p) => `M\t${p}`).join("\n") };
+    if (cmd === "git" && args[0] === "diff") return { code: 0, out: "d" };
     if (args[0] === "pr" && args[1] === "view") return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", headRefOid: "a", baseRefOid: "b0" }) };
     if (args[0] === "pr" && args[1] === "checks") return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
-    if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: "d" };
     if (cmd === "git" && args[0] === "ls-tree") return { code: 0, out: `${args[args.length - 1]}\n` }; // gate exists on base
     return { code: 0, out: "" };
   };
@@ -964,8 +966,8 @@ describe("review round 3 fixes", () => {
   it("classification fails closed when git cannot verify the base", () => {
     const ex: Exec = (cmd, args) => (cmd === "git" && args[0] === "fetch" ? { code: 1, out: "fatal" } : { code: 0, out: "" });
     const m = new MergeRunner({ exec: ex, cwd: "/", reviewer: new Mock("gpt", "g", () => ({})) });
-    expect(() => m.classify({ number: 1, headRefName: "h", baseRefName: "main", baseRefOid: "b", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: ["tars/a.ts"], headRefOid: "h1" })).toThrow(/fetch/);
-    expect(() => m.classify({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: ["tars/a.ts"], headRefOid: "h1" })).toThrow(/base/);
+    expect(() => m.snapshot({ number: 1, headRefName: "h", baseRefName: "main", baseRefOid: "b", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: [], headRefOid: "h1" })).toThrow(/fetch/);
+    expect(() => m.snapshot({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: [], headRefOid: "h1" })).toThrow(/base/);
   });
 
   it("GET of the card is refused for a foreign Host (DNS rebinding)", async () => {
@@ -1037,10 +1039,11 @@ describe("review round 4 fixes", () => {
     const calls: string[] = [];
     const ex: Exec = (cmd, args) => {
       calls.push(`${cmd} ${args.slice(0, 2).join(" ")}`);
-      if (args[0] === "api") return { code: 0, out: "tars/orch/a.ts\t" };
+      if (cmd === "git" && args[0] === "diff" && args[1] === "--name-status") return { code: 0, out: "M\ttars/orch/a.ts" };
+      if (cmd === "git" && args[0] === "diff") return { code: 0, out: "d" };
       if (args[0] === "pr" && args[1] === "view") return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: "main", baseRefOid: "b", isDraft: true, mergeStateStatus: "BEHIND", state: "OPEN", headRefOid: "a" }) };
       if (args[0] === "pr" && args[1] === "checks") return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
-      if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: "d" };
+
       return { code: 0, out: "" };
     };
     const pass = new Mock("gpt", "g", () => ({ text: J({ verdict: "PASS", issues: [] }) }));
@@ -1063,5 +1066,55 @@ describe("review round 4 fixes", () => {
   it("new gate modules are listed as class-B gates once on main", () => {
     expect(classifyPaths(["tars/orch/owner-gate.ts"]).cls).toBe("B");
     expect(classifyPaths(["tars/orch/dosah.ts"]).cls).toBe("B");
+  });
+});
+
+describe("review round 5 fixes", () => {
+  it("snapshot: paths and review diff come from the same fixed base...head range", () => {
+    const seen: string[] = [];
+    const ex: Exec = (cmd, args) => {
+      seen.push(`${cmd} ${args.join(" ")}`);
+      if (args[1] === "--name-status") return { code: 0, out: "R100\tapp/a.tsx\tdocs/a.tsx\nM\ttars/b.ts" };
+      return { code: 0, out: "DIFF" };
+    };
+    const m = new MergeRunner({ exec: ex, cwd: "/", reviewer: new Mock("gpt", "g", () => ({})) });
+    const snap = m.snapshot({ number: 1, headRefName: "h", baseRefName: "main", baseRefOid: "B0", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: [], headRefOid: "H0" });
+    expect(snap.files).toEqual(["app/a.tsx", "docs/a.tsx", "tars/b.ts"]);
+    expect(seen.filter((x) => x.startsWith("git diff")).every((x) => x.includes("B0...H0"))).toBe(true);
+  });
+
+  it("stale lock: after one process recovered it, a second recoverer never removes the fresh lock", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-lk2-"));
+    const first = lockOrder(d)!;
+    const f = path.join(d, ".owner.lock");
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    fs.utimesSync(f, old, old);
+    const recovered = lockOrder(d)!; // recovers (fresh mtime now)
+    expect(recovered).toBeTruthy();
+    // a recovery mutex left by a concurrent recoverer blocks a third attempt too
+    expect(lockOrder(d)).toBeUndefined();
+    fs.writeFileSync(`${f}.recover`, "x", { flag: "wx" });
+    expect(lockOrder(d)).toBeUndefined();
+    fs.rmSync(`${f}.recover`);
+    first();
+    expect(fs.existsSync(f)).toBe(true);
+    recovered();
+  });
+
+  it("CLI constraints: a PR waiting for the owner or with Sponsor reasons can never self-merge", () => {
+    const st = new Store(fs.mkdtempSync(path.join(os.tmpdir(), "tars-mc-")));
+    const base = { mission: "m", created_at: NOW, updated_at: NOW, fix_rounds: 0, manual_interventions: 0, history: [] };
+    st.save({ ...base, id: "wo-a", state: "WAITING_OWNER", meta: { merge_pr: "5" } } as Order);
+    expect(mergeConstraints(st, "5").refuse).toMatch(/čeká na vlastníka/);
+    st.save({ ...base, id: "wo-b", state: "FAILED", meta: {}, delivered_url: "https://github.com/x/y/pull/6", brief: { ...OFFER_BRIEF, owner_decisions: ["cena"] } } as Order);
+    expect(mergeConstraints(st, "6").forceOwner).toEqual(["cena"]);
+    expect(mergeConstraints(st, "7")).toEqual({ forceOwner: [] });
+  });
+
+  it("mergeRunnerFor always picks the other family as reviewer", () => {
+    const claude = new Mock("claude", "o", () => ({}));
+    const gpt = new Mock("gpt", "g", () => ({}));
+    const r = mergeRunnerFor("claude", { exec: () => ({ code: 0, out: "" }), cwd: "/", adapters: { claude, gpt }, guard: () => ({ alarm: false, summary: "" }) });
+    expect((r as unknown as { d: { reviewer: TextAdapter } }).d.reviewer).toBe(gpt);
   });
 });

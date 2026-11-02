@@ -162,6 +162,15 @@ export const REQUIRED_CHECKS = ["test", "janitor"];
 export const MAX_REVIEW_DIFF = 400_000;
 
 /** Binding of an approval to exact PR content (DR-024: a review/GO is valid only for what was reviewed). */
+export interface Snapshot {
+  base: string;
+  head: string;
+  files: string[];
+  text: string;
+  sha: string;
+  ok: boolean;
+}
+
 export interface ReviewBinding {
   head: string;
   diff_sha256: string;
@@ -222,45 +231,49 @@ export class MergeRunner {
   info(pr: number | string): PrInfo {
     const r = this.gh(["pr", "view", String(pr), "--json", "number,headRefName,baseRefName,baseRefOid,isDraft,mergeStateStatus,state,headRefOid"]);
     if (r.code !== 0) throw new Error(`gh pr view: ${r.out.slice(0, 200)}`);
-    const j = JSON.parse(r.out) as Omit<PrInfo, "files">;
-    // REST files API gives previous_filename for renames (gh pr view --json files does not).
-    const f = this.gh(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/files`, "--jq", ".[] | [.filename, (.previous_filename // \"\")] | @tsv"]);
-    if (f.code !== 0) throw new Error(`gh api pulls/${pr}/files: ${f.out.slice(0, 200)}`);
-    const files = [...new Set(f.out.split("\n").flatMap((l) => l.split("\t")).map((x) => x.trim()).filter(Boolean))];
-    return { ...j, files };
+    return { ...(JSON.parse(r.out) as Omit<PrInfo, "files">), files: [] };
   }
 
-  /** Fails closed: any git error (fetch, unknown base) throws, the caller blocks the merge. */
-  classify(info: PrInfo): Classification {
+  /**
+   * One consistent snapshot of the PR at fixed SHAs: changed paths (both sides of renames) and the review diff both
+   * come from `git diff <base>...<head>` of the SAME fetched commits. Fails closed on any git error.
+   */
+  snapshot(info: PrInfo): Snapshot {
     const git = (args: string[]) => this.d.exec("git", args, this.d.cwd);
-    const base = info.baseRefOid;
-    if (!base) throw new Error("base commit PR není známý — klasifikaci nelze ověřit");
-    const f = git(["fetch", "-q", "origin", base, info.headRefOid]);
+    if (!info.baseRefOid) throw new Error("base commit PR není známý — nelze ověřit");
+    const f = git(["fetch", "-q", "origin", info.baseRefOid, info.headRefOid]);
     if (f.code !== 0) throw new Error(`git fetch base/head selhal: ${f.out.slice(0, 160)}`);
+    const range = `${info.baseRefOid}...${info.headRefOid}`;
+    const ns = git(["diff", "--name-status", "-M", range]);
+    if (ns.code !== 0) throw new Error(`git diff --name-status selhal: ${ns.out.slice(0, 160)}`);
+    const files = [...new Set(ns.out.split("\n").filter(Boolean).flatMap((l) => l.split("\t").slice(1)).map((x) => x.trim()).filter(Boolean))];
+    const d = git(["diff", range]);
+    if (d.code !== 0) throw new Error(`git diff selhal: ${d.out.slice(0, 160)}`);
+    return { base: info.baseRefOid, head: info.headRefOid, files, text: d.out, sha: sha256(d.out), ok: true };
+  }
+
+  /** Fails closed: any git error throws, the caller blocks the merge. Uses the snapshot's paths only. */
+  classify(info: PrInfo, snap: Snapshot): Classification {
+    const git = (args: string[]) => this.d.exec("git", args, this.d.cwd);
     let pkg: { before?: string; after?: string } | undefined;
-    if (info.files.includes("package.json")) {
-      const b = git(["show", `${base}:package.json`]);
-      const a = git(["show", `${info.headRefOid}:package.json`]);
+    if (snap.files.includes("package.json")) {
+      const b = git(["show", `${snap.base}:package.json`]);
+      const a = git(["show", `${snap.head}:package.json`]);
       pkg = { before: b.code === 0 ? b.out : undefined, after: a.code === 0 ? a.out : undefined };
     }
     // Which gate files exist on the exact base commit (ls-tree: exit 0 + empty = missing, non-zero = error).
     const gates: string[] = [];
     for (const g of GATE_FILES) {
-      const r = git(["ls-tree", "--name-only", base, "--", g]);
+      const r = git(["ls-tree", "--name-only", snap.base, "--", g]);
       if (r.code !== 0) throw new Error(`git ls-tree ${g} selhal`);
       if (r.out.trim() === g) gates.push(g);
     }
-    return classifyPaths(info.files, pkg, gates);
-  }
-
-  /** PR diff + its hash; the approval binds to this hash. */
-  diff(pr: number | string): { ok: boolean; text: string; sha: string } {
-    const d = this.gh(["pr", "diff", String(pr)]);
-    return { ok: d.code === 0, text: d.out, sha: sha256(d.out) };
+    void info;
+    return classifyPaths(snap.files, pkg, gates);
   }
 
   /** Review by another model family than the author; PASS required for any merge. Fails closed. */
-  async review(pr: number | string, authorFamily: ModelFamily, diff = this.diff(pr)): Promise<{ verdict: "PASS" | "FIX" | "BLOCK" | "UNKNOWN"; text: string }> {
+  async review(pr: number | string, authorFamily: ModelFamily, diff: Pick<Snapshot, "ok" | "text" | "sha">): Promise<{ verdict: "PASS" | "FIX" | "BLOCK" | "UNKNOWN"; text: string }> {
     if (this.d.reviewer.family === authorFamily) throw new Error("review musí udělat jiná rodina modelů než autor PR (DR-024)");
     if (!diff.ok) return { verdict: "UNKNOWN", text: diff.text.slice(0, 300) };
     if (diff.text.length > MAX_REVIEW_DIFF) return { verdict: "UNKNOWN", text: `diff má ${diff.text.length} znaků > ${MAX_REVIEW_DIFF}: částečné review se nepřipouští, PR rozdělit` };
@@ -303,16 +316,18 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
   ): Promise<MergeResult> {
     const log: string[] = [];
     const info = this.info(pr);
-    if (info.state === "MERGED") return { status: "merged", cls: this.classify(info).cls, log: ["PR už je mergnutý"] };
+    if (info.state === "MERGED") return { status: "merged", cls: "B", log: ["PR už je mergnutý (třída neověřena)"] };
     if (info.state !== "OPEN") return { status: "blocked", reason: `PR je ${info.state}`, log };
-    const c = this.classify(info);
+    // Classification, review and binding all use ONE snapshot at fixed base/head SHAs.
+    const snap = this.snapshot(info);
+    const c = this.classify(info, snap);
     const cls: MergeClass = opts.forceOwner?.length ? "B" : c.cls;
     const reasons = [...(opts.forceOwner ?? []), ...c.reasons];
     log.push(`třída ${cls}: ${reasons.join("; ")}`);
     const ch = this.checks(pr);
     if (ch.failed.length) return { status: "blocked", reason: `CI selhalo: ${ch.failed.join(", ")}`, log };
     if (ch.pending.length && !opts.waitMs) return { status: "pending", reason: `CI běží: ${ch.pending.join(", ")}`, log };
-    let diff = this.diff(pr);
+    let diff: Snapshot = snap;
     let reviewText = opts.reviewText;
     if (opts.ownerGo) {
       // GO is valid only for the content the owner saw on the card.
@@ -354,8 +369,9 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
       log.push(`gh pr update-branch: ${r.code === 0 ? "ok" : r.out.slice(0, 120)}`);
       if (r.code !== 0) return { status: "blocked", reason: "update-branch selhal", log };
       // update-branch only merges base into head; the PR diff must stay byte-identical, else re-review.
-      head = this.info(pr).headRefOid;
-      diff = this.diff(pr);
+      const info2 = this.info(pr);
+      head = info2.headRefOid;
+      diff = this.snapshot(info2);
       if (diff.sha !== binding.diff_sha256) return { status: "blocked", reason: "diff PR se po update-branch změnil — nové review", log };
     }
     const deadline = Date.now() + (opts.waitMs ?? 0);
@@ -376,4 +392,17 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
     if (after.state === "MERGED") return { status: "merged", cls, log, review: reviewText, binding };
     return { status: "blocked", reason: `merge selhal: ${m.out.slice(0, 200)}`, log };
   }
+}
+
+/**
+ * The only way to build a runner for a PR: the reviewer is the OTHER family than the stated author and the guard is
+ * mandatory (gate file — entry points must not wire their own reviewer or skip the guard).
+ */
+export function mergeRunnerFor(
+  authorFamily: ModelFamily,
+  d: { exec: Exec; cwd: string; adapters: Record<ModelFamily, TextAdapter>; guard: () => { alarm: boolean; summary: string }; reviewContext?: string },
+): MergeRunner {
+  const reviewer = d.adapters[authorFamily === "claude" ? "gpt" : "claude"];
+  if (reviewer.family === authorFamily) throw new Error("review musí udělat jiná rodina modelů než autor PR (DR-024)");
+  return new MergeRunner({ exec: d.exec, cwd: d.cwd, reviewer, guard: d.guard, reviewContext: d.reviewContext });
 }

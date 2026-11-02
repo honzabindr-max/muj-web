@@ -17,7 +17,7 @@ import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_
 import { parseVerdict } from "./departments";
 import { archiveMarkdown, readPackage, writePackage, type AdvocateQuestion, type DecisionPackage, type Konzilium } from "./konzilium";
 import type { MergeResult, MergeRunner } from "./merge-policy";
-import { mergeDecisionPackage, ownerGate, withOrderLock, withOrderLockSync } from "./owner-gate";
+import { executeOwnerDecision, mergeDecisionPackage, ownerGate, withOrderLockSync } from "./owner-gate";
 import { prepBrief } from "./prep";
 import type { Department, LogEntry, Order, OwnerChoice } from "./types";
 
@@ -568,24 +568,13 @@ export class Orchestrator {
    * GO on a merge card (DR-024 class B) makes TARS merge — only the diff the owner saw; a failed merge keeps WAITING_OWNER.
    */
   async owner(id: string, decision: OwnerChoice, via = "cli"): Promise<Order> {
-    return withOrderLock(this.d.store.orderDir(id), id, async () => {
-      let o = this.d.store.load(id); // re-read under the lock
-      if (o.state !== "WAITING_OWNER") throw new Error(`zakázka ${id} je ${o.state}, nečeká na vlastníka`);
-      const dir = this.d.store.orderDir(id);
-      const pkg = readPackage(dir);
-      if (decision === "ALT" && !pkg?.alternative) throw new Error("rozhodovací balíček nemá alternativu");
-      if (decision === "GO" && pkg?.kind === "merge") {
-        if (pkg.merge?.blocked || o.meta.merge_blocked === "1") throw new Error("automatický merge byl zablokován — GO nejde, jen REJECT (oprava novou zakázkou)");
-        const fam = pkg.merge?.author_family ?? (o.meta.merge_author_family as "claude" | "gpt" | undefined);
-        if (!this.d.merge || !o.meta.merge_pr || !fam) throw new Error("merge runner nebo rodina autora PR chybí");
-        const r = await this.d.merge.run(o.meta.merge_pr, fam, { ownerGo: true, binding: pkg.merge?.binding, waitMs: 25 * 60_000, reviewText: pkg.merge?.review });
-        this.log({ order: id, kind: "info", role: "merge", result: r.status, reason: r.log.join(" | ").slice(0, 500) });
-        if (r.status !== "merged") throw new Error(`merge po GO neproběhl: ${"reason" in r ? r.reason : r.status}`);
-        o = { ...o, meta: { ...o.meta, merged: "1" } };
-      }
-      if (pkg) writePackage(dir, { ...pkg, owner_decision: { choice: decision, at: this.iso(), via } });
-      return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}${pkg ? ` (${decision === "ALT" ? pkg.alternative?.label : decision === "GO" ? pkg.recommended.label : "REJECT"})` : ""}` });
-    });
+    // The decision itself (lock, checks, merge after GO) lives in the gate module owner-gate.ts.
+    return executeOwnerDecision(
+      { store: this.d.store, merge: this.d.merge, iso: () => this.iso(), log: (e) => this.log(e), apply: (o, ev, extra) => this.apply(o, ev, extra) },
+      id,
+      decision,
+      via,
+    );
   }
 
   /** Owner replaced the order by a newer recipe (not REJECT). Frees the WIP limit; `redo` = supervisor proposes it again. */

@@ -16,7 +16,8 @@ import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator
 import { McpPanelSink, PanelIndex } from "./panel";
 import { SourceLoader } from "./sources";
 import { Konzilium } from "./konzilium";
-import { MergeRunner, realExec } from "./merge-policy";
+import { MergeRunner, mergeRunnerFor, realExec } from "./merge-policy";
+import { mergeConstraints } from "./owner-gate";
 import { DecisionPrepDepartment } from "./prep";
 import { Store } from "./store";
 
@@ -177,9 +178,11 @@ async function main() {
       // Author family must be stated explicitly (no default): the reviewer is always the OTHER family.
       if (!pr || (fam !== "claude" && fam !== "gpt")) throw new Error("usage: merge <pr-number> <author-family claude|gpt>");
       const author = fam;
-      const reviewer = author === "claude" ? new SecretScanningAdapter(new CodexCli()) : new SecretScanningAdapter(new ClaudeCli("opus"));
       const guard = () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot);
-      const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer, guard, reviewContext }).run(pr, author, { waitMs: 25 * 60_000 });
+      const cons = mergeConstraints(new Store(runsDir), pr);
+      if (cons.refuse) throw new Error(cons.refuse);
+      const runner = mergeRunnerFor(author, { exec: realExec, cwd: repoRoot, adapters: { claude: new SecretScanningAdapter(new ClaudeCli("opus")), gpt: new SecretScanningAdapter(new CodexCli()) }, guard, reviewContext });
+      const r = await runner.run(pr, author, { waitMs: 25 * 60_000, forceOwner: cons.forceOwner });
       // Review text is evidence: stored locally (gitignored runs/), issues printed.
       const review = "review" in r ? r.review : undefined; // kept also after a successful merge
       if (review) {
