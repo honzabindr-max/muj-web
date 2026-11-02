@@ -1,0 +1,136 @@
+// Local live panel: `npm run tars:panel` → http://127.0.0.1:4747
+// Read-only view of runs/*/state.json, runs/log.jsonl and browser screenshots, refreshed every 5 s.
+// No buttons, no writes, no external dependencies, bound to localhost only.
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Store } from "./store";
+import type { Order } from "./types";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const runsDir = process.env.TARS_RUNS_DIR ?? path.resolve(here, "../../runs");
+const port = Number(process.env.TARS_PANEL_PORT ?? 4747);
+const ORDER_RE = /^wo-[0-9A-Za-z-]+$/;
+
+export function listShots(orderDir: string): string[] {
+  if (!fs.existsSync(orderDir)) return [];
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(orderDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".png")) out.push(entry.name);
+    if (entry.isDirectory() && entry.name.startsWith("shots-"))
+      for (const f of fs.readdirSync(path.join(orderDir, entry.name)).sort())
+        if (f.endsWith(".png")) out.push(`${entry.name}/${f}`);
+  }
+  return out;
+}
+
+/** Resolves a screenshot path safely inside runs/<order>/; undefined if outside or not a png. */
+export function safeShotPath(
+  root: string,
+  order: string,
+  file: string,
+): string | undefined {
+  if (!ORDER_RE.test(order) || !file.endsWith(".png")) return undefined;
+  const base = path.resolve(root, order);
+  const full = path.resolve(base, file);
+  return full.startsWith(base + path.sep) && fs.existsSync(full)
+    ? full
+    : undefined;
+}
+
+export function snapshot(root: string) {
+  const store = new Store(root);
+  const orders: Order[] = store.listOrders();
+  return {
+    generated_at: new Date().toISOString(),
+    orders: orders.map((o) => ({
+      ...o,
+      shots: listShots(path.join(root, o.id)),
+    })),
+    log: store.readLog(400),
+  };
+}
+
+const PAGE = `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TARS panel</title><style>
+:root{--bg:#14111a;--card:#1e1a26;--ink:#ece6f2;--mute:#9a90a8;--ok:#6cc58a;--warn:#e7b84f;--bad:#e5676b;--acc:#9d7ff0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;color:var(--mute);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.06em}
+.card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px}.mute{color:var(--mute)}
+.st{display:inline-block;padding:2px 8px;border-radius:99px;font-weight:600;font-size:12px;background:#2c2638}
+.DONE,.DELIVERED,.PASS{color:var(--ok)}.WAITING_OWNER,.FIXING,.PAUSED,.FIX{color:var(--warn)}.FAILED,.UNKNOWN,.BLOCK{color:var(--bad)}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:5px 6px;border-bottom:1px solid #2c2638;vertical-align:top}th{color:var(--mute);font-weight:500}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}.shots img{width:100%;border-radius:6px;border:1px solid #2c2638}
+code{font-size:12px}</style></head><body><main>
+<h1>TARS — živý panel <span class="mute" id="ts"></span></h1><div class="mute">Jen čtení · obnova každých 5 s · zdroj runs/*/state.json a runs/log.jsonl</div>
+<div id="app"></div></main><script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const t=s=>s?new Date(s).toLocaleTimeString('cs-CZ'):'';const dur=ms=>ms==null?'':(ms/1000).toFixed(1)+' s';
+async function load(){const r=await fetch('/api/state',{cache:'no-store'});const d=await r.json();document.getElementById('ts').textContent='· '+t(d.generated_at);
+const active=['NEW','PLANNED','DOING','CHECKING','FIXING','DELIVERED','PAUSED'];
+const cur=d.orders.find(o=>active.includes(o.state))||d.orders.find(o=>o.state==='WAITING_OWNER')||d.orders[d.orders.length-1];
+let h='';if(!cur){h='<div class="card">Žádná zakázka.</div>'}else{
+const log=d.log.filter(e=>e.order===cur.id);
+const calls=log.filter(e=>e.kind==='call');const roles={};calls.forEach(c=>{roles[c.role]=c.model+(c.family?' · '+c.family:'')});
+h+='<h2>Aktuální zakázka</h2><div class="card"><div><b>'+esc(cur.brief?.title||cur.id)+'</b> <span class="st '+cur.state+'">'+cur.state+'</span></div>'+
+'<div class="mute">'+esc(cur.id)+' · oddělení '+esc(cur.brief?.department||'—')+' · kolo oprav '+cur.fix_rounds+' · ruční zásahy '+cur.manual_interventions+'</div>'+
+(cur.delivered_url?'<div>Výstup: <a style="color:var(--acc)" href="'+esc(cur.delivered_url)+'">'+esc(cur.delivered_url)+'</a></div>':'')+
+(cur.failure_reason?'<div class="FAILED">'+esc(cur.failure_reason)+'</div>':'')+'</div>';
+h+='<h2>Modely v rolích</h2><div class="card"><table>'+Object.entries(roles).map(([r,m])=>'<tr><th>'+esc(r)+'</th><td>'+esc(m)+'</td></tr>').join('')+'</table></div>';
+h+='<h2>Časová osa</h2><div class="card"><table><tr><th>čas</th><th>přechod / volání</th><th>role · model</th><th>trvání</th><th>výsledek</th></tr>'+
+log.filter(e=>e.kind==='transition'||e.kind==='call'||e.kind==='error').map(e=>'<tr><td>'+t(e.ts)+'</td><td>'+(e.kind==='transition'?'<b>'+esc(e.from)+' → <span class="'+esc(e.to)+'">'+esc(e.to)+'</span></b>':esc(e.kind))+'</td><td class="mute">'+esc(e.role||'')+' '+esc(e.model||'')+'</td><td>'+dur(e.duration_ms)+'</td><td class="'+esc(e.result||'')+'">'+esc((e.result||'')+(e.reason?' — '+e.reason:'')).slice(0,240)+'</td></tr>').join('')+'</table></div>';
+const v=calls.filter(c=>c.role==='checker');h+='<h2>Verdikty kontrol</h2><div class="card">'+(v.length?v.map(c=>'<div><span class="st '+esc(c.result)+'">'+esc(c.result)+'</span> <span class="mute">'+esc(c.model)+' · '+t(c.ts)+'</span><div>'+esc(c.reason||'')+'</div></div>').join('<hr style="border-color:#2c2638">'):'<span class="mute">zatím žádné</span>')+'</div>';
+h+='<h2>Screenshoty z prohlížeče</h2><div class="card">'+(cur.shots.length?'<div class="shots">'+cur.shots.map(s=>'<a href="/shot?order='+encodeURIComponent(cur.id)+'&file='+encodeURIComponent(s)+'"><img loading="lazy" src="/shot?order='+encodeURIComponent(cur.id)+'&file='+encodeURIComponent(s)+'" alt="'+esc(s)+'"></a>').join('')+'</div>':'<span class="mute">žádné</span>')+'</div>';}
+h+='<h2>Všechny zakázky</h2><div class="card"><table><tr><th>zakázka</th><th>stav</th><th>opravy</th><th>změna</th></tr>'+d.orders.slice().reverse().map(o=>'<tr><td>'+esc(o.brief?.title||o.id)+'<div class="mute">'+esc(o.id)+'</div></td><td class="'+o.state+'">'+o.state+'</td><td>'+o.fix_rounds+'</td><td>'+t(o.updated_at)+'</td></tr>').join('')+'</table></div>';
+document.getElementById('app').innerHTML=h}
+load();setInterval(()=>load().catch(()=>{}),5000);
+</script></body></html>`;
+
+export function handler(root: string) {
+  return (req: http.IncomingMessage, res: http.ServerResponse) => {
+    if (req.method !== "GET") {
+      res.writeHead(405).end();
+      return;
+    }
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (url.pathname === "/") {
+      res
+        .writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+        .end(PAGE);
+    } else if (url.pathname === "/api/state") {
+      res
+        .writeHead(200, {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        })
+        .end(JSON.stringify(snapshot(root)));
+    } else if (url.pathname === "/shot") {
+      const p = safeShotPath(
+        root,
+        url.searchParams.get("order") ?? "",
+        url.searchParams.get("file") ?? "",
+      );
+      if (!p) res.writeHead(404).end();
+      else
+        res
+          .writeHead(200, { "Content-Type": "image/png" })
+          .end(fs.readFileSync(p));
+    } else res.writeHead(404).end();
+  };
+}
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  http
+    .createServer(handler(runsDir))
+    .listen(port, "127.0.0.1", () =>
+      console.log(`TARS panel: http://127.0.0.1:${port}  (runs: ${runsDir})`),
+    );
+}
