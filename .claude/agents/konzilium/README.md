@@ -52,7 +52,7 @@ Výsledek workflow: `{status, order, decision, panel_row, link, sentence, reason
   Rozhodnutí hooku se zapisují do `~/.tars/konzilium-guard.log`. Most odmítne karty bez hooku se správným profilem.
 - Prompty pro GPT a args zapisuje transport nástrojem Write do `konzilium/.in-<součet>.txt` (Bash odmítá heredoc se složenými závorkami a uvozovkami). Most soubor přijme jen jako přesně tuto cestu (8 hexadecimálních znaků, žádný symlink) se shodným kontrolním součtem FNV-1a od skriptu a smaže ho až po shodě. Kontrolní součet chrání jen proti přepsání nebo zkrácení. Podpis původu dělá až most klíčem běhu, protože skript workflow nemá kam uložit tajemství.
 - Secret-scan se dělá:
-  - při přípravě na celé args (všechna pole) a vstupní soubory;
+  - na celé args ve skriptu workflow ještě před prvním agentem (stejné vzory jako `tars/orch/secret-scan.ts`, hlídá test) a znovu při přípravě, spolu se vstupními soubory; chybové zprávy surové vstupy nevypisují;
   - na každý rozbalený prompt před odesláním GPT;
   - na každý výstup role (Claude i GPT) před dalším použitím;
   - na archiv a řádek pro Notion před zápisem.
@@ -61,7 +61,15 @@ Výsledek workflow: `{status, order, decision, panel_row, link, sentence, reason
 
 ### Zbytkové riziko (poctivě)
 
-- Ochrana zápisů stojí na frontmatter hoocích. Claude Code je spouští jen ve složce, které uživatel důvěřuje (workspace trust). Kdyby hooky neběžely, agent s nástrojem Read by mohl přečíst klíč běhu a záznam o původu podepsat. Bez hooků proto zůstává jen detekce náhodných a neúmyslných podvrhů (chybějící nebo neplatný podpis, změněný obsah, jiný běh).
+- Hook omezuje zápisy:
+  - každá role zapíše jen svůj výstup v připraveném běhu (`run.json`), ne v uzavřeném běhu (`decision.json`) a nikdy přes existující soubor;
+  - cesty se porovnávají kanonicky (bez symlinků, bez ohledu na velikost písmen).
+- Čtení hook neomezuje jen na předané vstupy. Blokuje jen klíče a záznamy o původu, takže agent může číst ostatní soubory uživatele (na Macu je to stejné jako u každého sezení Claude Code).
+- Most nikdy nevěří řídicím souborům:
+  - GPT smí zapsat jen výstup kroku své rodiny;
+  - `assemble` přepočítá radu i kontrolu zapracování z ověřených výstupů;
+  - podpis váže obsah přes SHA-256.
+- Ochrana zápisů stojí na frontmatter hoocích. Claude Code je spouští jen ve složce, které uživatel důvěřuje (workspace trust); na Macu je ověřeno, že běží i pro subagenty workflow (`~/.tars/konzilium-guard.log`). Kdyby hooky neběžely, agent by mohl přečíst klíč běhu a záznam o původu podepsat. Bez hooků proto zůstává jen detekce náhodných podvrhů (chybějící nebo neplatný podpis, změněný obsah, jiný běh).
 - Hlavní sezení Claude Code, které workflow spouští, ani jiný proces téhož uživatele omezené nejsou. Klíč je v souboru uživatele, ne v Klíčence.
 - Původ Claude výstupu prokazuje workflow (subagent skončil a hned nato `attest`), ne samotný model. GPT prokazuje model, který nahlásil codex.
 

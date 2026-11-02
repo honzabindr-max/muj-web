@@ -2,6 +2,7 @@
 // Workflow se tu spouští v sandboxu s falešným agent(): transportní agenti volají skutečný most (main) in-process,
 // Claude role zapisují své soubory, GPT (codex) a Notion jsou podvržené závislosti.
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -17,6 +18,8 @@ import {
   familyOf,
   fnv1a,
   isGptModel,
+  contentSha,
+  gptOutputAllowed,
   konziliumPanelRow,
   loadCards,
   main,
@@ -28,6 +31,7 @@ import {
   type DecisionPackage,
 } from "../konzilium-bridge";
 import type { PanelRow } from "../panel";
+import { PATTERNS } from "../secret-scan";
 import { STRUCTURED_FORMAT } from "../verdict";
 
 const ROOT = path.resolve(__dirname, "../../..");
@@ -143,6 +147,7 @@ interface Scenario {
   gptModel?: string | ((file: string) => string);
   /** extra writes of a Claude role (as if its Write were not restricted by the guard hook) */
   onClaudeWrite?: (file: string, konziliumDir: string) => void;
+  args?: Record<string, unknown>;
   /** file name → content written by a Claude role / returned by GPT */
   out?: Partial<Record<string, string | ((n: number) => string)>>;
   tamperGptPrompt?: boolean;
@@ -254,6 +259,7 @@ async function runWorkflow(sc: Scenario = {}) {
     panel: sc.panel ?? true,
     panel_title: "TEST Konzilium",
     archive_parent: "40c0ae49f50781149394dcef1a669453",
+    ...sc.args,
   };
   if (sc.creatorFamily === "") delete (args as Record<string, unknown>).creator_family;
   const result = (await fn(agent, parallel, undefined, () => undefined, () => undefined, args, SafeDate, SafeMath)) as Record<string, unknown>;
@@ -452,6 +458,7 @@ describe("kolo 3: nálezy 2. kontroly GPT", () => {
   it("nález 1: hook dovolí každé roli zapsat jen její výstup, transportu jen vstupní soubor a příkaz mostu", () => {
     const k = path.join(dir, "konzilium");
     fs.mkdirSync(k, { recursive: true });
+    fs.writeFileSync(path.join(k, "run.json"), "{}"); // a run prepared by the bridge
     expect(guard("advokat", W(path.join(k, "advokat.json")))).toBe(0);
     expect(guard("tvurce", W(path.join(k, "draft-konzilium.md")))).toBe(0);
     expect(guard("kontrolor", W(path.join(k, "zapracovani-kontrola.json")))).toBe(0);
@@ -556,6 +563,102 @@ describe("kolo 3: nálezy 2. kontroly GPT", () => {
     expect(String(b.result.reason)).toMatch(/secret-scan/);
     expect(b.calls.some((c) => /Jsi KONTROLOR/.test(c.prompt))).toBe(false);
     expect(fs.existsSync(path.join(dir, "decision.json"))).toBe(false);
+  });
+});
+
+describe("kolo 3b: nálezy 3. kontroly GPT", () => {
+  const guard = (profile: string, input: Record<string, unknown>) =>
+    spawnSync("python3", [path.join(ROOT, ".claude/hooks/konzilium-guard.py"), profile], { input: JSON.stringify(input), env: { ...process.env } }).status;
+  const W = (file_path: string) => ({ tool_name: "Write", tool_input: { file_path, content: "{}" } });
+
+  it("GPT smí zapsat jen výstup kroku své rodiny, nikdy řídicí soubory", () => {
+    const gptCreator = { creator: { family: "gpt" as const, model: "m", role: "r" }, judge_family: "claude" as const };
+    const claudeCreator = { creator: { family: "claude" as const, model: "m", role: "r" }, judge_family: "gpt" as const };
+    expect(gptOutputAllowed(gptCreator, "expert", "ux-ui.json")).toBe(true);
+    expect(gptOutputAllowed(gptCreator, "text", "draft-konzilium.md")).toBe(true);
+    expect(gptOutputAllowed(claudeCreator, "review", "zapracovani-kontrola.json")).toBe(true);
+    expect(gptOutputAllowed(claudeCreator, "judge", "soudce-a1.json")).toBe(true);
+    for (const [run, schema, f] of [
+      [gptCreator, "expert", "rada.json"],
+      [gptCreator, "expert", "brand-strateg.json"], // Claude card
+      [gptCreator, "advocate", "advokat.json"],
+      [gptCreator, "review", "zapracovani-kontrola.json"], // judge family is Claude
+      [gptCreator, "review", "zapracovani.json"],
+      [claudeCreator, "text", "draft-konzilium.md"],
+      [claudeCreator, "judge", "soudce-a2.json"],
+      [claudeCreator, "expert", "run.json"],
+    ] as const)
+      expect(gptOutputAllowed(run, schema, f), `${schema} ${f}`).toBe(false);
+  });
+
+  it("sestavení balíčku nevěří řídicím souborům na disku (rada.json, zapracovani.json) a vše přepočítá", async () => {
+    const { result } = await runWorkflow({ out: { "zapracovani-kontrola.json": JSON.stringify({ verdict: "FIX", findings: [{ severity: "high", file: null, line: null, text: "x" }] }) } });
+    expect(result.status).toBe("WAITING_OWNER");
+    const k = path.join(dir, "konzilium");
+    fs.rmSync(path.join(dir, "decision.json"));
+    fs.writeFileSync(path.join(k, "zapracovani.json"), JSON.stringify({ accepted: true, verdict: "PASS", issues: [] }));
+    const rada = JSON.parse(fs.readFileSync(path.join(k, "rada.json"), "utf8"));
+    rada.experts = rada.experts.map((e: Record<string, unknown>) => ({ ...e, verdict: "PALEC", summary: "podvrženo" }));
+    fs.writeFileSync(path.join(k, "rada.json"), JSON.stringify(rada));
+    const io = { stdin: async () => "", now: () => "", gptDeps: () => ({ run: async () => ({ ok: false, text: "", limit: false }), model: () => "" }), panelDeps: () => ({ sink: { upsert: async () => "x" } }) } as BridgeIO;
+    const r = await main(["assemble", "--out", dir, "--attempt", "0"], io);
+    expect(r).toMatchObject({ ok: true });
+    const pkg = readDecision();
+    expect(pkg.drafts.revised).toBeUndefined();
+    expect(pkg.experts.some((e) => e.summary === "podvrženo")).toBe(false);
+  });
+
+  it("hook: velikost písmen, jiný nebo uzavřený běh a přepis existujícího souboru se zablokují", () => {
+    const k = path.join(dir, "konzilium");
+    fs.mkdirSync(k, { recursive: true });
+    expect(guard("advokat", W(path.join(k, "advokat.json")))).toBe(2); // no run.json = not a prepared run
+    fs.writeFileSync(path.join(k, "run.json"), "{}");
+    expect(guard("advokat", { tool_name: "Read", tool_input: { file_path: path.join(os.homedir(), ".tars/KONZILIUM-KEYS/a.key") } })).toBe(2);
+    expect(guard("advokat", { tool_name: "Read", tool_input: { file_path: path.join(k, "UX-UI.JSON.META.JSON") } })).toBe(2);
+    expect(guard("advokat", W(path.join(k, "ADVOKAT.JSON")))).toBe(2);
+    fs.writeFileSync(path.join(k, "advokat.json"), "{}");
+    expect(guard("advokat", W(path.join(k, "advokat.json")))).toBe(2); // no overwrite
+    fs.rmSync(path.join(k, "advokat.json"));
+    fs.writeFileSync(path.join(dir, "decision.json"), "{}");
+    expect(guard("advokat", W(path.join(k, "advokat.json")))).toBe(2); // finished run
+  });
+
+  it("args s tajemstvím: workflow skončí dřív, než je uvidí jakýkoli agent; chyby nevypisují surové vstupy", async () => {
+    const { result, calls } = await runWorkflow({ args: { mission: `M ghp_${"d".repeat(36)}` } });
+    expect(result.status).toBe("FAILED");
+    expect(calls).toHaveLength(0);
+    const leak = `tajny-model-${"e".repeat(10)}`;
+    const r = prep(dir, { out_dir: dir, draft: "draft-v1.md", creator_family: "gpt", creator_model: leak, brief: BRIEF } as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).not.toContain(leak);
+    // the workflow carries the same secret patterns as the bridge
+    const { src } = loadWorkflow();
+    const block = /const SECRET_PATTERNS = \[\n([\s\S]*?)\n\]/.exec(src)![1];
+    const script = new Function(`return [\n${block}\n]`)() as RegExp[];
+    expect(script.map(String)).toEqual(PATTERNS.map(([, re]) => String(re)));
+  });
+
+  it("podpis původu váže obsah přes SHA-256: kolize FNV-1a obsah vyměnit nedovolí", () => {
+    const r = prep(dir, { out_dir: dir, draft: "draft-v1.md", creator_family: "gpt", creator_model: "codex exec (gpt-6.1-sol)", brief: BRIEF } as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(true);
+    // find two different expert outputs with the same FNV-1a (birthday search)
+    const seen = new Map<string, string>();
+    let pair: [string, string] | undefined;
+    for (let i = 0; !pair && i < 2000000; i++) {
+      const text = JSON.stringify({ verdict: i % 2 ? "PALEC" : "VYHRADA", summary: `s${randomBytes(6).toString("hex")}`, changes: [] });
+      const h = fnv1a(text);
+      const prev = seen.get(h);
+      if (prev && JSON.parse(prev).verdict !== JSON.parse(text).verdict) pair = [prev, text];
+      else seen.set(h, text);
+    }
+    expect(pair).toBeDefined();
+    const f = path.join(dir, "konzilium", "brand-strateg.json");
+    fs.writeFileSync(f, pair![0]);
+    attest(dir, ["brand-strateg.json"]);
+    expect(provenFamily(f, "claude", r.run!.run_id)).toBeDefined();
+    fs.writeFileSync(f, pair![1]); // same FNV-1a, other verdict
+    expect(provenFamily(f, "claude", r.run!.run_id)).toBeUndefined();
+    expect(contentSha(pair![0])).not.toBe(contentSha(pair![1]));
   });
 });
 

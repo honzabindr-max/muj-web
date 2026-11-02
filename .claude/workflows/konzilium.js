@@ -21,6 +21,21 @@ const A = args && typeof args === 'object' ? args : {}
 const BRIDGE = 'npx tsx tars/orch/konzilium-bridge.ts'
 // Transport agent definition: tools Bash + Write, hook konzilium-guard allows only the .in file and bridge commands.
 const TRANSPORT = 'konzilium-transport'
+// Same patterns as PATTERNS in tars/orch/secret-scan.ts (a test keeps them identical). Args are checked here,
+// before the first agent sees them: a secret in any field never reaches a model.
+const SECRET_PATTERNS = [
+  /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/, // github_token
+  /\bsk-(proj-)?[A-Za-z0-9_-]{32,}\b/, // openai_key
+  /\bsk-ant-[A-Za-z0-9_-]{20,}\b/, // anthropic_key
+  /\b(secret_[A-Za-z0-9]{40,}|ntn_[A-Za-z0-9]{40,})\b/, // notion_token
+  /\bAKIA[0-9A-Z]{16}\b/, // aws_key
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/, // slack_token
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/, // private_key
+  /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // jwt
+  /\b(postgres(ql)?|mysql|mongodb(\+srv)?):\/\/[^\s:@/]+:[^\s@/]{6,}@/, // db_url_with_password
+  /\bhttps?:\/\/[^\s:@/]+:[^\s@/]{6,}@[^\s]+/, // proxy_url_with_password
+  /\b\d{8,10}:AA[A-Za-z0-9_-]{30,}\b/, // telegram_bot_token
+]
 const LINE_SCHEMA = { type: 'object', properties: { line: { type: 'string' } }, required: ['line'] }
 const ACK_SCHEMA = { type: 'object', properties: { written: { type: 'boolean' } }, required: ['written'] }
 
@@ -155,6 +170,7 @@ if (!OUT || typeof OUT !== 'string' || !OUT.startsWith('/')) return done('FAILED
 if (A.creator_family !== 'claude' && A.creator_family !== 'gpt')
   return done('NELZE_OVERIT', { reason: 'rodinu tvůrce nejde ověřit (args.creator_family musí být claude|gpt)' })
 const argsText = payload(JSON.stringify(A))
+if (SECRET_PATTERNS.some((re) => re.test(argsText))) return done('FAILED', { reason: 'secret-scan: args obsahují vzor tajemství — běh zastaven před prvním agentem' })
 const prep = await bridge('příprava', `prep --out ${sq(OUT)} --sha ${fnv1a(argsText)}`, argsText)
 if (!prep || !prep.ok) return done(prep && prep.status ? prep.status : 'FAILED', { reason: (prep && prep.error) || 'příprava selhala' })
 OUT = prep.out

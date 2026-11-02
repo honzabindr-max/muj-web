@@ -1,7 +1,8 @@
 // Secret scan over every model output before it is stored, committed or sent to Notion.
 // Patterns mirror ai-chain (TARS-ORCH-001 §6). A hit never prints the matched value.
 
-const PATTERNS: Array<[string, RegExp]> = [
+/** Exported so the /konzilium workflow script can carry an identical copy (checked by a test). */
+export const PATTERNS: Array<[string, RegExp]> = [
   [
     "github_token",
     /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/,

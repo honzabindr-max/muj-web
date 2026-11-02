@@ -27,7 +27,15 @@ OUTPUTS = {
 }
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 BRIDGE_RE = re.compile(r"^npx tsx tars/orch/konzilium-bridge\.ts [a-z-]+( [^\n;&|<>`$\\]*)?$")
-FORBIDDEN_RE = re.compile(r"konzilium-keys|\.meta\.json")
+FORBIDDEN_RE = re.compile(r"konzilium-keys|\.meta\.json", re.IGNORECASE)
+
+
+def canonical(p):
+    """Absolute, user-expanded, symlinks resolved (macOS file system is case-insensitive → compare case-insensitively)."""
+    try:
+        return os.path.realpath(os.path.expanduser(p))
+    except (OSError, ValueError):
+        return p
 
 
 def log(profile, tool, decision, target):
@@ -59,17 +67,26 @@ def main():
     target = str(inp.get("file_path") or inp.get("notebook_path") or inp.get("path") or inp.get("pattern") or "")
     command = str(inp.get("command") or "")
 
-    if FORBIDDEN_RE.search(target) or FORBIDDEN_RE.search(command):
+    if FORBIDDEN_RE.search(target) or FORBIDDEN_RE.search(canonical(target) if target else "") or FORBIDDEN_RE.search(command):
         deny(profile, tool, target or command, "klíče a záznamy o původu Konzilia jsou nedotknutelné")
 
     if tool in WRITE_TOOLS:
-        path = os.path.abspath(target)
-        parent = os.path.basename(os.path.dirname(path))
+        path = os.path.abspath(os.path.expanduser(target))
         name = os.path.basename(path)
-        if tool != "Write" or parent != "konzilium" or not any(re.fullmatch(p, name) for p in OUTPUTS[profile]):
-            deny(profile, tool, target, f"role {profile} smí zapsat jen svůj výstup v konzilium/ ({', '.join(OUTPUTS[profile])})")
-        if os.path.islink(path) or os.path.islink(os.path.dirname(path)):
+        kdir = os.path.dirname(path)
+        if os.path.islink(path) or os.path.islink(kdir):
             deny(profile, tool, target, "zápis přes symlink je zakázaný")
+        real_kdir = canonical(kdir)
+        if tool != "Write" or os.path.basename(real_kdir) != "konzilium" or not any(re.fullmatch(p, name) for p in OUTPUTS[profile]):
+            deny(profile, tool, target, f"role {profile} smí zapsat jen svůj výstup v konzilium/ ({', '.join(OUTPUTS[profile])})")
+        # Bound to a live run: the role output goes into a run prepared by the bridge (run.json), never into a
+        # finished run (decision.json next to konzilium/), and never over an existing file.
+        if os.path.exists(path):
+            deny(profile, tool, target, "výstup už existuje, přepis je zakázaný")
+        if os.path.exists(os.path.join(os.path.dirname(real_kdir), "decision.json")):
+            deny(profile, tool, target, "běh je uzavřený (decision.json), zápis je zakázaný")
+        if profile != "transport" and not os.path.exists(os.path.join(real_kdir, "run.json")):
+            deny(profile, tool, target, "složka není připravený běh Konzilia (chybí run.json)")
         log(profile, tool, "allow", target)
         sys.exit(0)
 

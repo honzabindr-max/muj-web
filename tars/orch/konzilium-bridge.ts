@@ -149,6 +149,11 @@ function macOf(sc: Omit<Sidecar, "mac">, key: string): string {
   return crypto.createHmac("sha256", key).update(fields).digest("hex");
 }
 
+/** SHA-256 of the content a provenance record vouches for (FNV-1a stays only a transport checksum). */
+export function contentSha(text: string): string {
+  return crypto.createHash("sha256").update(text, "utf8").digest("hex");
+}
+
 export function signSidecar(sc: Omit<Sidecar, "mac">): Sidecar {
   const key = runKey(sc.run_id);
   if (!key) throw new Error("chybí klíč běhu (prep ho nevytvořil)");
@@ -179,7 +184,7 @@ export const CLAUDE_AGENT_MODEL = "workflow /konzilium (Claude Opus)";
 export function provenFamily(file: string, expected: ModelFamily, runId: string): { family: ModelFamily; model: string } | undefined {
   const sc = readSidecar(file);
   if (!sc || sc.family !== expected || sc.run_id !== runId || !fs.existsSync(file)) return undefined;
-  if (sc.sha !== fnv1a(fs.readFileSync(file, "utf8"))) return undefined;
+  if (sc.sha !== contentSha(fs.readFileSync(file, "utf8"))) return undefined;
   const key = runKey(runId);
   if (!key || typeof sc.mac !== "string") return undefined;
   const { mac, ...rest } = sc;
@@ -208,7 +213,7 @@ export function attest(out: string, files: string[]): { ok: boolean; attested: s
       continue;
     }
     if (fs.existsSync(sidecarPath(file))) return { ok: false, attested, missing, error: `${f} už má záznam o původu` };
-    const sc = signSidecar({ family: "claude", model: CLAUDE_AGENT_MODEL, verified: true, role: f.replace(/\.(json|md)$/, ""), run_id: run.run_id, sha: fnv1a(fs.readFileSync(file, "utf8")) });
+    const sc = signSidecar({ family: "claude", model: CLAUDE_AGENT_MODEL, verified: true, role: f.replace(/\.(json|md)$/, ""), run_id: run.run_id, sha: contentSha(fs.readFileSync(file, "utf8")) });
     fs.writeFileSync(sidecarPath(file), JSON.stringify(sc, null, 2) + "\n", { flag: "wx" });
     attested.push(f);
   }
@@ -407,7 +412,7 @@ export function prep(out: string, args: RunArgs, now: string): PrepResult {
   const family = args.creator_family;
   if (family !== "claude" && family !== "gpt") return fail("NELZE_OVERIT", "rodinu tvůrce nejde ověřit: creator_family musí být claude|gpt");
   if (familyOf(args.creator_model) !== family)
-    return fail("NELZE_OVERIT", `rodinu tvůrce nejde ověřit: model „${args.creator_model ?? ""}“ neodpovídá rodině ${family}`);
+    return fail("NELZE_OVERIT", `rodinu tvůrce nejde ověřit: creator_model neodpovídá rodině ${family} (rozhoduje název modelu, ne CLI)`);
   if (!isBrief(args.brief)) return fail("FAILED", "brief musí mít title, milestone, why, goal, inputs[], acceptance[], owner_decisions[]");
   const kind = args.kind ?? "copy";
   if (kind !== "copy" && kind !== "prep") return fail("FAILED", "kind musí být copy|prep");
@@ -1001,6 +1006,11 @@ export interface AssembleResult {
 
 export function assemble(out: string, attempt: number): AssembleResult {
   const run = readRun(out);
+  // Never trust control files on disk: recompute the council and the revision check from verified outputs.
+  const c = council(out);
+  if (!c.ok) return { ok: false, status: c.status === "OK" ? "FAILED" : c.status, error: c.error ?? "rada neprošla" };
+  const rv = review(out);
+  if (!rv.ok) return { ok: false, status: rv.status, error: rv.error ?? "kontrola zapracování selhala" };
   const jc = judgeCheck(out, attempt);
   // A judge that fails the code check is never shown to the owner (PR #82: unknown, not a decision).
   if (!jc.ok || !jc.judge) return { ok: false, status: jc.status === "FAILED" ? "FAILED" : "NELZE_OVERIT", error: `soudce neprošel kontrolou kódu: ${jc.problems.slice(0, 5).join("; ")}` };
@@ -1157,6 +1167,16 @@ export function expandFiles(prompt: string): string {
   });
 }
 
+/** Allowed (schema, file) of a GPT step: GPT expert cards, the creator's revision, the check and the judge of the other family. */
+export function gptOutputAllowed(run: Pick<RunFile, "creator" | "judge_family">, schemaName: string, file: string): boolean {
+  const { cards } = loadCards();
+  if (schemaName === "expert") return EXPERT_ROLES.some((r) => cards[r]?.family === "gpt" && file === `${r}.json`);
+  if (schemaName === "text") return run.creator.family === "gpt" && file === "draft-konzilium.md";
+  if (schemaName === "review") return run.judge_family === "gpt" && file === "zapracovani-kontrola.json";
+  if (schemaName === "judge") return run.judge_family === "gpt" && /^soudce-a[01]\.json$/.test(file);
+  return false; // advocate is Claude; control files (rada, zapracovani, run, panel, decision) never
+}
+
 export interface GptDeps {
   run(prompt: string, opts: { cwd: string; outputSchema?: JsonSchema }): Promise<{ ok: boolean; text: string; limit: boolean; error?: string }>;
   model(): string;
@@ -1176,6 +1196,8 @@ export async function gpt(
   if (!OUTPUT_FILE_RE.test(file)) return fail("neplatný název výstupního souboru");
   if (fnv1a(payload(prompt)) !== sha) return fail("prompt se při přenosu změnil (sha nesedí) — GPT nevolán");
   const run = readRun(out);
+  // GPT may produce only the outputs of steps that belong to the GPT family in this run (never control files).
+  if (!gptOutputAllowed(run, schemaName, file)) return fail(`GPT nesmí v tomto běhu zapsat ${file} (schéma ${schemaName})`);
   const target = kfile(out, file);
   if (fs.existsSync(target) || fs.existsSync(sidecarPath(target))) return fail(`${file} už existuje — výstup se nepřepisuje`);
   const expanded = expandFiles(payload(prompt));
@@ -1191,7 +1213,7 @@ export async function gpt(
   const verified = isGptModel(model);
   const body = text.endsWith("\n") ? text : `${text}\n`;
   fs.writeFileSync(target, body, { flag: "wx" });
-  const sc = signSidecar({ family: "gpt", model, verified, role, run_id: run.run_id, sha: fnv1a(body), prompt_sha: sha });
+  const sc = signSidecar({ family: "gpt", model, verified, role, run_id: run.run_id, sha: contentSha(body), prompt_sha: sha });
   fs.writeFileSync(sidecarPath(target), JSON.stringify(sc, null, 2) + "\n", { flag: "wx" });
   return { ok: true, family: "gpt", model, verified };
 }
