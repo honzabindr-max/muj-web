@@ -149,7 +149,7 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
         model: this.checkerModel(),
         duration_ms: r.duration_ms,
       };
-    ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
+    ctx.store.writeFile(order.id, order.meta.check_file ?? `check-r${order.fix_rounds}.md`, r.text);
     const v = parseVerdict(r.text);
     if (!v)
       return {
@@ -195,6 +195,10 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
       family: this.creatorFamily,
       model: this.creatorModel(),
       role: "Rešeršér (tvůrce)",
+      verify: async (order: Order, draftFile: string) => {
+        const r = await this.check({ ...order, draft_file: draftFile, meta: { ...order.meta, check_file: "konzilium/zapracovani-check.md" } }, ctx);
+        return { ok: r.ok, limit: r.limit, error: r.error, verdict: r.verdict, issues: r.issues };
+      },
       revise: (order: Order, feedback: string) => {
         const draft = ctx.store.readFile(order.id, order.draft_file!);
         return this.creator.run(

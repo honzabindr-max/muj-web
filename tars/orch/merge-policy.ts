@@ -75,12 +75,24 @@ export function packageJsonDepsChanged(
   }
 }
 
+/**
+ * The approval gate itself (this policy, the decision card, secret scan). Changing a gate that already exists on
+ * the base branch is class B: TARS must never loosen its own approval rules alone. A PR that first introduces a gate
+ * cannot be governed by it yet (bootstrap) and is classified by the remaining rules.
+ */
+export const GATE_FILES = ["tars/orch/merge-policy.ts", "tars/orch/decision-card.ts", "tars/orch/secret-scan.ts"];
+
 export function classifyPaths(
   paths: string[],
   pkg?: { before?: string; after?: string },
+  gatesOnBase: string[] = GATE_FILES,
 ): Classification {
   const reasons: string[] = [];
   for (const p of paths) {
+    if (GATE_FILES.includes(p) && gatesOnBase.includes(p)) {
+      reasons.push(`${p}: schvalovací brána TARS (existuje na main)`);
+      continue;
+    }
     if (p === "package.json") {
       if (packageJsonDepsChanged(pkg?.before, pkg?.after))
         reasons.push(`${p}: změna závislostí (nebo nelze ověřit)`);
@@ -149,6 +161,8 @@ export type MergeResult =
 export interface MergeDeps {
   exec: Exec;
   cwd: string;
+  /** TARS-GUARD; checked right before every mutation (ready / update-branch / merge). No guard = no merge. */
+  guard?: () => { alarm: boolean; summary: string };
   /** Reviewer of ANOTHER model family than the PR author. */
   reviewer: TextAdapter;
   sleep?: (ms: number) => Promise<void>;
@@ -207,7 +221,10 @@ export class MergeRunner {
       const a = this.d.exec("git", ["show", `${info.headRefOid}:package.json`], this.d.cwd);
       pkg = { before: b.code === 0 ? b.out : undefined, after: a.code === 0 ? a.out : undefined };
     }
-    return classifyPaths(info.files, pkg);
+    // Which gate files already exist on the base branch (see GATE_FILES).
+    this.d.exec("git", ["fetch", "-q", "origin", info.baseRefName], this.d.cwd);
+    const gates = GATE_FILES.filter((f) => this.d.exec("git", ["cat-file", "-e", `origin/${info.baseRefName}:${f}`], this.d.cwd).code === 0);
+    return classifyPaths(info.files, pkg, gates);
   }
 
   /** PR diff + its hash; the approval binds to this hash. */
@@ -281,6 +298,17 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
     }
     const binding: ReviewBinding = opts.binding ?? { head: info.headRefOid, diff_sha256: diff.sha };
     if (cls === "B" && !opts.ownerGo) return { status: "owner", cls: "B", reasons, review: reviewText, binding, log };
+    const guardOk = (): string | undefined => {
+      if (!this.d.guard) return "TARS-GUARD není zapojený — bez něj žádný merge";
+      try {
+        const g = this.d.guard();
+        return g.alarm ? `TARS-GUARD ALARM: ${g.summary}` : undefined;
+      } catch (e) {
+        return `TARS-GUARD selhal: ${(e as Error).message}`;
+      }
+    };
+    const g0 = guardOk();
+    if (g0) return { status: "blocked", reason: g0, log };
     // Content must not have moved between review and merge.
     const again = this.info(pr);
     if (again.headRefOid !== info.headRefOid) return { status: "blocked", reason: "head PR se změnil během review", log };
@@ -307,6 +335,8 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
       if (Date.now() > deadline) return { status: "pending", reason: `CI běží: ${now.pending.join(", ")}`, log };
       await sleep(30_000);
     }
+    const g1 = guardOk();
+    if (g1) return { status: "blocked", reason: g1, log };
     const m = this.gh(["pr", "merge", String(pr), "--squash", "--delete-branch", "--match-head-commit", head]);
     log.push(`gh pr merge --squash --delete-branch --match-head-commit ${head.slice(0, 7)}: exit ${m.code}`);
     // --delete-branch may fail locally (branch checked out in a worktree) after the remote merge succeeded.

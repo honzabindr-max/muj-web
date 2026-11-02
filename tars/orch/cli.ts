@@ -75,7 +75,7 @@ function build(): Orchestrator {
   const sources = new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache"));
   return new Orchestrator({
     konzilium: new Konzilium({ cards: new CardRegistry(path.join(cardsDir, "konzilium")), adapters: { claude: opus, gpt: codex }, loadSources: (k) => sources.loadAll(k), now: () => new Date() }),
-    merge: new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer: codex }),
+    merge: new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer: codex, guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot) }),
     cards,
     ladder: { browserReady, desktopReady: () => desktop.preflight(), hasCli: defaultHasCli },
     store,
@@ -172,10 +172,12 @@ async function main() {
     case "merge": {
       // DR-024 for any PR: class A → TARS merges after green CI + PASS review by GPT; class B → refuses (owner card).
       const [pr, fam] = args;
-      if (!pr) throw new Error("usage: merge <pr-number> [author-family claude|gpt]");
-      const author = fam === "gpt" ? "gpt" : "claude";
+      // Author family must be stated explicitly (no default): the reviewer is always the OTHER family.
+      if (!pr || (fam !== "claude" && fam !== "gpt")) throw new Error("usage: merge <pr-number> <author-family claude|gpt>");
+      const author = fam;
       const reviewer = author === "claude" ? new SecretScanningAdapter(new CodexCli()) : new SecretScanningAdapter(new ClaudeCli("opus"));
-      const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer }).run(pr, author, { waitMs: 25 * 60_000 });
+      const guard = () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot);
+      const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer, guard }).run(pr, author, { waitMs: 25 * 60_000 });
       // Review text is evidence: stored locally (gitignored runs/), issues printed.
       const review = "review" in r ? r.review : undefined;
       if (review) {

@@ -7,6 +7,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  claudeArgs,
   dosahToolOpts,
   type AdapterResult,
   type RunOpts,
@@ -791,7 +792,9 @@ describe("merge policy DR-024", () => {
   }
   const reviewer = (verdict: string, family: ModelFamily = "gpt", extra: Partial<AdapterResult> = {}) =>
     new Mock(family, "gpt-x", () => ({ text: J({ verdict, issues: verdict === "PASS" ? [] : ["x"] }), ...extra }));
-  const runner = (g: ReturnType<typeof fakeGh>, rv = reviewer("PASS")) => new MergeRunner({ exec: g.exec, cwd: "/", reviewer: rv, sleep: async () => {} });
+  const okGuard = () => ({ alarm: false, summary: "OK" });
+  const runner = (g: ReturnType<typeof fakeGh>, rv = reviewer("PASS"), guard: (() => { alarm: boolean; summary: string }) | undefined = okGuard) =>
+    new MergeRunner({ exec: g.exec, cwd: "/", reviewer: rv, sleep: async () => {}, guard });
 
   it("class A + green CI + PASS review of the other family → ready → update-branch → squash merge pinned to head", async () => {
     const g = fakeGh(["tars/orch/a.ts"], { behind: true });
@@ -870,5 +873,67 @@ describe("owner decisions (locks, blocked merge)", () => {
   });
   it("Dosah of Konzilium roles loads no MCP servers", () => {
     expect(dosahToolOpts([]).noMcp).toBe(true);
+  });
+});
+
+describe("review round 2 fixes", () => {
+  const files = (paths: string[]): Exec => (cmd, args) => {
+    if (args[0] === "api") return { code: 0, out: paths.map((p) => `${p}\t`).join("\n") };
+    if (args[0] === "pr" && args[1] === "view") return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", headRefOid: "a" }) };
+    if (args[0] === "pr" && args[1] === "checks") return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
+    if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: "d" };
+    if (cmd === "git" && args[0] === "cat-file") return { code: 0, out: "" }; // gate exists on base
+    return { code: 0, out: "" };
+  };
+  const pass = new Mock("gpt", "g", () => ({ text: J({ verdict: "PASS", issues: [] }) }));
+
+  it("TARS-GUARD ALARM or missing guard → no ready/update-branch/merge mutation", async () => {
+    const calls: string[] = [];
+    const ex: Exec = (c, a, w) => (calls.push(a.slice(0, 2).join(" ")), files(["tars/orch/a.ts"])(c, a, w));
+    const alarm = await new MergeRunner({ exec: ex, cwd: "/", reviewer: pass, guard: () => ({ alarm: true, summary: "I4" }) }).run(1, "claude");
+    expect(alarm).toMatchObject({ status: "blocked", reason: "TARS-GUARD ALARM: I4" });
+    const none = await new MergeRunner({ exec: ex, cwd: "/", reviewer: pass }).run(1, "claude");
+    expect(none.status).toBe("blocked");
+    const thrown = await new MergeRunner({ exec: ex, cwd: "/", reviewer: pass, guard: () => { throw new Error("x"); } }).run(1, "claude");
+    expect(thrown.status).toBe("blocked");
+    expect(calls.some((c) => /^(pr ready|pr update-branch|pr merge)/.test(c))).toBe(false);
+  });
+
+  it("changing an approval gate that exists on main is class B; introducing it (bootstrap) is not", () => {
+    expect(classifyPaths(["tars/orch/merge-policy.ts"], undefined, ["tars/orch/merge-policy.ts"]).cls).toBe("B");
+    expect(classifyPaths(["tars/orch/decision-card.ts"]).cls).toBe("B");
+    expect(classifyPaths(["tars/orch/merge-policy.ts"], undefined, []).cls).toBe("A");
+  });
+
+  it("MergeRunner checks gates on the base branch", async () => {
+    const r = await new MergeRunner({ exec: files(["tars/orch/merge-policy.ts"]), cwd: "/", reviewer: pass, guard: () => ({ alarm: false, summary: "" }) }).run(1, "claude");
+    expect(r.status).toBe("owner");
+  });
+
+  it("Dosah = exact --tools set ('' for none) + --strict-mcp-config", () => {
+    const none = claudeArgs("opus", dosahToolOpts([]));
+    expect(none.slice(none.indexOf("--tools"), none.indexOf("--tools") + 2)).toEqual(["--tools", ""]);
+    expect(none).toContain("--strict-mcp-config");
+    const web = claudeArgs("opus", dosahToolOpts(["WebSearch", "WebFetch"]));
+    expect(web[web.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
+    expect(claudeArgs("sonnet", {})).not.toContain("--tools"); // transport keeps its own allowlist
+  });
+
+  it("model cannot dodge escalation with the reserved decision_key konverze-textu", () => {
+    const [q] = finalizeQuestions([{ question: "Je cena 1 990 Kč správně?", why: "x", touches: "none", decision_key: "konverze-textu" }], []);
+    expect(q.touches).toBe("sponsor");
+  });
+
+  it("revision that fails the original checks is dropped; the package stands on the checked draft", async () => {
+    const base = claudeResponder();
+    // copy checker (Claude) passes the original draft but FIXes the Konzilium revision
+    const { o } = build({ claude: (p, op) => (p.includes("Jsi KONTROLOR") && p.includes("Zapracování konzilia") ? { text: J({ verdict: "FIX", issues: ["cena změněna"] }) } : base(p, op)) });
+    await o.tick();
+    const main = store.listOrders().find((x) => x.brief?.department === "copy")!;
+    const pkg = readPackage(store.orderDir(main.id))!;
+    expect(main.state).toBe("WAITING_OWNER");
+    expect(pkg.drafts.revised).toBeUndefined();
+    expect(pkg.disputes[0]).toMatch(/neprošlo kontrolou/);
+    expect(fs.existsSync(path.join(store.orderDir(main.id), "konzilium", "zapracovani-check.md"))).toBe(true);
   });
 });

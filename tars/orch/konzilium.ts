@@ -219,7 +219,7 @@ export function finalizeQuestions(
   return out.map((q) => {
     const hits = questionHits(`${q.question} ${q.decision_key ?? ""}`);
     const touches =
-      q.touches === "none" && hits.length && q.decision_key !== "konverze-textu"
+      q.touches === "none" && hits.length && !(q.mandatory && q.decision_key === "konverze-textu")
         ? "sponsor"
         : q.touches;
     return {
@@ -518,6 +518,8 @@ export interface KonziliumCreator {
   role: string;
   /** Creator incorporates the feedback; returns the revised draft text. */
   revise(order: Order, feedback: string): Promise<AdapterResult>;
+  /** Same checks as the original draft (deterministic + checker of the other family). Not PASS = revision dropped. */
+  verify?(order: Order, draftFile: string): Promise<{ ok: boolean; limit?: boolean; error?: string; verdict?: string; issues?: string[] }>;
 }
 
 export type KonziliumOutcome =
@@ -712,6 +714,23 @@ export class Konzilium {
       revised = r.text;
       fs.writeFileSync(path.join(dir, "draft-konzilium.md"), revised);
     }
+    // 3a': the revision passes the same checks as the original draft, else it is dropped (original stays).
+    const revisionIssues: string[] = [];
+    if (creator.verify) {
+      let v = this.cached(dir, "zapracovani-kontrola.json");
+      if (v === undefined) {
+        const r = await creator.verify(order, `${KONZILIUM_DIR}/draft-konzilium.md`);
+        log({ role: "creator", model: "kontrola zapracování", family: creator.family === "claude" ? "gpt" : "claude", result: r.verdict ?? (r.ok ? "ok" : "error"), reason: r.error ?? r.issues?.join(" | ").slice(0, 300) });
+        if (!r.ok && r.limit) return { ok: false, limit: true, error: `kontrola zapracování: ${r.error}` };
+        v = JSON.stringify(r);
+        fs.writeFileSync(path.join(dir, "zapracovani-kontrola.json"), v);
+      }
+      const r = JSON.parse(v) as { ok: boolean; verdict?: string; issues?: string[]; error?: string };
+      if (!r.ok || r.verdict !== "PASS") {
+        revisionIssues.push(`Zapracování konzilia neprošlo kontrolou (${r.verdict ?? r.error ?? "chyba"}: ${(r.issues ?? []).join("; ").slice(0, 300)}) — balíček stojí na původním zkontrolovaném draftu.`);
+        revised = draft;
+      }
+    }
 
     // 3b: judge of the other family than the creator; code verifies quotes + structure (1 retry).
     const judgeFamily: ModelFamily =
@@ -765,7 +784,7 @@ export class Konzilium {
       };
 
     const ethics = verdicts.find((v) => v.role === "eticky-strazce");
-    const disputes = [...parsed.disputes];
+    const disputes = [...revisionIssues, ...parsed.disputes];
     if (
       ethics?.ok &&
       ethics.verdict !== "PALEC" &&
@@ -804,7 +823,7 @@ export class Konzilium {
       honest_note: HONEST_NOTE,
       drafts: {
         original: draftFile,
-        revised: `${KONZILIUM_DIR}/draft-konzilium.md`,
+        revised: revisionIssues.length ? undefined : `${KONZILIUM_DIR}/draft-konzilium.md`,
         notion: order.delivered_url,
       },
       prep_orders: [],

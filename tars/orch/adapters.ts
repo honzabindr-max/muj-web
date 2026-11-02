@@ -16,16 +16,29 @@ export interface RunOpts {
   disallowedTools?: string[];
   /** claude only: load no MCP servers at all (`--strict-mcp-config` without configs). */
   noMcp?: boolean;
+  /** claude only: the COMPLETE available built-in tool set (`--tools`); [] = no tools at all. */
+  tools?: string[];
 }
 
 /** Built-in Claude Code tools. A card's Dosah allows a subset; the rest is disallowed explicitly. */
 export const CLAUDE_BUILTIN_TOOLS = ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Read", "Glob", "Grep", "WebSearch", "WebFetch", "Task", "Agent", "TodoWrite"];
 
 /** Dosah → CLI flags: allowed tools from the card, every other built-in tool disallowed. */
-export function dosahToolOpts(allowed: string[]): Pick<RunOpts, "allowedTools" | "disallowedTools" | "noMcp"> {
+export function dosahToolOpts(allowed: string[]): Pick<RunOpts, "allowedTools" | "disallowedTools" | "noMcp" | "tools"> {
   const allow = allowed.filter((t) => CLAUDE_BUILTIN_TOOLS.includes(t));
   // MCP servers are never part of a Konzilium/research Dosah → none are loaded.
-  return { allowedTools: allow, disallowedTools: CLAUDE_BUILTIN_TOOLS.filter((t) => !allow.includes(t)), noMcp: true };
+  // `--tools` is the hard limit of what exists in the session; the disallow list stays as defence in depth.
+  return { tools: allow, allowedTools: allow, disallowedTools: CLAUDE_BUILTIN_TOOLS.filter((t) => !allow.includes(t)), noMcp: true };
+}
+
+/** CLI arguments for the Claude adapter (exported for tests: the exact flags are the enforcement). */
+export function claudeArgs(model: string, opts: Omit<RunOpts, "cwd">): string[] {
+  const args = ["-p", "--model", model, "--output-format", "json"];
+  if (opts.tools) args.push("--tools", opts.tools.join(","));
+  if (opts.allowedTools?.length) args.push("--allowedTools", opts.allowedTools.join(","));
+  if (opts.disallowedTools?.length) args.push("--disallowedTools", opts.disallowedTools.join(","));
+  if (opts.noMcp) args.push("--strict-mcp-config");
+  return args;
 }
 
 export interface AdapterResult {
@@ -114,12 +127,7 @@ export class ClaudeCli implements TextAdapter {
     this.name = `claude -p --model ${model}`;
   }
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
-    const args = ["-p", "--model", this.model, "--output-format", "json"];
-    if (opts.allowedTools?.length)
-      args.push("--allowedTools", opts.allowedTools.join(","));
-    if (opts.disallowedTools?.length)
-      args.push("--disallowedTools", opts.disallowedTools.join(","));
-    if (opts.noMcp) args.push("--strict-mcp-config");
+    const args = claudeArgs(this.model, opts);
     const r = await runProcess(
       "claude",
       args,

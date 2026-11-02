@@ -63,6 +63,8 @@ export interface DepartmentRunner {
     model: string;
     role: string;
     revise(order: Order, feedback: string): Promise<AdapterResult>;
+    /** Re-runs the department's deterministic checks + checker of the other family on the revised draft. */
+    verify(order: Order, draftFile: string): Promise<{ ok: boolean; limit?: boolean; error?: string; verdict?: string; issues?: string[] }>;
   };
 }
 
@@ -202,7 +204,7 @@ DRAFT>>>
 ${VERDICT_FORMAT}`;
     const r = await this.checker.run(prompt, { cwd: ctx.store.orderDir(order.id) });
     if (!r.ok) return fromAdapter(r, this.checkerModel());
-    ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
+    ctx.store.writeFile(order.id, order.meta.check_file ?? `check-r${order.fix_rounds}.md`, r.text);
     const v = parseVerdict(r.text);
     if (!v) return { ok: false, error: "checker verdict unparseable", model: this.checkerModel(), duration_ms: r.duration_ms };
     return { ...fromAdapter(r, this.checkerModel()), verdict: v.verdict, issues: v.issues };
@@ -223,6 +225,10 @@ ${VERDICT_FORMAT}`;
       family: this.creatorFamily,
       model: this.creatorModel(),
       role: "Copy Studio (tvůrce)",
+      verify: async (order: Order, draftFile: string) => {
+        const r = await this.check({ ...order, draft_file: draftFile, meta: { ...order.meta, check_file: "konzilium/zapracovani-check.md" } }, ctx);
+        return { ok: r.ok, limit: r.limit, error: r.error, verdict: r.verdict, issues: r.issues };
+      },
       revise: (order: Order, feedback: string) => {
         const draft = ctx.store.readFile(order.id, order.draft_file!);
         const extra = `\nKROK KONZILIUM (TARS-ORCH-001 §2e bod 3): zapracuj připomínky rady do DRAFTu.\n<<<DRAFT\n${draft}\nDRAFT>>>\n\n${feedback}`;
