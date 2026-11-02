@@ -6,8 +6,10 @@
 // soudce je jiné rodiny než tvůrce, rada je mix Claude + GPT. Rodina, kterou nejde ověřit = „Nelze ověřit“, nikdy PASS.
 //
 // Použití (volají ho jen agenti workflow, jeden příkaz = jeden řádek JSON na stdout):
-//   npx tsx tars/orch/konzilium-bridge.ts prep --out <dir> --sha <fnv>          (stdin: args workflow jako JSON)
-//   npx tsx tars/orch/konzilium-bridge.ts gpt --out <dir> --role <r> --schema <s> --file <f> --sha <fnv>   (stdin: prompt)
+//   npx tsx tars/orch/konzilium-bridge.ts prep --out <dir> --sha <fnv> --in <soubor>   (soubor: args workflow jako JSON)
+//   npx tsx tars/orch/konzilium-bridge.ts gpt --out <dir> --role <r> --schema <s> --file <f> --sha <fnv> --in <soubor>   (soubor: prompt)
+// Vstupní soubor zapisuje transportní agent nástrojem Write do <dir>/konzilium/.in-<fnv>.txt (Bash odmítá heredoc
+// se složenými závorkami a uvozovkami); most ho přijme jen se shodným součtem a po přečtení smaže. Bez --in čte stdin.
 //   npx tsx tars/orch/konzilium-bridge.ts council --out <dir>
 //   npx tsx tars/orch/konzilium-bridge.ts review --out <dir>
 //   npx tsx tars/orch/konzilium-bridge.ts judge-check --out <dir> --attempt <n>
@@ -1011,6 +1013,7 @@ function flag(argv: string[], name: string): string | undefined {
 
 export interface BridgeIO {
   stdin(): Promise<string>;
+  readIn?(file: string): string;
   gptDeps(): GptDeps;
   panelDeps(out: string): PanelDeps;
   now(): string;
@@ -1035,6 +1038,17 @@ const realIO: BridgeIO = {
   now: () => new Date().toISOString(),
 };
 
+/** Payload of prep/gpt: the --in file (only <out>/konzilium/.in-<sha>.txt, removed after reading) or stdin. */
+async function input(rest: string[], out: string, io: BridgeIO): Promise<string> {
+  const f = flag(rest, "in");
+  if (!f) return io.stdin();
+  const expected = path.join(kdir(out), `.in-${flag(rest, "sha") ?? ""}.txt`);
+  if (path.resolve(f) !== expected) throw new Error("--in musí být <out>/konzilium/.in-<sha>.txt");
+  const text = io.readIn ? io.readIn(f) : fs.readFileSync(f, "utf8");
+  fs.rmSync(f, { force: true });
+  return text;
+}
+
 export async function main(argv: string[], io: BridgeIO = realIO): Promise<Record<string, unknown>> {
   const [cmd, ...rest] = argv;
   const out = flag(rest, "out");
@@ -1042,7 +1056,7 @@ export async function main(argv: string[], io: BridgeIO = realIO): Promise<Recor
   const attempt = Number(flag(rest, "attempt") ?? "0");
   switch (cmd) {
     case "prep": {
-      const raw = payload(await io.stdin());
+      const raw = payload(await input(rest, out, io));
       if (fnv1a(raw) !== flag(rest, "sha")) return { ok: false, status: "FAILED", error: "args se při přenosu změnily (sha nesedí)" };
       let args: RunArgs;
       try {
@@ -1072,7 +1086,7 @@ export async function main(argv: string[], io: BridgeIO = realIO): Promise<Recor
       };
     }
     case "gpt":
-      return (await gpt(out, flag(rest, "role") ?? "", flag(rest, "schema") ?? "", flag(rest, "file") ?? "", flag(rest, "sha") ?? "", await io.stdin(), io.gptDeps())) as unknown as Record<string, unknown>;
+      return (await gpt(out, flag(rest, "role") ?? "", flag(rest, "schema") ?? "", flag(rest, "file") ?? "", flag(rest, "sha") ?? "", await input(rest, out, io), io.gptDeps())) as unknown as Record<string, unknown>;
     case "council":
       return council(out) as unknown as Record<string, unknown>;
     case "review":

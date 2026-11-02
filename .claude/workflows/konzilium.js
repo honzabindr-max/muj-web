@@ -55,13 +55,30 @@ function done(status, extra) {
   return r
 }
 
-/** Transport: one bridge command through one agent; returns the parsed JSON line (never trusted for family evidence). */
+/**
+ * Transport: one bridge command through one agent; returns the parsed JSON line (never trusted for family evidence).
+ * A payload (args, GPT prompt) goes through a file written with the Write tool: Bash refuses heredocs with braces and
+ * quotes. The bridge accepts the file only when its FNV-1a matches the --sha the script computed.
+ */
 async function bridge(label, cmd, stdin) {
-  const body = stdin === undefined ? '' : ` <<'KONZILIUM_STDIN_EOF'\n${payload(stdin)}\nKONZILIUM_STDIN_EOF`
-  const full = `${BRIDGE} ${cmd}${body}`
+  let full = `${BRIDGE} ${cmd}`
+  let writeStep = ''
+  if (stdin !== undefined) {
+    const p = payload(stdin)
+    const inFile = `${OUT}/konzilium/.in-${fnv1a(p)}.txt`
+    full += ` --in ${sq(inFile)}`
+    writeStep = `1. Nástrojem Write zapiš do souboru ${inFile} PŘESNĚ text mezi značkami VSTUP_START a VSTUP_KONEC (bez značek, beze změny jediného znaku, nic nepřidávej).
+
+VSTUP_START
+${p}
+VSTUP_KONEC
+
+2. `
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await agent(
-      `Jsi transportní vrstva workflow /konzilium, ne autor. V kořeni repozitáře spusť nástrojem Bash PŘESNĚ příkaz mezi značkami PRIKAZ_START a PRIKAZ_KONEC (beze změny jediného znaku, včetně textu mezi značkami KONZILIUM_STDIN_EOF). Nic jiného nespouštěj, nic neopravuj, nic nepřidávej.
+      `Jsi transportní vrstva workflow /konzilium, ne autor. Nic nehodnotíš, nic neopravuj, nic nepřidávej.
+${writeStep}V kořeni repozitáře spusť nástrojem Bash PŘESNĚ příkaz mezi značkami PRIKAZ_START a PRIKAZ_KONEC (beze změny jediného znaku). Nic jiného nespouštěj.
 
 PRIKAZ_START
 ${full}

@@ -191,14 +191,21 @@ async function runWorkflow(sc: Scenario = {}) {
     const schema = opts.schema as { properties?: Record<string, unknown> };
     if (schema?.properties?.line) {
       const cmd = /PRIKAZ_START\n([\s\S]*?)\nPRIKAZ_KONEC/.exec(prompt)![1];
-      const m = /^([^\n]*?)(?: <<'KONZILIUM_STDIN_EOF'\n([\s\S]*)\nKONZILIUM_STDIN_EOF)?$/.exec(cmd)!;
-      const argv = shellSplit(m[1]);
+      expect(cmd).not.toMatch(/\n|<</); // one line, no heredoc (Bash refuses braces + quotes in heredocs)
+      const argv = shellSplit(cmd);
       expect(argv.slice(0, 3)).toEqual(["npx", "tsx", "tars/orch/konzilium-bridge.ts"]);
       const file = argv[argv.indexOf("--file") + 1];
-      let stdin = m[2] ?? "";
-      if (sc.tamperGptPrompt && argv[3] === "gpt") stdin = stdin.replace("Konziliu", "Konzíliu");
+      // the Write step of the transport agent
+      const w = /zapiš do souboru (\/\S+) PŘESNĚ[\s\S]*?\nVSTUP_START\n([\s\S]*?)\nVSTUP_KONEC/.exec(prompt);
+      if (w) {
+        let text = w[2];
+        if (sc.tamperGptPrompt && argv[3] === "gpt") text = text.replace("Konziliu", "Konzíliu");
+        expect(argv[argv.indexOf("--in") + 1]).toBe(w[1]);
+        fs.mkdirSync(path.dirname(w[1]), { recursive: true });
+        fs.writeFileSync(w[1], text);
+      }
       const io: BridgeIO = {
-        stdin: async () => stdin,
+        stdin: async () => "",
         now: () => "2026-11-02T19:00:00.000Z",
         gptDeps: () => ({
           run: async (p, o) => {
@@ -299,6 +306,7 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
     expect(rows[0]["Poslední krok"]).toBe("Konzilium doporučuje „Verze“. Směr A je nejjasnější.");
     expect(archives).toEqual([`KARTA (archiv) — TEST Konzilium (${path.basename(dir)})`]);
     expect(result).toMatchObject({ panel_row: "row123", link: "https://app.notion.com/p/archiv123" });
+    expect(fs.readdirSync(path.join(dir, "konzilium")).filter((f) => f.startsWith(".in-"))).toEqual([]); // inputs removed
   });
 
   it("tvůrce Claude → soudce i kontrolor jsou GPT (codex --output-schema), Claude soudce se nespustí", async () => {

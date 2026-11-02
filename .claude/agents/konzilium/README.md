@@ -41,7 +41,7 @@ Výsledek workflow: `{status, order, decision, panel_row, link, sentence, reason
 - Rada je mix rodin (karty: 3× Claude, 2× GPT). Most odmítne karty, které mix nedrží.
 - Kontrolor zapracování a soudce jsou jiné rodiny než tvůrce.
 - GPT je prokázaný jen tehdy, když `codex exec` nahlásil model OpenAI (`gpt-…`, `o…`). Most k výstupu zapíše `<soubor>.meta.json`. Claude role zapisuje výstup sama (bez meta souboru). Jiný model nebo chybějící důkaz znamená `Nelze ověřit`, nikdy PASS.
-- Prompty pro GPT a args přenáší transportní agent do příkazu. Most je přijme jen se shodným kontrolním součtem FNV-1a, který spočítal skript (ochrana proti přepsání nebo zkrácení, ne kryptografický podpis).
+- Prompty pro GPT a args zapisuje transportní agent nástrojem Write do `konzilium/.in-<součet>.txt` (Bash odmítá heredoc se složenými závorkami a uvozovkami). Most soubor přijme jen se shodným kontrolním součtem FNV-1a, který spočítal skript, a po přečtení ho smaže. Je to ochrana proti přepsání nebo zkrácení, ne kryptografický podpis.
 
 ## Soubory
 
