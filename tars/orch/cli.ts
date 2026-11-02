@@ -188,6 +188,14 @@ async function main() {
         fs.writeFileSync(f, review);
         console.log(`review: ${f}`);
       }
+      if (r.status === "owner" || r.status === "blocked") {
+        // DR-024 class B / blocked → visual card for the owner (GO on the card makes TARS merge).
+        const url = JSON.parse(realExec("gh", ["pr", "view", pr, "--json", "url"], repoRoot).out).url as string;
+        const orch = build();
+        const card = orch.openMergeCard(pr, url, author, r);
+        await orch.flushPanel();
+        console.log(`karta: ${process.env.TARS_PANEL_URL ?? "http://127.0.0.1:4747"}/rozhodnuti/${card.id}`);
+      }
       console.log(JSON.stringify({ ...r, review: undefined }, null, 2));
       process.exitCode = r.status === "merged" ? 0 : 3;
       return;

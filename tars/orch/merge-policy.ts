@@ -88,7 +88,13 @@ export function packageJsonDepsChanged(
  * the base branch is class B: TARS must never loosen its own approval rules alone. A PR that first introduces a gate
  * cannot be governed by it yet (bootstrap) and is classified by the remaining rules.
  */
-export const GATE_FILES = ["tars/orch/merge-policy.ts", "tars/orch/decision-card.ts", "tars/orch/secret-scan.ts"];
+export const GATE_FILES = [
+  "tars/orch/merge-policy.ts",
+  "tars/orch/decision-card.ts",
+  "tars/orch/owner-gate.ts",
+  "tars/orch/dosah.ts",
+  "tars/orch/secret-scan.ts",
+];
 
 export function classifyPaths(
   paths: string[],
@@ -335,11 +341,15 @@ Vrať POUZE JSON v bloku \`\`\`json: {"verdict":"PASS"|"FIX"|"BLOCK","issues":["
     const again = this.info(pr);
     if (again.headRefOid !== info.headRefOid) return { status: "blocked", reason: "head PR se změnil během review", log };
     if (info.isDraft) {
+      const gr = guardOk();
+      if (gr) return { status: "blocked", reason: gr, log };
       const r = this.gh(["pr", "ready", String(pr)]);
       log.push(`gh pr ready: ${r.code === 0 ? "ok" : r.out.slice(0, 120)}`);
     }
     let head = info.headRefOid;
     if (info.mergeStateStatus === "BEHIND") {
+      const gu = guardOk();
+      if (gu) return { status: "blocked", reason: gu, log };
       const r = this.gh(["pr", "update-branch", String(pr)]);
       log.push(`gh pr update-branch: ${r.code === 0 ? "ok" : r.out.slice(0, 120)}`);
       if (r.code !== 0) return { status: "blocked", reason: "update-branch selhal", log };

@@ -82,23 +82,10 @@ export class Store {
     }
   }
 
-  /** Per-order lock (e.g. owner decision); exclusive create, stale after staleMs. */
-  acquireOrderLock(id: string, name: string, staleMs = 60 * 60 * 1000): boolean {
-    const f = path.join(this.orderDir(id), `.${name}.lock`);
-    try {
-      fs.writeFileSync(f, String(process.pid), { flag: "wx" });
-      return true;
-    } catch {
-      if (Date.now() - fs.statSync(f).mtimeMs > staleMs) {
-        fs.rmSync(f, { force: true });
-        return this.acquireOrderLock(id, name, staleMs);
-      }
-      return false;
-    }
-  }
-
-  releaseOrderLock(id: string, name: string): void {
-    fs.rmSync(path.join(this.runsDir, id, `.${name}.lock`), { force: true });
+  /** state.json or undefined (no throw). */
+  tryLoad(id: string): Order | undefined {
+    const f = path.join(this.runsDir, id, "state.json");
+    return fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, "utf8")) as Order) : undefined;
   }
 
   releaseLock(): void {

@@ -45,6 +45,7 @@ import {
 } from "../merge-policy";
 import type { NotionClient } from "../notion";
 import { Orchestrator, SecretScanningAdapter } from "../orchestrator";
+import { lockOrder } from "../owner-gate";
 import { DecisionPrepDepartment, prepDeterministicIssues } from "../prep";
 import { SourceLoader } from "../sources";
 import { transition } from "../state-machine";
@@ -867,9 +868,10 @@ describe("owner decisions (locks, blocked merge)", () => {
   it("concurrent decisions: a held per-order lock refuses the second decision", async () => {
     const st = waiting("wo-c");
     const o = orchFor(st);
-    expect(st.acquireOrderLock("wo-c", "owner")).toBe(true);
+    const rel = lockOrder(st.orderDir("wo-c"));
+    expect(rel).toBeTruthy();
     await expect(o.owner("wo-c", "REJECT")).rejects.toThrow(/rozhoduje jinde/);
-    st.releaseOrderLock("wo-c", "owner");
+    rel!();
     expect((await o.owner("wo-c", "REJECT")).state).toBe("FAILED");
     await expect(o.owner("wo-c", "REJECT")).rejects.toThrow(/nečeká/);
   });
@@ -989,10 +991,77 @@ describe("review round 3 fixes", () => {
     const a = new Mock("claude", "o", () => ({}));
     const g = new Mock("gpt", "g", () => ({}));
     const o = new Orchestrator({ store: st, supervisor: a, briefChecker: g, departments: {}, cards: new CardRegistry(CARDS_DIR), ladder: { hasCli: () => true, browserReady: () => ({ ok: false, reasons: [] }), desktopReady: () => ({ ok: false, reasons: [] }) }, notion: new MockNotion(), guard: () => ({ alarm: false, summary: "" }), draftParentId: "p", repoRoot: "/", capsulePath: "/x" });
-    st.acquireOrderLock("wo-l", "owner");
+    const rel2 = lockOrder(st.orderDir("wo-l"));
     expect(() => o.supersede("wo-l", "x", false)).toThrow(/rozhoduje/);
     expect(() => o.abort("wo-l", "x")).toThrow(/rozhoduje/);
-    st.releaseOrderLock("wo-l", "owner");
+    rel2!();
     expect(o.supersede("wo-l", "x", false).state).toBe("SUPERSEDED");
+  });
+});
+
+describe("review round 4 fixes", () => {
+  it("lock: exclusive, stale recovery by one process only, release only by owner token", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-lk-"));
+    const a = lockOrder(d)!;
+    expect(lockOrder(d)).toBeUndefined();
+    a();
+    const b = lockOrder(d)!;
+    // stale: backdate the file → exactly one of two recoverers wins
+    const f = path.join(d, ".owner.lock");
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(f, old, old);
+    const r1 = lockOrder(d);
+    const r2 = lockOrder(d);
+    expect([Boolean(r1), Boolean(r2)]).toEqual([true, false]);
+    b(); // old owner's release must not remove the new lock
+    expect(lockOrder(d)).toBeUndefined();
+    r1!();
+  });
+
+  it("supersede while a tick holds the run lock is refused; stale transition after supersede is dropped (CAS)", async () => {
+    const { o } = build();
+    store.save({ id: "wo-s", mission: "m", state: "WAITING_OWNER", created_at: NOW, updated_at: NOW, fix_rounds: 0, manual_interventions: 0, history: [], meta: {} });
+    expect(store.acquireLock()).toBe(true);
+    expect(() => o.supersede("wo-s", "x", false)).toThrow(/tick/);
+    store.releaseLock();
+    const before = store.load("wo-s");
+    o.supersede("wo-s", "x", false);
+    // a tick still holding the old object tries to apply a transition → refused
+    const apply = (o as unknown as { apply: (x: Order, e: unknown) => Order }).apply.bind(o);
+    expect(() => apply(before, { type: "owner", decision: "GO" })).toThrow(/mezitím změnila/);
+    expect(store.load("wo-s").state).toBe("SUPERSEDED");
+  });
+
+  it("guard is checked before EACH mutation: ALARM after ready stops update-branch", async () => {
+    let n = 0;
+    const calls: string[] = [];
+    const ex: Exec = (cmd, args) => {
+      calls.push(`${cmd} ${args.slice(0, 2).join(" ")}`);
+      if (args[0] === "api") return { code: 0, out: "tars/orch/a.ts\t" };
+      if (args[0] === "pr" && args[1] === "view") return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: "main", baseRefOid: "b", isDraft: true, mergeStateStatus: "BEHIND", state: "OPEN", headRefOid: "a" }) };
+      if (args[0] === "pr" && args[1] === "checks") return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
+      if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: "d" };
+      return { code: 0, out: "" };
+    };
+    const pass = new Mock("gpt", "g", () => ({ text: J({ verdict: "PASS", issues: [] }) }));
+    const r = await new MergeRunner({ exec: ex, cwd: "/", reviewer: pass, guard: () => ({ alarm: n++ >= 2, summary: "ALARM" }) }).run(1, "claude");
+    expect(r.status).toBe("blocked");
+    expect(calls).toContain("gh pr ready");
+    expect(calls).not.toContain("gh pr update-branch");
+  });
+
+  it("CLI path: class-B result opens a WAITING_OWNER merge card; GO requires the stored author family + binding", async () => {
+    const { o } = build();
+    const card = o.openMergeCard("77", "https://github.com/x/y/pull/77", "claude", { status: "owner", cls: "B", reasons: ["app/x"], binding: { head: "h", diff_sha256: "s" }, log: [] });
+    expect(card.state).toBe("WAITING_OWNER");
+    const pkg = readPackage(store.orderDir(card.id))!;
+    expect([pkg.kind, pkg.merge?.author_family, pkg.merge?.binding?.diff_sha256]).toEqual(["merge", "claude", "s"]);
+    await expect(o.owner(card.id, "GO")).rejects.toThrow(/merge runner/); // no runner wired in this test
+    expect(store.load(card.id).state).toBe("WAITING_OWNER");
+  });
+
+  it("new gate modules are listed as class-B gates once on main", () => {
+    expect(classifyPaths(["tars/orch/owner-gate.ts"]).cls).toBe("B");
+    expect(classifyPaths(["tars/orch/dosah.ts"]).cls).toBe("B");
   });
 });

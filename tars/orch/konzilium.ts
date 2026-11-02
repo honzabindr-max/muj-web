@@ -116,6 +116,8 @@ export interface DecisionPackage {
     binding?: { head: string; diff_sha256: string };
     /** Automatic merge was blocked (CI/review): GO is not offered, only REJECT. */
     blocked?: boolean;
+    /** Model family that wrote the PR (the reviewer is always the other one). */
+    author_family?: "claude" | "gpt";
   };
   notion_archive_url?: string;
   owner_decision?: { choice: OwnerChoice; at: string; via: string };
