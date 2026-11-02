@@ -60,6 +60,7 @@ const payload = (s) => String(s).replace(/\s+$/, '')
 const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 
 let OUT = A.out_dir
+let ORDER = null // only the id the bridge returned after its checks, never raw args.order
 let currentPhase = 'Příprava'
 const trail = []
 function step(text) {
@@ -67,7 +68,7 @@ function step(text) {
   log(text)
 }
 function done(status, extra) {
-  const r = Object.assign({ status, order: A.order || null, decision: null, panel_row: null, link: null, sentence: null, reason: null, steps: trail }, extra || {})
+  const r = Object.assign({ status, order: ORDER, decision: null, panel_row: null, link: null, sentence: null, reason: null, steps: trail }, extra || {})
   if (status !== 'WAITING_OWNER') log(`Konzilium skončilo: ${status}${r.reason ? ` — ${r.reason}` : ''}`)
   return r
 }
@@ -174,6 +175,7 @@ if (SECRET_PATTERNS.some((re) => re.test(argsText))) return done('FAILED', { rea
 const prep = await bridge('příprava', `prep --out ${sq(OUT)} --sha ${fnv1a(argsText)}`, argsText)
 if (!prep || !prep.ok) return done(prep && prep.status ? prep.status : 'FAILED', { reason: (prep && prep.error) || 'příprava selhala' })
 OUT = prep.out
+ORDER = prep.order
 const C = prep.cards
 const CREATOR = prep.creator.family
 const OTHER = prep.judge_family

@@ -151,6 +151,8 @@ interface Scenario {
   /** file name → content written by a Claude role / returned by GPT */
   out?: Partial<Record<string, string | ((n: number) => string)>>;
   tamperGptPrompt?: boolean;
+  /** GPT reply other than the default success (e.g. a failed codex call) */
+  gptReply?: (file: string) => { ok: boolean; text: string; limit: boolean; error?: string } | undefined;
   panel?: boolean;
   draft?: string;
 }
@@ -165,6 +167,15 @@ beforeEach(() => {
   fs.writeFileSync(path.join(dir, "sources", "handoff.md"), "HANDOFF: otevřená rozhodnutí č. 1 a 2.");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+/** A run prepared by the bridge and marked active (what prep writes for the guard hook). */
+function activate(k: string, runId = "0000beef") {
+  fs.mkdirSync(k, { recursive: true });
+  fs.writeFileSync(path.join(k, "run.json"), JSON.stringify({ run_id: runId }));
+  const keys = process.env.TARS_KONZILIUM_KEYS!;
+  fs.mkdirSync(keys, { recursive: true });
+  fs.writeFileSync(path.join(keys, "active.json"), JSON.stringify({ run_id: runId, kdir: fs.realpathSync(k) }));
+}
 
 const BRIEF = {
   title: "TEST – nabídka Hloubkové analýzy",
@@ -227,7 +238,7 @@ async function runWorkflow(sc: Scenario = {}) {
         gptDeps: () => ({
           run: async (p, o) => {
             gptCalls.push({ file, prompt: p, schema: o.outputSchema });
-            return { ok: true, text: content(file), limit: false };
+            return sc.gptReply?.(file) ?? { ok: true, text: content(file), limit: false };
           },
           model: () => (typeof sc.gptModel === "function" ? sc.gptModel(file) : (sc.gptModel ?? "gpt-6.1-sol")),
         }),
@@ -458,7 +469,7 @@ describe("kolo 3: nálezy 2. kontroly GPT", () => {
   it("nález 1: hook dovolí každé roli zapsat jen její výstup, transportu jen vstupní soubor a příkaz mostu", () => {
     const k = path.join(dir, "konzilium");
     fs.mkdirSync(k, { recursive: true });
-    fs.writeFileSync(path.join(k, "run.json"), "{}"); // a run prepared by the bridge
+    activate(k); // a run prepared by the bridge
     expect(guard("advokat", W(path.join(k, "advokat.json")))).toBe(0);
     expect(guard("tvurce", W(path.join(k, "draft-konzilium.md")))).toBe(0);
     expect(guard("kontrolor", W(path.join(k, "zapracovani-kontrola.json")))).toBe(0);
@@ -481,7 +492,7 @@ describe("kolo 3: nálezy 2. kontroly GPT", () => {
     expect(guard("advokat", { tool_name: "Read", tool_input: { file_path: path.join(k, "ux-ui.json.meta.json") } })).toBe(2);
     expect(guard("advokat", { tool_name: "Read", tool_input: { file_path: path.join(dir, "draft-v1.md") } })).toBe(0);
     expect(guard("advokat", { tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/konzilium-bridge.ts council --out '/x'" } })).toBe(2);
-    expect(guard("transport", { tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/konzilium-bridge.ts council --out '/x'" } })).toBe(0);
+    expect(guard("transport", { tool_name: "Bash", tool_input: { command: `npx tsx tars/orch/konzilium-bridge.ts council --out '${dir}'` } })).toBe(0);
     for (const c of ["npx tsx tars/orch/konzilium-bridge.ts council --out '/x'; rm -rf /", "cat ~/.tars/konzilium-keys/a.key", "npx tsx tars/orch/konzilium-bridge.ts council --out $(id)", "echo hi"])
       expect(guard("transport", { tool_name: "Bash", tool_input: { command: c } }), c).toBe(2);
     const sym = path.join(k, "brand-strateg.json");
@@ -612,7 +623,7 @@ describe("kolo 3b: nálezy 3. kontroly GPT", () => {
     const k = path.join(dir, "konzilium");
     fs.mkdirSync(k, { recursive: true });
     expect(guard("advokat", W(path.join(k, "advokat.json")))).toBe(2); // no run.json = not a prepared run
-    fs.writeFileSync(path.join(k, "run.json"), "{}");
+    activate(k);
     expect(guard("advokat", { tool_name: "Read", tool_input: { file_path: path.join(os.homedir(), ".tars/KONZILIUM-KEYS/a.key") } })).toBe(2);
     expect(guard("advokat", { tool_name: "Read", tool_input: { file_path: path.join(k, "UX-UI.JSON.META.JSON") } })).toBe(2);
     expect(guard("advokat", W(path.join(k, "ADVOKAT.JSON")))).toBe(2);
@@ -659,6 +670,98 @@ describe("kolo 3b: nálezy 3. kontroly GPT", () => {
     fs.writeFileSync(f, pair![1]); // same FNV-1a, other verdict
     expect(provenFamily(f, "claude", r.run!.run_id)).toBeUndefined();
     expect(contentSha(pair![0])).not.toBe(contentSha(pair![1]));
+  });
+});
+
+describe("kolo 4: nálezy 4. kontroly GPT", () => {
+  const guard = (profile: string, input: Record<string, unknown>) =>
+    spawnSync("python3", [path.join(ROOT, ".claude/hooks/konzilium-guard.py"), profile], { input: JSON.stringify(input), env: { ...process.env } }).status;
+  const W = (file_path: string) => ({ tool_name: "Write", tool_input: { file_path, content: "{}" } });
+  const B = (command: string) => ({ tool_name: "Bash", tool_input: { command: `npx tsx tars/orch/konzilium-bridge.ts ${command}` } });
+  const ARGS4 = { out_dir: "", draft: "draft-v1.md", creator_family: "gpt", creator_model: "codex exec (gpt-6.1-sol)", brief: BRIEF, sources: [{ key: "handoff", path: "sources/handoff.md" }] };
+
+  it("nález 1: most vloží do promptu GPT jen soubory běhu; klíč ani nic mimo běh nepředá, ani přes odkaz v .in souboru", async () => {
+    const r = prep(dir, { ...ARGS4, out_dir: dir } as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(true);
+    const keyFile = path.join(process.env.TARS_KONZILIUM_KEYS!, `${r.run!.run_id}.key`);
+    const key = fs.readFileSync(keyFile, "utf8").trim();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "mimo-"));
+    fs.writeFileSync(path.join(outside, "cizi.md"), "CIZI-OBSAH-MIMO-BEH");
+    fs.symlinkSync(keyFile, path.join(dir, "odkaz.md")); // symlink inside out_dir pointing at the key
+    fs.writeFileSync(path.join(dir, "konzilium", "brand-strateg.json.meta.json"), "META-OBSAH");
+    const refs = [keyFile, path.join(outside, "cizi.md"), path.join(dir, "odkaz.md"), path.join(dir, "konzilium", "brand-strateg.json.meta.json"), "relativni.md"];
+    const prompt = [`Draft {{FILE:${path.join(dir, "draft-v1.md")}}}`, `Zdroj {{FILE:${path.join(dir, "sources", "handoff.md")}}}`, `Karta {{CARD:${path.join(CARDS, "ux-ui.md")}}}`, ...refs.map((f) => `X {{FILE:${f}}}`)].join("\n");
+    let sent = "";
+    const deps = { run: async (p: string) => ((sent = p), { ok: true, text: expert(), limit: false }), model: () => "gpt-6.1-sol" };
+    // the prompt arrives exactly like from the transport: through the .in file of this run
+    const inFile = path.join(dir, "konzilium", `.in-${fnv1a(prompt)}.txt`);
+    fs.writeFileSync(inFile, prompt);
+    const io = { stdin: async () => "", now: () => "", gptDeps: () => deps, panelDeps: () => ({ sink: { upsert: async () => "x" } }) } as BridgeIO;
+    const res = await main(["gpt", "--out", dir, "--role", "ux-ui", "--schema", "expert", "--file", "ux-ui.json", "--sha", fnv1a(prompt), "--in", inFile], io);
+    expect(res, JSON.stringify(res)).toMatchObject({ ok: true });
+    expect(sent).toContain("HANDOFF: otevřená rozhodnutí");
+    expect(sent).toContain(DRAFT.trim().split("\n")[0]);
+    expect(sent).not.toContain("{{CARD:");
+    for (const leak of [key, "CIZI-OBSAH-MIMO-BEH", "META-OBSAH"]) expect(sent).not.toContain(leak);
+    expect(sent.match(/UNKNOWN \(soubor/g)).toHaveLength(refs.length);
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("nález 2: hook váže zápis i --out příkazu mostu na aktivní běh — běh A nezapíše do běhu B", () => {
+    const a = path.join(dir, "beh-a");
+    const b = path.join(dir, "beh-b");
+    activate(path.join(b, "konzilium"), "bbbbbbbb");
+    activate(path.join(a, "konzilium"), "aaaaaaaa"); // A is the active run now
+    expect(guard("advokat", W(path.join(a, "konzilium", "advokat.json")))).toBe(0);
+    expect(guard("advokat", W(path.join(b, "konzilium", "advokat.json")))).toBe(2);
+    expect(guard("transport", W(path.join(b, "konzilium", ".in-0000beef.txt")))).toBe(2);
+    expect(guard("transport", W(path.join(dir, "beh-c", "konzilium", ".in-0000beef.txt")))).toBe(0); // fresh folder: input of prep
+    // B pretending to carry A's run ID does not help: the active run is bound to its folder
+    fs.writeFileSync(path.join(b, "konzilium", "run.json"), JSON.stringify({ run_id: "aaaaaaaa" }));
+    expect(guard("soudce", W(path.join(b, "konzilium", "soudce-a0.json")))).toBe(2);
+    expect(guard("transport", B(`council --out '${a}'`))).toBe(0);
+    expect(guard("transport", B(`attest --out '${b}' --files advokat.json`))).toBe(2);
+    expect(guard("transport", B(`gpt --out '${a}' --out '${b}' --role x --schema expert --file ux-ui.json --sha 0000beef`))).toBe(2);
+    expect(guard("transport", B(`assemble --attempt 0`))).toBe(2);
+    expect(guard("transport", B(`prep --out '${path.join(dir, "beh-c")}' --sha 0000beef`))).toBe(0); // prep creates a run
+    // prep marks the run it prepared as the active one
+    const r = prep(dir, { ...ARGS4, out_dir: dir } as never, "2026-11-02T19:00:00.000Z");
+    const active = JSON.parse(fs.readFileSync(path.join(process.env.TARS_KONZILIUM_KEYS!, "active.json"), "utf8"));
+    expect(active).toEqual({ run_id: r.run!.run_id, kdir: fs.realpathSync(path.join(dir, "konzilium")) });
+    expect(guard("advokat", W(path.join(dir, "konzilium", "advokat.json")))).toBe(0);
+    expect(guard("advokat", W(path.join(a, "konzilium", "prodejni-psycholog.json")))).toBe(2);
+  });
+
+  it("nález 3: výsledek workflow nese jen ID zakázky ověřené mostem, nikdy surové args.order", async () => {
+    const token = `ghp_${"f".repeat(36)}`;
+    const bad = await runWorkflow({ args: { order: `zakazka-${token}` } });
+    expect(bad.result.status).toBe("FAILED");
+    expect(bad.result.order).toBeNull();
+    expect(JSON.stringify(bad.result)).not.toContain(token);
+    const early = await runWorkflow({ creatorFamily: "", args: { order: "zakazka-123" } });
+    expect(early.result.status).toBe("NELZE_OVERIT");
+    expect(early.result.order).toBeNull();
+    const good = await runWorkflow({ args: { order: "zakazka-123" } });
+    expect(good.result).toMatchObject({ status: "WAITING_OWNER", order: "zakazka-123" });
+  });
+
+  it("nález 4: chybová odpověď GPT s tajemstvím je fatální a tajemství se dál nepředá", async () => {
+    const token = `ghp_${"c".repeat(36)}`;
+    const r = prep(dir, { ...ARGS4, out_dir: dir } as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(true);
+    const deps = { run: async () => ({ ok: false, text: "", limit: false, error: `codex: 401 token ${token}` }), model: () => "gpt-6.1-sol" };
+    const { gpt } = await import("../konzilium-bridge");
+    const res = await gpt(dir, "ux-ui", "expert", "ux-ui.json", fnv1a("P"), "P", deps);
+    expect(res).toMatchObject({ ok: false, fatal: true, error: expect.stringMatching(/^secret-scan/) });
+    expect(JSON.stringify(res)).not.toContain(token);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(path.join(dir, "sources"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "draft-v1.md"), DRAFT);
+    fs.writeFileSync(path.join(dir, "sources", "handoff.md"), "HANDOFF: otevřená rozhodnutí č. 1 a 2.");
+    const wf = await runWorkflow({ gptReply: (file) => (file === "ux-ui.json" ? { ok: false, text: "", limit: false, error: `selhalo ${token}` } : undefined) });
+    expect(wf.result.status).toBe("FAILED");
+    expect(JSON.stringify(wf.result)).not.toContain(token);
+    expect(fs.existsSync(path.join(dir, "decision.json"))).toBe(false);
   });
 });
 

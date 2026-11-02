@@ -7,11 +7,15 @@ Transportní agent smí zapsat jen vstupní soubor `.in-<8 hex>.txt` a spustit j
 `npx tsx tars/orch/konzilium-bridge.ts <příkaz> …`. Nikdo z nich nesmí číst ani psát klíče
 Konzilia (`konzilium-keys`) a záznamy o původu (`*.meta.json`). Blokuje se exit kódem 2.
 
+Zápis i příkazy mostu (`--out`) jsou vázané na jediný aktivní běh: ten, který naposledy připravil most
+(`konzilium-keys/active.json` = složka a ID běhu; `run.json` v cílové složce musí nést stejné ID).
+
 Použití: python3 konzilium-guard.py <profil>   (vstup hooku = JSON na stdin)
 """
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
@@ -36,6 +40,24 @@ def canonical(p):
         return os.path.realpath(os.path.expanduser(p))
     except (OSError, ValueError):
         return p
+
+
+def same(a, b):
+    """Path equality; macOS file systems are case-insensitive."""
+    return a.casefold() == b.casefold() if sys.platform == "darwin" else a == b
+
+
+def bound_to_active(real_kdir):
+    """True when real_kdir is the konzilium/ folder of the active run and its run.json carries the active run ID."""
+    keys = os.environ.get("TARS_KONZILIUM_KEYS") or os.path.join(os.path.expanduser("~"), ".tars", "konzilium-keys")
+    try:
+        with open(os.path.join(keys, "active.json"), encoding="utf-8") as f:
+            active = json.load(f)
+        with open(os.path.join(real_kdir, "run.json"), encoding="utf-8") as f:
+            run_id = json.load(f).get("run_id")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool(run_id) and run_id == active.get("run_id") and same(real_kdir, canonical(str(active.get("kdir") or "")))
 
 
 def log(profile, tool, decision, target):
@@ -85,14 +107,24 @@ def main():
             deny(profile, tool, target, "výstup už existuje, přepis je zakázaný")
         if os.path.exists(os.path.join(os.path.dirname(real_kdir), "decision.json")):
             deny(profile, tool, target, "běh je uzavřený (decision.json), zápis je zakázaný")
-        if profile != "transport" and not os.path.exists(os.path.join(real_kdir, "run.json")):
-            deny(profile, tool, target, "složka není připravený běh Konzilia (chybí run.json)")
+        # Roles write only into the active run; the transport also into a fresh folder (input file of prep).
+        if (profile != "transport" or os.path.exists(os.path.join(real_kdir, "run.json"))) and not bound_to_active(real_kdir):
+            deny(profile, tool, target, "složka není aktivní běh Konzilia (jiný nebo nepřipravený běh)")
         log(profile, tool, "allow", target)
         sys.exit(0)
 
     if tool == "Bash":
         if profile != "transport" or not BRIDGE_RE.match(command.strip()):
             deny(profile, tool, command, "povolený je jen příkaz mostu npx tsx tars/orch/konzilium-bridge.ts")
+        try:
+            args = shlex.split(command.strip())
+        except ValueError:
+            deny(profile, tool, command, "nečitelný příkaz mostu")
+        # prep creates the run (the bridge refuses a folder with outputs); every other command only on the active run
+        if args[3] != "prep":
+            outs = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "--out"]
+            if len(outs) != 1 or not bound_to_active(os.path.join(canonical(outs[0]), "konzilium")):
+                deny(profile, tool, command, "--out musí být složka aktivního běhu Konzilia")
         log(profile, tool, "allow", command.split(" ")[3] if len(command.split(" ")) > 3 else command)
         sys.exit(0)
 

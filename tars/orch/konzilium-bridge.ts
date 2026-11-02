@@ -463,6 +463,8 @@ export function prep(out: string, args: RunArgs, now: string): PrepResult {
   fs.writeFileSync(run.brief_file, briefMarkdown(args.brief) + "\n");
   createRunKey(run.run_id);
   writeAtomic(kfile(out, "run.json"), JSON.stringify(run, null, 2) + "\n");
+  // The guard hook lets the roles write only into this run (A never into B): one active run per Mac.
+  writeAtomic(path.join(keysDir(), "active.json"), JSON.stringify({ run_id: run.run_id, kdir: fs.realpathSync(kdir(out)) }) + "\n");
   return { ok: true, status: "OK", run, cards, mandatory: mandatoryQuestions(args.brief).map((q) => q.question) };
 }
 
@@ -1157,12 +1159,31 @@ export async function panel(out: string, deps: PanelDeps): Promise<{ ok: boolean
 
 // ───────────────────────────── GPT (codex exec --output-schema, krok 1) ─────────────────────────────
 
-/** {{FILE:/abs}} → file content, {{CARD:/abs}} → definition without frontmatter (inlined like PR #82 prompts). */
-export function expandFiles(prompt: string): string {
+/**
+ * {{FILE:/abs}} → file content, {{CARD:/abs}} → definition without frontmatter (inlined like PR #82 prompts).
+ * Only files of this run: inside out_dir, or the run's own inputs (draft, creator card, sources) and the Konzilium
+ * cards. Keys, provenance records and anything else (also via a reference smuggled into the .in file) → UNKNOWN.
+ */
+export function expandFiles(prompt: string, out: string, run: RunFile): string {
+  const real = (p: string): string | undefined => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return undefined;
+    }
+  };
+  const inside = (f: string, dir: string | undefined) => !!dir && (f === dir || f.startsWith(dir + path.sep));
+  const root = real(out);
+  const cardsDir = real(KONZILIUM_CARDS_DIR);
+  const keys = real(keysDir());
+  const listed = new Set([run.draft, run.creator_card, ...run.sources.filter((s) => s.ok).map((s) => s.path)].map(real));
+  const allowed = (f: string) =>
+    !/konzilium-keys|\.meta\.json$/i.test(f) && !inside(f, keys) && (inside(f, root) || listed.has(f) || inside(f, cardsDir));
   return prompt.replace(/\{\{(FILE|CARD):([^}]+)\}\}/g, (_m, kind: string, p: string) => {
     const f = p.trim();
-    if (!path.isAbsolute(f) || !fs.existsSync(f)) return `UNKNOWN (soubor ${path.basename(f)} nejde načíst)`;
-    const t = fs.readFileSync(f, "utf8");
+    const r = path.isAbsolute(f) ? real(f) : undefined;
+    if (!r || !allowed(r) || !fs.statSync(r).isFile()) return `UNKNOWN (soubor ${path.basename(f)} nejde načíst)`;
+    const t = fs.readFileSync(r, "utf8");
     return kind === "CARD" ? stripFrontmatter(t) : t;
   });
 }
@@ -1200,10 +1221,12 @@ export async function gpt(
   if (!gptOutputAllowed(run, schemaName, file)) return fail(`GPT nesmí v tomto běhu zapsat ${file} (schéma ${schemaName})`);
   const target = kfile(out, file);
   if (fs.existsSync(target) || fs.existsSync(sidecarPath(target))) return fail(`${file} už existuje — výstup se nepřepisuje`);
-  const expanded = expandFiles(payload(prompt));
+  const expanded = expandFiles(payload(prompt), out, run);
   const sec = scanSecrets(expanded);
   if (!sec.clean) return fail(`secret-scan: vstup pro GPT obsahuje vzor ${sec.kinds.join(", ")} — GPT nevolán, běh zastaven`);
   const r = await deps.run(expanded, { cwd: kdir(out), outputSchema: SCHEMAS[schemaName] });
+  // a failed reply is scanned like a successful one: a secret in it stops the run and is never passed on
+  if (!scanSecrets(`${r.error ?? ""}\n${r.text ?? ""}`).clean) return fail("secret-scan: odpověď GPT obsahuje vzor tajemství — běh zastaven");
   if (!r.ok) return fail(r.error ?? "codex selhal", r.limit);
   if (!scanSecrets(r.text).clean) return fail("secret-scan: výstup GPT obsahuje vzor tajemství — běh zastaven");
   // free text (zapracovaný draft): a reply wrapped as one ```markdown block is unwrapped, nothing else changes

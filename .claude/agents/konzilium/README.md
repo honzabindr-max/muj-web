@@ -62,8 +62,10 @@ Výsledek workflow: `{status, order, decision, panel_row, link, sentence, reason
 ### Zbytkové riziko (poctivě)
 
 - Hook omezuje zápisy:
-  - každá role zapíše jen svůj výstup v připraveném běhu (`run.json`), ne v uzavřeném běhu (`decision.json`) a nikdy přes existující soubor;
+  - každá role zapíše jen svůj výstup v aktivním běhu, ne v uzavřeném běhu (`decision.json`) a nikdy přes existující soubor;
+  - aktivní je běh, který naposledy připravil most (`konzilium-keys/active.json`: složka + ID běhu, které musí sedět s `run.json`); stejně se váže `--out` příkazů mostu. Na jednom Macu proto běží najednou jen jedno Konzilium: druhý souběžný běh převezme aktivitu a první skončí chybou (bezpečně, nic nepodvrhne);
   - cesty se porovnávají kanonicky (bez symlinků, bez ohledu na velikost písmen).
+- Most vloží do promptu GPT jen soubory běhu (složka zakázky, vstupy z `run.json`, karty Konzilia); klíče, záznamy o původu a cokoli jiného nahradí `UNKNOWN`.
 - Čtení hook neomezuje jen na předané vstupy. Blokuje jen klíče a záznamy o původu, takže agent může číst ostatní soubory uživatele (na Macu je to stejné jako u každého sezení Claude Code).
 - Most nikdy nevěří řídicím souborům:
   - GPT smí zapsat jen výstup kroku své rodiny;
