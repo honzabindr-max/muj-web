@@ -230,7 +230,7 @@ describe("orchestrator (mock adapters)", () => {
     expect((await o.tick()).status).toBe("waiting_owner"); // no new order while card is open
     expect(supervisor.calls).toHaveLength(1);
     const [w] = store.listOrders();
-    expect(o.owner(w.id, "GO").state).toBe("DONE");
+    expect((await o.owner(w.id, "GO")).state).toBe("DONE");
   });
 
   it("FIX twice then PASS → creator revises with checker issues", async () => {

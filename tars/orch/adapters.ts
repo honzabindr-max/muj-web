@@ -12,6 +12,17 @@ export interface RunOpts {
   timeoutMs?: number;
   /** claude only: exact tool allowlist (e.g. Notion MCP). Empty = no tools. */
   allowedTools?: string[];
+  /** claude only: tools that must never run (Dosah of a card, enforced by the adapter). */
+  disallowedTools?: string[];
+}
+
+/** Built-in Claude Code tools. A card's Dosah allows a subset; the rest is disallowed explicitly. */
+export const CLAUDE_BUILTIN_TOOLS = ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Read", "Glob", "Grep", "WebSearch", "WebFetch", "Task", "Agent", "TodoWrite"];
+
+/** Dosah → CLI flags: allowed tools from the card, every other built-in tool disallowed. */
+export function dosahToolOpts(allowed: string[]): Pick<RunOpts, "allowedTools" | "disallowedTools"> {
+  const allow = allowed.filter((t) => CLAUDE_BUILTIN_TOOLS.includes(t));
+  return { allowedTools: allow, disallowedTools: CLAUDE_BUILTIN_TOOLS.filter((t) => !allow.includes(t)) };
 }
 
 export interface AdapterResult {
@@ -103,6 +114,8 @@ export class ClaudeCli implements TextAdapter {
     const args = ["-p", "--model", this.model, "--output-format", "json"];
     if (opts.allowedTools?.length)
       args.push("--allowedTools", opts.allowedTools.join(","));
+    if (opts.disallowedTools?.length)
+      args.push("--disallowedTools", opts.disallowedTools.join(","));
     const r = await runProcess(
       "claude",
       args,

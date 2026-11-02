@@ -1,11 +1,12 @@
 // Local live panel: `npm run tars:panel` → http://127.0.0.1:4747
 // Read-only view of runs/*/state.json, runs/log.jsonl and browser screenshots, refreshed every 5 s.
-// No buttons, no writes, no external dependencies, bound to localhost only.
+// No external dependencies, bound to localhost only. The only write: POST /rozhodnuti/<id> (decision-card.ts).
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { decisionRoute } from "./decision-card";
 import { Store } from "./store";
 import type { Order } from "./types";
 
@@ -89,7 +90,9 @@ load();setInterval(()=>load().catch(()=>{}),5000);
 </script></body></html>`;
 
 export function handler(root: string) {
+  const decision = decisionRoute(root);
   return (req: http.IncomingMessage, res: http.ServerResponse) => {
+    if (decision(req, res)) return;
     if (req.method !== "GET") {
       res.writeHead(405).end();
       return;

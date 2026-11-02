@@ -1,8 +1,9 @@
 // Deterministic order lifecycle (TARS-ORCH-001 §3).
-// NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE
-// side states: PAUSED (subscription limit), FAILED, UNKNOWN.
+// NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → [KONZILIUM] → WAITING_OWNER → DONE
+// side states: PAUSED (subscription limit), FAILED, UNKNOWN, SUPERSEDED (replaced by a newer recipe; not REJECT).
+// KONZILIUM (TARS-ORCH-001 §2e, DR-024) runs before WAITING_OWNER when the department has a Konzilium recipe.
 
-import type { Order, OrderState } from "./types";
+import type { Order, OrderState, OwnerChoice } from "./types";
 
 export const MAX_FIX_ROUNDS = 3;
 
@@ -12,8 +13,10 @@ export type OrderEvent =
   | { type: "created" }
   | { type: "verdict"; verdict: "PASS" | "FIX" | "BLOCK"; issues?: string[] }
   | { type: "revised" }
-  | { type: "delivered"; owner_needed: boolean }
-  | { type: "owner"; decision: "GO" | "REJECT" }
+  | { type: "delivered"; owner_needed: boolean; konzilium?: boolean }
+  | { type: "konzilium_done" }
+  | { type: "owner"; decision: OwnerChoice }
+  | { type: "supersede"; reason: string }
   | { type: "limit"; resume_after: string }
   | { type: "resume" }
   | { type: "fail"; reason: string }
@@ -28,6 +31,7 @@ const ACTIVE: readonly OrderState[] = [
   "CHECKING",
   "FIXING",
   "DELIVERED",
+  "KONZILIUM",
 ];
 
 function target(order: Order, ev: OrderEvent): OrderState {
@@ -54,11 +58,17 @@ function target(order: Order, ev: OrderEvent): OrderState {
       if (s === "FIXING") return "CHECKING";
       break;
     case "delivered":
-      if (s === "DELIVERED") return ev.owner_needed ? "WAITING_OWNER" : "DONE";
+      if (s === "DELIVERED") return ev.owner_needed ? (ev.konzilium ? "KONZILIUM" : "WAITING_OWNER") : "DONE";
+      break;
+    case "konzilium_done":
+      if (s === "KONZILIUM") return "WAITING_OWNER";
       break;
     case "owner":
       if (s === "WAITING_OWNER")
-        return ev.decision === "GO" ? "DONE" : "FAILED";
+        return ev.decision === "REJECT" ? "FAILED" : "DONE";
+      break;
+    case "supersede":
+      if (ACTIVE.includes(s) || s === "PAUSED" || s === "WAITING_OWNER") return "SUPERSEDED";
       break;
     case "limit":
       if (ACTIVE.includes(s)) return "PAUSED";
@@ -113,7 +123,11 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       if (!ev.preflight.ok) next.failure_reason = `preflight: ${ev.preflight.reasons.join("; ")}`.slice(0, 500);
       break;
     case "owner":
+      next.owner_choice = ev.decision;
       if (ev.decision === "REJECT") next.failure_reason = "owner REJECT";
+      break;
+    case "supersede":
+      next.failure_reason = `superseded: ${ev.reason}`.slice(0, 500);
       break;
     case "fail":
     case "unknown":
@@ -128,7 +142,7 @@ export function maxFix(order: Order): number {
 }
 
 export function isTerminal(s: OrderState): boolean {
-  return s === "DONE" || s === "FAILED" || s === "UNKNOWN";
+  return s === "DONE" || s === "FAILED" || s === "UNKNOWN" || s === "SUPERSEDED";
 }
 
 /** States where the orchestrator itself should act on the next tick. */

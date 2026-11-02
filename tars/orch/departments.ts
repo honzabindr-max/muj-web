@@ -55,6 +55,15 @@ export interface DepartmentRunner {
   alwaysOwner: boolean;
   /** Creator specialist card role (tars/orch/specialists/<mise>/<role>.md). */
   cardRole: string;
+  /** Konzilium recipe kind (§2e); undefined = department has no Konzilium in v0 (owner card directly). */
+  konzilium?: "copy" | "prep";
+  /** Creator in the Konzilium incorporation step (same creator as DOING, never the judge's family). */
+  konziliumCreator?(ctx: DeptContext): {
+    family: ModelFamily;
+    model: string;
+    role: string;
+    revise(order: Order, feedback: string): Promise<AdapterResult>;
+  };
 }
 
 export function briefMarkdown(b: OrderBrief): string {
@@ -117,6 +126,7 @@ export class CopyDepartment implements DepartmentRunner {
   name = "Copy a kreativa";
   alwaysOwner = false;
   cardRole = "copy-studio";
+  konzilium = "copy" as const;
   creatorFamily: ModelFamily;
   checkerFamily: ModelFamily;
   constructor(
@@ -206,6 +216,19 @@ ${VERDICT_FORMAT}`;
     const name = `draft-v${order.fix_rounds}.md`;
     ctx.store.writeFile(order.id, name, r.text);
     return { ...fromAdapter(r, this.creatorModel()), draft_file: name };
+  }
+
+  konziliumCreator(ctx: DeptContext) {
+    return {
+      family: this.creatorFamily,
+      model: this.creatorModel(),
+      role: "Copy Studio (tvůrce)",
+      revise: (order: Order, feedback: string) => {
+        const draft = ctx.store.readFile(order.id, order.draft_file!);
+        const extra = `\nKROK KONZILIUM (TARS-ORCH-001 §2e bod 3): zapracuj připomínky rady do DRAFTu.\n<<<DRAFT\n${draft}\nDRAFT>>>\n\n${feedback}`;
+        return this.creator.run(this.creatorPrompt(order.brief!, extra, orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id) });
+      },
+    };
   }
 
   async deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome> {

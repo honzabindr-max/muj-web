@@ -9,11 +9,13 @@ export const STATES = [
   "CHECKING",
   "FIXING",
   "DELIVERED",
+  "KONZILIUM",
   "WAITING_OWNER",
   "DONE",
   "PAUSED",
   "FAILED",
   "UNKNOWN",
+  "SUPERSEDED",
 ] as const;
 export type OrderState = (typeof STATES)[number];
 
@@ -21,11 +23,16 @@ export const TERMINAL_STATES: readonly OrderState[] = [
   "DONE",
   "FAILED",
   "UNKNOWN",
+  "SUPERSEDED",
 ];
 
 export type ModelFamily = "claude" | "gpt";
 
-export type Department = "dev" | "copy" | "vizual";
+/** "prep" = Příprava rozhodnutí (TARS-ORCH-001 §2e bod 1); only the Konzilium creates such orders. */
+export type Department = "dev" | "copy" | "vizual" | "prep";
+
+/** Owner choice on a decision card: GO = recommended version, ALT = the alternative. */
+export type OwnerChoice = "GO" | "ALT" | "REJECT";
 
 export type Verdict = "PASS" | "FIX" | "BLOCK";
 
@@ -80,6 +87,14 @@ export interface Order {
   owner_needed?: boolean;
   owner_reasons?: string[];
   failure_reason?: string;
+  /** Konzilium decision package (runs/<id>/decision.json) when the order went through §2e. */
+  decision_file?: string;
+  /** Owner's choice on the decision card (GO / ALT / REJECT). */
+  owner_choice?: OwnerChoice;
+  /** Příprava rozhodnutí: the order whose Konzilium asked the question. */
+  parent_order?: string;
+  /** Příprava rozhodnutí: stable key of the Sponsor decision (dedupe). */
+  decision_key?: string;
   /** Manual interventions by a human between NEW and DELIVERED (goal 0). */
   manual_interventions: number;
   history: StateTransitionRecord[];
@@ -91,7 +106,7 @@ export interface LogEntry {
   ts: string;
   order: string;
   kind: "transition" | "call" | "guard" | "secret_scan" | "info" | "error";
-  role?: "supervisor" | "creator" | "checker" | "transport" | "orchestrator";
+  role?: "supervisor" | "creator" | "checker" | "transport" | "orchestrator" | "advocate" | "expert" | "judge" | "merge";
   model?: string;
   family?: ModelFamily | "none";
   from?: OrderState;

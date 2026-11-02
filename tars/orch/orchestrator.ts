@@ -15,7 +15,16 @@ import { isActionable, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
 import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
 import { parseVerdict } from "./departments";
-import type { Department, LogEntry, Order } from "./types";
+import { archiveMarkdown, readPackage, writePackage, type AdvocateQuestion, type DecisionPackage, type Konzilium } from "./konzilium";
+import type { MergeRunner } from "./merge-policy";
+import { prepBrief } from "./prep";
+import type { Department, LogEntry, Order, OwnerChoice } from "./types";
+
+/** Base URL of the local panel; decision cards live at <base>/rozhodnuti/<id>. */
+export const PANEL_URL = process.env.TARS_PANEL_URL ?? "http://127.0.0.1:4747";
+export const decisionCardUrl = (id: string) => `${PANEL_URL}/rozhodnuti/${id}`;
+/** Max "Příprava rozhodnutí" orders one Konzilium may open (WIP stays bounded). */
+export const MAX_PREP_PER_KONZILIUM = 3;
 
 export interface OrchestratorDeps {
   store: Store;
@@ -35,6 +44,10 @@ export interface OrchestratorDeps {
   /** Canonical source loader (karta §2a bod 2). Without it, sources are UNKNOWN. */
   sources?: SourceLoader;
   mission?: string;
+  /** Konzilium (§2e). Without it, owner-bound orders go straight to WAITING_OWNER (old behaviour). */
+  konzilium?: Konzilium;
+  /** DR-024 merge policy for PRs (class A self-merge, class B owner card). */
+  merge?: MergeRunner;
   now?: () => Date;
   pauseMinutes?: number;
   maxStepsPerTick?: number;
@@ -229,7 +242,9 @@ export class Orchestrator {
       for (let i = 0; i < max && isActionable(order.state) && order.state !== "PAUSED"; i++) {
         // Re-check guard before anything leaves the machine.
         if (order.state === "DELIVERED" && this.d.guard().alarm) return { status: "guard_alarm", summary: "ALARM before delivery" };
-        order = await this.step(order);
+        const next = await this.step(order);
+        if (next === order) break; // no progress this tick (e.g. CI still running) — next tick continues
+        order = next;
       }
       if (order.state === "PAUSED") return { status: "paused", order: order.id, resume_after: order.resume_after! };
       if (order.state === "WAITING_OWNER") return { status: "waiting_owner", order: order.id };
@@ -267,6 +282,12 @@ export class Orchestrator {
           .listOrders()
           .filter((o) => o.id !== order.id && o.brief)
           .map((o) => `${o.id} [${o.state}] ${o.brief!.title}`);
+        // Owner superseded an order to be redone with the new recipe → it has priority (deterministic hint).
+        const redo = this.d.store.listOrders().find((o) => o.state === "SUPERSEDED" && o.meta.redo === "1" && !o.meta.redone_by && o.brief);
+        if (redo)
+          open.unshift(
+            `PŘEDNOST (vlastník): zakázka ${redo.id} „${redo.brief!.title}“ je SUPERSEDED, ne REJECT — vlastník chce stejnou práci znovu novým receptem s Konziliem (§2e). Navrhni ji znovu (stejné oddělení, milník a rozsah; zlepši zadání podle záznamu). Původní cíl: ${redo.brief!.goal}`,
+          );
         const avail = this.availability();
         this.d.store.writeFile(order.id, "availability.json", JSON.stringify(avail, null, 2));
         let handoff = "";
@@ -320,6 +341,7 @@ export class Orchestrator {
           this.d.store.writeFile(order.id, `brief-check-a${attempt}.md`, c.text);
           if (v?.verdict === "PASS") {
             this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
+            if (redo) this.d.store.save({ ...redo, meta: { ...redo.meta, redone_by: order.id } });
             return this.apply({ ...order, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `${brief.department}: ${brief.title}` });
           }
           issues = v?.issues ?? ["verdikt kontrolora nečitelný"];
@@ -370,12 +392,16 @@ export class Orchestrator {
           o = { ...o, delivered_url: r.url };
           this.d.store.save(o);
         }
-        const reasons = [
-          ...(dept!.alwaysOwner ? ["výstup je PR do main — merge dělá vlastník (DR-022)"] : []),
-          ...o.brief!.owner_decisions,
-          ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map((k) => `zadání se dotýká: ${k}`),
-        ];
-        const ownerNeeded = reasons.length > 0;
+        const sponsorReasons = [...o.brief!.owner_decisions, ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map((k) => `zadání se dotýká: ${k}`)];
+        // DR-024: a PR without Sponsor-reserved decisions goes through the merge policy (class A = TARS merges).
+        if (o.brief!.department === "dev" && this.d.merge && o.delivered_url && !sponsorReasons.length) return this.mergeStep(o, dept!);
+        const reasons = [...(dept!.alwaysOwner && o.brief!.department === "dev" ? ["výstup je PR do main — merge po GO vlastníka (DR-024 třída B)"] : []), ...sponsorReasons];
+        const ownerNeeded = reasons.length > 0 || (dept!.alwaysOwner && o.brief!.department !== "dev");
+        // §2e: every owner-bound output passes the Konzilium first (when the department has a recipe for it).
+        if (ownerNeeded && dept!.konzilium && this.d.konzilium) {
+          o = { ...o, owner_reasons: reasons };
+          return this.apply(o, { type: "delivered", owner_needed: true, konzilium: true }, { role: "orchestrator", result: o.delivered_url });
+        }
         if (ownerNeeded && !o.owner_card_url) {
           try {
             const card = await this.d.notion.createPage(this.d.draftParentId, `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`, ownerCard(o, reasons, dept!));
@@ -387,9 +413,119 @@ export class Orchestrator {
         }
         return this.apply(o, { type: "delivered", owner_needed: ownerNeeded }, { role: "orchestrator", result: o.delivered_url });
       }
+      case "KONZILIUM":
+        return this.konziliumStep(order, dept!);
       default:
         return order;
     }
+  }
+
+  /** §2e: advocate + council + incorporation + judge → decision.json, prep orders, Notion archive → WAITING_OWNER. */
+  private async konziliumStep(order: Order, dept: DepartmentRunner): Promise<Order> {
+    const k = this.d.konzilium!;
+    let pkg = readPackage(this.d.store.orderDir(order.id));
+    if (!pkg) {
+      const draft = this.d.store.readFile(order.id, order.draft_file!);
+      const r = await k.run(order, this.d.store.orderDir(order.id), draft, dept.konzilium!, dept.konziliumCreator!(this.ctx), order.draft_file!, (e) =>
+        this.log({ order: order.id, kind: "call", role: e.role, model: e.model, family: e.family, result: e.result, duration_ms: e.duration_ms, reason: e.reason }),
+      );
+      if (!r.ok) {
+        if (r.limit) return this.bad(order, { ok: false, limit: true, error: r.error }, "judge")!;
+        return this.apply(order, { type: r.unknown ? "unknown" : "fail", reason: r.error }, { role: "judge" });
+      }
+      pkg = r.pkg;
+      // Prep orders only from first-level orders (no recursion from a Příprava rozhodnutí).
+      if (order.brief!.department !== "prep") pkg = { ...pkg, ...this.openPrepOrders(order, pkg.advocate) };
+      writePackage(this.d.store.orderDir(order.id), pkg);
+    }
+    let o: Order = { ...order, decision_file: "decision.json" };
+    if (!pkg.notion_archive_url) {
+      try {
+        const card = await this.d.notion.createPage(this.d.draftParentId, `KARTA (archiv) — ${o.brief!.title} (${o.id})`, archiveMarkdown(pkg, decisionCardUrl(o.id)));
+        pkg = { ...pkg, notion_archive_url: card.url };
+        writePackage(this.d.store.orderDir(o.id), pkg);
+        o = { ...o, owner_card_url: card.url };
+      } catch (e) {
+        // Archive is optional: the decision lives on the local card. Logged, caught up never blocks.
+        this.log({ order: o.id, kind: "error", role: "transport", result: "notion archive failed", reason: (e as Error).message.slice(0, 300) });
+      }
+    }
+    return this.apply(o, { type: "konzilium_done" }, { role: "judge", model: pkg.author.model, result: `decision.json · ${decisionCardUrl(o.id)}` });
+  }
+
+  /** Advokát questions on Sponsor decisions / locked contracts → "Příprava rozhodnutí" orders (deduped by decision_key). */
+  private openPrepOrders(parent: Order, questions: AdvocateQuestion[]): Pick<DecisionPackage, "advocate" | "prep_orders"> {
+    const existing = this.d.store.listOrders().filter((x) => x.decision_key && !["FAILED", "UNKNOWN", "SUPERSEDED"].includes(x.state));
+    const prep: string[] = [];
+    const advocate = questions.map((q) => {
+      if (q.touches === "none" || prep.length >= MAX_PREP_PER_KONZILIUM) return q;
+      const dup = existing.find((x) => x.decision_key === q.decision_key);
+      if (dup) return { ...q, prep_order: dup.id };
+      const t = this.now();
+      const id = `wo-${t.toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")}-p${prep.length + 1}`;
+      const iso = t.toISOString();
+      const o: Order = {
+        id,
+        mission: parent.mission,
+        state: "PLANNED",
+        created_at: iso,
+        updated_at: iso,
+        brief: prepBrief(q, parent),
+        fix_rounds: 0,
+        manual_interventions: 0,
+        history: [{ from: "NEW", to: "PLANNED", event: "planned", at: iso }],
+        meta: {},
+        parent_order: parent.id,
+        decision_key: q.decision_key,
+      };
+      this.d.store.save(o);
+      this.d.store.writeFile(id, "brief.md", briefMarkdown(o.brief!));
+      this.syncPanel(o);
+      this.log({ order: id, kind: "transition", role: "supervisor", from: "NEW", to: "PLANNED", event: "planned", result: `Příprava rozhodnutí z Konzilia ${parent.id}: ${q.decision_key}` });
+      prep.push(id);
+      return { ...q, prep_order: id };
+    });
+    return { advocate, prep_orders: prep };
+  }
+
+  /** DR-024 for dev PRs: class A → TARS merges after green CI + PASS review of the other family; class B → owner card. */
+  private async mergeStep(o: Order, dept: DepartmentRunner): Promise<Order> {
+    const pr = /\/pull\/(\d+)/.exec(o.delivered_url!)?.[1];
+    if (!pr) return this.apply(o, { type: "unknown", reason: `merge: nelze zjistit číslo PR z ${o.delivered_url}` }, { role: "merge" });
+    let r;
+    try {
+      r = await this.d.merge!.run(pr, dept.creatorFamily);
+    } catch (e) {
+      return this.apply(o, { type: "unknown", reason: `merge: ${(e as Error).message}` }, { role: "merge" });
+    }
+    this.log({ order: o.id, kind: "info", role: "merge", result: r.status, reason: r.log.join(" | ").slice(0, 500) });
+    if (r.status === "pending") return o; // CI still running: stay DELIVERED, next tick retries
+    if (r.status === "merged") return this.apply({ ...o, meta: { ...o.meta, merged: "1", merge_class: r.cls } }, { type: "delivered", owner_needed: false }, { role: "merge", result: `merged (třída ${r.cls})` });
+    // class B (or blocked) → visual card for the owner; GO on the card makes TARS merge.
+    const reasons = r.status === "owner" ? r.reasons : [`automatický merge zastaven: ${r.reason}`];
+    const pkg: DecisionPackage = {
+      version: 1,
+      order: o.id,
+      kind: "merge",
+      title: o.brief!.title,
+      milestone: o.brief!.milestone,
+      created_at: this.iso(),
+      recommended: { label: r.status === "owner" ? "Mergnout (třída B)" : "Nemergovat, opravit", summary: reasons.join("; "), blocks: [{ kind: "headline", text: o.brief!.title }, { kind: "list", text: reasons.join("\n") }, { kind: "cta", text: r.status === "owner" ? "GO = TARS provede squash merge" : "REJECT = vrátit k opravě" }] },
+      alternative: null,
+      reasons: r.log,
+      disputes: r.status === "blocked" ? [r.reason] : [],
+      experts: [],
+      advocate: [],
+      author: { role: "Merge politika DR-024 (deterministický kód) + review jiné rodiny", model: "merge-policy.ts", family: "none" },
+      creator: { role: dept.name, model: dept.creatorModel(), family: dept.creatorFamily },
+      sponsor_reserved: [],
+      honest_note: "Merge třídy B dělá TARS až po GO vlastníka. Ruleset main (PR, test + janitor) platí dál.",
+      drafts: {},
+      prep_orders: [],
+      merge: { pr: o.delivered_url!, cls: r.status === "owner" ? r.cls : "B", reasons, files: [], review: r.review?.slice(0, 4000) },
+    };
+    writePackage(this.d.store.orderDir(o.id), pkg);
+    return this.apply({ ...o, decision_file: "decision.json", owner_reasons: reasons, meta: { ...o.meta, merge_pr: pr, merge_blocked: r.status === "blocked" ? "1" : "" } }, { type: "delivered", owner_needed: true }, { role: "merge", result: decisionCardUrl(o.id) });
   }
 
   /** Manual abort by a human — counted as a manual intervention. */
@@ -399,10 +535,32 @@ export class Orchestrator {
     return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
   }
 
-  /** Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED. */
-  owner(id: string, decision: "GO" | "REJECT"): Order {
+  /**
+   * Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED.
+   * Same path for the CLI and the visual card (POST /rozhodnuti/<id> spawns `cli.ts owner`).
+   * GO on a merge card (DR-024 class B) makes TARS merge; if the merge fails the order stays WAITING_OWNER.
+   */
+  async owner(id: string, decision: OwnerChoice, via = "cli"): Promise<Order> {
+    let o = this.d.store.load(id);
+    if (o.state !== "WAITING_OWNER") throw new Error(`zakázka ${id} je ${o.state}, nečeká na vlastníka`);
+    const dir = this.d.store.orderDir(id);
+    const pkg = readPackage(dir);
+    if (decision === "ALT" && !pkg?.alternative) throw new Error("rozhodovací balíček nemá alternativu");
+    if (decision === "GO" && pkg?.kind === "merge" && o.meta.merge_pr && o.meta.merge_blocked !== "1") {
+      if (!this.d.merge) throw new Error("merge runner není nakonfigurován");
+      const r = await this.d.merge.run(o.meta.merge_pr, this.d.departments.dev?.creatorFamily ?? "claude", { ownerGo: true, waitMs: 25 * 60_000, reviewText: pkg.merge?.review });
+      this.log({ order: id, kind: "info", role: "merge", result: r.status, reason: r.log.join(" | ").slice(0, 500) });
+      if (r.status !== "merged") throw new Error(`merge po GO neproběhl: ${"reason" in r ? r.reason : r.status}`);
+      o = { ...o, meta: { ...o.meta, merged: "1" } };
+    }
+    if (pkg) writePackage(dir, { ...pkg, owner_decision: { choice: decision, at: this.iso(), via } });
+    return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}${pkg ? ` (${decision === "ALT" ? pkg.alternative?.label : decision === "GO" ? pkg.recommended.label : "REJECT"})` : ""}` });
+  }
+
+  /** Owner replaced the order by a newer recipe (not REJECT). Frees the WIP limit; `redo` = supervisor proposes it again. */
+  supersede(id: string, reason: string, redo: boolean): Order {
     const o = this.d.store.load(id);
-    return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}` });
+    return this.apply({ ...o, meta: { ...o.meta, redo: redo ? "1" : "" } }, { type: "supersede", reason }, { role: "orchestrator", result: `superseded${redo ? " (redo)" : ""}` });
   }
 }
 

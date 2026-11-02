@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | owner <order-id> GO|REJECT
+// CLI: npx tsx tars/orch/cli.ts tick | status | owner <order-id> GO|ALT|REJECT | supersede <id> [--redo] <reason> | merge <pr>
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +15,9 @@ import { makeNotion } from "./notion";
 import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
 import { McpPanelSink, PanelIndex } from "./panel";
 import { SourceLoader } from "./sources";
+import { Konzilium } from "./konzilium";
+import { MergeRunner, realExec } from "./merge-policy";
+import { DecisionPrepDepartment } from "./prep";
 import { Store } from "./store";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +33,8 @@ const browserStatusFile = path.join(runsDir, "browser-status.json");
 const BROWSER_STATUS_TTL_MS = 6 * 60 * 60 * 1000;
 /** Run scope: TARS_DEPARTMENTS=copy wires only the copy department (comma list; empty = all). */
 const enabledDepartments = (process.env.TARS_DEPARTMENTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+// Příprava rozhodnutí belongs to the copy department's recipe (copy + research), so TARS_DEPARTMENTS=copy enables it.
+if (enabledDepartments.includes("copy") && !enabledDepartments.includes("prep")) enabledDepartments.push("prep");
 
 /** Rung 3 readiness is cached by `browser-check` / start of tick (login check is async). */
 function browserReady(): PreflightResult {
@@ -67,7 +72,10 @@ function build(): Orchestrator {
   const cardText = (role: string) => (cards.check(role).ok ? cards.text(role) : "");
   const desktop = new NotImplementedDesktop();
   const notion = makeNotion(sonnet, runsDir);
+  const sources = new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache"));
   return new Orchestrator({
+    konzilium: new Konzilium({ cards: new CardRegistry(path.join(cardsDir, "konzilium")), adapters: { claude: opus, gpt: codex }, loadSources: (k) => sources.loadAll(k), now: () => new Date() }),
+    merge: new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer: codex }),
     cards,
     ladder: { browserReady, desktopReady: () => desktop.preflight(), hasCli: defaultHasCli },
     store,
@@ -76,10 +84,11 @@ function build(): Orchestrator {
     departments: onlyEnabled<DepartmentRunner>(enabledDepartments, {
       copy: new CopyDepartment(codex, opus, cardText("copy-studio")), // GPT creates, Claude checks
       dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "ai-chain-mezi-vami/invariant-sentinel.md")), // Claude chain creates, GPT reviews
+      prep: new DecisionPrepDepartment(opus, codex, cardText("reserse-rozhodnuti")), // Claude researches (WebSearch only), GPT checks
       vizual: new VizualDepartment(new BrowserAdapter(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
     }),
     notion,
-    sources: new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache")),
+    sources,
     guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot),
     draftParentId,
     repoRoot,
@@ -110,9 +119,14 @@ async function main() {
     }
     case "cards": {
       const o = build();
-      for (const role of ["supervizor", "copy-studio", "vizual", "vyvojar", "brana"]) {
+      for (const role of ["supervizor", "copy-studio", "reserse-rozhodnuti", "vizual", "vyvojar", "brana"]) {
         const c = new CardRegistry(cardsDir).check(role);
         console.log(`${role.padEnd(12)} ${c.ok ? "OK" : `FAIL: ${c.problems.join("; ")}`}`);
+      }
+      const kc = new CardRegistry(path.join(cardsDir, "konzilium"));
+      for (const role of ["advokat", "prodejni-psycholog", "ux-ui", "brand-strateg", "hlas-zakaznika", "eticky-strazce", "soudce"]) {
+        const c = kc.check(role);
+        console.log(`konzilium/${role.padEnd(20)} ${c.ok ? `OK (${c.card!.family})` : `FAIL: ${c.problems.join("; ")}`}`);
       }
       console.log(JSON.stringify(o.availability(), null, 2));
       return;
@@ -137,15 +151,37 @@ async function main() {
     }
     case "owner": {
       const [id, decision] = args;
-      if (!id || (decision !== "GO" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|REJECT");
+      if (!id || (decision !== "GO" && decision !== "ALT" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|ALT|REJECT");
       const orch = build();
-      const o = orch.owner(id, decision);
+      const o = await orch.owner(id, decision, process.env.TARS_OWNER_VIA ?? "cli");
       await orch.flushPanel();
       console.log(`${o.id} → ${o.state}`);
       return;
     }
+    case "supersede": {
+      const [id, ...rest] = args;
+      const redo = rest.includes("--redo");
+      const reason = rest.filter((x) => x !== "--redo").join(" ");
+      if (!id || !reason) throw new Error("usage: supersede <order-id> [--redo] <reason>");
+      const orch = build();
+      const o = orch.supersede(id, reason, redo);
+      await orch.flushPanel();
+      console.log(`${o.id} → ${o.state}${redo ? " (redo)" : ""}`);
+      return;
+    }
+    case "merge": {
+      // DR-024 for any PR: class A → TARS merges after green CI + PASS review by GPT; class B → refuses (owner card).
+      const [pr, fam] = args;
+      if (!pr) throw new Error("usage: merge <pr-number> [author-family claude|gpt]");
+      const author = fam === "gpt" ? "gpt" : "claude";
+      const reviewer = author === "claude" ? new SecretScanningAdapter(new CodexCli()) : new SecretScanningAdapter(new ClaudeCli("opus"));
+      const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer }).run(pr, author, { waitMs: 25 * 60_000 });
+      console.log(JSON.stringify({ ...r, review: undefined }, null, 2));
+      process.exitCode = r.status === "merged" ? 0 : 3;
+      return;
+    }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|REJECT | panel-sync <id>");
+      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|ALT|REJECT | supersede <id> [--redo] <reason> | merge <pr> [author-family] | panel-sync <id>");
       process.exitCode = 1;
   }
 }

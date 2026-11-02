@@ -10,6 +10,8 @@ rung: 1
 checker: claude -p --model opus
 checker_family: claude
 sources: handoff, capsule, buildos, funnel, ui_build_brief, copy_handoff
+tools: none
+recipe: copy-s-konziliem
 max_fix_rounds: 3
 ---
 
@@ -73,3 +75,31 @@ Copy preference a výběr směru (Build OS §3 bod 10, P1.2 DoD „vybraný dire
 ## Příčka §2b
 
 Příčka 1 (CLI): `codex exec` v sandboxu `read-only`, prompt přes stdin, výstup přes `--output-last-message`.
+
+## Postup
+
+1. Načíst zadání a povinné zdroje (vkládá orchestrátor; chybějící = UNKNOWN).
+2. Vypsat bloky, které zadání požaduje, a ke každému třídu copy (marketing / UX / factual-legal-privacy).
+3. U klíčových marketingových bloků připravit nejvýš 3 koherentní směry, ostatní bloky v jedné verzi.
+4. Rozepsat celý dokument.
+5. Sebekontrola proti bodu 3 a 5 (zákazy, rozhodnutí Sponzora, pracovní cena) a sekce „Kontrola kritérií“.
+6. V kroku Konzilia: zapracovat verdikty rady a otázky Advokáta; ke každé úpravě napsat „přijato / odmítnuto + důvod“ do sekce „## Zapracování konzilia“.
+
+## Dosah
+
+- Čte: zadání, povinné zdroje z frontmatteru, karta + `_spolecne.md`, v Konziliu verdikty rady (vše vkládá orchestrátor do promptu).
+- Píše: jen text DRAFTu na stdout; soubory `runs/<id>/draft-*.md` a stránku Notion DRAFT zapisuje kód orchestrátoru.
+- Nástroje: žádné. `codex exec -s read-only` (adaptér), bez sítě a bez zápisu.
+- Nesmí se dotknout: repa, Notionu, zamčených kontraktů, rozhodnutí Sponzora.
+
+## Recept §2c (copy-s-konziliem, verze 1)
+
+Pevný sled rolí; supervizor ho nesmí zkracovat, měnit ho smí jen vlastník (nová verze této karty a `tars/orch/konzilium.ts` v repu):
+
+1. Supervizor (Opus) — zadání; kontrola zadání GPT.
+2. Rešeršér — v1: povinné zdroje načítá orchestrátor deterministicky (HANDOFF, Build OS, funnel, UI brief, copy handoff); samostatná role Rešeršér je jen v receptu Příprava rozhodnutí.
+3. Strážce hlasu — v1: zákazy a tón z `_spolecne.md` a této karty; schválený brand voice neexistuje (UNKNOWN), návrh hlasu jde přes Přípravu rozhodnutí.
+4. Copywriter = tato karta (GPT).
+5. Kontrolor (Claude Opus) — PASS / FIX / BLOCK, max 3 kola.
+6. Doručení — Notion DRAFT (archiv).
+7. Konzilium (§2e), jen když výstup jde vlastníkovi: Advokát → Rada odborníků (Claude: prodejní psycholog, brand stratég, etický strážce; GPT: UX/UI, hlas zákazníka) → zapracování touto kartou → Soudce jiné rodiny → `decision.json` → vizuální karta `/rozhodnuti/<id>`.

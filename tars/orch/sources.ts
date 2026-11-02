@@ -56,6 +56,11 @@ export const SOURCE_REGISTRY: Record<string, SourceDef> = {
     notion: "3d10ae49f50781fda23cc78198d0346a",
     focus: "připravené zadání Copy Studia (operační vrstva, ne kanonická)",
   },
+  cte06: {
+    title: "CTE-06 — globální konkurenční benchmark (podprojekt, HANDOFF rozhodnutí č. 17 a 19)",
+    notion: "4060ae49f50781168cf0f3386e8c8b59",
+    focus: "jak konkurence pojmenovává a prodává placený vztahový report, ceny, formulace nabídky",
+  },
   design_handoff: {
     title:
       "CLAUDE_DESIGN_HANDOFF_V1 (P1 READINESS PACKET V1, 10 — PREPARED, NOT EXECUTED)",

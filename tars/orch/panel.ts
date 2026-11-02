@@ -59,11 +59,17 @@ export function lastStepSentence(o: Order): string {
         ? STEP_TEXT.start
         : `Spuštění zastaveno: ${(o.failure_reason ?? "").slice(0, 150)}`;
     case "delivered":
-      return h.to === "WAITING_OWNER"
+      return h.to === "KONZILIUM"
+        ? "Výstup doručen jako DRAFT, běží Konzilium (advokát + rada odborníků)."
+        : h.to === "WAITING_OWNER"
         ? "Výstup doručen jako DRAFT, čeká na GO / REJECT vlastníka."
         : "Výstup doručen, zakázka hotová.";
     case "owner":
-      return h.to === "DONE" ? "Vlastník dal GO." : "Vlastník dal REJECT.";
+      return o.owner_choice === "ALT" ? "Vlastník zvolil alternativu." : h.to === "DONE" ? "Vlastník dal GO." : "Vlastník dal REJECT.";
+    case "konzilium_done":
+      return "Konzilium hotové, rozhodovací karta čeká na vlastníka.";
+    case "supersede":
+      return `Nahrazeno novějším receptem: ${(o.failure_reason ?? "").replace(/^superseded: /, "").slice(0, 150)}`;
     case "fail":
     case "unknown":
       return `Zastaveno: ${(o.failure_reason ?? "").slice(0, 150)}`;
@@ -74,7 +80,7 @@ export function lastStepSentence(o: Order): string {
 
 export function queueOf(o: Order): string {
   if (o.state === "WAITING_OWNER") return "1 · Čeká na vlastníka";
-  if (o.state === "DONE" || o.state === "FAILED" || o.state === "UNKNOWN")
+  if (o.state === "DONE" || o.state === "FAILED" || o.state === "UNKNOWN" || o.state === "SUPERSEDED")
     return "3 · Hotové";
   return "2 · Běží";
 }
