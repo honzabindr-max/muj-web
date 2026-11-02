@@ -84,7 +84,8 @@ function isFinding(x: unknown): x is Finding {
  * Strict parse of the whole checker output (no regex digging in prose).
  * Returns undefined when the output is not exactly the schema. Rules beyond the schema:
  *  - non-PASS verdict needs at least one finding (otherwise there is nothing to fix),
- *  - PASS must not carry critical/high findings (self-contradicting verdict is not trusted).
+ *  - PASS may carry only low/info notes; a critical/high/medium finding next to PASS is a
+ *    self-contradicting verdict and is not trusted (matches STRUCTURED_FORMAT).
  */
 export function parseStructuredVerdict<V extends string>(text: string, allowed: readonly V[]): StructuredVerdict<V> | undefined {
   let j: unknown;
@@ -101,7 +102,7 @@ export function parseStructuredVerdict<V extends string>(text: string, allowed: 
   const findings = o.findings as Finding[];
   const verdict = o.verdict as V;
   if (verdict !== "PASS" && findings.length === 0) return undefined;
-  if (verdict === "PASS" && findings.some((f) => f.severity === "critical" || f.severity === "high")) return undefined;
+  if (verdict === "PASS" && findings.some((f) => f.severity !== "low" && f.severity !== "info")) return undefined;
   return { verdict, findings, issues: findings.map(formatFinding) };
 }
 

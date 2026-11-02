@@ -33,7 +33,7 @@ import { spawnSync } from "node:child_process";
 import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../cdp";
 import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
-import { extractNotionUrl } from "../notion";
+import { extractNotionUrl, McpNotion } from "../notion";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, transition, TransitionError } from "../state-machine";
@@ -803,6 +803,7 @@ describe("structured verdict (parseStructuredVerdict)", () => {
       SJ("BLOCK", []),
       SJ("PASS", [F({ severity: "high" })]), // self-contradicting
       SJ("PASS", [F({ severity: "critical" })]),
+      SJ("PASS", [F({ severity: "medium" })]), // PASS smí nést jen low/info poznámky
       SJ("FIX", [F({ severity: "fatal" })]),
       SJ("FIX", [F({ text: "  " })]),
       SJ("FIX", [F({ line: -1 })]),
@@ -1001,6 +1002,13 @@ printf '%s' '${reply}' > "$out"
     const r = await new CodexCli().run("x".repeat(8_000_000), { cwd: dir });
     expect(r.ok).toBe(false);
   });
+  it("codex hanging past the timeout → not ok, error „timeout“, no verdict", async () => {
+    fakeCodex("exec sleep 30");
+    const r = await new CodexCli().run("p", { cwd: dir, timeoutMs: 300, outputSchema: REVIEW_SCHEMA });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("timeout");
+    expect(r.limit).toBe(false);
+  });
   it("codex failing (exit 1, usage limit) → not ok, limit flagged, no verdict", async () => {
     process.env.FAKE_LOG = path.join(bin, "log4");
     fakeCodex(script("", 'echo "usage limit reached" >&2; exit 1'));
@@ -1029,5 +1037,21 @@ describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
     expect(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2)).toEqual(["--model", "sonnet"]);
     expect(args[args.indexOf("--settings") + 1]).toBe(ORCH_CLAUDE_SETTINGS);
     expect(JSON.parse(ORCH_CLAUDE_SETTINGS)).toEqual({ enabledPlugins: { "codex@openai-codex": false } });
+  });
+  it("every other claude -p call of the automat (Notion fetch, panel sink) passes it too", async () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "fake-claude2-"));
+    const log = path.join(bin, "args");
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/bash\ncat > /dev/null\nprintf '%s\\n' "$@" >> "${log}"\necho '{}'\n`, { mode: 0o755 });
+    const old = process.env.PATH;
+    process.env.PATH = `${bin}:${old}`;
+    try {
+      await new McpNotion(new MockAdapter("claude", "sonnet", [{}]), dir).fetchPage("p1").catch(() => undefined);
+      await new McpPanelSink(dir).upsert({} as PanelRow).catch(() => undefined);
+    } finally {
+      process.env.PATH = old;
+    }
+    const lines = fs.readFileSync(log, "utf8").split("\n");
+    expect(lines.filter((l) => l === "-p")).toHaveLength(2);
+    expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(2);
   });
 });
