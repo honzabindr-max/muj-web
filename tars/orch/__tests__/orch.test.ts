@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
-import { AiChain, ClaudeCli, CodexCli, looksLikeLimit, ORCH_CLAUDE_SETTINGS } from "../adapters";
+import { AiChain, ClaudeCli, CodexCli, looksLikeLimit, NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS } from "../adapters";
 import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
 import { CardRegistry, validateCardText } from "../cards";
 import {
@@ -33,7 +33,7 @@ import { spawnSync } from "node:child_process";
 import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../cdp";
 import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
-import { extractNotionUrl, McpNotion } from "../notion";
+import { extractNotionUrl, McpNotion, NotionRestError } from "../notion";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, ownerEventFor, transition, TransitionError } from "../state-machine";
@@ -120,6 +120,7 @@ function orch(
     briefChecker?: MockAdapter;
     panel?: PanelSink;
     sourcesNotion?: NotionClient;
+    stateLockWaitMs?: number;
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
@@ -147,6 +148,7 @@ function orch(
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,
+    stateLockWaitMs: opts.stateLockWaitMs,
     panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
     sources: new SourceLoader(opts.sourcesNotion ?? notion, dir, path.join(dir, "sources-cache")),
   });
@@ -679,6 +681,47 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
     expect(store.load(id).state).toBe("DONE");
   });
 
+  it("the claude -p fallback never delivers an owner decision: logged once as „čeká na token“", async () => {
+    const panel: PanelSink = { upsert: async () => "page1" }; // like McpPanelSink: no readOwnerDecision
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.pollOwnerDecisions();
+    await o.pollOwnerDecisions();
+    expect(store.load(r.order).state).toBe("WAITING_OWNER");
+    expect(store.readLog(200).filter((e) => e.result?.includes("čeká na token"))).toHaveLength(1);
+  });
+
+  it("state lock: while another process holds it the Notion decision is not applied (and retried later); `owner` waits for it", async () => {
+    const panel = new MockPanel();
+    const { o, id } = await (async () => {
+      const x = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }], stateLockWaitMs: 80 });
+      const r = (await x.o.tick()) as { order: string };
+      return { o: x.o, id: r.order };
+    })();
+    panel.decision = "GO";
+    fs.writeFileSync(path.join(dir, ".state.lock"), "999"); // `cli owner` (another process) is just writing
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.readLog(200).some((e) => e.result === "owner decision read failed" && /zámek/.test(e.reason ?? ""))).toBe(true);
+    expect(() => o.owner(id, "REJECT")).toThrow(/zámek/);
+    fs.rmSync(path.join(dir, ".state.lock"));
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("DONE");
+    expect(fs.existsSync(path.join(dir, ".state.lock"))).toBe(false); // released
+  });
+
+  it("state lock: two Store instances exclude each other, a stale lock is taken over, the lock is released after an error", () => {
+    const a = new Store(dir);
+    const b = new Store(dir);
+    expect(() => a.withStateLock(() => b.withStateLock(() => 1, 60))).toThrow(/zámek/);
+    expect(() => a.withStateLock(() => { throw new Error("boom"); })).toThrow("boom");
+    expect(b.withStateLock(() => "ok", 60)).toBe("ok");
+    const lock = path.join(dir, ".state.lock");
+    fs.writeFileSync(lock, "1");
+    fs.utimesSync(lock, new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+    expect(b.withStateLock(() => "took over", 60)).toBe("took over");
+  });
+
   it("deterministic mapping and new columns", () => {
     expect(ownerEventFor("GO")).toEqual({ type: "owner", decision: "GO" });
     expect(ownerEventFor("GO A")).toEqual({ type: "owner", decision: "GO", option: "A" });
@@ -692,6 +735,87 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
     const withBrief = panelRow({ ...blank("DOING"), brief: parseBrief(BRIEF()) }, "gpt", "opus");
     expect(withBrief["Proč tento model"]).toBe("Tvůrce gpt a kontrolor opus jsou z různých modelových rodin (pravidlo „kontroluje jiná rodina“).");
     expect(panelRow(blank("NEW"), "—", "—")["Karta rozhodnutí"]).toBeNull();
+  });
+});
+
+/** A panel whose first create is saved by Notion but answered with a 502 (outcome unknown). */
+class UncertainPanel implements PanelSink {
+  rows = new Map<string, PanelRow>();
+  creates = 0;
+  lookups = 0;
+  lookupFails = false;
+  lookupBlind = false; // lookup finds nothing even if a row exists
+  committedButLost = 1;
+  async upsert(row: PanelRow, page?: string) {
+    if (page) {
+      this.rows.set(page, row);
+      return page;
+    }
+    this.creates++;
+    const id = `row${this.creates}`;
+    this.rows.set(id, row);
+    if (this.committedButLost > 0) {
+      this.committedButLost--;
+      throw new NotionRestError(502, "service_unavailable");
+    }
+    return id;
+  }
+  async findRowByOrderId(orderId: string) {
+    this.lookups++;
+    if (this.lookupFails) throw new NotionRestError(429, "paused");
+    if (this.lookupBlind) return undefined;
+    return [...this.rows.entries()].find(([, r]) => r["ID zakázky"] === orderId)?.[0];
+  }
+}
+
+describe("create of unknown outcome never produces a second row (krok 5, kolo 3)", () => {
+  it("502 after the row was saved → marked; next sync finds the row by order id and updates it", async () => {
+    const panel = new UncertainPanel();
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.flushPanel();
+    expect(new PanelIndex(dir).get(r.order)).toBe("row1"); // the lookup found the saved row, no second one
+    expect(panel.creates).toBe(1);
+    expect(panel.rows.size).toBe(1);
+    expect(panel.lookups).toBeGreaterThan(0);
+    expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false); // cleared by the successful update
+    expect([...panel.rows.values()].at(-1)!["Stav"]).toBe("WAITING_OWNER");
+  });
+
+  it("lookup fails (REST paused) → no new row is created, the mark stays, a later sync resolves it", async () => {
+    const panel = new UncertainPanel();
+    panel.lookupFails = true;
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.flushPanel();
+    expect(panel.creates).toBe(1);
+    expect(panel.rows.size).toBe(1);
+    expect(new PanelIndex(dir).isUncertain(r.order)).toBe(true);
+    expect(new PanelIndex(dir).get(r.order)).toBeUndefined();
+    panel.lookupFails = false;
+    await o.resyncPanel(r.order);
+    expect(panel.creates).toBe(1);
+    expect(new PanelIndex(dir).get(r.order)).toBe("row1");
+    expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
+  });
+
+  it("lookup finds nothing (the create was not saved) → the mark is cleared and the row is created", async () => {
+    const panel = new UncertainPanel();
+    panel.lookupBlind = true;
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.flushPanel();
+    expect(panel.creates).toBe(2);
+    expect(new PanelIndex(dir).get(r.order)).toBe("row2");
+    expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
+  });
+
+  it("only uncertain outcomes mark; a clean error (404) does not", async () => {
+    const panel: PanelSink = { upsert: async () => { throw new NotionRestError(404, "object_not_found"); } };
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.flushPanel();
+    expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
   });
 });
 
@@ -1216,6 +1340,9 @@ describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
     expect(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2)).toEqual(["--model", "sonnet"]);
     expect(args[args.indexOf("--settings") + 1]).toBe(ORCH_CLAUDE_SETTINGS);
     expect(JSON.parse(ORCH_CLAUDE_SETTINGS)).toEqual({ enabledPlugins: { "codex@openai-codex": false } });
+    // SQL/rows tools of Notion are denied even for calls without an allowlist (supervisor, checkers)
+    expect(args).not.toContain("--allowedTools");
+    expect(args[args.indexOf("--disallowedTools") + 1]).toBe(NOTION_QUERY_TOOLS_DENIED);
   });
   it("every other claude -p call of the automat (Notion fetch, panel sink) passes it too", async () => {
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), "fake-claude2-"));
@@ -1226,13 +1353,12 @@ describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
     try {
       await new McpNotion(new MockAdapter("claude", "sonnet", [{}]), dir).fetchPage("p1").catch(() => undefined);
       await new McpPanelSink(dir).upsert({} as PanelRow).catch(() => undefined);
-      await new McpPanelSink(dir).readOwnerDecision("p1").catch(() => undefined);
     } finally {
       process.env.PATH = old;
     }
     const lines = fs.readFileSync(log, "utf8").split("\n");
-    expect(lines.filter((l) => l === "-p")).toHaveLength(3);
-    expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(3);
-    expect(lines.filter((l) => l.includes("notion-query-data-sources"))).toHaveLength(3); // SQL/rows tools denied on all three
+    expect(lines.filter((l) => l === "-p")).toHaveLength(2);
+    expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(2);
+    expect(lines.filter((l) => l.includes("notion-query-data-sources"))).toHaveLength(2); // SQL/rows tools denied on both
   });
 });

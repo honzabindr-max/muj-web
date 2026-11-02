@@ -6,12 +6,13 @@
 // (stream-json tool_use input == expected) — the model only transports.
 // A panel failure never stops an order: it is logged and caught up on the next transition.
 // The orchestrator NEVER writes „Rozhodnutí vlastníka“ — that select belongs to the owner.
-// It only reads it (readOwnerDecision) while an order is in WAITING_OWNER.
+// It only reads it (readOwnerDecision) while an order is in WAITING_OWNER, and only through the REST API:
+// the claude -p fallback never takes over an owner decision (a model in the middle could not be trusted with it).
 import fs from "node:fs";
 import path from "node:path";
 
 import { NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS, runProcess } from "./adapters";
-import { isFallbackEligible, NotionRestError, stopsRestForRun, type NotionRestApi } from "./notion";
+import { isFallbackEligible, NotionRestError, type NotionRestApi } from "./notion";
 import { redactDeep, redactSecrets } from "./secret-scan";
 import type { Order } from "./types";
 
@@ -128,6 +129,11 @@ export interface PanelSink {
   upsert(row: PanelRow, existingPageId?: string): Promise<string>;
   /** Raw value of the owner-only select „Rozhodnutí vlastníka“ of a row (undefined = empty). Read-only. */
   readOwnerDecision?(pageId: string): Promise<string | undefined>;
+  /**
+   * Finds the row of an order by its „ID zakázky“ (REST data source query with a filter, never SQL/rows through MCP).
+   * Used after a create of unknown outcome, before any new row is created. Returns the page id or undefined.
+   */
+  findRowByOrderId?(orderId: string): Promise<string | undefined>;
 }
 
 const text = (s: string | null | undefined) => ({ rich_text: s ? [{ type: "text", text: { content: s.slice(0, 2000) } }] : [] });
@@ -284,55 +290,6 @@ export class McpPanelSink implements PanelSink {
     if (!id) throw new Error("panel: created page id not found");
     return id.replace(/-/g, "");
   }
-
-  async readOwnerDecision(pageId: string): Promise<string | undefined> {
-    const r = await runProcess(
-      "claude",
-      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", FETCH_TOOL, "--disallowedTools", NOTION_QUERY_TOOLS_DENIED, "--output-format", "stream-json", "--verbose"],
-      `Zavolej PŘESNĚ JEDNOU nástroj ${FETCH_TOOL} s id ${pageId} a odpověz jen OK.`,
-      this.cwd,
-      4 * 60_000,
-    );
-    return ownerDecisionFromStream(r.stdout, pageId);
-  }
-}
-
-const FETCH_TOOL = "mcp__claude_ai_Notion__notion-fetch";
-const hex32 = (s: string) => s.replace(/-/g, "").toLowerCase();
-
-/**
- * Owner decision from a `claude -p` stream, bound to the requested row: exactly one notion-fetch call,
- * its `id` is the page asked for, and the returned document is that page (its URL carries the id).
- * Anything else throws, so a model that fetched a different row can never approve this order.
- */
-export function ownerDecisionFromStream(streamJson: string, pageId: string): string | undefined {
-  const want = hex32(pageId);
-  const calls = toolCalls(streamJson).filter((c) => c.name === FETCH_TOOL);
-  if (calls.length !== 1) throw new Error(`panel: expected 1 ${FETCH_TOOL} call, got ${calls.length}`);
-  if (!hex32(String(calls[0].input.id ?? "")).endsWith(want)) throw new Error("panel: owner decision fetch asked for another page");
-  let doc = calls[0].result;
-  try {
-    doc = (JSON.parse(doc) as { text?: string }).text ?? doc;
-  } catch {
-    /* plain text result */
-  }
-  const url = /<page url="([^"]+)"/.exec(doc)?.[1] ?? "";
-  if (!hex32(url).endsWith(want)) throw new Error("panel: owner decision document is another page");
-  const props = parsePropertiesBlock(doc);
-  if (!props) throw new Error("panel: owner decision unreadable");
-  const v = props[OWNER_DECISION_PROPERTY];
-  return typeof v === "string" && v ? v : undefined;
-}
-
-/** Pulls the `<properties>` JSON object out of a Notion MCP fetch result. */
-export function parsePropertiesBlock(fetchResult: string): Record<string, unknown> | undefined {
-  const m = /<properties>\s*([\s\S]*?)\s*<\/properties>/.exec(fetchResult);
-  if (!m) return undefined;
-  try {
-    return JSON.parse(m[1]) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
 }
 
 /** REST sink: PATCH/POST /v1/pages with the whitelisted properties; secrets in the row are redacted first. */
@@ -359,6 +316,16 @@ export class RestPanelSink implements PanelSink {
     }
   }
 
+  async findRowByOrderId(orderId: string): Promise<string | undefined> {
+    const j = await this.api.request<{ results?: Array<{ id?: string; in_trash?: boolean }> }>("POST", `/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`, {
+      filter: { property: "ID zakázky", rich_text: { equals: orderId } },
+      sorts: [{ timestamp: "created_time", direction: "ascending" }],
+      page_size: 5,
+    });
+    const hit = (j.results ?? []).find((r) => r.id && !r.in_trash);
+    return hit?.id ? hit.id.replace(/-/g, "") : undefined;
+  }
+
   async readOwnerDecision(pageId: string): Promise<string | undefined> {
     const j = await this.api.request<{ in_trash?: boolean; properties?: Record<string, { select?: { name?: string } | null }> }>("GET", `/v1/pages/${pageId}`);
     if (j.in_trash) return undefined;
@@ -366,37 +333,35 @@ export class RestPanelSink implements PanelSink {
   }
 }
 
-/** REST first; the claude -p MCP sink when REST is unavailable (no share, bad token, 429/5xx, network). */
+/**
+ * REST first; the claude -p MCP sink when REST refuses before writing (401/403/404/429, shared pause in NotionRestApi).
+ * Reading the owner decision and finding a row by order id are REST only: no MCP fallback, an error means „later“.
+ */
 export class HybridPanelSink implements PanelSink {
-  private restDown = false;
   constructor(
     private rest: PanelSink,
     private mcp: PanelSink,
     private log: (message: string) => void,
   ) {}
 
-  private async viaRest<T>(idempotent: boolean, call: () => Promise<T>): Promise<{ value: T } | undefined> {
-    if (this.restDown) return undefined;
-    try {
-      return { value: await call() };
-    } catch (e) {
-      if (!isFallbackEligible(e, idempotent)) throw e;
-      if (stopsRestForRun(e)) this.restDown = true;
-      this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
-      return undefined;
-    }
-  }
-
   async upsert(unsafeRow: PanelRow, existingPageId?: string): Promise<string> {
     const row = redactDeep(unsafeRow); // same row goes to whichever transport is chosen
-    // Updating a known row repeats safely; creating one after an uncertain failure would risk a duplicate row.
-    const r = await this.viaRest(existingPageId !== undefined, () => this.rest.upsert(row, existingPageId));
-    return r ? r.value : this.mcp.upsert(row, existingPageId);
+    try {
+      return await this.rest.upsert(row, existingPageId);
+    } catch (e) {
+      // Updating a known row repeats safely; creating one after an uncertain failure would risk a duplicate row.
+      if (!isFallbackEligible(e, existingPageId !== undefined)) throw e;
+      this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
+    }
+    return this.mcp.upsert(row, existingPageId);
   }
 
-  async readOwnerDecision(pageId: string): Promise<string | undefined> {
-    const r = await this.viaRest(true, () => this.rest.readOwnerDecision!(pageId));
-    return r ? r.value : this.mcp.readOwnerDecision?.(pageId);
+  readOwnerDecision(pageId: string): Promise<string | undefined> {
+    return this.rest.readOwnerDecision!(pageId);
+  }
+
+  findRowByOrderId(orderId: string): Promise<string | undefined> {
+    return this.rest.findRowByOrderId!(orderId);
   }
 }
 
@@ -417,10 +382,29 @@ export class PanelIndex {
   get(orderId: string): string | undefined {
     return this.read()[orderId];
   }
+  /** Setting the page id also clears the „unknown outcome“ mark. */
   set(orderId: string, pageId: string): void {
-    fs.writeFileSync(
-      this.file,
-      JSON.stringify({ ...this.read(), [orderId]: pageId }, null, 2) + "\n",
-    );
+    const all = this.read();
+    delete all[`${UNCERTAIN_PREFIX}${orderId}`];
+    this.write({ ...all, [orderId]: pageId });
+  }
+  private write(all: Record<string, string>): void {
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n");
+    fs.renameSync(tmp, this.file);
+  }
+  /** A create of this order's row may have been saved although we got no answer: look it up before creating again. */
+  markUncertain(orderId: string): void {
+    this.write({ ...this.read(), [`${UNCERTAIN_PREFIX}${orderId}`]: "1" });
+  }
+  isUncertain(orderId: string): boolean {
+    return this.read()[`${UNCERTAIN_PREFIX}${orderId}`] === "1";
+  }
+  clearUncertain(orderId: string): void {
+    const all = this.read();
+    delete all[`${UNCERTAIN_PREFIX}${orderId}`];
+    this.write(all);
   }
 }
+
+const UNCERTAIN_PREFIX = "uncertain:";

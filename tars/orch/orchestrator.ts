@@ -8,6 +8,7 @@ import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcom
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
+import { isUncertainOutcome } from "./notion";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
@@ -38,6 +39,8 @@ export interface OrchestratorDeps {
   now?: () => Date;
   pauseMinutes?: number;
   maxStepsPerTick?: number;
+  /** How long `owner`/`abort`/the Notion decision wait for the short state lock (default 5000 ms). */
+  stateLockWaitMs?: number;
 }
 
 export type TickResult =
@@ -127,11 +130,23 @@ export class Orchestrator {
     const row = panelRow(o, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
     this.panelQueue = this.panelQueue.then(async () => {
       const t0 = Date.now();
+      let creating = false;
       try {
-        const id = await panel.sink.upsert(row, panel.index.get(o.id));
+        let existing = panel.index.get(o.id);
+        if (!existing && panel.index.isUncertain(o.id)) {
+          // An earlier create may have been saved without us seeing the answer: look the row up by order id (REST filter,
+          // never SQL/rows) before creating again. If the lookup fails we do not create; the next sync tries again.
+          if (!panel.sink.findRowByOrderId) throw new Error("výsledek dřívějšího vytvoření řádku je nejasný, čekám na REST kvůli dohledání");
+          existing = await panel.sink.findRowByOrderId(o.id);
+          if (existing) panel.index.set(o.id, existing);
+          else panel.index.clearUncertain(o.id);
+        }
+        creating = !existing;
+        const id = await panel.sink.upsert(row, existing);
         panel.index.set(o.id, id);
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
       } catch (e) {
+        if (creating && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
@@ -252,12 +267,18 @@ export class Orchestrator {
    */
   async pollOwnerDecisions(): Promise<void> {
     const panel = this.d.panel;
-    if (!panel?.sink.readOwnerDecision) return;
-    for (const waiting of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
+    if (!panel) return;
+    const waitingOrders = this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER");
+    if (!panel.sink.readOwnerDecision) {
+      // Only the REST API may deliver the owner's decision; the claude -p fallback never does.
+      for (const w of waitingOrders) this.logOnce({ order: w.id, kind: "info", role: "transport", result: "rozhodnutí vlastníka z Notionu čeká na token (Notion REST)" });
+      return;
+    }
+    for (const waiting of waitingOrders) {
       try {
         let pageId = panel.index.get(waiting.id);
         if (!pageId) {
-          // Every earlier write of this row failed: write it now, otherwise the owner's tap could never be read.
+          // Every earlier write of this row failed (or its outcome is unknown): sync it now, otherwise the tap could never be read.
           await this.resyncPanel(waiting.id);
           pageId = panel.index.get(waiting.id);
           if (!pageId) continue;
@@ -265,14 +286,22 @@ export class Orchestrator {
         const value = await panel.sink.readOwnerDecision(pageId);
         const ev = ownerEventFor(value);
         if (!ev) continue;
-        // The read took a while: act on the stored state, not on the snapshot taken before it (a manual REJECT may have landed).
-        const fresh = this.d.store.load(waiting.id);
-        if (fresh.state !== "WAITING_OWNER") continue;
-        this.apply(fresh, ev, { role: "orchestrator", result: `owner ${value} (Notion)` });
+        // The read took a while and `cli owner` may have decided meanwhile: read-check-write the stored state under the state lock.
+        this.d.store.withStateLock(() => {
+          const fresh = this.d.store.load(waiting.id);
+          if (fresh.state !== "WAITING_OWNER") return;
+          this.apply(fresh, ev, { role: "orchestrator", result: `owner ${value} (Notion)` });
+        }, this.d.stateLockWaitMs);
       } catch (e) {
         this.log({ order: waiting.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
       }
     }
+  }
+
+  /** Writes an info line unless the same one is already among the latest log entries (the log is read by the supervisor). */
+  private logOnce(e: Omit<LogEntry, "ts">): void {
+    if (this.d.store.readLog(40).some((x) => x.order === e.order && x.result === e.result)) return;
+    this.log(e);
   }
 
   /** Common handling of a model step outcome: limit → PAUSED, error → FAILED. */
@@ -428,15 +457,19 @@ export class Orchestrator {
 
   /** Manual abort by a human — counted as a manual intervention. */
   abort(id: string, reason: string): Order {
-    const o = this.d.store.load(id);
-    const counted = { ...o, manual_interventions: o.manual_interventions + 1 };
-    return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
+    return this.d.store.withStateLock(() => {
+      const o = this.d.store.load(id);
+      const counted = { ...o, manual_interventions: o.manual_interventions + 1 };
+      return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
+    }, this.d.stateLockWaitMs);
   }
 
   /** Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED. */
   owner(id: string, decision: "GO" | "REJECT", option?: "A" | "B"): Order {
-    const o = this.d.store.load(id);
-    return this.apply(o, { type: "owner", decision, option }, { role: "orchestrator", result: `owner ${decision}${option ? ` ${option}` : ""}` });
+    return this.d.store.withStateLock(() => {
+      const o = this.d.store.load(id);
+      return this.apply(o, { type: "owner", decision, option }, { role: "orchestrator", result: `owner ${decision}${option ? ` ${option}` : ""}` });
+    }, this.d.stateLockWaitMs);
   }
 }
 

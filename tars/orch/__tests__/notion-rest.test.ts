@@ -22,7 +22,7 @@ import {
 } from "../notion";
 import { KEYCHAIN_ARGS, readNotionToken } from "../notion-token";
 import { childEnv, NOTION_QUERY_TOOLS_DENIED } from "../adapters";
-import { HybridPanelSink, McpPanelSink, ownerDecisionFromStream, panelRow, PANEL_DATA_SOURCE_ID, rowToRestProperties, RestPanelSink, type PanelRow, type PanelSink } from "../panel";
+import { HybridPanelSink, McpPanelSink, panelRow, PANEL_DATA_SOURCE_ID, rowToRestProperties, RestPanelSink, type PanelRow, type PanelSink } from "../panel";
 import { clearKnownSecrets, redactDeep, redactSecrets, scanSecrets } from "../secret-scan";
 import { Store } from "../store";
 import type { Order } from "../types";
@@ -257,7 +257,6 @@ describe("řádek panelu přes REST", () => {
       const logs: string[] = [];
       const sink = new HybridPanelSink(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)), mcp, (m) => logs.push(m));
       expect(await sink.upsert(row())).toBe("mcpid");
-      expect(await sink.readOwnerDecision("x")).toBe("GO");
       expect(written).toHaveLength(1);
       expect(logs.length).toBeGreaterThan(0);
     }
@@ -394,33 +393,64 @@ describe("secret-scan: token nesmí ven (log ani Notion)", () => {
 });
 
 
-describe("čtení rozhodnutí přes MCP je svázané s požadovaným řádkem", () => {
-  const PAGE = "40c0ae49f507815f9273ccb3de43e8b6";
-  const TOOL = "mcp__claude_ai_Notion__notion-fetch";
-  const doc = (id: string, decision?: string) =>
-    `<page url="https://app.notion.com/p/${id}">\n<properties>\n${JSON.stringify({ Zakázka: "x", ...(decision ? { "Rozhodnutí vlastníka": decision } : {}) })}\n</properties>\n</page>`;
-  const stream = (calls: Array<{ id: string; result: string; name?: string }>) =>
-    calls
-      .flatMap((c, i) => [
-        JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: `t${i}`, name: c.name ?? TOOL, input: { id: c.id } }] } }),
-        JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: `t${i}`, content: [{ type: "text", text: JSON.stringify({ text: c.result }) }] }] } }),
-      ])
-      .join("\n");
-
-  it("správná stránka → hodnota; prázdná → undefined; URL s pomlčkami projde", () => {
-    expect(ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE, "GO A") }]), PAGE)).toBe("GO A");
-    expect(ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE) }]), PAGE)).toBeUndefined();
-    const dashed = "40c0ae49-f507-815f-9273-ccb3de43e8b6";
-    expect(ownerDecisionFromStream(stream([{ id: dashed, result: doc(PAGE, "REJECT") }]), PAGE)).toBe("REJECT");
+describe("rozhodnutí vlastníka a dohledání řádku jen přes REST", () => {
+  it("McpPanelSink rozhodnutí vůbec nečte a nehledá (nemá readOwnerDecision ani findRowByOrderId)", () => {
+    const mcp = new McpPanelSink(dir);
+    expect((mcp as unknown as PanelSink).readOwnerDecision).toBeUndefined();
+    expect((mcp as unknown as PanelSink).findRowByOrderId).toBeUndefined();
   });
 
-  it("jiný řádek, jiný dokument, víc volání nebo žádné volání → chyba, nikdy rozhodnutí", () => {
-    const other = "11111111111111111111111111111111";
-    expect(() => ownerDecisionFromStream(stream([{ id: other, result: doc(other, "GO") }]), PAGE)).toThrow(/another page/);
-    expect(() => ownerDecisionFromStream(stream([{ id: PAGE, result: doc(other, "GO") }]), PAGE)).toThrow(/another page/);
-    expect(() => ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE, "GO") }, { id: other, result: doc(other, "GO") }]), PAGE)).toThrow(/expected 1/);
-    expect(() => ownerDecisionFromStream(stream([]), PAGE)).toThrow(/expected 1/);
-    expect(() => ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE, "GO"), name: "mcp__claude_ai_Notion__notion-search" }]), PAGE)).toThrow(/expected 1/);
+  it("HybridPanelSink: čtení rozhodnutí a hledání řádku při chybě REST skončí chybou, MCP se nevolá", async () => {
+    for (const status of [404, 401, 429, 502]) {
+      const f = mockFetch(() => ({ status, json: { code: "object_not_found" } }));
+      const mcp = { upsert: async () => "x", readOwnerDecision: async () => "GO", findRowByOrderId: async () => "y" } as PanelSink;
+      let touched = 0;
+      for (const k of ["readOwnerDecision", "findRowByOrderId", "upsert"] as const) {
+        const orig = mcp[k] as (...a: unknown[]) => Promise<string | undefined>;
+        (mcp as unknown as Record<string, unknown>)[k] = async (...a: unknown[]) => (touched++, orig(...a));
+      }
+      const sink = new HybridPanelSink(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)), mcp, () => undefined);
+      await expect(sink.readOwnerDecision("p")).rejects.toBeInstanceOf(NotionRestError);
+      await expect(sink.findRowByOrderId("wo-1")).rejects.toBeInstanceOf(NotionRestError);
+      expect(touched).toBe(0);
+    }
+  });
+
+  it("findRowByOrderId: REST dotaz na data source s filtrem „ID zakázky“, odpadlý (in_trash) řádek se ignoruje", async () => {
+    const f = mockFetch(() => ({ status: 200, json: { results: [{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", in_trash: true }, { id: "11111111-2222-3333-4444-555555555555" }] } }));
+    const sink = new RestPanelSink(new NotionRestApi(TOKEN, f.fn));
+    expect(await sink.findRowByOrderId("wo-20261102-120000")).toBe("11111111222233334444555555555555");
+    const c = f.calls[0];
+    expect(c.method).toBe("POST");
+    expect(c.url).toBe(`https://api.notion.com/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`);
+    expect(JSON.parse(c.body!).filter).toEqual({ property: "ID zakázky", rich_text: { equals: "wo-20261102-120000" } });
+    const none = mockFetch(() => ({ status: 200, json: { results: [] } }));
+    expect(await new RestPanelSink(new NotionRestApi(TOKEN, none.fn)).findRowByOrderId("wo-x")).toBeUndefined();
+  });
+});
+
+describe("429 a 401 vypnou REST pro zapisovač stránek i panel společně", () => {
+  it("429 u řádku panelu → další zápis stránky už REST nezkouší (a naopak)", async () => {
+    for (const status of [429, 401]) {
+      const f = mockFetch(() => ({ status, json: { code: "rate_limited" } }));
+      const t = new StubTransport();
+      const stack = makeNotionStack(t, dir, { token: TOKEN, fetchImpl: f.fn });
+      const written: PanelRow[] = [];
+      const panel = new HybridPanelSink(new RestPanelSink(stack.rest!), { upsert: async (r) => (written.push(r), "mcp") }, () => undefined);
+      expect(await panel.upsert(panelRow(order(), "a", "b"), "known")).toBe("mcp"); // REST dostal 429/401
+      expect(f.calls).toHaveLength(1);
+      await stack.notion.createPage("p", "T", "x"); // jde rovnou fallbackem, žádný další požadavek na Notion
+      await panel.upsert(panelRow(order(), "a", "b"), "known");
+      expect(f.calls).toHaveLength(1);
+      expect(t.prompts).toHaveLength(1);
+      expect(written).toHaveLength(2);
+    }
+    const g = mockFetch(() => ({ status: 429 }));
+    const stack = makeNotionStack(new StubTransport(), dir, { token: TOKEN, fetchImpl: g.fn });
+    await stack.notion.createPage("p", "T", "x"); // 429 při zápisu stránky
+    await expect(new RestPanelSink(stack.rest!).upsert(panelRow(order(), "a", "b"), "known")).rejects.toBeInstanceOf(NotionRestError);
+    expect(g.calls).toHaveLength(1); // panel už nic neposlal
+    expect(stack.rest!.paused).toBe(true);
   });
 });
 

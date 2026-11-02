@@ -155,8 +155,17 @@ export class NotionRestApi {
     registerKnownSecret(token);
   }
   private auth: string;
+  /**
+   * Set by 401 (bad token) or 429 (rate limit shared by the whole workspace): from then on this client sends nothing
+   * for the rest of the run. One client serves the page writer and the panel, so both stop together.
+   */
+  private pausedStatus: 401 | 429 | undefined;
+  get paused(): boolean {
+    return this.pausedStatus !== undefined;
+  }
 
   async request<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
+    if (this.pausedStatus) throw new NotionRestError(this.pausedStatus, "paused");
     let res: Awaited<ReturnType<FetchLike>>;
     try {
       res = await this.fetchImpl(`https://api.notion.com${path}`, {
@@ -179,6 +188,7 @@ export class NotionRestApi {
       } catch {
         /* body is not JSON */
       }
+      if (res.status === 401 || res.status === 429) this.pausedStatus = res.status;
       throw new NotionRestError(res.status, code, committedId);
     }
     try {
@@ -222,12 +232,14 @@ export function isFallbackEligible(e: unknown, idempotent: boolean): e is Notion
   return idempotent && (e.status === 0 || e.status >= 500);
 }
 
-/** After these the REST path is skipped for the rest of the run (bad token; rate limit shared by the workspace). */
-export const stopsRestForRun = (e: NotionRestError): boolean => e.status === 401 || e.status === 429;
+/**
+ * A create whose result is unknown: the request may have been saved (network error, 5xx, unreadable answer).
+ * Such a create is never repeated blindly; the order is marked and its row looked up by order id first.
+ */
+export const isUncertainOutcome = (e: unknown): boolean => e instanceof NotionRestError && !e.committedId && (e.status === 0 || e.status >= 500 || e.code === "bad_response");
 
 /** REST first; MCP for pages outside the integration's share and whenever REST is unavailable. Reads stay on MCP. */
 export class HybridNotion implements NotionClient {
-  private restDown = false;
   constructor(
     private rest: RestNotion,
     private mcp: McpNotion,
@@ -240,14 +252,11 @@ export class HybridNotion implements NotionClient {
 
   async createPage(parentPageId: string, title: string, markdown: string): Promise<NotionPage> {
     assertNoSecret(`${title}\n${markdown}`); // before either path
-    if (!this.restDown) {
-      try {
-        return await this.rest.createPage(parentPageId, title, markdown);
-      } catch (e) {
-        if (!isFallbackEligible(e, false)) throw e;
-        if (stopsRestForRun(e)) this.restDown = true;
-        this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
-      }
+    try {
+      return await this.rest.createPage(parentPageId, title, markdown);
+    } catch (e) {
+      if (!isFallbackEligible(e, false)) throw e;
+      this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
     }
     return this.mcp.createPage(parentPageId, title, markdown);
   }

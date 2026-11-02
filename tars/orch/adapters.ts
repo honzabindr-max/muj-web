@@ -120,8 +120,9 @@ export class ClaudeCli implements TextAdapter {
   }
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
     const args = ["-p", "--model", this.model, "--output-format", "json", "--settings", ORCH_CLAUDE_SETTINGS];
-    if (opts.allowedTools?.length)
-      args.push("--allowedTools", opts.allowedTools.join(","), "--disallowedTools", NOTION_QUERY_TOOLS_DENIED);
+    if (opts.allowedTools?.length) args.push("--allowedTools", opts.allowedTools.join(","));
+    // Always, also for calls without an allowlist (supervisor, checkers): TARS never runs SQL/rows queries on Notion.
+    args.push("--disallowedTools", NOTION_QUERY_TOOLS_DENIED);
     const r = await runProcess(
       "claude",
       args,

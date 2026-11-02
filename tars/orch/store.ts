@@ -68,6 +68,38 @@ export class Store {
     return fs.readFileSync(path.join(this.runsDir, id, name), "utf8");
   }
 
+  /**
+   * Short lock around one synchronous read-modify-write of an order's state (owner decision from Notion in a tick,
+   * `cli owner`, `abort`). Separate from the tick lock, which is held for a whole tick: with it a manual REJECT can
+   * never be overwritten by a decision the tick read earlier. Waits up to `waitMs`, then throws.
+   */
+  withStateLock<T>(fn: () => T, waitMs = 5000, staleMs = 30_000): T {
+    const f = path.join(this.runsDir, ".state.lock");
+    const t0 = Date.now();
+    for (;;) {
+      try {
+        fs.writeFileSync(f, String(process.pid), { flag: "wx" });
+        break;
+      } catch {
+        try {
+          if (Date.now() - fs.statSync(f).mtimeMs > staleMs) {
+            fs.rmSync(f, { force: true });
+            continue;
+          }
+        } catch {
+          continue; // lock vanished between the two calls
+        }
+        if (Date.now() - t0 >= waitMs) throw new Error("stav zakázky právě mění jiný proces (zámek .state.lock), zkus to za chvíli");
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      }
+    }
+    try {
+      return fn();
+    } finally {
+      fs.rmSync(f, { force: true });
+    }
+  }
+
   /** Single-runner lock (launchd may fire while a long tick still runs). */
   acquireLock(staleMs = 3 * 60 * 60 * 1000): boolean {
     const f = path.join(this.runsDir, ".lock");
