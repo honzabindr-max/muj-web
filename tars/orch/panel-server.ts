@@ -21,7 +21,7 @@ import { scrub, scrubDeep } from "./secret-scan";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runsDir = process.env.TARS_RUNS_DIR ?? path.resolve(here, "../../runs");
 const port = Number(process.env.TARS_PANEL_PORT ?? 4747);
-const cardsDir = path.resolve(here, "specialists/mezi-vami");
+const cardsDir = path.resolve(here, "../../.claude/agents");
 
 export function listShots(orderDir: string): string[] {
   const out: string[] = [];

@@ -8,6 +8,7 @@ import path from "node:path";
 
 import type { AdapterResult, AiChain, TextAdapter } from "./adapters";
 import { RuleViolation, UiUnknownError, type BrowserStep } from "./browser";
+import { stripFrontmatter } from "./cards";
 import type { NotionClient } from "./notion";
 import { scanSecrets } from "./secret-scan";
 import type { Store } from "./store";
@@ -63,7 +64,7 @@ export interface DepartmentRunner {
   deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome>;
   /** Department-level rule: does delivery always need the owner (e.g. PR into main)? */
   alwaysOwner: boolean;
-  /** Creator specialist card role (tars/orch/specialists/<mise>/<role>.md). */
+  /** Creator specialist role (definition in .claude/agents/**). */
   cardRole: string;
 }
 
@@ -379,7 +380,8 @@ export function stageAiChainPrompts(orderDir: string, aiChainPromptsDir: string,
     const src = path.join(aiChainPromptsDir, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
-  if (sentinelSpec) fs.copyFileSync(sentinelSpec, path.join(dst, "invariant-sentinel.md"));
+  // run.sh gets the sentinel prompt exactly as before: the subagent definition without its frontmatter.
+  if (sentinelSpec) fs.writeFileSync(path.join(dst, "invariant-sentinel.md"), stripFrontmatter(fs.readFileSync(sentinelSpec, "utf8")));
 }
 
 // ───────────────────────────── Brána (GPT gate) ─────────────────────────────

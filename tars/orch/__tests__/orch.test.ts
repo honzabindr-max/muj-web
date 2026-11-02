@@ -44,7 +44,7 @@ import { GATE_SCHEMA, parseStructuredVerdict, REVIEW_SCHEMA, REVIEW_VERDICTS, un
 
 const NOW = "2026-11-02T12:00:00.000Z";
 const OKP = { ok: true, reasons: [] as string[] };
-const CARDS_DIR = path.join(__dirname, "..", "specialists", "mezi-vami");
+const CARDS_DIR = path.join(__dirname, "..", "..", "..", ".claude", "agents");
 
 function blank(state: Order["state"] = "NEW"): Order {
   return { id: "wo-test", mission: "m", state, created_at: NOW, updated_at: NOW, fix_rounds: 0, manual_interventions: 0, history: [], meta: {} };
@@ -359,7 +359,7 @@ describe("specialist cards (§2a)", () => {
   });
 
   it("rejects a card with a missing section or same-family checker", () => {
-    const good = fs.readFileSync(path.join(CARDS_DIR, "copy-studio.md"), "utf8");
+    const good = fs.readFileSync(path.join(CARDS_DIR, "gpt", "copy-studio.md"), "utf8");
     expect(validateCardText(good.replace("## 6. Kontrolor", "## 6. X"), "x").problems.join()).toMatch(/Kontrolor/);
     expect(validateCardText(good.replace("checker_family: claude", "checker_family: gpt"), "x").problems.join()).toMatch(/tvůrce ≠ kontrolor/);
   });
@@ -452,9 +452,10 @@ describe("adapter ladder (§2b)", () => {
     fs.writeFileSync(path.join(fakeChain, "evidence-collector.md"), "collector");
     fs.writeFileSync(path.join(fakeChain, "invariant-sentinel.md"), "suggest-db rules");
     const orderDir = fs.mkdtempSync(path.join(os.tmpdir(), "ord-"));
-    stageAiChainPrompts(orderDir, fakeChain, path.join(CARDS_DIR, "ai-chain-mezi-vami/invariant-sentinel.md"));
+    stageAiChainPrompts(orderDir, fakeChain, path.join(CARDS_DIR, "invariant-sentinel.md"));
     const staged = fs.readFileSync(path.join(orderDir, "prompts/invariant-sentinel.md"), "utf8");
     expect(staged).toContain("ui_data_contract_v1");
+    expect(staged.startsWith("# Invariant Sentinel")).toBe(true); // frontmatter of the subagent definition is not passed to run.sh
     expect(staged).not.toContain("suggest-db rules");
     expect(fs.readFileSync(path.join(orderDir, "prompts/repo-recon.md"), "utf8")).toBe("recon");
   });
@@ -757,11 +758,59 @@ describe("acceptance feasibility (fix after run 2 order 1)", () => {
   });
 });
 
-describe("shared card rules (fix after run 2 order 2)", () => {
-  it("card text carries _spolecne.md when the card refers to it", () => {
-    const t = new CardRegistry(CARDS_DIR).text("copy-studio");
-    expect(t).toContain("<<<_spolecne.md");
-    expect(t).toContain(fs.readFileSync(path.join(CARDS_DIR, "_spolecne.md"), "utf8").split("\n")[0]);
+describe("specialist definitions in .claude/agents (DR-029 krok 2)", () => {
+  const ROLES = ["supervizor", "vyvojar", "vizual", "copy-studio", "brana"];
+
+  it("every role carries the identical shared section and its text reaches the prompt", () => {
+    const reg = new CardRegistry(CARDS_DIR);
+    const shared = (role: string) => reg.text(role).split("\n## Společné podklady")[1];
+    for (const r of ROLES) {
+      expect(shared(r), r).toContain("Pořadí autority");
+      expect(shared(r), r).toBe(shared("supervizor"));
+      expect(reg.text(r)).not.toContain("_spolecne.md`.");
+    }
+  });
+
+  it("Claude roles are valid Claude Code subagents, GPT roles are not loadable as subagents", () => {
+    const reg = new CardRegistry(CARDS_DIR);
+    for (const r of ROLES) {
+      const file = reg.check(r).card!.file;
+      const fm = /^---\n([\s\S]*?)\n---\n/.exec(fs.readFileSync(file, "utf8"))![1];
+      const has = (k: string) => new RegExp(`^${k}:`, "m").test(fm);
+      if (reg.check(r).card!.family === "claude") {
+        expect(fm).toMatch(new RegExp(`^name: ${r}$`, "m"));
+        expect(has("description") && has("model") && has("tools"), r).toBe(true);
+        expect(fm).toMatch(/^model: (opus|sonnet)$/m);
+        expect(path.relative(CARDS_DIR, file).includes(path.sep), r).toBe(false);
+      } else {
+        expect(has("name"), r).toBe(false); // Claude Code skips files without `name`
+        expect(path.relative(CARDS_DIR, file).startsWith("gpt" + path.sep), r).toBe(true);
+      }
+    }
+    const gptAsSubagent = fs.readFileSync(path.join(CARDS_DIR, "gpt", "brana.md"), "utf8").replace("role: brana", "name: brana");
+    expect(validateCardText(gptAsSubagent, "x").problems.join()).toMatch(/GPT nesmí být Claude subagent/);
+    const claudeNoName = fs.readFileSync(path.join(CARDS_DIR, "vizual.md"), "utf8").replace("name: vizual", "role: vizual");
+    expect(validateCardText(claudeNoName, "x").problems.join()).toMatch(/chybí name/);
+  });
+
+  it("every recipe has a creator and a checker of different model families", () => {
+    const reg = new CardRegistry(CARDS_DIR);
+    // recipes = departments (creator definition → checker) and the supervisor (brief → checker)
+    const recipes = [
+      ...(["copy", "dev", "vizual"] as const).map((d) => ({ name: d, c: reg.creatorFor(d) })),
+      { name: "supervizor", c: reg.check("supervizor") },
+    ];
+    for (const { name, c } of recipes) {
+      expect(c.problems, name).toEqual([]);
+      expect(["claude", "gpt"], name).toContain(c.card!.checker_family);
+      expect(c.card!.checker_family, name).not.toBe(c.card!.family);
+    }
+    // where the checker has its own definition (brana for vizual), it is of the declared checker family
+    expect(reg.check("brana").card!.family).toBe(reg.creatorFor("vizual").card!.checker_family);
+    expect(reg.check("brana").card!.checker_family).not.toBe(reg.check("brana").card!.family);
+    // wiring of the runners must match: same family for creator and checker is refused at start
+    expect(() => assertFamilies({ copy: { creatorFamily: "gpt", checkerFamily: "gpt" } as never })).toThrow();
+    expect(() => assertFamilies({ copy: { creatorFamily: "gpt", checkerFamily: "claude" } as never })).not.toThrow();
   });
 });
 

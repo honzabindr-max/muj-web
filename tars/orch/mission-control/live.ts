@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { listAgentFiles } from "../cards";
 import { scanSecrets } from "../secret-scan";
 import { STATES, type LogEntry, type Order } from "../types";
 import { safe, type CardDoc, type LockInfo, type McInput } from "./view";
@@ -98,14 +99,18 @@ export function readLock(runsDir: string): LockInfo {
   return lockAt(path.join(runsDir, ".lock")) ?? { present: false, alive: false };
 }
 
+/** TARS specialist = definition whose frontmatter carries `family`. */
+function isSpecialist(text: string): boolean {
+  return /^family:/m.test(/^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? "");
+}
+
 /** First sentence of section „## 1. Mise role a model“ of each card. */
 export function readCards(cardsDir: string): Record<string, string> {
   const out: Record<string, string> = {};
-  if (!fs.existsSync(cardsDir)) return out;
-  for (const f of fs.readdirSync(cardsDir)) {
-    if (!f.endsWith(".md") || f.startsWith("_") || f.startsWith("REVIEW")) continue;
-    const text = fs.readFileSync(path.join(cardsDir, f), "utf8");
-    const role = /^role:\s*(.+)$/m.exec(text)?.[1]?.trim();
+  for (const f of listAgentFiles(cardsDir)) {
+    const text = fs.readFileSync(f, "utf8");
+    if (!isSpecialist(text)) continue; // not a TARS specialist (e.g. evidence-gate)
+    const role = (/^name:\s*(.+)$/m.exec(text) ?? /^role:\s*(.+)$/m.exec(text))?.[1]?.trim();
     const sec = /## 1\. Mise role a model\s*\n+([^\n]+)/.exec(text)?.[1];
     if (role && sec) out[role] = (/^(.+?[.!?])(\s|$)/.exec(sec)?.[1] ?? sec).replace(/`/g, "");
   }
@@ -132,7 +137,7 @@ export function parseCard(text: string, file: string): CardDoc | undefined {
   const fm = /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1];
   if (!fm) return undefined;
   const get = (k: string) => new RegExp(`^${k}:\\s*(.+)$`, "m").exec(fm)?.[1]?.trim();
-  const role = get("role");
+  const role = get("name") ?? get("role");
   if (!role) return undefined;
   const sec = /## 1\. Mise role a model\s*\n+([^\n]+)/.exec(text)?.[1];
   // Card text is data: every field passes the secret filter before it can reach a page.
@@ -146,7 +151,7 @@ export function parseCard(text: string, file: string): CardDoc | undefined {
   return {
     role: safe(role, 60),
     title: meta("title", 160) ?? safe(role, 60),
-    model: meta("model"),
+    model: meta("executor") ?? meta("model"),
     family: meta("family"),
     adapter: meta("adapter"),
     rung: meta("rung"),
@@ -157,12 +162,12 @@ export function parseCard(text: string, file: string): CardDoc | undefined {
   };
 }
 
-export function readCardDocs(cardsDir: string): Record<string, CardDoc> {
+export function readCardDocs(cardsDir: string, root = path.resolve(cardsDir, "../..")): Record<string, CardDoc> {
   const out: Record<string, CardDoc> = {};
-  if (!fs.existsSync(cardsDir)) return out;
-  for (const f of fs.readdirSync(cardsDir).sort()) {
-    if (!f.endsWith(".md") || f.startsWith("_") || f.startsWith("REVIEW")) continue;
-    const c = parseCard(fs.readFileSync(path.join(cardsDir, f), "utf8"), path.relative(path.resolve(cardsDir, "../../../.."), path.join(cardsDir, f)));
+  for (const f of listAgentFiles(cardsDir)) {
+    const text = fs.readFileSync(f, "utf8");
+    if (!isSpecialist(text)) continue; // not a TARS specialist (e.g. evidence-gate)
+    const c = parseCard(text, path.relative(root, f));
     if (c) out[c.role] = c;
   }
   return out;

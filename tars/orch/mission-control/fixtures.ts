@@ -123,7 +123,7 @@ export function scenario(name: Scenario, now = new Date().toISOString()): McInpu
       return {
         ...common,
         cardDocs: {
-          "copy-studio": { role: "copy-studio", title: "GPT — Copy Studio", model: "codex exec (GPT)", adapter: "codex", rung: "1", file: "tars/orch/specialists/mezi-vami/copy-studio.md", mission: CARDS["copy-studio"], postup: ["1. Načíst podklady od rešeršéra a strážce hlasu", "2. Navrhnout 3 směry", "3. Vybrat nejsilnější", "4. Rozepsat", "5. Sebekontrola proti zákazům"] },
+          "copy-studio": { role: "copy-studio", title: "GPT — Copy Studio", model: "codex exec (GPT)", adapter: "codex", rung: "1", file: ".claude/agents/gpt/copy-studio.md", mission: CARDS["copy-studio"], postup: ["1. Načíst podklady od rešeršéra a strážce hlasu", "2. Navrhnout 3 směry", "3. Vybrat nejsilnější", "4. Rozepsat", "5. Sebekontrola proti zákazům"] },
         },
         orders: [prev, p1, p2, p3],
         log: [
