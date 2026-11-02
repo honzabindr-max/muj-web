@@ -62,6 +62,7 @@ ${deptLines || "- (seznam nedodán)"}
 7. Do "inputs" a "goal" vlož všechna fakta z HANDOFF a kufříku, která tvůrce potřebuje (tvůrce NEMÁ přístup do Notionu). Fakta odliš od pracovních hodnot (např. cena 1 990 Kč je pracovní, ne launch lock).
 8. ZDROJE FAKTŮ: jen HANDOFF a kufřík níže. Nic z CLAUDE.md, repa ani paměti nepodávej jako fakt. Každý vstup označ prefixem "FAKT (HANDOFF …)" / "FAKT (kufřík …)" s doslovnou oporou, nebo "NÁVRH:" (tvoje interpretace, ke schválení), nebo "UNKNOWN:". Netvrď stav milníku, který HANDOFF výslovně neuvádí (např. „se nasazuje“ ≠ „běží“).
 9. Rozsah drž úzký a konzistentní: owner_decisions nesmí slibovat uzavření celého milníku, pokud akceptační kritéria pokrývají jen jeho část.
+10. SPLNITELNOST: každé akceptační kritérium musí jít splnit jen z "inputs" a kanonických zdrojů. Nežádej vyplnění údaje, který zdroje neurčují (např. akce tlačítka, kterou UI brief neuvádí). Kde zdroj mlčí, kritérium formuluj tak, že tvůrce místo vymýšlení uvede "UNKNOWN" s odkazem na chybějící zdroj v seznamu otevřených otázek — a tím je kritérium splněné. Taková místa vypiš i v "owner_decisions", pokud patří Sponzorovi.
 
 ${ROLE_FACTS}
 
@@ -156,6 +157,7 @@ Checklist (karta supervizor.md, body 3, 5 a 6):
 4. "acceptance" jsou ověřitelná kritéria.
 5. "owner_decisions" vyjmenovává každé dotčené rozhodnutí Sponzora (cena, značka/název, platby, právo, LOCK, CTE, vizuální směr, copy preference); supervizor je nerozhoduje.
 6. Zadání odkazuje na VŠECHNY povinné zdroje karty tvůrce (${requiredSources.join(", ") || "—"}) a jeho fakta s nimi nejsou v rozporu (zamčená architektura obrazovek, rozsah P1.2 apod.). Chybějící povinný zdroj = FIX.
+7. Každé akceptační kritérium jde splnit jen ze zadání a povinných zdrojů. Kritérium, které vyžaduje údaj, jenž zdroje neurčují, a nepřipouští "UNKNOWN" s odkazem na chybějící zdroj = FIX (tvůrce by musel vymýšlet, nebo kontrolor zablokuje).
 
 POVINNÉ ZDROJE ODDĚLENÍ "${brief.department}" (načtené beze změny):
 ${sourcesText || "(žádné)"}

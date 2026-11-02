@@ -148,6 +148,12 @@ export class Orchestrator {
   }
 
   /** Waits for pending panel writes (end of tick, tests). */
+  /** Rewrites the panel row of one order from its state.json (idempotent, no transition). */
+  resyncPanel(id: string): Promise<void> {
+    this.syncPanel(this.d.store.load(id));
+    return this.flushPanel();
+  }
+
   flushPanel(): Promise<void> {
     return this.panelQueue;
   }
@@ -178,7 +184,7 @@ export class Orchestrator {
    */
   preflight(dept: Department): PreflightResult & { maxFix?: number; cardRole?: string } {
     const runner = this.d.departments[dept];
-    if (!runner) return { ok: false, reasons: [`oddělení ${dept} není v v0 zapojeno`] };
+    if (!runner) return { ok: false, reasons: [`oddělení ${dept} není v tomto běhu zapojeno`] };
     const c = this.d.cards.creatorFor(dept);
     if (!c.ok || !c.card) return { ok: false, reasons: c.problems };
     const reasons: string[] = [];
@@ -398,6 +404,12 @@ export class Orchestrator {
     const o = this.d.store.load(id);
     return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}` });
   }
+}
+
+/** Keeps only the listed departments (empty list = all). Unwired ones show as unavailable to the supervisor. */
+export function onlyEnabled<T>(enabled: string[], all: Partial<Record<Department, T>>): Partial<Record<Department, T>> {
+  if (!enabled.length) return all;
+  return Object.fromEntries(Object.entries(all).filter(([k]) => enabled.includes(k))) as Partial<Record<Department, T>>;
 }
 
 export function ownerCard(o: Order, reasons: string[], dept: DepartmentRunner): string {
