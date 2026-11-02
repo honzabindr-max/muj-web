@@ -36,7 +36,7 @@ import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
-import { parseBrief, reservedDecisionHits } from "../supervisor";
+import { buildBriefCheckPrompt, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "../supervisor";
 import type { ModelFamily, Order } from "../types";
 
 const NOW = "2026-11-02T12:00:00.000Z";
@@ -728,5 +728,16 @@ describe("run 2 scope and models", () => {
     expect(r.ok).toBe(true);
     expect(r.status).toBe("DONE");
     expect(r.text).toContain("model=sonnet");
+  });
+});
+
+describe("acceptance feasibility (fix after run 2 order 1)", () => {
+  it("supervisor and brief checker require criteria satisfiable from sources, UNKNOWN allowed where sources are silent", () => {
+    const sup = buildSupervisorPrompt("capsule", [], []);
+    expect(sup).toContain("SPLNITELNOST");
+    expect(sup).toContain("UNKNOWN");
+    const brief = parseBrief('```json\n{"title":"t","department":"copy","milestone":"3.1","why":"w","goal":"g","inputs":["i"],"acceptance":["a"],"owner_decisions":[],"sources":["funnel"]}\n```');
+    const chk = buildBriefCheckPrompt(brief, "handoff", "card", "", ["funnel"], "");
+    expect(chk).toMatch(/7\. Každé akceptační kritérium jde splnit jen ze zadání a povinných zdrojů/);
   });
 });
