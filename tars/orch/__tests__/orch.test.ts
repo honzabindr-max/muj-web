@@ -753,3 +753,11 @@ describe("acceptance feasibility (fix after run 2 order 1)", () => {
     expect(chk).toMatch(/7\. Každé akceptační kritérium jde splnit jen ze zadání a povinných zdrojů/);
   });
 });
+
+describe("shared card rules (fix after run 2 order 2)", () => {
+  it("card text carries _spolecne.md when the card refers to it", () => {
+    const t = new CardRegistry(CARDS_DIR).text("copy-studio");
+    expect(t).toContain("<<<_spolecne.md");
+    expect(t).toContain(fs.readFileSync(path.join(CARDS_DIR, "_spolecne.md"), "utf8").split("\n")[0]);
+  });
+});
