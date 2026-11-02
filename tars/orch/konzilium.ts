@@ -333,15 +333,25 @@ export function norm(s: string): string {
     .toLowerCase();
 }
 
+/** Key of a quote: list markers stripped per line, Markdown removed, whitespace collapsed, trailing colon dropped. */
+export function quoteKey(t: string): string {
+  return norm(t.split("\n").map((l) => l.replace(/^\s*([-*+]|\d+\.)\s+/, "")).join(" ")).replace(/:$/, "");
+}
+
 /**
- * Whole source segments of a draft: every non-empty line and every paragraph (Markdown markers stripped).
- * A block must equal one segment exactly — a fragment ("990 Kč" out of "1 990 Kč vč. DPH") is not a quote.
+ * Whole source segments of a draft: every contiguous range of WHOLE lines inside a paragraph (so a label line,
+ * a bullet list or a multi-line block can be quoted), never a fragment of a line ("990 Kč" out of "1 990 Kč vč. DPH").
  */
 export function draftSegments(draft: string): Set<string> {
-  const lines = draft.split("\n").map((l) => l.replace(/^\s*([-*+]|\d+\.)\s+/, ""));
   const out = new Set<string>();
-  for (const l of lines) if (norm(l)) out.add(norm(l));
-  for (const p of draft.split(/\n\s*\n/)) if (norm(p)) out.add(norm(p));
+  for (const para of draft.split(/\n\s*\n/)) {
+    const lines = para.split("\n").filter((l) => l.trim());
+    for (let i = 0; i < lines.length; i++)
+      for (let j = i; j < Math.min(lines.length, i + 40); j++) {
+        const k = quoteKey(lines.slice(i, j + 1).join("\n"));
+        if (k) out.add(k);
+      }
+  }
   return out;
 }
 
@@ -354,7 +364,7 @@ export function quoteProblems(views: Array<DecisionView | null>, drafts: string[
     for (const b of v.blocks) {
       for (const t of [b.text, b.label]) {
         if (!t) continue;
-        if (!segs.some((set) => set.has(norm(t)))) problems.push(`„${t.slice(0, 80)}“ (${v.label}/${b.kind}) není celý blok z draftu`);
+        if (!segs.some((set) => set.has(quoteKey(t)))) problems.push(`„${t.slice(0, 80)}“ (${v.label}/${b.kind}) není celý blok z draftu`);
       }
     }
   }

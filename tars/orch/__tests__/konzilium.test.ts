@@ -1166,3 +1166,15 @@ describe("review round 6 fixes", () => {
     expect(a.id).not.toBe(b.id);
   });
 });
+
+describe("run 3 live fix: quotes of bullet lists and labels in Příprava rozhodnutí", () => {
+  it("bullets, labels with colon and multi-line bullet blocks are whole quotes; fragments still fail", () => {
+    const draft = "### Možnost 1: Ponechat\n**Pro:**\n- Odpovídá terminologii C.2. (`funnel`)\n\n**Riziko:**\n- Doména UNKNOWN.\n- Známka UNKNOWN.\n\n1 990 Kč vč. DPH";
+    const v = { label: "M1", summary: "", blocks: [
+      { kind: "note" as const, label: "Pro", text: "- Odpovídá terminologii C.2. (`funnel`)" },
+      { kind: "note" as const, label: "Riziko", text: "- Doména UNKNOWN.\n- Známka UNKNOWN." },
+    ] };
+    expect(quoteProblems([v], [draft])).toEqual([]);
+    expect(quoteProblems([{ label: "x", summary: "", blocks: [{ kind: "price" as const, text: "990 Kč" }] }], [draft])).toHaveLength(1);
+  });
+});
