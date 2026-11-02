@@ -2,6 +2,7 @@
 // writes its brief. It never creates and never checks (§1) — it only returns JSON that the
 // code validates. Order source is restricted to HANDOFF ACTIVE TRACK / DALŠÍ KROK.
 import type { LogEntry, OrderBrief } from "./types";
+import { STRUCTURED_FORMAT } from "./verdict";
 
 export const HANDOFF_PAGE_ID = "3d40ae49f507817db496c4e823996bc4";
 
@@ -148,6 +149,8 @@ export function buildBriefCheckPrompt(
   capsule = "",
   requiredSources: string[] = [],
   sourcesText = "",
+  /** true when the checker runs with `--output-schema` (structured JSON verdict). */
+  structured = false,
 ): string {
   return `Jsi KONTROLOR zadání supervizora (GPT, jiná rodina než supervizor Claude Opus). Netvoříš, jen hodnotíš.
 Checklist (karta supervizor.md, body 3, 5 a 6):
@@ -182,9 +185,9 @@ ZADÁNÍ K POSOUZENÍ (JSON):
 ${JSON.stringify(brief, null, 2)}
 
 KALIBRACE VERDIKTU:
-- FIX jen pro vadu, která by vedla ke špatnému výstupu, porušila zákaz nebo by rozhodla za Sponzora. Jinak PASS a drobnosti uveď v "issues" jako poznámky.
+- FIX jen pro vadu, která by vedla ke špatnému výstupu, porušila zákaz nebo by rozhodla za Sponzora. Jinak PASS a drobnosti uveď jako poznámky.
 - BLOCK jen když zakázka nejde udělat bez vlastníka nebo porušuje "Co se NESMÍ dělat znovu".
 - Nehledej nové typy připomínek v dalších kolech; posuď, zda jsou vyřešeny dřívější blokující vady.
 
-Vrať POUZE JSON v bloku \`\`\`json: {"verdict": "PASS"|"FIX"|"BLOCK", "issues": ["konkrétní nedostatek s odkazem na bod checklistu"]}`;
+${structured ? STRUCTURED_FORMAT : `Vrať POUZE JSON v bloku \`\`\`json: {"verdict": "PASS"|"FIX"|"BLOCK", "issues": ["konkrétní nedostatek s odkazem na bod checklistu"]}`}`;
 }

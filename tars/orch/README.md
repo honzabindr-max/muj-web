@@ -18,6 +18,28 @@ Models only produce text:
 
 The code refuses to start when a department has creator and checker from the same model family.
 
+## Verdict from GPT: `codex exec --output-schema`
+
+Every GPT checker (`CodexCli`, `supportsOutputSchema`) is called with `--output-schema` and must return exactly one JSON object
+(`verdict.ts`):
+
+```json
+{"verdict": "PASS" | "FIX" | "BLOCK", "findings": [{"severity": "critical|high|medium|low|info", "file": "path or null", "line": 12, "text": "…"}]}
+```
+
+`BLOCK` (needs the owner) stays from the earlier text protocol; the Vizuál gate uses its four Build OS P1.6 verdicts with the same `findings`.
+Parsing is strict (`parseStructuredVerdict`): prose, fenced JSON, extra keys, a FIX without findings or a PASS with critical/high findings are all
+**not** a PASS. They become `FIX` with the issue „Nelze ověřit: …“ (`unverifiable`). Claude checkers keep the ```` ```json ```` protocol.
+The family rule (`assertFamilies`, brief checker ≠ supervisor family) is unchanged and independent of the output format.
+
+## Codex plugin and review gate (interactive work only)
+
+The official plugin `openai/codex-plugin-cc` is installed at user level (`/plugin marketplace add openai/codex-plugin-cc`,
+`/plugin install codex@openai-codex`, `/codex:setup`). Its review gate (Stop hook) is a per-workspace switch stored by the plugin
+outside the repo (`/codex:setup --enable-review-gate` run inside the repo; default off everywhere else), so it cannot be set in
+`.claude/settings.json`. The automat's own `claude -p` calls pass inline `--settings` that disables the plugin (`ORCH_CLAUDE_SETTINGS`),
+because they run inside this repo and would otherwise trigger a GPT review per call. The gate runs locally only, never in CI of the public repo.
+
 ## Lifecycle
 
 `NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE`,

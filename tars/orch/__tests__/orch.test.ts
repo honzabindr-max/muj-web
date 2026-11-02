@@ -3,15 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
-import { AiChain, looksLikeLimit } from "../adapters";
+import { AiChain, ClaudeCli, CodexCli, looksLikeLimit, ORCH_CLAUDE_SETTINGS } from "../adapters";
 import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
 import { CardRegistry, validateCardText } from "../cards";
 import {
+  callChecker,
   CopyDepartment,
   copyDeterministicIssues,
+  DevDepartment,
   mapGateVerdict,
   parseGateVerdict,
   parseVerdict,
@@ -38,6 +40,7 @@ import { MAX_FIX_ROUNDS, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
 import { buildBriefCheckPrompt, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "../supervisor";
 import type { ModelFamily, Order } from "../types";
+import { GATE_SCHEMA, parseStructuredVerdict, REVIEW_SCHEMA, REVIEW_VERDICTS, unverifiable, GATE_VERDICTS } from "../verdict";
 
 const NOW = "2026-11-02T12:00:00.000Z";
 const OKP = { ok: true, reasons: [] as string[] };
@@ -759,5 +762,266 @@ describe("shared card rules (fix after run 2 order 2)", () => {
     const t = new CardRegistry(CARDS_DIR).text("copy-studio");
     expect(t).toContain("<<<_spolecne.md");
     expect(t).toContain(fs.readFileSync(path.join(CARDS_DIR, "_spolecne.md"), "utf8").split("\n")[0]);
+  });
+});
+
+// ─── krok 1 (DR-029): strukturovaný verdikt přes codex exec --output-schema ───
+class StructuredMock extends MockAdapter {
+  readonly supportsOutputSchema = true;
+  schemas: unknown[] = [];
+  async run(prompt: string, opts?: { outputSchema?: unknown }): Promise<AdapterResult> {
+    this.schemas.push(opts?.outputSchema);
+    return super.run(prompt);
+  }
+}
+const SJ = (verdict: string, findings: unknown[] = []) => JSON.stringify({ verdict, findings });
+const F = (over: Record<string, unknown> = {}) => ({ severity: "medium", file: "a.ts", line: 12, text: "chybí kontrola", ...over });
+
+describe("structured verdict (parseStructuredVerdict)", () => {
+  it("accepts a schema-valid PASS / FIX / BLOCK", () => {
+    expect(parseStructuredVerdict(SJ("PASS"), REVIEW_VERDICTS)).toMatchObject({ verdict: "PASS", issues: [] });
+    const fix = parseStructuredVerdict(SJ("FIX", [F(), F({ file: null, line: null, severity: "high", text: "obecně" })]), REVIEW_VERDICTS)!;
+    expect(fix.verdict).toBe("FIX");
+    expect(fix.issues).toEqual(["[medium] a.ts:12 chybí kontrola", "[high] obecně"]);
+    expect(parseStructuredVerdict(SJ("BLOCK", [F()]), REVIEW_VERDICTS)?.verdict).toBe("BLOCK");
+    expect(parseStructuredVerdict(SJ("PASS", [F({ severity: "low" })]), REVIEW_VERDICTS)?.verdict).toBe("PASS");
+  });
+  it("rejects everything that is not exactly the schema (never a PASS)", () => {
+    const bad = [
+      "",
+      "PASS",
+      "VERDIKT: PASS",
+      "```json\n" + SJ("PASS") + "\n```", // fenced / prose-wrapped is not --output-schema output
+      "Hotovo.\n" + SJ("PASS"),
+      SJ("pass"), // case matters
+      SJ("PASS WITH REQUIRED PATCHES"), // gate verdict is not a review verdict
+      JSON.stringify({ verdict: "PASS", issues: [] }), // old text protocol
+      JSON.stringify({ verdict: "PASS", findings: [], extra: 1 }),
+      JSON.stringify({ verdict: "PASS" }),
+      JSON.stringify({ verdict: "PASS", findings: "none" }),
+      SJ("FIX"), // FIX without any finding
+      SJ("BLOCK", []),
+      SJ("PASS", [F({ severity: "high" })]), // self-contradicting
+      SJ("PASS", [F({ severity: "critical" })]),
+      SJ("FIX", [F({ severity: "fatal" })]),
+      SJ("FIX", [F({ text: "  " })]),
+      SJ("FIX", [F({ line: -1 })]),
+      SJ("FIX", [F({ line: 1.5 })]),
+      SJ("FIX", [F({ file: 5 })]),
+      SJ("FIX", [{ severity: "low", text: "chybí file a line" }]),
+      "[]",
+      "null",
+    ];
+    for (const t of bad) expect(parseStructuredVerdict(t, REVIEW_VERDICTS), t).toBeUndefined();
+  });
+  it("gate verdicts use their own enum", () => {
+    expect(parseStructuredVerdict(SJ("PASS WITH REQUIRED PATCHES", [F()]), GATE_VERDICTS)?.verdict).toBe("PASS WITH REQUIRED PATCHES");
+    expect(parseStructuredVerdict(SJ("FIX", [F()]), GATE_VERDICTS)).toBeUndefined();
+  });
+  it("unverifiable() is FIX with „Nelze ověřit“, never PASS", () => {
+    const u = unverifiable("x");
+    expect(u.verdict).toBe("FIX");
+    expect(u.issues[0]).toMatch(/^Nelze ověřit/);
+  });
+  it("schemas are strict (additionalProperties:false, every key required) for OpenAI structured outputs", () => {
+    const check = (n: unknown): void => {
+      if (!n || typeof n !== "object") return;
+      const o = n as Record<string, unknown>;
+      if (o.type === "object") {
+        expect(o.additionalProperties).toBe(false);
+        expect([...(o.required as string[])].sort()).toEqual(Object.keys(o.properties as object).sort());
+      }
+      Object.values(o).forEach(check);
+    };
+    check(REVIEW_SCHEMA);
+    check(GATE_SCHEMA);
+    expect((REVIEW_SCHEMA.properties as { verdict: { enum: string[] } }).verdict.enum).toEqual(["PASS", "FIX", "BLOCK"]);
+  });
+});
+
+describe("callChecker", () => {
+  it("structured adapter gets the schema and a bad verdict becomes FIX „Nelze ověřit“", async () => {
+    for (const text of ["", "PASS", "```json\n" + SJ("PASS") + "\n```", "{nevalidní"]) {
+      const a = new StructuredMock("gpt", "gpt", [{ text }]);
+      const { r, v } = await callChecker(a, "p", dir);
+      expect(a.schemas[0]).toBe(REVIEW_SCHEMA);
+      expect(r.ok).toBe(true);
+      expect(v?.verdict, text).toBe("FIX");
+      expect(v?.issues[0]).toMatch(/^Nelze ověřit/);
+    }
+  });
+  it("structured adapter: valid verdict passes through with formatted findings", async () => {
+    const a = new StructuredMock("gpt", "gpt", [{ text: SJ("FIX", [F()]) }]);
+    expect((await callChecker(a, "p", dir)).v).toEqual({ verdict: "FIX", issues: ["[medium] a.ts:12 chybí kontrola"] });
+    const b = new StructuredMock("gpt", "gpt", [{ text: SJ("PASS") }]);
+    expect((await callChecker(b, "p", dir)).v).toEqual({ verdict: "PASS", issues: [] });
+  });
+  it("failed adapter call carries no verdict (limit/timeouts are handled by the orchestrator)", async () => {
+    const a = new StructuredMock("gpt", "gpt", [{ ok: false, limit: true, error: "usage limit" }]);
+    const res = await callChecker(a, "p", dir);
+    expect(res.r.limit).toBe(true);
+    expect(res.v).toBeUndefined();
+  });
+  it("text adapter (claude) keeps the ```json protocol and gets no schema", async () => {
+    const a = new MockAdapter("claude", "opus", [{ text: PASS }]);
+    expect((await callChecker(a, "p", dir)).v?.verdict).toBe("PASS");
+    const b = new MockAdapter("claude", "opus", [{ text: "hmm" }]);
+    expect((await callChecker(b, "p", dir)).v).toBeUndefined();
+  });
+});
+
+describe("structured verdict in departments and brief check", () => {
+  const ctx = () => ({ store, notion: { createPage: async () => ({ url: "x" }) } as unknown as NotionClient, draftParentId: "p", repoRoot: dir });
+  const checking = () => {
+    store.writeFile("wo-test", "draft-v0.md", DRAFT);
+    return { ...blank("CHECKING"), brief: parseBrief(BRIEF()), draft_file: "draft-v0.md" };
+  };
+  it("Copy: GPT checker with garbage output → FIX, never PASS; valid PASS → PASS", async () => {
+    const creator = new MockAdapter("claude", "opus", [{}]);
+    const garbage = new StructuredMock("gpt", "gpt", [{ text: "VERDIKT: PASS" }]);
+    const out = await new CopyDepartment(creator, garbage).check(checking(), ctx());
+    expect(out).toMatchObject({ ok: true, verdict: "FIX" });
+    expect(out.issues![0]).toMatch(/^Nelze ověřit/);
+    expect(garbage.calls[0]).toContain('"findings"'); // prompt asks for the structured format
+    const good = new StructuredMock("gpt", "gpt", [{ text: SJ("PASS") }]);
+    expect((await new CopyDepartment(creator, good).check(checking(), ctx())).verdict).toBe("PASS");
+  });
+  it("Copy: Claude checker still reads the ```json protocol", async () => {
+    const creator = new MockAdapter("gpt", "gpt", [{}]);
+    const claude = new MockAdapter("claude", "opus", [{ text: FIX }]);
+    expect(await new CopyDepartment(creator, claude).check(checking(), ctx())).toMatchObject({ verdict: "FIX", issues: ["zkrátit úvod"] });
+  });
+  it("Vizuál gate: structured verdicts map to automaton verdicts; garbage → FIX", async () => {
+    const run = async (text: string) => new VizualDepartment(new MockBrowser(), new StructuredMock("gpt", "gate", [{ text }])).check(checking(), ctx());
+    expect(await run(SJ("PASS"))).toMatchObject({ verdict: "PASS" });
+    expect(await run(SJ("PASS WITH REQUIRED PATCHES", [F({ text: "oprav X" })]))).toMatchObject({ verdict: "FIX", issues: ["[medium] a.ts:12 oprav X"] });
+    expect(await run(SJ("FAIL", [F()]))).toMatchObject({ verdict: "BLOCK" });
+    const bad = await run("PASS");
+    expect(bad).toMatchObject({ ok: true, verdict: "FIX" });
+    expect(bad.issues![0]).toMatch(/^Nelze ověřit/);
+    const legacyShape = await run(JSON.stringify({ verdict: "PASS", issues: [] }));
+    expect(legacyShape.verdict).toBe("FIX");
+  });
+  it("brief checker: garbage structured verdict never reaches PLANNED", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: "PASS" }]);
+    const { o, creator } = orch({ briefChecker: bc });
+    expect(await o.tick()).toMatchObject({ state: "UNKNOWN" });
+    expect(creator.calls).toHaveLength(0);
+    expect(bc.schemas.every((x) => x === REVIEW_SCHEMA)).toBe(true);
+  });
+  it("brief checker: structured FIX feeds findings back to the supervisor; structured PASS → PLANNED", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: SJ("FIX", [F({ file: null, line: null, text: "zkrátit úvod" })]) }, { text: SJ("PASS") }]);
+    const { o, supervisor } = orch({ briefChecker: bc });
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    expect(supervisor.calls[1]).toContain("zkrátit úvod");
+    expect(bc.calls[0]).toContain('"findings"');
+  });
+});
+
+describe("pravidlo jiné rodiny zůstává vynucené (krok 1)", () => {
+  it("CodexCli is family gpt, supports output schema, and the secret-scan wrapper keeps both", () => {
+    const c = new CodexCli();
+    expect(c.family).toBe("gpt");
+    expect(c.supportsOutputSchema).toBe(true);
+    const w = new SecretScanningAdapter(c);
+    expect(w.family).toBe("gpt");
+    expect(w.supportsOutputSchema).toBe(true);
+  });
+  it("structured output does not let a same-family checker through", () => {
+    const claudeStructured = new StructuredMock("claude", "x", [{}]);
+    expect(() => assertFamilies({ copy: new CopyDepartment(new MockAdapter("claude", "y", [{}]), claudeStructured) })).toThrow(/tvůrce ≠ kontrolor/);
+    const gptStructured = new StructuredMock("gpt", "x", [{}]);
+    expect(() => assertFamilies({ copy: new CopyDepartment(new MockAdapter("gpt", "y", [{}]), gptStructured) })).toThrow(/tvůrce ≠ kontrolor/);
+    const chain = new AiChain("/nonexistent/run.sh");
+    expect(() => assertFamilies({ dev: new DevDepartment(chain, new MockAdapter("claude", "z", [{}])) })).toThrow(/tvůrce ≠ kontrolor/);
+    expect(() => assertFamilies({ dev: new DevDepartment(chain, gptStructured) })).not.toThrow();
+  });
+  it("structured brief checker of the supervisor's family is refused", () => {
+    expect(() => orch({ briefChecker: new StructuredMock("claude", "x", [{}]) })).toThrow(/another model family/);
+  });
+});
+
+describe("CodexCli → codex exec --output-schema (fake codex on PATH)", () => {
+  let bin: string;
+  let oldPath: string | undefined;
+  const fakeCodex = (body: string) => {
+    const f = path.join(bin, "codex");
+    fs.writeFileSync(f, `#!/bin/bash\n${body}\n`, { mode: 0o755 });
+  };
+  beforeEach(() => {
+    bin = fs.mkdtempSync(path.join(os.tmpdir(), "fake-codex-"));
+    oldPath = process.env.PATH;
+    process.env.PATH = `${bin}:${oldPath}`;
+  });
+  afterEach(() => {
+    process.env.PATH = oldPath;
+  });
+  // The fake finds -o / --output-schema, copies the schema it was given, and writes a canned last message.
+  const script = (reply: string, extra = "") => `
+out=""; schema=""; args="$*"
+while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; --output-schema) schema="$2"; shift;; esac; shift; done
+echo "$args" > "${"$"}{FAKE_LOG}"
+if [ -n "$schema" ]; then cp "$schema" "${"$"}{FAKE_LOG}.schema"; echo "$schema" > "${"$"}{FAKE_LOG}.schemapath"; fi
+${extra}
+printf '%s' '${reply}' > "$out"
+`;
+  it("passes --output-schema <file> with the schema, keeps read-only sandbox, cleans the schema file", async () => {
+    const log = path.join(bin, "log");
+    process.env.FAKE_LOG = log;
+    fakeCodex(script(SJ("FIX", [F()])));
+    const r = await new CodexCli().run("prompt", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r.ok).toBe(true);
+    const args = fs.readFileSync(log, "utf8");
+    expect(args).toContain("exec");
+    expect(args).toMatch(/-s read-only/);
+    expect(args).toContain("--output-schema");
+    expect(JSON.parse(fs.readFileSync(`${log}.schema`, "utf8"))).toEqual(JSON.parse(JSON.stringify(REVIEW_SCHEMA)));
+    expect(fs.existsSync(fs.readFileSync(`${log}.schemapath`, "utf8").trim())).toBe(false);
+    expect(parseStructuredVerdict(r.text, REVIEW_VERDICTS)?.verdict).toBe("FIX");
+    expect(fs.readdirSync(dir).filter((f) => f.startsWith(".codex-last-"))).toEqual([]);
+  });
+  it("without outputSchema no --output-schema flag is passed", async () => {
+    const log = path.join(bin, "log2");
+    process.env.FAKE_LOG = log;
+    fakeCodex(script("text"));
+    const r = await new CodexCli().run("prompt", { cwd: dir });
+    expect(r.ok).toBe(true);
+    expect(fs.readFileSync(log, "utf8")).not.toContain("--output-schema");
+  });
+  it("end to end: fake codex prose answer through callChecker is FIX „Nelze ověřit“", async () => {
+    process.env.FAKE_LOG = path.join(bin, "log3");
+    fakeCodex(script("VERDIKT: PASS"));
+    const { v } = await callChecker(new CodexCli(), "p", dir);
+    expect(v?.verdict).toBe("FIX");
+    expect(v?.issues[0]).toMatch(/^Nelze ověřit/);
+  });
+  it("codex failing (exit 1, usage limit) → not ok, limit flagged, no verdict", async () => {
+    process.env.FAKE_LOG = path.join(bin, "log4");
+    fakeCodex(script("", 'echo "usage limit reached" >&2; exit 1'));
+    const { r, v } = await callChecker(new CodexCli(), "p", dir);
+    expect(r.ok).toBe(false);
+    expect(r.limit).toBe(true);
+    expect(v).toBeUndefined();
+  });
+});
+
+describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
+  it("passes inline --settings that disables codex@openai-codex; the other flags stay", async () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "fake-claude-"));
+    const log = path.join(bin, "args");
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/bash\nprintf '%s\\n' "$@" > "${log}"\necho '{"result":"ok","is_error":false}'\n`, { mode: 0o755 });
+    const old = process.env.PATH;
+    process.env.PATH = `${bin}:${old}`;
+    try {
+      const r = await new ClaudeCli("sonnet").run("hi", { cwd: dir });
+      expect(r.ok).toBe(true);
+    } finally {
+      process.env.PATH = old;
+    }
+    const args = fs.readFileSync(log, "utf8").split("\n");
+    expect(args).toContain("-p");
+    expect(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2)).toEqual(["--model", "sonnet"]);
+    expect(args[args.indexOf("--settings") + 1]).toBe(ORCH_CLAUDE_SETTINGS);
+    expect(JSON.parse(ORCH_CLAUDE_SETTINGS)).toEqual({ enabledPlugins: { "codex@openai-codex": false } });
   });
 });
