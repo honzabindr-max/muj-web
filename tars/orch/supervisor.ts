@@ -124,7 +124,9 @@ export const ROLE_FACTS = `ROZDĚLENÍ ROLÍ (TARS-ORCH-001 §1–§3, fakt, ne 
 - Oddělení copy: tvůrce GPT (Copy Studio), kontrolor Claude Opus jako SAMOSTATNÉ volání v roli kontrolora podle karty copy-studio bod 6 — není to supervizor.
 - Oddělení dev: tvůrce AI Chain (Claude), kontrolor Codex (GPT) + deterministické kontroly.
 - Oddělení vizual: tvůrce Claude Design, kontrolor GPT brána.
-- Kontrolu tvorby tedy vždy dělá jiná rodina modelů než tvůrce a nikdy supervizor.`;
+- Kontrolu tvorby tedy vždy dělá jiná rodina modelů než tvůrce a nikdy supervizor.
+- Doručení: copy a vizual → Notion podstránka DRAFT, kterou zakládá orchestrátor; dev → PR draft (TARS-ORCH-001 §2, §3 bod 6). To je vlastnost systému, ne pravomoc, kterou musí dokládat HANDOFF.
+- Rozhodnutí vyhrazená Sponzorovi končí ve WAITING_OWNER s kartou GO / REJECT (TARS-ORCH-001 §3 bod 7, §5).`;
 
 export function buildBriefCheckPrompt(brief: OrderBrief, handoff: string, supervisorCard: string, capsule = ""): string {
   return `Jsi KONTROLOR zadání supervizora (GPT, jiná rodina než supervizor Claude Opus). Netvoříš, jen hodnotíš.
@@ -153,6 +155,11 @@ HANDOFF>>>
 
 ZADÁNÍ K POSOUZENÍ (JSON):
 ${JSON.stringify(brief, null, 2)}
+
+KALIBRACE VERDIKTU:
+- FIX jen pro vadu, která by vedla ke špatnému výstupu, porušila zákaz nebo by rozhodla za Sponzora. Jinak PASS a drobnosti uveď v "issues" jako poznámky.
+- BLOCK jen když zakázka nejde udělat bez vlastníka nebo porušuje "Co se NESMÍ dělat znovu".
+- Nehledej nové typy připomínek v dalších kolech; posuď, zda jsou vyřešeny dřívější blokující vady.
 
 Vrať POUZE JSON v bloku \`\`\`json: {"verdict": "PASS"|"FIX"|"BLOCK", "issues": ["konkrétní nedostatek s odkazem na bod checklistu"]}`;
 }
