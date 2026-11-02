@@ -20,6 +20,10 @@ import {
   type BrowserRunner,
 } from "../departments";
 import { NotImplementedDesktop } from "../desktop";
+import { jsonEqual, lastStepSentence, McpPanelSink, PanelIndex, panelRow, queueOf, toolCalls, type PanelRow, type PanelSink } from "../panel";
+import http from "node:http";
+
+import { handler, listShots, safeShotPath, snapshot } from "../panel-server";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
 import { parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
@@ -106,6 +110,7 @@ function orch(
     browserReady?: boolean;
     browser?: BrowserRunner;
     briefChecker?: MockAdapter;
+    panel?: PanelSink;
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
@@ -133,6 +138,7 @@ function orch(
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,
+    panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
   });
   return { o, supervisor, creator, checker, notion, gate, browser };
 }
@@ -456,5 +462,112 @@ describe("supervisor brief checker (karta supervizor bod 6)", () => {
   });
   it("same-family brief checker is refused", () => {
     expect(() => orch({ briefChecker: new MockAdapter("claude", "x", [{}]) })).toThrow(/another model family/);
+  });
+});
+
+// ─── control panel (Notion mocked) ───
+class MockPanel implements PanelSink {
+  rows: Array<{ row: PanelRow; page?: string }> = [];
+  failNext = 0;
+  async upsert(row: PanelRow, page?: string) {
+    if (this.failNext > 0) {
+      this.failNext--;
+      throw new Error("notion 502");
+    }
+    this.rows.push({ row, page });
+    return page ?? "page1";
+  }
+}
+
+describe("Notion panel (mocked)", () => {
+  it("row rewritten on every transition; same page after first create", async () => {
+    const panel = new MockPanel();
+    const { o } = orch({ panel });
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    const states = panel.rows.map((r) => r.row["Stav"]);
+    expect(states).toEqual(["NEW", "PLANNED", "DOING", "CHECKING", "DELIVERED", "DONE"]);
+    expect(panel.rows[0].page).toBeUndefined();
+    expect(panel.rows.slice(1).every((r) => r.page === "page1")).toBe(true);
+    const last = panel.rows.at(-1)!.row;
+    expect(last["Odkaz na výstup"]).toBe("https://app.notion.com/p/mock1");
+    expect(last["Fronta"]).toBe("3 · Hotové");
+    expect(last["Tvůrce (model)"]).toContain("gpt");
+  });
+
+  it("WAITING_OWNER row is flagged and queued first", async () => {
+    const panel = new MockPanel();
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    await o.tick();
+    const last = panel.rows.at(-1)!.row;
+    expect(last["Čeká na vlastníka"]).toBe("__YES__");
+    expect(last["Fronta"]).toBe("1 · Čeká na vlastníka");
+  });
+
+  it("Notion failure never stops the order; logged and caught up on next transition", async () => {
+    const panel = new MockPanel();
+    panel.failNext = 2; // NEW and PLANNED writes fail
+    const { o } = orch({ panel });
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    expect(panel.rows[0].row["Stav"]).toBe("DOING"); // first successful write carries the full current row
+    expect(panel.rows.at(-1)!.row["Stav"]).toBe("DONE");
+    const errs = store.readLog(200).filter((e) => e.kind === "error" && e.result === "panel sync failed");
+    expect(errs).toHaveLength(2);
+  });
+
+  it("row values are deterministic from state", () => {
+    const o = transition(blank("CHECKING"), { type: "verdict", verdict: "FIX", issues: ["x"] }, NOW);
+    expect(lastStepSentence(o)).toBe("Kontrolor vrátil opravy (kolo 1).");
+    expect(queueOf(o)).toBe("2 · Běží");
+    expect(panelRow(o, "a", "b")).toEqual(panelRow(o, "a", "b"));
+    expect(panelRow(o, "a", "b")["Čeká na vlastníka"]).toBe("__NO__");
+  });
+
+  it("MCP transport is verified against the computed payload", () => {
+    const row = panelRow(blank("DOING"), "a", "b");
+    const stream = (props: unknown) =>
+      [
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "mcp__claude_ai_Notion__notion-update-page", input: { page_id: "p", command: "update_properties", properties: props } }] } }),
+        JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: '{"id":"p"}' }] }] } }),
+      ].join("\n");
+    const calls = toolCalls(stream(row));
+    expect(calls).toHaveLength(1);
+    expect(jsonEqual(calls[0].input.properties, row)).toBe(true);
+    expect(jsonEqual(toolCalls(stream({ ...row, Stav: "DONE" }))[0].input.properties, row)).toBe(false);
+    expect(new McpPanelSink(dir)).toBeTruthy();
+  });
+});
+
+describe("local live panel", () => {
+  it("snapshot reads state and log; screenshots are path-safe", async () => {
+    const { o } = orch();
+    await o.tick();
+    const id = store.listOrders()[0].id;
+    fs.mkdirSync(path.join(dir, id, "shots-r0"), { recursive: true });
+    fs.writeFileSync(path.join(dir, id, "shots-r0", "step-01-goto-a1.png"), "png");
+    const snap = snapshot(dir);
+    expect(snap.orders[0].state).toBe("DONE");
+    expect(snap.log.some((e) => e.kind === "transition")).toBe(true);
+    expect(listShots(path.join(dir, id))).toEqual(["shots-r0/step-01-goto-a1.png"]);
+    expect(safeShotPath(dir, id, "shots-r0/step-01-goto-a1.png")).toBeTruthy();
+    expect(safeShotPath(dir, id, "../../etc/passwd.png")).toBeUndefined();
+    expect(safeShotPath(dir, "../x", "a.png")).toBeUndefined();
+    expect(safeShotPath(dir, id, "state.json")).toBeUndefined();
+  });
+});
+
+describe("local live panel HTTP", () => {
+  it("serves page and state read-only on localhost", async () => {
+    const { o } = orch();
+    await o.tick();
+    const srv = http.createServer(handler(dir));
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    const get = (p: string, method = "GET") => fetch(`http://127.0.0.1:${port}${p}`, { method });
+    expect((await get("/")).status).toBe(200);
+    const st = (await (await get("/api/state")).json()) as { orders: Array<{ state: string }> };
+    expect(st.orders[0].state).toBe("DONE");
+    expect((await get("/shot?order=wo-x&file=../../x.png")).status).toBe(404);
+    expect((await get("/api/state", "POST")).status).toBe(405);
+    srv.close();
   });
 });

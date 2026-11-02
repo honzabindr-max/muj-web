@@ -13,6 +13,7 @@ import { defaultHasCli, type PreflightResult } from "./ladder";
 import { runGuard } from "./guard";
 import { makeNotion } from "./notion";
 import { Orchestrator, SecretScanningAdapter } from "./orchestrator";
+import { McpPanelSink, PanelIndex } from "./panel";
 import { Store } from "./store";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +74,7 @@ function build(): Orchestrator {
     draftParentId,
     repoRoot,
     capsulePath: path.join(repoRoot, "missions/mezi-vami/capsule.md"),
+    panel: process.env.TARS_PANEL === "0" ? undefined : { sink: new McpPanelSink(runsDir), index: new PanelIndex(runsDir) },
   });
 }
 
@@ -107,14 +109,18 @@ async function main() {
     case "abort": {
       const [id, ...reason] = args;
       if (!id || !reason.length) throw new Error("usage: abort <order-id> <reason>");
-      const o = build().abort(id, reason.join(" "));
+      const orch = build();
+      const o = orch.abort(id, reason.join(" "));
+      await orch.flushPanel();
       console.log(`${o.id} → ${o.state}`);
       return;
     }
     case "owner": {
       const [id, decision] = args;
       if (!id || (decision !== "GO" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|REJECT");
-      const o = build().owner(id, decision);
+      const orch = build();
+      const o = orch.owner(id, decision);
+      await orch.flushPanel();
       console.log(`${o.id} → ${o.state}`);
       return;
     }

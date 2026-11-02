@@ -8,6 +8,7 @@ import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcom
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
+import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { scanSecrets } from "./secret-scan";
 import { isActionable, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
@@ -28,6 +29,8 @@ export interface OrchestratorDeps {
   draftParentId: string;
   repoRoot: string;
   capsulePath: string;
+  /** Notion control panel (TARS — Zakázky). Optional; failures never stop an order. */
+  panel?: { sink: PanelSink; index: PanelIndex };
   mission?: string;
   now?: () => Date;
   pauseMinutes?: number;
@@ -73,6 +76,7 @@ export function assertFamilies(depts: Partial<Record<string, DepartmentRunner>>)
 
 export class Orchestrator {
   private now: () => Date;
+  private panelQueue: Promise<void> = Promise.resolve();
   private ctx: DeptContext;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
@@ -92,6 +96,7 @@ export class Orchestrator {
   private apply(order: Order, ev: OrderEvent, extra: Partial<LogEntry> = {}): Order {
     const next = transition(order, ev, this.iso());
     this.d.store.save(next);
+    this.syncPanel(next);
     this.log({
       order: order.id,
       kind: "transition",
@@ -103,6 +108,32 @@ export class Orchestrator {
       ...extra,
     });
     return next;
+  }
+
+  /**
+   * Rewrites the order's panel row from state.json. Serialized; errors are logged, never thrown.
+   * Every sync writes the full current row, so a missed update is caught up by the next one.
+   */
+  private syncPanel(o: Order): void {
+    const panel = this.d.panel;
+    if (!panel) return;
+    const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
+    const row = panelRow(o, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
+    this.panelQueue = this.panelQueue.then(async () => {
+      const t0 = Date.now();
+      try {
+        const id = await panel.sink.upsert(row, panel.index.get(o.id));
+        panel.index.set(o.id, id);
+        this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+      } catch (e) {
+        this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
+      }
+    });
+  }
+
+  /** Waits for pending panel writes (end of tick, tests). */
+  flushPanel(): Promise<void> {
+    return this.panelQueue;
   }
 
   newOrder(): Order {
@@ -120,6 +151,7 @@ export class Orchestrator {
       meta: {},
     };
     this.d.store.save(order);
+    this.syncPanel(order);
     this.log({ order: id, kind: "info", role: "orchestrator", result: "order created" });
     return order;
   }
@@ -181,6 +213,7 @@ export class Orchestrator {
       if (order.state === "WAITING_OWNER") return { status: "waiting_owner", order: order.id };
       return { status: "advanced", order: order.id, state: order.state };
     } finally {
+      await this.flushPanel();
       this.d.store.releaseLock();
     }
   }

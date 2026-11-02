@@ -44,3 +44,29 @@ npx tsx tars/orch/cli.ts owner <order-id> GO
 npx vitest run tars
 tars/orch/launchd/install.sh
 ```
+
+## Specialist cards and adapter ladder
+
+- Cards: `tars/orch/specialists/mezi-vami/*.md` (TARS-ORCH-001 §2a). No valid card → `PLANNED → UNKNOWN`, the specialist never runs.
+- Every card names a checker of the other model family, including the supervisor (GPT checks the brief) and the gate (Claude checks the gate verdict form).
+- Rungs (§2b): 1 CLI/API, 2 MCP, 3 browser (`browser.ts`, Playwright + profile TARS-agent), 4 desktop (`desktop.ts`, interface only in v0).
+- AI Chain gets the MEZI VÁMI sentinel through `runs/<order-id>/prompts/` (run.sh reads prompts from its cwd); run.sh is not edited.
+
+## One-time owner step: TARS-agent browser profile
+
+The orchestrator never logs in. The owner creates and logs in the profile once:
+
+```
+mkdir -p "$HOME/Library/Application Support/TARS-agent/chrome-profile" && open -na "Google Chrome" --args --user-data-dir="$HOME/Library/Application Support/TARS-agent/chrome-profile" https://claude.ai/login https://chatgpt.com/auth/login https://www.notion.so/login
+```
+
+Log in to Claude, ChatGPT and Notion only (no e-mail, bank, GitHub admin, no Chrome sync). Quit that Chrome window with Cmd+Q. Then:
+
+```
+cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts browser-check
+```
+
+## Control panels
+
+- Notion „TARS — Zakázky“ (https://app.notion.com/p/f12aa6d7804b4af0858db6b46167a3e5): one row per order, rewritten by the script on every transition (`panel.ts`). Values are computed from `state.json`; the MCP transport is verified against the computed payload. A failed write is logged and caught up by the next transition. View „Panel“ groups by Fronta: waiting for owner → running → done.
+- Local live panel: `npm run tars:panel` → http://127.0.0.1:4747 (read-only, refresh 5 s, `panel-server.ts`).
