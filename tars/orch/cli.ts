@@ -25,7 +25,7 @@ const draftParentId = process.env.TARS_DRAFT_PARENT ?? "3cf0ae49f50781c7a42cf5ea
 const guardScript = process.env.TARS_GUARD ?? path.join(repoRoot, ".claude/hooks/tars-guard.sh");
 const aiChain = process.env.TARS_AI_CHAIN ?? path.join(os.homedir(), "Projects/ai-chain/run.sh");
 
-const cardsDir = path.join(here, "specialists/mezi-vami");
+const cardsDir = path.resolve(here, "../../.claude/agents");
 const browserStatusFile = path.join(runsDir, "browser-status.json");
 const BROWSER_STATUS_TTL_MS = 6 * 60 * 60 * 1000;
 /** Run scope: TARS_DEPARTMENTS=copy wires only the copy department (comma list; empty = all). */
@@ -75,7 +75,7 @@ function build(): Orchestrator {
     briefChecker: codex, // karta supervizor.md bod 6: GPT kontroluje zadání
     departments: onlyEnabled<DepartmentRunner>(enabledDepartments, {
       copy: new CopyDepartment(codex, opus, cardText("copy-studio")), // GPT creates, Claude checks
-      dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "ai-chain-mezi-vami/invariant-sentinel.md")), // Claude chain creates, GPT reviews
+      dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "invariant-sentinel.md")), // Claude chain creates, GPT reviews
       vizual: new VizualDepartment(new BrowserAdapter(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
     }),
     notion,

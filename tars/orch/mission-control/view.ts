@@ -24,7 +24,7 @@ export interface LockInfo {
   mtime?: string;
 }
 
-/** Parsed specialist card (tars/orch/specialists/<mise>/<role>.md). */
+/** Parsed specialist card (.claude/agents, <role>.md). */
 export interface CardDoc {
   role: string;
   title: string;

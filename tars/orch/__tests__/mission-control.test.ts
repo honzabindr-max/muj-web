@@ -134,7 +134,7 @@ describe("live reader and server", () => {
     fs.writeFileSync(path.join(dir, "log.jsonl"), input.log.map((e) => JSON.stringify(e)).join("\n") + "\n{broken");
     fs.writeFileSync(path.join(dir, ".lock"), String(process.pid));
     const before = fs.readdirSync(dir).sort();
-    const live = readLiveInput(dir, path.resolve(__dirname, "../specialists/mezi-vami"), NOW);
+    const live = readLiveInput(dir, path.resolve(__dirname, "../../../.claude/agents"), NOW);
     expect(live.orders).toHaveLength(2);
     expect(live.lock.alive).toBe(true);
     expect(live.cards.supervizor).toMatch(/^Řídí práci na misi/);

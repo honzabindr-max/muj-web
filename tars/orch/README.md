@@ -69,11 +69,11 @@ tars/orch/launchd/install.sh
 
 ## Specialist cards and adapter ladder
 
-- Cards: `tars/orch/specialists/mezi-vami/*.md` (TARS-ORCH-001 §2a). No valid card → `PLANNED → UNKNOWN`, the specialist never runs.
+- Cards: `.claude/agents/**/*.md` (TARS-ORCH-001 §2a, DR-029 krok 2): Claude roles are Claude Code subagents, GPT roles (`gpt/`, no `name`) run through codex only; see `.claude/agents/README.md`. No valid card → `PLANNED → UNKNOWN`, the specialist never runs.
 - Every card names a checker of the other model family, including the supervisor (GPT checks the brief) and the gate (Claude checks the gate verdict form).
 - Rungs (§2b): 1 CLI/API, 2 MCP, 3 browser (variant B: real Chrome with the TARS-agent profile, debugging port on 127.0.0.1 only for the job, Playwright over CDP — `cdp.ts`, `browser.ts`), 4 desktop (`desktop.ts`, interface only in v0).
 - TARS-GUARD I8 (`guard/i8.sh`): debugging port only in the TARS-agent profile, only on 127.0.0.1, only during an order; no Google account in the profile. The orchestrator runs it with the hook; `guard/tars-guard.proposed.sh` is the hook with I8 wired in (owner installs).
-- AI Chain gets the MEZI VÁMI sentinel through `runs/<order-id>/prompts/` (run.sh reads prompts from its cwd); run.sh is not edited.
+- AI Chain gets the MEZI VÁMI sentinel (`.claude/agents/invariant-sentinel.md`, frontmatter stripped) through `runs/<order-id>/prompts/` (run.sh reads prompts from its cwd); run.sh is not edited.
 
 ## One-time owner step: TARS-agent browser profile
 
