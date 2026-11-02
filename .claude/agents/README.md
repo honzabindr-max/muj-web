@@ -27,6 +27,17 @@ Role, které podle karty dělá GPT, nejsou Claude subagenty. Jejich soubory v `
 
 Platí dál a hlídá se na třech místech: `validateCardText` (`tars/orch/cards.ts`, `checker_family` ≠ `family`, role GPT nesmí mít `name`, role Claude musí), `assertFamilies` a `preflight` v `tars/orch/orchestrator.ts` (karta musí odpovídat zapojeným adaptérům) a test „recepty“ v `tars/orch/__tests__/orch.test.ts` (každé oddělení a supervizor mají tvůrce a kontrolora z různých rodin).
 
+## Nativní spuštění mimo orchestrátor
+
+Pravidlo „tvůrce a kontrolor z různých rodin“ vynucuje orchestrátor (zakázky přes `tars/orch`). Když se Claude subagent z této složky spustí přímo v sezení Claude Code, orchestrátor v tom neběží a `checker_family` se tam jen eviduje. Kontrolu GPT pak zajišťuje review gate pluginu codex-plugin-cc z kroku 1 (Stop hook, zapíná se per workspace příkazem `/codex:setup --enable-review-gate`, viz plán převodu), ne tento krok. Nový vynucovací mechanismus (hook) tento krok nepřidává.
+
+## Odchylky od původních karet
+
+- `supervizor`: karta říkala „bez nástrojů“ (volání `claude -p --model opus`). To se nemění, orchestrátor dál volá `claude -p` bez nástrojů. Definice subagenta má `tools: Read, Grep, Glob` (jen čtení), protože prázdné `tools` dokumentace neuvádí a při vynechání pole subagent dědí všechny nástroje.
+- `vizual`: karta nemá model Claude Code (Claude Design je webová aplikace). `model: sonnet` je řídicí role, původní text je v poli `executor`; skutečný výkon zůstává v prohlížeči.
+- `invariant-sentinel`: karta neměla model, zvolen `sonnet` (mechanický scan).
+- `vyvojar`: `model: sonnet` podle karty a Build OS §4; skutečný model běhu AI Chain je UNKNOWN (viz sekce AI Chain).
+
 ## AI Chain (run.sh)
 
 
