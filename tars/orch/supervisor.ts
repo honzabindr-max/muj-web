@@ -55,6 +55,10 @@ POSTUP:
 ${deptLines || "- (seznam nedodán)"}
 6. Neopakuj zakázky, které už běží nebo selhaly ze stejného důvodu (viz záznam níže).
 7. Do "inputs" a "goal" vlož všechna fakta z HANDOFF a kufříku, která tvůrce potřebuje (tvůrce NEMÁ přístup do Notionu). Fakta odliš od pracovních hodnot (např. cena 1 990 Kč je pracovní, ne launch lock).
+8. ZDROJE FAKTŮ: jen HANDOFF a kufřík níže. Nic z CLAUDE.md, repa ani paměti nepodávej jako fakt. Každý vstup označ prefixem "FAKT (HANDOFF …)" / "FAKT (kufřík …)" s doslovnou oporou, nebo "NÁVRH:" (tvoje interpretace, ke schválení), nebo "UNKNOWN:". Netvrď stav milníku, který HANDOFF výslovně neuvádí (např. „se nasazuje“ ≠ „běží“).
+9. Rozsah drž úzký a konzistentní: owner_decisions nesmí slibovat uzavření celého milníku, pokud akceptační kritéria pokrývají jen jeho část.
+
+${ROLE_FACTS}
 
 <<<HANDOFF
 ${handoff}
@@ -114,7 +118,15 @@ export function parseBrief(text: string): OrderBrief {
 }
 
 /** Prompt for the GPT checker of the supervisor's brief (karta supervizor.md, bod 6). */
-export function buildBriefCheckPrompt(brief: OrderBrief, handoff: string, supervisorCard: string): string {
+/** Role facts the checker needs to judge assignments (TARS-ORCH-001 §1, §2, §3). */
+export const ROLE_FACTS = `ROZDĚLENÍ ROLÍ (TARS-ORCH-001 §1–§3, fakt, ne návrh):
+- Supervizor (Claude Opus) jen vybírá zakázku a píše zadání; výstup specialisty nikdy nekontroluje.
+- Oddělení copy: tvůrce GPT (Copy Studio), kontrolor Claude Opus jako SAMOSTATNÉ volání v roli kontrolora podle karty copy-studio bod 6 — není to supervizor.
+- Oddělení dev: tvůrce AI Chain (Claude), kontrolor Codex (GPT) + deterministické kontroly.
+- Oddělení vizual: tvůrce Claude Design, kontrolor GPT brána.
+- Kontrolu tvorby tedy vždy dělá jiná rodina modelů než tvůrce a nikdy supervizor.`;
+
+export function buildBriefCheckPrompt(brief: OrderBrief, handoff: string, supervisorCard: string, capsule = ""): string {
   return `Jsi KONTROLOR zadání supervizora (GPT, jiná rodina než supervizor Claude Opus). Netvoříš, jen hodnotíš.
 Checklist (karta supervizor.md, body 3, 5 a 6):
 1. "why" cituje text, který v HANDOFF skutečně stojí v sekci ACTIVE TRACK nebo DALŠÍ KROK.
@@ -122,6 +134,13 @@ Checklist (karta supervizor.md, body 3, 5 a 6):
 3. "inputs" obsahují jen fakta, která v HANDOFF nebo kufříku stojí; pracovní hodnoty nejsou podané jako zamčené.
 4. "acceptance" jsou ověřitelná kritéria.
 5. "owner_decisions" vyjmenovává každé dotčené rozhodnutí Sponzora (cena, značka/název, platby, právo, LOCK, CTE, vizuální směr, copy preference); supervizor je nerozhoduje.
+
+${ROLE_FACTS}
+
+KUFŘÍK MISE (povolený zdroj vedle HANDOFF; index, při rozporu vyhrává HANDOFF):
+<<<CAPSULE
+${capsule}
+CAPSULE>>>
 
 KARTA SUPERVIZORA:
 <<<KARTA

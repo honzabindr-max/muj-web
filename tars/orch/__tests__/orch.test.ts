@@ -571,3 +571,14 @@ describe("local live panel HTTP", () => {
     srv.close();
   });
 });
+
+describe("brief checker context (fix after live run 1)", () => {
+  it("checker gets capsule and role facts", async () => {
+    fs.writeFileSync(path.join(dir, "capsule.md"), "KUFRIK-OBSAH-123");
+    const bc = new MockAdapter("gpt", "gpt-brief", [{ text: PASS }]);
+    const { o } = orch({ briefChecker: bc });
+    await o.tick();
+    expect(bc.calls[0]).toContain("KUFRIK-OBSAH-123");
+    expect(bc.calls[0]).toContain("není to supervizor");
+  });
+});

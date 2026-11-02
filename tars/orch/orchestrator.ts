@@ -273,7 +273,7 @@ export class Orchestrator {
             continue;
           }
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const c = await this.d.briefChecker.run(buildBriefCheckPrompt(brief, handoff, card), { cwd: this.d.store.orderDir(order.id) });
+          const c = await this.d.briefChecker.run(buildBriefCheckPrompt(brief, handoff, card, capsule), { cwd: this.d.store.orderDir(order.id) });
           const v = c.ok ? parseVerdict(c.text) : undefined;
           this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
           if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
