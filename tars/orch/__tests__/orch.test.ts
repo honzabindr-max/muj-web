@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
 import { looksLikeLimit } from "../adapters";
-import { asData, checkStep, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
+import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
 import { CardRegistry, validateCardText } from "../cards";
 import {
   CopyDepartment,
@@ -580,5 +580,13 @@ describe("brief checker context (fix after live run 1)", () => {
     await o.tick();
     expect(bc.calls[0]).toContain("KUFRIK-OBSAH-123");
     expect(bc.calls[0]).toContain("není to supervizor");
+  });
+});
+
+describe("bot challenge (fix after live run 3)", () => {
+  it("Cloudflare challenge text is detected, normal page is not", () => {
+    expect(isBotChallenge("claude.ai Provádění bezpečnostního ověření Potvrďte, že jste člověk CLOUDFLARE")).toBe(true);
+    expect(isBotChallenge("Verify you are human by completing the action below.")).toBe(true);
+    expect(isBotChallenge("How can I help you today?")).toBe(false);
   });
 });

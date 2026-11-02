@@ -35,6 +35,14 @@ export type BrowserStep =
   | { kind: "wait"; ms: number }
   | { kind: "read"; selector?: string };
 
+/** Bot challenge pages (Cloudflare etc.). TARS never solves or evades them; it stops. */
+export const BOT_CHALLENGE_RE =
+  /(Verify you are human|Potvrďte, že jste člověk|bezpečnostního ověření|security verification|Just a moment|cf-challenge|challenges\.cloudflare\.com)/i;
+
+export function isBotChallenge(pageText: string): boolean {
+  return BOT_CHALLENGE_RE.test(pageText);
+}
+
 export class UiUnknownError extends Error {
   constructor(
     message: string,
@@ -128,6 +136,9 @@ export class BrowserAdapter {
       if (shotsDir)
         await page.screenshot({ path: path.join(shotsDir, "login-check.png") });
       const url = page.url();
+      const text = await page.innerText("body").catch(() => "");
+      if (isBotChallenge(text))
+        return { ok: false, reasons: ["claude.ai zobrazuje ověření proti botům (Cloudflare) — TARS ho neobchází, rozhodne vlastník"] };
       if (!hostAllowed(url))
         return {
           ok: false,
@@ -187,6 +198,8 @@ export class BrowserAdapter {
           );
           await page.screenshot({ path: shot }).catch(() => undefined);
           screenshots.push(shot);
+          const bodyText = await page.innerText("body").catch(() => "");
+          if (isBotChallenge(bodyText)) throw new UiUnknownError("stránka vyžaduje ověření proti botům (Cloudflare); TARS ho neobchází", screenshots);
           if (offHost)
             throw new RuleViolation(`stránka odešla mimo povolené hosty`);
         }
