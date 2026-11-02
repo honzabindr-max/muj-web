@@ -531,9 +531,21 @@ export class Orchestrator {
 
   /** Manual abort by a human — counted as a manual intervention. */
   abort(id: string, reason: string): Order {
-    const o = this.d.store.load(id);
-    const counted = { ...o, manual_interventions: o.manual_interventions + 1 };
-    return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
+    return this.underDecisionLock(id, () => {
+      const o = this.d.store.load(id);
+      const counted = { ...o, manual_interventions: o.manual_interventions + 1 };
+      return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
+    });
+  }
+
+  /** Same per-order lock as owner(): no supersede/abort while a decision (and its merge) is in flight. */
+  private underDecisionLock<T>(id: string, fn: () => T): T {
+    if (!this.d.store.acquireOrderLock(id, "owner")) throw new Error(`o zakázce ${id} se právě rozhoduje jinde`);
+    try {
+      return fn();
+    } finally {
+      this.d.store.releaseOrderLock(id, "owner");
+    }
   }
 
   /**
@@ -567,8 +579,10 @@ export class Orchestrator {
 
   /** Owner replaced the order by a newer recipe (not REJECT). Frees the WIP limit; `redo` = supervisor proposes it again. */
   supersede(id: string, reason: string, redo: boolean): Order {
-    const o = this.d.store.load(id);
-    return this.apply({ ...o, meta: { ...o.meta, redo: redo ? "1" : "" } }, { type: "supersede", reason }, { role: "orchestrator", result: `superseded${redo ? " (redo)" : ""}` });
+    return this.underDecisionLock(id, () => {
+      const o = this.d.store.load(id);
+      return this.apply({ ...o, meta: { ...o.meta, redo: redo ? "1" : "" } }, { type: "supersede", reason }, { role: "orchestrator", result: `superseded${redo ? " (redo)" : ""}` });
+    });
   }
 }
 

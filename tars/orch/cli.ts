@@ -171,15 +171,17 @@ async function main() {
     }
     case "merge": {
       // DR-024 for any PR: class A → TARS merges after green CI + PASS review by GPT; class B → refuses (owner card).
-      const [pr, fam] = args;
+      const [pr, fam, ...rest] = args;
+      const ci = rest.indexOf("--context-file");
+      const reviewContext = ci >= 0 ? fs.readFileSync(rest[ci + 1], "utf8") : undefined;
       // Author family must be stated explicitly (no default): the reviewer is always the OTHER family.
       if (!pr || (fam !== "claude" && fam !== "gpt")) throw new Error("usage: merge <pr-number> <author-family claude|gpt>");
       const author = fam;
       const reviewer = author === "claude" ? new SecretScanningAdapter(new CodexCli()) : new SecretScanningAdapter(new ClaudeCli("opus"));
       const guard = () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot);
-      const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer, guard }).run(pr, author, { waitMs: 25 * 60_000 });
+      const r = await new MergeRunner({ exec: realExec, cwd: repoRoot, reviewer, guard, reviewContext }).run(pr, author, { waitMs: 25 * 60_000 });
       // Review text is evidence: stored locally (gitignored runs/), issues printed.
-      const review = "review" in r ? r.review : undefined;
+      const review = "review" in r ? r.review : undefined; // kept also after a successful merge
       if (review) {
         const f = path.join(runsDir, `merge-pr-${pr}`, `review-${new Date().toISOString().replace(/[:.]/g, "")}.md`);
         fs.mkdirSync(path.dirname(f), { recursive: true });

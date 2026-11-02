@@ -276,6 +276,12 @@ export function decisionRoute(root: string, opts: DecisionRouteOpts = {}) {
   const runOwner = opts.runOwner ?? spawnOwnerCli(root);
   return (req: http.IncomingMessage, res: http.ServerResponse): boolean => {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (url.pathname !== "/rozhodnuti" && !url.pathname.startsWith("/rozhodnuti/")) return false;
+    // Reads are protected too: the page carries the CSRF token and internal content (DNS rebinding).
+    if (!isLoopback(req.socket.remoteAddress) || !hostOriginOk(req.headers.host, req.method === "POST" ? (req.headers.origin as string | undefined) : undefined)) {
+      res.writeHead(403).end("forbidden");
+      return true;
+    }
     if (url.pathname === "/rozhodnuti" && req.method === "GET") {
       const items = fs.existsSync(root)
         ? fs

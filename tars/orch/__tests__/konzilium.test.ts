@@ -33,6 +33,7 @@ import {
   quoteProblems,
   readPackage,
   type DecisionPackage,
+  factProblems,
 } from "../konzilium";
 import {
   classifyPaths,
@@ -82,7 +83,7 @@ class MockNotion implements NotionClient {
   }
 }
 
-const COPY_DRAFT = `# Podrobněji o vašem vztahu\n\n## Směr A\n\nRozsáhlá designovaná analýza. ${"Tichý, sebejistý text. ".repeat(20)}\n\nObjednat Hloubkovou analýzu\n\n## Směr B\n\nVáš vztah v širších souvislostech\n\nPokračovat k objednávce analýzy\n\n## Kontrola kritérií\n- ok`;
+const COPY_DRAFT = `# Podrobněji o vašem vztahu\n\n## Směr A\n\nRozsáhlá designovaná analýza.\n\n${"Tichý, sebejistý text. ".repeat(20)}\n\nObjednat Hloubkovou analýzu\n\n## Směr B\n\nVáš vztah v širších souvislostech\n\nPokračovat k objednávce analýzy\n\n## Kontrola kritérií\n- ok`;
 const PREP_DRAFT = `# Příprava\n\n## Otázka\nnázev\n\n## Možnosti\n### Možnost 1: Ponechat MEZI VÁMI\nPonechat pracovní název MEZI VÁMI pro ČR.\n### Možnost 2: Globální název\nZvolit nový globální název před 5.2.\n\n## Doporučení\nDoporučuji možnost 1 do testu T5 5.3.\n\n${"Zdroj: handoff. ".repeat(30)}\n\n## Kontrola kritérií\n- ok`;
 
 const OFFER_BRIEF: OrderBrief = {
@@ -723,9 +724,9 @@ describe("merge policy DR-024", () => {
     expect(classifyPaths(["tars/orch/x.ts", p]).cls).toBe("B");
   });
   it("package.json: scripts only = A, dependencies = B", () => {
-    const a = JSON.stringify({ scripts: { a: "1" }, dependencies: { x: "1" } });
-    const b = JSON.stringify({ scripts: { a: "2" }, dependencies: { x: "1" } });
-    const c = JSON.stringify({ scripts: { a: "2" }, dependencies: { x: "2" } });
+    const a = JSON.stringify({ scripts: { "tars:x": "1" }, dependencies: { x: "1" } });
+    const b = JSON.stringify({ scripts: { "tars:x": "2" }, dependencies: { x: "1" } });
+    const c = JSON.stringify({ scripts: { "tars:x": "2" }, dependencies: { x: "2" } });
     expect(packageJsonDepsChanged(a, b)).toBe(false);
     expect(classifyPaths(["package.json"], { before: a, after: b }).cls).toBe(
       "A",
@@ -778,6 +779,7 @@ describe("merge policy DR-024", () => {
             mergeStateStatus: opts.behind && !updated ? "BEHIND" : "CLEAN",
             state: merged ? "MERGED" : "OPEN",
             headRefOid: opts.head ? opts.head() : updated ? "def" : "abc",
+            baseRefOid: "base0",
           }),
         };
       if (args[0] === "api") return { code: 0, out: files.map((f) => (Array.isArray(f) ? `${f[0]}\t${f[1]}` : `${f}\t`)).join("\n") };
@@ -879,10 +881,10 @@ describe("owner decisions (locks, blocked merge)", () => {
 describe("review round 2 fixes", () => {
   const files = (paths: string[]): Exec => (cmd, args) => {
     if (args[0] === "api") return { code: 0, out: paths.map((p) => `${p}\t`).join("\n") };
-    if (args[0] === "pr" && args[1] === "view") return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", headRefOid: "a" }) };
+    if (args[0] === "pr" && args[1] === "view") return { code: 0, out: JSON.stringify({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", headRefOid: "a", baseRefOid: "b0" }) };
     if (args[0] === "pr" && args[1] === "checks") return { code: 0, out: JSON.stringify([{ name: "test", bucket: "pass" }, { name: "janitor", bucket: "pass" }]) };
     if (args[0] === "pr" && args[1] === "diff") return { code: 0, out: "d" };
-    if (cmd === "git" && args[0] === "cat-file") return { code: 0, out: "" }; // gate exists on base
+    if (cmd === "git" && args[0] === "ls-tree") return { code: 0, out: `${args[args.length - 1]}\n` }; // gate exists on base
     return { code: 0, out: "" };
   };
   const pass = new Mock("gpt", "g", () => ({ text: J({ verdict: "PASS", issues: [] }) }));
@@ -935,5 +937,62 @@ describe("review round 2 fixes", () => {
     expect(pkg.drafts.revised).toBeUndefined();
     expect(pkg.disputes[0]).toMatch(/neprošlo kontrolou/);
     expect(fs.existsSync(path.join(store.orderDir(main.id), "konzilium", "zapracovani-check.md"))).toBe(true);
+  });
+});
+
+describe("review round 3 fixes", () => {
+  it("quote = whole draft segment: a price fragment or a dropped price line fails", () => {
+    const draft = "# Nabídka\n\nPodrobněji o vašem vztahu\n\n1 990 Kč vč. DPH\n\nObjednat Hloubkovou analýzu";
+    const frag = { label: "A", summary: "", blocks: [{ kind: "price" as const, text: "990 Kč" }] };
+    expect(quoteProblems([frag], [draft])).toHaveLength(1);
+    const noPrice = { label: "A", summary: "", blocks: [{ kind: "headline" as const, text: "Podrobněji o vašem vztahu" }] };
+    expect(factProblems([noPrice], draft)[0]).toMatch(/1 990 Kč/);
+    const ok = { label: "A", summary: "", blocks: [...noPrice.blocks, { kind: "price" as const, text: "1 990 Kč vč. DPH" }] };
+    expect([...quoteProblems([ok], [draft]), ...factProblems([ok], draft)]).toEqual([]);
+  });
+
+  it("package.json: production / install / test scripts are class B, tars:* scripts class A", () => {
+    const j = (scripts: Record<string, string>) => JSON.stringify({ scripts });
+    expect(packageJsonDepsChanged(j({ build: "next build" }), j({ build: "next build && curl x" }))).toBe(true);
+    expect(packageJsonDepsChanged(j({}), j({ postinstall: "node x" }))).toBe(true);
+    expect(packageJsonDepsChanged(j({ test: "vitest run" }), j({ test: "true" }))).toBe(true);
+    expect(packageJsonDepsChanged(j({ "tars:panel": "a" }), j({ "tars:panel": "b" }))).toBe(false);
+  });
+
+  it("classification fails closed when git cannot verify the base", () => {
+    const ex: Exec = (cmd, args) => (cmd === "git" && args[0] === "fetch" ? { code: 1, out: "fatal" } : { code: 0, out: "" });
+    const m = new MergeRunner({ exec: ex, cwd: "/", reviewer: new Mock("gpt", "g", () => ({})) });
+    expect(() => m.classify({ number: 1, headRefName: "h", baseRefName: "main", baseRefOid: "b", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: ["tars/a.ts"], headRefOid: "h1" })).toThrow(/fetch/);
+    expect(() => m.classify({ number: 1, headRefName: "h", baseRefName: "main", isDraft: false, mergeStateStatus: "CLEAN", state: "OPEN", files: ["tars/a.ts"], headRefOid: "h1" })).toThrow(/base/);
+  });
+
+  it("GET of the card is refused for a foreign Host (DNS rebinding)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tars-get-"));
+    fs.mkdirSync(path.join(root, "wo-1"));
+    fs.writeFileSync(path.join(root, "wo-1", "decision.json"), JSON.stringify({ order: "wo-1", kind: "copy", title: "t", milestone: "3.1", recommended: { label: "A", summary: "", blocks: [] }, alternative: null, reasons: [], disputes: [], experts: [], advocate: [], author: { role: "r", model: "m", family: "claude" }, creator: { role: "c", model: "m", family: "gpt" }, sponsor_reserved: [], honest_note: "", drafts: {}, prep_orders: [] }));
+    const route = decisionRoute(root, { runOwner: async () => ({ code: 0, out: "" }) });
+    const srv = http.createServer((q, s) => {
+      if (!route(q, s)) s.writeHead(404).end();
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    const get = (host: string) =>
+      new Promise<number>((resolve) => http.get({ host: "127.0.0.1", port, path: "/rozhodnuti/wo-1", headers: { Host: host } }, (res) => (res.resume(), resolve(res.statusCode ?? 0))));
+    expect(await get(`127.0.0.1:${port}`)).toBe(200);
+    expect(await get("evil.example")).toBe(403);
+    srv.close();
+  });
+
+  it("supersede/abort respect the owner decision lock", () => {
+    const st = new Store(fs.mkdtempSync(path.join(os.tmpdir(), "tars-lock-")));
+    st.save({ id: "wo-l", mission: "m", state: "WAITING_OWNER", created_at: NOW, updated_at: NOW, fix_rounds: 0, manual_interventions: 0, history: [], meta: {} });
+    const a = new Mock("claude", "o", () => ({}));
+    const g = new Mock("gpt", "g", () => ({}));
+    const o = new Orchestrator({ store: st, supervisor: a, briefChecker: g, departments: {}, cards: new CardRegistry(CARDS_DIR), ladder: { hasCli: () => true, browserReady: () => ({ ok: false, reasons: [] }), desktopReady: () => ({ ok: false, reasons: [] }) }, notion: new MockNotion(), guard: () => ({ alarm: false, summary: "" }), draftParentId: "p", repoRoot: "/", capsulePath: "/x" });
+    st.acquireOrderLock("wo-l", "owner");
+    expect(() => o.supersede("wo-l", "x", false)).toThrow(/rozhoduje/);
+    expect(() => o.abort("wo-l", "x")).toThrow(/rozhoduje/);
+    st.releaseOrderLock("wo-l", "owner");
+    expect(o.supersede("wo-l", "x", false).state).toBe("SUPERSEDED");
   });
 });

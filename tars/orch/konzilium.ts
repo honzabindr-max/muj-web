@@ -331,24 +331,46 @@ export function norm(s: string): string {
     .toLowerCase();
 }
 
-/** Judge must not write new copy: every block text (and label) has to be a quote from one of the drafts. */
-export function quoteProblems(
-  views: Array<DecisionView | null>,
-  drafts: string[],
-): string[] {
-  const hay = drafts.map(norm);
+/**
+ * Whole source segments of a draft: every non-empty line and every paragraph (Markdown markers stripped).
+ * A block must equal one segment exactly — a fragment ("990 Kč" out of "1 990 Kč vč. DPH") is not a quote.
+ */
+export function draftSegments(draft: string): Set<string> {
+  const lines = draft.split("\n").map((l) => l.replace(/^\s*([-*+]|\d+\.)\s+/, ""));
+  const out = new Set<string>();
+  for (const l of lines) if (norm(l)) out.add(norm(l));
+  for (const p of draft.split(/\n\s*\n/)) if (norm(p)) out.add(norm(p));
+  return out;
+}
+
+/** Judge must not write new copy: every block text (and label) has to be a whole segment of one of the drafts. */
+export function quoteProblems(views: Array<DecisionView | null>, drafts: string[]): string[] {
+  const segs = drafts.map(draftSegments);
   const problems: string[] = [];
   for (const v of views) {
     if (!v) continue;
     for (const b of v.blocks) {
       for (const t of [b.text, b.label]) {
         if (!t) continue;
-        if (!hay.some((h) => h.includes(norm(t))))
-          problems.push(
-            `„${t.slice(0, 80)}“ (${v.label}/${b.kind}) není doslova v draftu`,
-          );
+        if (!segs.some((set) => set.has(norm(t)))) problems.push(`„${t.slice(0, 80)}“ (${v.label}/${b.kind}) není celý blok z draftu`);
       }
     }
+  }
+  return problems;
+}
+
+/** Factual lines the customer view must never drop or alter: the price line(s) of the draft. */
+export function mandatoryFactLines(draft: string): string[] {
+  return [...new Set(draft.split("\n").map((l) => l.trim()).filter((l) => /\d[\d\s]*Kč/.test(l) && norm(l).length <= 60 && !/[|#]/.test(l)))];
+}
+
+export function factProblems(views: Array<DecisionView | null>, draft: string): string[] {
+  const facts = mandatoryFactLines(draft);
+  const problems: string[] = [];
+  for (const v of views) {
+    if (!v) continue;
+    const have = new Set(v.blocks.map((b) => norm(b.text)));
+    for (const f of facts) if (!have.has(norm(f))) problems.push(`${v.label}: chybí nebo je změněný povinný údaj „${f.slice(0, 60)}“ (blok price)`);
   }
   return problems;
 }
@@ -771,6 +793,7 @@ export class Konzilium {
               [parsed.recommended, parsed.alternative],
               [draft, revised],
             ),
+            ...(kind === "copy" ? factProblems([parsed.recommended, parsed.alternative], revised) : []),
           ]
         : ["výstup soudce není čitelný JSON podle formátu"];
       if (!issues.length) break;
