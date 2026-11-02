@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- TARS-ORCH v0 runner: every 30 min one tick (continue / resume after PAUSED / pick next order).
+     Install: tars/orch/launchd/install.sh  ·  Remove: launchctl bootout gui/$(id -u)/work.good-inventions.tars-orch -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>work.good-inventions.tars-orch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "$HOME/Projects/muj-web" &amp;&amp; npx tsx tars/orch/cli.ts tick</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/tmp/tars-orch.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/tars-orch.err.log</string>
+</dict>
+</plist>

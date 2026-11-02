@@ -63,3 +63,8 @@ SAM_BYT_CREDENTIALS*.local.txt
 
 # sam-byt audit — plný export uživatelského stavu (osobní poznámky), nikdy do gitu
 CURRENT_SAM_BYT_USER_STATE*.local.json
+
+# TARS-ORCH v0 runtime state (local only)
+/runs/wo-*/
+/runs/log.jsonl
+/runs/.lock
