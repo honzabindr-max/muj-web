@@ -108,6 +108,12 @@ cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts browser-check
    ```
    Na „password data for new item:“ vlož zkopírovaný token (z iPhonu přes univerzální schránku) a potvrď Enter, na „retype password:“ ho vlož znovu. Ověř: `cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts notion-check` musí vypsat „Notion REST: token platný, stránka TARS META OS — Bootstrap je integraci sdílena“. Změna tokenu později: stejný příkaz s `-U` (`security add-generic-password -U -s tars-notion -a tars -w`).
 
+### Upozornění na iPhone při WAITING_OWNER (plán B, krok 4b)
+
+Pro vlastníka: v nastavení integrace TARS (https://www.notion.so/profile/integrations, záložka Capabilities) zapni „Insert comments“, jinak TARS komentář se zmínkou neodešle a jen to zaloguje („Integrace TARS nemá oprávnění Insert comments“).
+
+Technicky: při přechodu do `WAITING_OWNER` zapíše integrace přes `POST /v1/comments` na řádek zakázky komentář se zmínkou vlastníka (`owner-ping.ts`), Notion pošle push u zmínky od někoho jiného než vlastníka. Jeden komentář na jeden přechod (značka `meta.owner_ping` ve stavu zakázky), bez tokenu se nic neposílá, text prochází secret-scanem, žádné SQL ani rows dotazy. ID uživatele je výchozí hodnota v kódu, přepíše se `TARS_OWNER_NOTION_USER_ID`.
+
 Další tick (launchd, každých 30 min) už píše přes REST. Bez tokenu nebo při chybě se nic nerozbije, zápis jde fallbackem.
 
 ## Control panels

@@ -33,7 +33,8 @@ import { spawnSync } from "node:child_process";
 import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../cdp";
 import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
-import { extractNotionUrl, McpNotion, NotionRestError } from "../notion";
+import { extractNotionUrl, McpNotion, NotionRestApi, NotionRestError } from "../notion";
+import { OwnerPing } from "../owner-ping";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, ownerEventFor, transition, TransitionError } from "../state-machine";
@@ -119,6 +120,7 @@ function orch(
     browser?: BrowserRunner;
     briefChecker?: MockAdapter;
     panel?: PanelSink;
+    ownerPing?: OwnerPing;
     sourcesNotion?: NotionClient;
     stateLockWaitMs?: number;
   } = {},
@@ -149,6 +151,7 @@ function orch(
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,
     stateLockWaitMs: opts.stateLockWaitMs,
+    ownerPing: opts.ownerPing,
     panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
     sources: new SourceLoader(opts.sourcesNotion ?? notion, dir, path.join(dir, "sources-cache")),
   });
@@ -1416,5 +1419,86 @@ describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
     expect(lines.filter((l) => l === "-p")).toHaveLength(2);
     expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(2);
     expect(lines.filter((l) => l.includes("notion-query-data-sources"))).toHaveLength(2); // SQL/rows tools denied on both
+  });
+});
+
+// ─── plán B: komentář se zmínkou při WAITING_OWNER (Notion REST mockován) ───
+describe("owner ping (komentář se zmínkou, plán B)", () => {
+  const WAIT_BRIEF = BRIEF({ owner_decisions: ["cena"] });
+  function restMock(status = 200) {
+    const calls: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
+    const state = { status };
+    const fetchImpl = async (url: string, init: { method: string; body?: string }) => {
+      calls.push({ url, method: init.method, body: JSON.parse(init.body ?? "{}") });
+      return { ok: state.status < 300, status: state.status, json: async () => (state.status === 403 ? { code: "restricted_resource" } : {}) };
+    };
+    const api = new NotionRestApi("ntn_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3", fetchImpl);
+    return { calls, state, ping: new OwnerPing(api, { userId: "user-1" }) };
+  }
+
+  it("přechod do WAITING_OWNER pošle přesně jeden komentář na řádek zakázky; další zápisy ho neopakují", async () => {
+    const panel = new MockPanel();
+    const { calls, ping } = restMock();
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ url: "https://api.notion.com/v1/comments", method: "POST" });
+    expect(calls[0].body.parent).toEqual({ page_id: "page1" });
+    const id = store.listOrders()[0].id;
+    expect(store.load(id).meta.owner_ping).toBe("1");
+    await o.resyncPanel(id);
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    expect(calls).toHaveLength(1);
+    expect(store.readLog(200).some((e) => e.result === "upozornění na iPhone: komentář se zmínkou odeslán")).toBe(true);
+  });
+
+  it("zakázka bez nutnosti vlastníka (DONE) komentář nedostane", async () => {
+    const { calls, ping } = restMock();
+    const { o } = orch({ panel: new MockPanel(), ownerPing: ping });
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("403 (chybí Insert comments): srozumitelná hláška, zakázka běží dál, značka se nezapíše a po zapnutí oprávnění odejde jeden komentář", async () => {
+    const panel = new MockPanel();
+    const { calls, state, ping } = restMock(403);
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    const id = store.listOrders()[0].id;
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.load(id).meta.owner_ping).toBeUndefined();
+    const hint = () => store.readLog(200).filter((e) => e.result === "Integrace TARS nemá oprávnění Insert comments");
+    expect(hint()).toHaveLength(1);
+    expect(hint()[0].kind).toBe("info"); // ne chyba
+    await o.resyncPanel(id); // stále 403: hláška se nezdvojí
+    expect(hint()).toHaveLength(1);
+    state.status = 200;
+    await o.resyncPanel(id);
+    await o.resyncPanel(id);
+    expect(calls).toHaveLength(3); // dva pokusy s 403 a jeden úspěšný, další zápis už nic neposlal
+    expect(store.load(id).meta.owner_ping).toBe("1");
+  });
+
+  it("bez tokenu se nic neposílá, jen se zaloguje a zakázka pokračuje", async () => {
+    const { o } = orch({ panel: new MockPanel(), ownerPing: new OwnerPing(undefined), supervisor: [{ text: WAIT_BRIEF }] });
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    const id = store.listOrders()[0].id;
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.load(id).meta.owner_ping).toBeUndefined();
+    expect(store.readLog(200).some((e) => /token Notion chybí/.test(e.result ?? ""))).toBe(true);
+  });
+
+  it("nový přechod do WAITING_OWNER (jiné číslo přechodu než značka) dostane vlastní komentář", async () => {
+    const panel = new MockPanel();
+    const { calls, ping } = restMock();
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    await o.tick();
+    const id = store.listOrders()[0].id;
+    const cur = store.load(id);
+    // simulace druhého vstupu: historie má dva přechody do WAITING_OWNER, značka zůstala na 1
+    store.save({ ...cur, history: [...cur.history, { ...cur.history.at(-1)! }] });
+    await o.resyncPanel(id);
+    expect(calls).toHaveLength(2);
+    expect(store.load(id).meta.owner_ping).toBe("2");
   });
 });

@@ -9,6 +9,7 @@ import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { isUncertainOutcome } from "./notion";
+import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
@@ -33,6 +34,8 @@ export interface OrchestratorDeps {
   capsulePath: string;
   /** Notion control panel (TARS — Zakázky). Optional; failures never stop an order. */
   panel?: { sink: PanelSink; index: PanelIndex };
+  /** Plán B push na iPhone: komentář se zmínkou vlastníka na řádku zakázky při přechodu do WAITING_OWNER. Optional; failures never stop an order. */
+  ownerPing?: OwnerPing;
   /** Canonical source loader (karta §2a bod 2). Without it, sources are UNKNOWN. */
   sources?: SourceLoader;
   mission?: string;
@@ -145,12 +148,46 @@ export class Orchestrator {
         const id = await panel.sink.upsert(row, existing);
         panel.index.set(o.id, id);
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+        await this.pingOwner(o, id);
       } catch (e) {
         // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
         if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
+  }
+
+  /**
+   * Plán B upozornění: jeden komentář se zmínkou vlastníka na jeden přechod do WAITING_OWNER. Idempotence je ve stavu
+   * zakázky: `meta.owner_ping` drží číslo přechodu, na který komentář odešel (nebo jeho výsledek je nejasný a nesmí se
+   * opakovat naslepo). Chyba 403 (chybí „Insert comments“), chybějící token ani jiná chyba zakázku nezastaví a nezapíše
+   * značku, takže další zápis řádku to zkusí znovu. Nikdy nevyhazuje chybu.
+   */
+  private async pingOwner(o: Order, pageId: string): Promise<void> {
+    const ping = this.d.ownerPing;
+    if (!ping || o.state !== "WAITING_OWNER") return;
+    try {
+      const n = waitingOwnerTransitions(o);
+      const current = this.d.store.load(o.id);
+      if (current.state !== "WAITING_OWNER" || waitingOwnerTransitions(current) !== n || current.meta.owner_ping === String(n)) return;
+      const title = current.brief?.title ?? `Nová zakázka ${current.id}`;
+      const t0 = Date.now();
+      const r = await ping.send(pageId, title);
+      const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
+      if (r.outcome === "sent" || r.outcome === "uncertain") {
+        this.d.store.withStateLock(() => {
+          const fresh = this.d.store.load(o.id);
+          if (fresh.state !== "WAITING_OWNER" || waitingOwnerTransitions(fresh) !== n) return;
+          this.d.store.save({ ...fresh, meta: { ...fresh.meta, owner_ping: String(n) } });
+        }, this.d.stateLockWaitMs);
+      }
+      if (r.outcome === "sent") this.log({ ...base, kind: "info", result: "upozornění na iPhone: komentář se zmínkou odeslán" });
+      else if (r.outcome === "uncertain") this.log({ ...base, kind: "error", result: r.detail ?? "upozornění na iPhone: výsledek nejasný" });
+      else if (r.outcome === "failed") this.log({ ...base, kind: "error", result: r.detail ?? "upozornění na iPhone selhalo" });
+      else this.logOnce({ order: o.id, kind: "info", role: "transport", result: r.detail ?? `upozornění na iPhone: ${r.outcome}` });
+    } catch (e) {
+      this.log({ order: o.id, kind: "error", role: "transport", result: "upozornění na iPhone selhalo", reason: (e as Error).message.slice(0, 300) });
+    }
   }
 
   private async loadSources(keys: string[]): Promise<LoadedSource[]> {
