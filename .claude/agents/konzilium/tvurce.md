@@ -3,6 +3,12 @@ name: konzilium-tvurce
 description: "Konzilium TARS – zapracování připomínek rady tvůrcem rodiny Claude (jeden průchod). Spouští ho jen workflow /konzilium, když je tvůrce zakázky Claude."
 model: opus
 tools: Read, Write
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" tvurce'
 role: tvurce
 kind: expert
 konzilium_role: creator

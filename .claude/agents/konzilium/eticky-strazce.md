@@ -3,6 +3,12 @@ name: konzilium-eticky-strazce
 description: "Konzilium TARS – Etický strážce (dark patterns, evidence firewall, AI a astrologie): verdikt PALEC/VÝHRADA/ÚPRAVA. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" eticky-strazce'
 role: eticky-strazce
 kind: expert
 konzilium_role: expert

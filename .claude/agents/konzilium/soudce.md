@@ -3,6 +3,12 @@ name: konzilium-soudce
 description: "Konzilium TARS – Soudce: z draftů a verdiktů rady sestaví rozhodovací balíček doslovnými citacemi. Spouští ho jen workflow /konzilium, když je tvůrce GPT."
 model: opus
 tools: Read, Write
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" soudce'
 role: soudce
 kind: expert
 konzilium_role: judge

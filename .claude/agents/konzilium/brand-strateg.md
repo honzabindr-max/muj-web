@@ -3,6 +3,12 @@ name: konzilium-brand-strateg
 description: "Konzilium TARS – Brand stratég: verdikt PALEC/VÝHRADA/ÚPRAVA k draftu. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" brand-strateg'
 role: brand-strateg
 kind: expert
 konzilium_role: expert

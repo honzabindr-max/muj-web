@@ -3,6 +3,12 @@ name: konzilium-prodejni-psycholog
 description: "Konzilium TARS – Prodejní psycholog (CRO, behaviorální ekonomie): verdikt PALEC/VÝHRADA/ÚPRAVA k draftu. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" prodejni-psycholog'
 role: prodejni-psycholog
 kind: expert
 konzilium_role: expert

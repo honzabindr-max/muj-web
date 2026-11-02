@@ -3,6 +3,12 @@ name: konzilium-kontrolor
 description: "Konzilium TARS – kontrola zapracování rodiny Claude, když je tvůrce GPT. Vrací strukturovaný verdikt PASS, FIX nebo BLOCK s nálezy. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" kontrolor'
 role: kontrolor
 kind: expert
 konzilium_role: checker

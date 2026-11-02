@@ -19,6 +19,8 @@ export const meta = {
 
 const A = args && typeof args === 'object' ? args : {}
 const BRIDGE = 'npx tsx tars/orch/konzilium-bridge.ts'
+// Transport agent definition: tools Bash + Write, hook konzilium-guard allows only the .in file and bridge commands.
+const TRANSPORT = 'konzilium-transport'
 const LINE_SCHEMA = { type: 'object', properties: { line: { type: 'string' } }, required: ['line'] }
 const ACK_SCHEMA = { type: 'object', properties: { written: { type: 'boolean' } }, required: ['written'] }
 
@@ -85,7 +87,7 @@ ${full}
 PRIKAZ_KONEC
 
 Příkaz vypíše jako poslední řádek jeden JSON objekt. Vrať ten řádek beze změny v poli line. Když příkaz skončí chybou nebo nic nevypíše, vrať do line text chyby.`,
-      { label: `${label}${attempt ? ' (opakování)' : ''}`, phase: currentPhase, schema: LINE_SCHEMA, model: 'sonnet', effort: 'low' },
+      { label: `${label}${attempt ? ' (opakování)' : ''}`, phase: currentPhase, schema: LINE_SCHEMA, model: 'sonnet', effort: 'low', agentType: TRANSPORT },
     )
     let j
     try {
@@ -207,6 +209,10 @@ const councilRuns = await parallel([
     return runRole(role, fam, C[role].agent, expertPrompt(role, fam), `${role}.json`, 'expert', EXPERT_SHAPE)
   }),
 ])
+// A secret-scan hit anywhere (input for GPT or its output) stops the run, nothing goes on to the next role.
+const fatalOf = (r) => (r && r.fatal ? r.error || 'secret-scan' : null)
+const councilFatal = councilRuns.map(fatalOf).find(Boolean)
+if (councilFatal) return done('FAILED', { reason: councilFatal })
 if (councilRuns.some((r) => r && r.limit)) return done('LIMIT', { reason: 'limit předplatného během rady (GPT)' })
 const councilRoles = ['advokat', ...EXPERTS]
 await attest('rada', councilRoles.filter((r, i) => councilRuns[i] && councilRuns[i].ok && councilRuns[i].family === 'claude').map((r) => `${r}.json`))
@@ -245,6 +251,7 @@ ${inline(fam, 'DRAFT', DRAFT)}
 ${inline(fam, 'PRIPOMINKY_KONZILIA', FEEDBACK)}`
 }
 const rev = await runRole('tvůrce', CREATOR, C.tvurce.agent, creatorPrompt(CREATOR), 'draft-konzilium.md', 'text', '')
+if (fatalOf(rev)) return done('FAILED', { reason: fatalOf(rev) })
 if (rev && rev.limit) return done('LIMIT', { reason: 'limit předplatného při zapracování' })
 function checkerPrompt(fam) {
   return `Jsi KONTROLOR oddělení "Copy a kreativa" (jiná rodina modelů než tvůrce). Netvoříš, jen hodnotíš.
@@ -268,6 +275,7 @@ ${STRUCTURED_FORMAT}`
 let revision = { accepted: false, verdict: 'FIX', issues: ['tvůrce nevrátil zapracovaný draft'] }
 if (rev && rev.ok) {
   const chk = await runRole('kontrola zapracování', OTHER, C.kontrolor.agent, checkerPrompt(OTHER), 'zapracovani-kontrola.json', 'review', 'jeden JSON objekt {"verdict","findings"} podle formátu výše')
+  if (fatalOf(chk)) return done('FAILED', { reason: fatalOf(chk) })
   if (chk && chk.limit) return done('LIMIT', { reason: 'limit předplatného při kontrole zapracování' })
   const claudeFiles = [CREATOR === 'claude' && rev.ok ? 'draft-konzilium.md' : null, OTHER === 'claude' && chk && chk.ok ? 'zapracovani-kontrola.json' : null].filter(Boolean)
   if (claudeFiles.length) await attest('zapracování', claudeFiles)
@@ -304,6 +312,7 @@ let issues = []
 let judged = null
 for (let attempt = 0; attempt < 2 && !judged; attempt++) {
   const j = await runRole(`soudce (pokus ${attempt + 1})`, OTHER, OTHER === 'claude' ? C.soudce.agent : null, judgePrompt(OTHER, issues), `soudce-a${attempt}.json`, 'judge', JUDGE_SHAPE)
+  if (fatalOf(j)) return done('FAILED', { reason: fatalOf(j) })
   if (j && j.limit) return done('LIMIT', { reason: 'limit předplatného u soudce' })
   if (OTHER === 'claude' && j && j.ok) await attest(`soudce ${attempt + 1}`, [`soudce-a${attempt}.json`])
   const jc = await bridge(`kontrola soudce ${attempt + 1}`, `judge-check --out ${sq(OUT)} --attempt ${attempt}`)

@@ -16,7 +16,9 @@
 //   npx tsx tars/orch/konzilium-bridge.ts judge-check --out <dir> --attempt <n>
 //   npx tsx tars/orch/konzilium-bridge.ts assemble --out <dir> --attempt <n>
 //   npx tsx tars/orch/konzilium-bridge.ts panel --out <dir>
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -68,16 +70,29 @@ export function payload(s: string): string {
 
 // ───────────────────────────── families ─────────────────────────────
 
+const CLAUDE_MODEL_RE = /^(claude[ -])?(opus|sonnet|haiku|fable)([ .-][\w.-]*)?$|^claude-[\w.-]*(opus|sonnet|haiku|fable)[\w.-]*$/i;
+const GPT_MODEL_RE = /^(gpt-[\w.-]+|o[1-9][\w.-]*|codex-mini[\w.-]*)$/i;
+
 /**
- * Family of a model description ("claude -p --model opus", "codex exec (gpt-6.1-sol)"); undefined = not provable.
- * Only a model name counts: the CLI name alone ("codex exec", "codex-default", "codex exec (llama3)") proves nothing.
+ * Family of a model description; undefined = not provable (→ NELZE_OVERIT).
+ * Only the MODEL counts, never the CLI: the model is the value of `--model`/`-m`, else the text in parentheses,
+ * else the whole description. „claude -p --model opus“ → claude, „codex exec (gpt-6.1-sol)“ → gpt,
+ * „claude -p --model llama3“, „sonnet (llama3)“, „codex exec“, „codex-default“ → undefined.
  */
 export function familyOf(model: string | undefined): ModelFamily | undefined {
-  if (!model) return undefined;
-  const claude = /\b(claude|opus|sonnet|haiku|fable)\b/i.test(model);
-  const gpt = /(^|[\s(])(gpt-[\w.-]+|o[1-9][\w.-]*|codex-mini[\w.-]*)($|[\s),])/i.test(model);
-  if (claude === gpt || (claude && /\bcodex\b/i.test(model))) return undefined;
-  return claude ? "claude" : "gpt";
+  if (!model?.trim()) return undefined;
+  const m = model.trim();
+  const flag = /(?:^|\s)(?:--model|-m)\s+([^\s)]+)/.exec(m)?.[1];
+  const paren = /\(([^()]+)\)\s*$/.exec(m)?.[1];
+  const candidate = (flag ?? paren ?? m).trim();
+  if (flag && paren && familyOfModelName(paren.trim()) !== familyOfModelName(flag)) return undefined;
+  return familyOfModelName(candidate);
+}
+
+function familyOfModelName(name: string): ModelFamily | undefined {
+  if (CLAUDE_MODEL_RE.test(name)) return "claude";
+  if (GPT_MODEL_RE.test(name)) return "gpt";
+  return undefined;
 }
 
 /** The model codex reported is an OpenAI model (codex can be pointed at other providers). */
@@ -98,6 +113,46 @@ export interface Sidecar {
   run_id: string;
   sha: string;
   prompt_sha?: string;
+  /** HMAC-SHA256 of the record with the run key (keys dir outside the repo, guarded from the agents). */
+  mac?: string;
+}
+
+/**
+ * Per-run secret key for provenance records. Lives outside the repository and outside out_dir
+ * (`~/.tars/konzilium-keys/<run_id>.key`, mode 0600); the konzilium-guard hook denies the agents any access
+ * to `konzilium-keys` and to `*.meta.json`. Without the key a record cannot be forged.
+ */
+export function keysDir(): string {
+  return process.env.TARS_KONZILIUM_KEYS ?? path.join(os.homedir(), ".tars", "konzilium-keys");
+}
+
+function keyFile(runId: string): string {
+  if (!/^[0-9a-f]{8}$/.test(runId)) throw new Error("neplatné run_id");
+  return path.join(keysDir(), `${runId}.key`);
+}
+
+export function createRunKey(runId: string): void {
+  fs.mkdirSync(keysDir(), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(keyFile(runId), crypto.randomBytes(32).toString("hex"), { flag: "wx", mode: 0o600 });
+}
+
+function runKey(runId: string): string | undefined {
+  try {
+    return fs.readFileSync(keyFile(runId), "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function macOf(sc: Omit<Sidecar, "mac">, key: string): string {
+  const fields = [sc.family, sc.model, String(sc.verified), sc.role, sc.run_id, sc.sha, sc.prompt_sha ?? ""].join("\n");
+  return crypto.createHmac("sha256", key).update(fields).digest("hex");
+}
+
+export function signSidecar(sc: Omit<Sidecar, "mac">): Sidecar {
+  const key = runKey(sc.run_id);
+  if (!key) throw new Error("chybí klíč běhu (prep ho nevytvořil)");
+  return { ...sc, mac: macOf(sc, key) };
 }
 
 function sidecarPath(file: string): string {
@@ -125,6 +180,11 @@ export function provenFamily(file: string, expected: ModelFamily, runId: string)
   const sc = readSidecar(file);
   if (!sc || sc.family !== expected || sc.run_id !== runId || !fs.existsSync(file)) return undefined;
   if (sc.sha !== fnv1a(fs.readFileSync(file, "utf8"))) return undefined;
+  const key = runKey(runId);
+  if (!key || typeof sc.mac !== "string") return undefined;
+  const { mac, ...rest } = sc;
+  const expectedMac = macOf(rest, key);
+  if (mac.length !== expectedMac.length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expectedMac))) return undefined;
   if (expected === "gpt") return sc.verified && isGptModel(sc.model) ? { family: "gpt", model: `codex exec (${sc.model})` } : undefined;
   return sc.model === CLAUDE_AGENT_MODEL ? { family: "claude", model: CLAUDE_AGENT_MODEL } : undefined;
 }
@@ -148,7 +208,7 @@ export function attest(out: string, files: string[]): { ok: boolean; attested: s
       continue;
     }
     if (fs.existsSync(sidecarPath(file))) return { ok: false, attested, missing, error: `${f} už má záznam o původu` };
-    const sc: Sidecar = { family: "claude", model: CLAUDE_AGENT_MODEL, verified: true, role: f.replace(/\.(json|md)$/, ""), run_id: run.run_id, sha: fnv1a(fs.readFileSync(file, "utf8")) };
+    const sc = signSidecar({ family: "claude", model: CLAUDE_AGENT_MODEL, verified: true, role: f.replace(/\.(json|md)$/, ""), run_id: run.run_id, sha: fnv1a(fs.readFileSync(file, "utf8")) });
     fs.writeFileSync(sidecarPath(file), JSON.stringify(sc, null, 2) + "\n", { flag: "wx" });
     attested.push(f);
   }
@@ -197,6 +257,15 @@ export function stripFrontmatter(text: string): string {
   return text.replace(FM, "");
 }
 
+export const TRANSPORT_AGENT = "konzilium-transport";
+
+/** The definition carries the PreToolUse guard hook for exactly this profile (Write only to its own output). */
+function guardHookOf(text: string, profile: string): boolean {
+  const fm = FM.exec(text)?.[1] ?? "";
+  return /^hooks:\n {2}PreToolUse:\n {4}- matcher: "\*"\n {6}hooks:\n {8}- type: command\n/m.test(fm) &&
+    fm.includes(`command: 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/konzilium-guard.py" ${profile}'`);
+}
+
 /** Loads and validates the 7 Konzilium definitions. Any problem = the Konzilium does not run (§2a). */
 export function loadCards(dir = KONZILIUM_CARDS_DIR): { cards: Record<string, KonziliumCard>; problems: string[] } {
   const cards: Record<string, KonziliumCard> = {};
@@ -228,6 +297,7 @@ export function loadCards(dir = KONZILIUM_CARDS_DIR): { cards: Record<string, Ko
       if (fm.tools !== "Read, Write") problems.push(`${role}: tools musí být přesně „Read, Write“`);
     }
     if (!/\n## Společné podklady/.test(text)) problems.push(`${role}: chybí sekce Společné podklady`);
+    if (family !== "gpt" && !guardHookOf(text, role)) problems.push(`${role}: chybí hook konzilium-guard s profilem ${role}`);
     cards[role] = {
       role,
       agent: family !== "gpt" ? fm.name : undefined,
@@ -238,6 +308,11 @@ export function loadCards(dir = KONZILIUM_CARDS_DIR): { cards: Record<string, Ko
       file,
     };
   }
+  const transport = path.join(dir, "transport.md");
+  const tText = fs.existsSync(transport) ? fs.readFileSync(transport, "utf8") : "";
+  const tFm = frontmatter(tText);
+  if (!tFm || tFm.name !== TRANSPORT_AGENT || tFm.tools !== "Bash, Write" || !guardHookOf(tText, "transport"))
+    problems.push("transport: definice konzilium-transport (tools Bash, Write + hook konzilium-guard transport) chybí nebo je neplatná");
   const fams = new Set(EXPERT_ROLES.map((r) => cards[r]?.family).filter(Boolean));
   if (!problems.length && (!fams.has("claude") || !fams.has("gpt"))) problems.push("rada odborníků musí být rozdělená mezi Claude a GPT");
   if (!problems.length && cards.advokat.family !== "claude") problems.push("advokát je podle PR #82 Claude");
@@ -357,7 +432,9 @@ export function prep(out: string, args: RunArgs, now: string): PrepResult {
     const s = scanSecrets(fs.readFileSync(f, "utf8"));
     if (!s.clean) return fail("FAILED", `secret-scan: vstup ${path.basename(f)} obsahuje vzor ${s.kinds.join(", ")} — běh zastaven`);
   }
-  if (!scanSecrets(JSON.stringify(args.brief)).clean) return fail("FAILED", "secret-scan: zadání obsahuje vzor tajemství — běh zastaven");
+  // Every args field (mission, panel_title, draft_url, …) can reach a model or the Notion row.
+  const argsScan = scanSecrets(JSON.stringify(args));
+  if (!argsScan.clean) return fail("FAILED", `secret-scan: args obsahují vzor ${argsScan.kinds.join(", ")} — běh zastaven`);
   const run: RunFile = {
     order,
     kind,
@@ -376,9 +453,10 @@ export function prep(out: string, args: RunArgs, now: string): PrepResult {
     archive_parent: args.archive_parent,
     mission: args.mission?.trim() || "MEZI VÁMI",
     now,
-    run_id: fnv1a(`${now}\n${JSON.stringify(args)}`),
+    run_id: crypto.randomBytes(4).toString("hex"),
   };
   fs.writeFileSync(run.brief_file, briefMarkdown(args.brief) + "\n");
+  createRunKey(run.run_id);
   writeAtomic(kfile(out, "run.json"), JSON.stringify(run, null, 2) + "\n");
   return { ok: true, status: "OK", run, cards, mandatory: mandatoryQuestions(args.brief).map((q) => q.question) };
 }
@@ -1037,7 +1115,11 @@ export async function panel(out: string, deps: PanelDeps): Promise<{ ok: boolean
   const prev = fs.existsSync(kfile(out, "panel.json")) ? (JSON.parse(fs.readFileSync(kfile(out, "panel.json"), "utf8")) as { row?: string; link?: string | null }) : {};
   let link: string | null = prev.link ?? pkg.notion_archive_url ?? null;
   if (!link && run.archive_parent && deps.archive) {
-    link = await deps.archive(run.archive_parent, `KARTA (archiv) — ${run.panel_title} (${run.order})`, archiveMarkdown(pkg));
+    const title = `KARTA (archiv) — ${run.panel_title} (${run.order})`;
+    const md = archiveMarkdown(pkg);
+    const sec = scanSecrets(`${title}\n${md}`);
+    if (!sec.clean) return { ok: false, status: "FAILED", error: `secret-scan: archiv pro Notion obsahuje vzor ${sec.kinds.join(", ")} — nic se nezapsalo` };
+    link = await deps.archive(run.archive_parent, title, md);
     pkg.notion_archive_url = link;
     writeAtomic(decFile, JSON.stringify(pkg, null, 2) + "\n");
   }
@@ -1051,7 +1133,13 @@ export async function panel(out: string, deps: PanelDeps): Promise<{ ok: boolean
   } catch {
     return { ok: false, status: "FAILED", error: "předchozí zápis řádku do panelu skončil nejasně; zkontroluj panel ručně (řádek se znovu nezakládá)" };
   }
-  const row = await deps.sink.upsert(konziliumPanelRow(run, pkg, link));
+  const rowPayload = konziliumPanelRow(run, pkg, link);
+  const rowScan = scanSecrets(JSON.stringify(rowPayload));
+  if (!rowScan.clean) {
+    fs.rmSync(marker, { force: true });
+    return { ok: false, status: "FAILED", error: `secret-scan: řádek pro Notion obsahuje vzor ${rowScan.kinds.join(", ")} — nic se nezapsalo` };
+  }
+  const row = await deps.sink.upsert(rowPayload);
   writeAtomic(kfile(out, "panel.json"), JSON.stringify({ row, link }, null, 2) + "\n");
   fs.rmSync(marker, { force: true });
   return { ok: true, status: "WAITING_OWNER", row, link };
@@ -1082,8 +1170,8 @@ export async function gpt(
   sha: string,
   prompt: string,
   deps: GptDeps,
-): Promise<{ ok: boolean; family: "gpt"; model?: string; verified?: boolean; limit?: boolean; error?: string }> {
-  const fail = (error: string, limit = false) => ({ ok: false, family: "gpt" as const, error, limit });
+): Promise<{ ok: boolean; family: "gpt"; model?: string; verified?: boolean; limit?: boolean; fatal?: boolean; error?: string }> {
+  const fail = (error: string, limit = false) => ({ ok: false, family: "gpt" as const, error, limit, fatal: /^secret-scan/.test(error) || undefined });
   if (!(schemaName in SCHEMAS)) return fail(`neznámé schéma ${schemaName}`);
   if (!OUTPUT_FILE_RE.test(file)) return fail("neplatný název výstupního souboru");
   if (fnv1a(payload(prompt)) !== sha) return fail("prompt se při přenosu změnil (sha nesedí) — GPT nevolán");
@@ -1103,7 +1191,7 @@ export async function gpt(
   const verified = isGptModel(model);
   const body = text.endsWith("\n") ? text : `${text}\n`;
   fs.writeFileSync(target, body, { flag: "wx" });
-  const sc: Sidecar = { family: "gpt", model, verified, role, run_id: run.run_id, sha: fnv1a(body), prompt_sha: sha };
+  const sc = signSidecar({ family: "gpt", model, verified, role, run_id: run.run_id, sha: fnv1a(body), prompt_sha: sha });
   fs.writeFileSync(sidecarPath(target), JSON.stringify(sc, null, 2) + "\n", { flag: "wx" });
   return { ok: true, family: "gpt", model, verified };
 }
