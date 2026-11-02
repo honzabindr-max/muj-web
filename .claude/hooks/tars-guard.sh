@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# TARS-GUARD (SessionStart) — bezpečnostní invarianty jádra (DR-022, návrh).
+# TARS-GUARD (SessionStart) — bezpečnostní invarianty jádra (DR-022).
 # Ověřuje při každém startu session, že agent běží s omezenými právy:
-#   I1 remote origin je HTTPS (git jde přes omezený token, ne přes SSH klíč účtu)
+#   I1 žádný klon v ~/Projects nemá SSH remote na GitHub (git jde přes omezený token, ne přes SSH klíč účtu)
 #   I2 gh používá fine-grained token (github_pat_), ne OAuth/klasický token
 #   I3 token nemá Administration (ochrana větve main vrací 403)
 #   I4 ruleset na main je aktivní (deletion, non_fast_forward, pull_request, required_status_checks)
@@ -11,18 +11,26 @@
 # Výstup: JSON hookSpecificOutput.additionalContext. Log bez tajemství: /tmp/tars-guard.log
 # Hook vždy končí exit 0 (nikdy neblokuje start session); porušení hlásí jako ALARM do kontextu.
 
-root="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+# Spouští se globálně (~/.claude/settings.json, session často startuje v domovské složce – DR-021),
+# proto kontroluje pevně repo jádra TARS a všechny klony v ~/Projects, ne aktuální složku.
+root="${TARS_GUARD_REPO:-$HOME/Projects/muj-web}"
+projects="${TARS_GUARD_PROJECTS:-$HOME/Projects}"
 cd "$root" 2>/dev/null || exit 0
 alarm=(); warn=(); ok=()
 
-# I1 remote
-url=$(git remote get-url origin 2>/dev/null)
+# I1 žádný klon v ~/Projects nesmí mít SSH remote na GitHub
+url=$(git -C "$root" remote get-url origin 2>/dev/null)
 slug=$(printf '%s' "$url" | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')
-case "$url" in
-  https://github.com/*) ok+=("I1 remote HTTPS") ;;
-  git@github.com:*|ssh://*) alarm+=("I1 remote origin je SSH ($url) – git obchází omezený token") ;;
-  *) warn+=("I1 remote origin UNKNOWN (${url:-chybí})") ;;
-esac
+sshclones=""
+for d in "$projects"/*/; do
+  u=$(git -C "$d" remote get-url origin 2>/dev/null) || continue
+  case "$u" in git@github.com:*|ssh://git@github.com/*) sshclones="$sshclones $(basename "$d")" ;; esac
+done
+if [ -n "$sshclones" ]; then
+  alarm+=("I1 klony se SSH remote (obchází omezený token):$sshclones")
+else
+  ok+=("I1 všechny klony HTTPS")
+fi
 
 if command -v gh >/dev/null 2>&1; then
   # I2 typ tokenu (gh auth status token maskuje)
