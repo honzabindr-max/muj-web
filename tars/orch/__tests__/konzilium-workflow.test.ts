@@ -176,7 +176,7 @@ async function runWorkflow(sc: Scenario = {}) {
     "brand-strateg.json": expert("PALEC"),
     "hlas-zakaznika.json": expert("VYHRADA"),
     "eticky-strazce.json": expert("VYHRADA"),
-    "draft-konzilium.md": REVISED,
+    "draft-konzilium.md": "```markdown\n" + REVISED + "\n```",
     "zapracovani-kontrola.json": JSON.stringify({ verdict: "PASS", findings: [] }),
     "soudce-a0.json": judgeJson(),
     "soudce-a1.json": judgeJson(),
@@ -287,6 +287,7 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
     expect(gptCalls.map((c) => c.file).sort()).toEqual(["draft-konzilium.md", "hlas-zakaznika.json", "ux-ui.json"]);
     expect(gptCalls.find((c) => c.file === "ux-ui.json")!.schema).toBe(EXPERT_SCHEMA);
     expect(gptCalls.find((c) => c.file === "draft-konzilium.md")!.schema).toBeUndefined();
+    expect(fs.readFileSync(path.join(dir, "konzilium/draft-konzilium.md"), "utf8").startsWith("# Nabídka")).toBe(true); // ```markdown obal odstraněn
     // GPT prompts get the card and draft inlined by the bridge (like PR #82), not as paths
     const ux = gptCalls.find((c) => c.file === "ux-ui.json")!.prompt;
     expect(ux).toContain("Jsi UX/UI odborník v Konziliu projektu MEZI VÁMI");
@@ -303,7 +304,7 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
     // panel row: WAITING_OWNER, waits for the owner, one sentence, link
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ Zakázka: "TEST Konzilium", Stav: "WAITING_OWNER", Fronta: "1 · Čeká na vlastníka", "Čeká na vlastníka": "__YES__", "Odkaz na výstup": "https://app.notion.com/p/archiv123", "Kontrolor (model)": pkg.author.model });
-    expect(rows[0]["Poslední krok"]).toBe("Konzilium doporučuje „Verze“. Směr A je nejjasnější.");
+    expect(rows[0]["Poslední krok"]).toBe("Konzilium doporučuje „Verze“ – Směr A je nejjasnější.");
     expect(archives).toEqual([`KARTA (archiv) — TEST Konzilium (${path.basename(dir)})`]);
     expect(result).toMatchObject({ panel_row: "row123", link: "https://app.notion.com/p/archiv123" });
     expect(fs.readdirSync(path.join(dir, "konzilium")).filter((f) => f.startsWith(".in-"))).toEqual([]); // inputs removed

@@ -821,10 +821,10 @@ export interface DecisionPackage {
 
 /** One human sentence for the owner's row (no paths, no secrets). */
 export function recommendationSentence(pkg: Pick<DecisionPackage, "recommended" | "alternative">): string {
-  const first = (s: string) => (/^(.+?[.!?])(\s|$)/.exec(s)?.[1] ?? s).trim();
-  const why = pkg.recommended.summary ? ` ${first(pkg.recommended.summary)}` : "";
-  const alt = pkg.alternative ? " Alternativa je v balíčku." : "";
-  return `Konzilium doporučuje „${pkg.recommended.label}“.${why}${alt}`.replace(/\s+/g, " ").slice(0, 300);
+  const first = (/^(.+?[.!?])(\s|$)/.exec(pkg.recommended.summary.trim())?.[1] ?? pkg.recommended.summary).trim().replace(/[.!?]+$/, "");
+  const alt = pkg.alternative ? " (alternativa je v balíčku)" : "";
+  const s = `Konzilium doporučuje „${pkg.recommended.label}“${alt}${first ? ` – ${first}` : ""}`.replace(/\s+/g, " ");
+  return `${s.length > 297 ? `${s.slice(0, 296).trimEnd()}…` : s}.`;
 }
 
 export interface AssembleResult {
@@ -996,9 +996,12 @@ export async function gpt(
   const r = await deps.run(expandFiles(payload(prompt)), { cwd: kdir(out), outputSchema: SCHEMAS[schemaName] });
   if (!r.ok) return fail(r.error ?? "codex selhal", r.limit);
   if (!scanSecrets(r.text).clean) return fail("secret-scan: výstup GPT obsahuje vzor tajemství");
+  // free text (zapracovaný draft): a reply wrapped as one ```markdown block is unwrapped, nothing else changes
+  const fenced = schemaName === "text" ? /^```[\w-]*\n([\s\S]*?)\n```$/.exec(r.text.trim()) : null;
+  const text = fenced ? `${fenced[1]}\n` : r.text;
   const model = deps.model();
   const verified = isGptModel(model);
-  fs.writeFileSync(target, r.text.endsWith("\n") ? r.text : `${r.text}\n`);
+  fs.writeFileSync(target, text.endsWith("\n") ? text : `${text}\n`);
   const sc: Sidecar = { family: "gpt", model, verified, role, prompt_sha: sha };
   fs.writeFileSync(sidecarPath(target), JSON.stringify(sc, null, 2) + "\n");
   return { ok: true, family: "gpt", model, verified };
