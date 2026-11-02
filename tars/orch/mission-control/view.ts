@@ -24,6 +24,23 @@ export interface LockInfo {
   mtime?: string;
 }
 
+/** Parsed specialist card (tars/orch/specialists/<mise>/<role>.md). */
+export interface CardDoc {
+  role: string;
+  title: string;
+  model?: string;
+  family?: string;
+  adapter?: string;
+  rung?: string;
+  file: string;
+  /** First sentence of „1. Mise role a model“. */
+  mission?: string;
+  /** Lines of section „Postup“ (§2c); undefined = not defined in the card. */
+  postup?: string[];
+  /** Lines of section „Dosah“ (§2c); undefined = not defined in the card. */
+  dosah?: string[];
+}
+
 export interface McInput {
   orders: Order[];
   log: LogEntry[];
@@ -37,6 +54,10 @@ export interface McInput {
   now: string;
   /** Demo mode: fixture data, always labelled „Ukázková data“. */
   demo?: boolean;
+  /** Full specialist cards (role page). Optional: older callers pass only `cards`. */
+  cardDocs?: Record<string, CardDoc>;
+  /** Per-order run locks (TARS-ORCH-001 §2d); when absent the global lock applies. */
+  orderLocks?: Record<string, LockInfo>;
   /** Data source could not be read at all. */
   unavailable?: string;
 }
@@ -237,7 +258,7 @@ export function humanProblem(reason: string | undefined): string {
   return safe(r, 260);
 }
 
-function consequence(state: OrderState): string {
+export function consequence(state: OrderState): string {
   if (state === "FAILED") return "Zakázka skončila bez doručeného výstupu. Další práci vybere vedoucí při příštím běhu.";
   if (state === "UNKNOWN") return "Nic se nedoručilo a výsledek nelze potvrdit. Neber to jako úspěch.";
   return "";
@@ -460,7 +481,7 @@ export function safeUrl(u?: string): string | undefined {
   return u;
 }
 
-const RESULT_TEXT: Record<string, string> = { PASS: "PASS", FIX: "vrátil k opravě", BLOCK: "zastavil (BLOCK)", ok: "dokončeno", error: "chyba" };
+export const RESULT_TEXT: Record<string, string> = { PASS: "PASS", FIX: "vrátil k opravě", BLOCK: "zastavil (BLOCK)", ok: "dokončeno", error: "chyba" };
 
 const TRANSITION_TEXT: Partial<Record<OrderState, string>> = {
   PLANNED: "Zadání schváleno kontrolorem",

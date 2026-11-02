@@ -146,7 +146,8 @@ export function storyFlow(o: Order, flow: FlowStep[], calls: CallInfo[]): StoryS
 }
 
 /** Important events only: handoffs, verdicts, delivery, stops. Newest first. */
-export function keyEvents(orders: Order[], log: LogEntry[], calls: CallInfo[], titles: Map<string, string>, limit = 12): KeyEvent[] {
+/** `cardName` resolves a logged `card` (recipe role) to a display name; recipe calls then read "X předal výstup dál". */
+export function keyEvents(orders: Order[], log: LogEntry[], calls: CallInfo[], titles: Map<string, string>, limit = 12, cardName?: (card: string) => string): KeyEvent[] {
   const byId = new Map(orders.map((o) => [o.id, o]));
   const out: KeyEvent[] = [];
   // a stop that a verdict already explains (same order, within 5 s) is not repeated
@@ -164,6 +165,10 @@ export function keyEvents(orders: Order[], log: LogEntry[], calls: CallInfo[], t
       else if (c.member === "kontrolor" && c.phase === "brief") {
         if (e.result === "PASS") ev("verdict-ok", `Kontrolor schválil zadání → ${creator}`);
         else if (e.result === "FIX") ev("verdict-fix", "Kontrolor vrátil zadání vedoucímu");
+      } else if (cardName && (e as LogEntry & { card?: string }).card && c.role === "creator") {
+        const n = cardName((e as LogEntry & { card?: string }).card!);
+        if (e.result === "ok") ev("handoff", `${n} předal výstup dál`);
+        else if (e.result === "error") ev("problem", `${n} narazil na chybu`);
       } else if (c.member === CREATOR_BY_DEPT[o.brief?.department ?? ""]) {
         if (e.result === "ok") ev("handoff", `${creator} předal výstup → ${checker}`);
         else if (e.result === "error") ev("problem", `${creator} narazil na chybu`);

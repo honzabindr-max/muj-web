@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 
 import { scenario, SCENARIOS, type Scenario } from "./mission-control/fixtures";
 import { readLiveInput } from "./mission-control/live";
+import { buildFinal, buildRolePage } from "./mission-control/final";
+import { CSS_FINAL, makeQs, renderFinal, renderRole } from "./mission-control/final-render";
 import { CSS_A, CSS_B, renderPreviewA, renderPreviewB } from "./mission-control/preview";
 import { q, renderDocument, renderFocusFragment, renderMainFragment } from "./mission-control/render";
 import { buildStory } from "./mission-control/story";
@@ -98,11 +100,19 @@ load();setInterval(()=>load().catch(()=>{}),3000);
 </script></body></html>`;
 
 /** Real data, or a labelled demo scenario when ?demo=1 (never both). */
+/** Demo mode: ?demo=1 (with &scenario=…) or ?demo=<scenario>. */
+export function demoOf(url: URL): { demo?: string; scenario?: Scenario } {
+  const d = url.searchParams.get("demo");
+  if (!d || d === "0") return {};
+  if (SCENARIOS.includes(d as Scenario)) return { demo: d, scenario: d as Scenario };
+  const sc = url.searchParams.get("scenario") as Scenario | null;
+  return { demo: d, scenario: sc && SCENARIOS.includes(sc) ? sc : "aktivita" };
+}
+
+/** Real data, or a labelled demo scenario (never both). */
 export function inputFor(root: string, url: URL, cards = cardsDir): McInput {
-  if (url.searchParams.get("demo") === "1") {
-    const sc = url.searchParams.get("scenario") as Scenario | null;
-    return scenario(sc && SCENARIOS.includes(sc) ? sc : "aktivita");
-  }
+  const d = demoOf(url);
+  if (d.demo) return scenario(d.scenario ?? "aktivita");
   return readLiveInput(root, cards);
 }
 
@@ -115,8 +125,35 @@ export function handler(root: string, cards = cardsDir) {
       return;
     }
     const url = new URL(req.url ?? "/", "http://localhost");
-    const demo = url.searchParams.get("demo") === "1";
-    const qs = q(demo, demo ? url.searchParams.get("scenario") ?? undefined : undefined);
+    const dm = demoOf(url);
+    const demo = Boolean(dm.demo);
+    const qs = q(demo, demo ? dm.scenario : undefined);
+    const fq = makeQs(dm.demo, dm.demo && dm.demo !== dm.scenario ? dm.scenario : undefined);
+    const frag = url.searchParams.get("_frag") === "1";
+    const selfSrc = () => {
+      const u = new URLSearchParams(url.search);
+      u.set("_frag", "1");
+      return `${url.pathname}?${u}`;
+    };
+    const roleId = /^\/role\/([a-z0-9][a-z0-9-]{0,40})$/.exec(url.pathname)?.[1];
+    if (url.pathname === "/") {
+      // V2-A final (owner pick): multi-order, recipe-aware main page.
+      const f = buildFinal(inputFor(root, url, cards), url.searchParams.get("focus") ?? undefined);
+      const body = renderFinal(f, fq);
+      res.writeHead(200, HTML).end(frag ? body : renderDocument("TARS / Mission Control", body, selfSrc(), CSS_FINAL));
+      return;
+    }
+    if (roleId) {
+      const input = inputFor(root, url, cards);
+      const p = buildRolePage(input, roleId);
+      if (!p) {
+        res.writeHead(404, HTML).end(renderDocument("TARS — role nenalezena", `<main class="a"><a class="back" href="/${fq.base}">← Mission Control</a><section class="panel"><h2>Role nenalezena</h2><p>Takovou roli v kartách ani receptech nemám.</p></section></main>`, "", CSS_FINAL));
+        return;
+      }
+      const body = renderRole(p, buildFinal(input), fq);
+      res.writeHead(200, HTML).end(frag ? body : renderDocument(`TARS · ${p.role.name}`, body, selfSrc(), CSS_FINAL));
+      return;
+    }
     const focusId = /^\/zakazka\/(wo-[0-9A-Za-z-]+)$/.exec(url.pathname)?.[1];
     const pv = /^\/preview\/(a|b)$/.exec(url.pathname)?.[1] ?? (url.pathname === "/fragment" ? url.searchParams.get("preview") : null);
     if (pv === "a" || pv === "b") {
@@ -125,11 +162,11 @@ export function handler(root: string, cards = cardsDir) {
       const frag = pv === "a" ? renderPreviewA(story, qs) : renderPreviewB(story, qs);
       const src = `/fragment${qs ? `${qs}&` : "?"}preview=${pv}`;
       res.writeHead(200, HTML).end(url.pathname === "/fragment" ? frag : renderDocument(`TARS · náhled ${pv.toUpperCase()}`, frag, src, pv === "a" ? CSS_A : CSS_B));
-    } else if (url.pathname === "/" || (url.pathname === "/fragment" && !url.searchParams.get("order"))) {
+    } else if (url.pathname === "/p0" || (url.pathname === "/fragment" && !url.searchParams.get("order"))) {
       const view = buildView(inputFor(root, url, cards));
       const frag = renderMainFragment(view, qs);
       const src = `/fragment${qs}`;
-      res.writeHead(200, HTML).end(url.pathname === "/" ? renderDocument("TARS / Mission Control", frag, src) : frag);
+      res.writeHead(200, HTML).end(url.pathname === "/p0" ? renderDocument("TARS / Mission Control P0", frag, src) : frag);
     } else if (focusId || url.pathname === "/fragment") {
       const id = focusId ?? url.searchParams.get("order") ?? "";
       const input = inputFor(root, url, cards);

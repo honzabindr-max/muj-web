@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { LogEntry, Order } from "../types";
-import type { LockInfo, McInput } from "./view";
+import type { CardDoc, LockInfo, McInput } from "./view";
 
 const ORDER_RE = /^wo-[0-9A-Za-z-]+$/;
 
@@ -70,6 +70,71 @@ export function readCards(cardsDir: string): Record<string, string> {
   return out;
 }
 
+/** Lines of a section whose heading starts with `name` (any level ≥ 2, optional numbering). */
+export function cardSection(text: string, name: string): string[] | undefined {
+  const lines = text.split("\n");
+  const re = new RegExp(`^#{2,4}\\s*(\\d+[a-z]?\\.\\s*)?${name}\\b`, "i");
+  const start = lines.findIndex((l) => re.test(l.trim()));
+  if (start < 0) return undefined;
+  const level = /^#+/.exec(lines[start].trim())![0].length;
+  const out: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    const h = /^(#+)\s/.exec(l.trim());
+    if (h && h[1].length <= level) break;
+    if (l.trim()) out.push(l.trim());
+  }
+  return out.length ? out : undefined;
+}
+
+export function parseCard(text: string, file: string): CardDoc | undefined {
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1];
+  if (!fm) return undefined;
+  const get = (k: string) => new RegExp(`^${k}:\\s*(.+)$`, "m").exec(fm)?.[1]?.trim();
+  const role = get("role");
+  if (!role) return undefined;
+  const sec = /## 1\. Mise role a model\s*\n+([^\n]+)/.exec(text)?.[1];
+  return {
+    role,
+    title: get("title") ?? role,
+    model: get("model"),
+    family: get("family"),
+    adapter: get("adapter"),
+    rung: get("rung"),
+    file,
+    mission: sec ? (/^(.+?[.!?])(\s|$)/.exec(sec)?.[1] ?? sec).replace(/`/g, "") : undefined,
+    postup: cardSection(text, "Postup"),
+    dosah: cardSection(text, "Dosah"),
+  };
+}
+
+export function readCardDocs(cardsDir: string): Record<string, CardDoc> {
+  const out: Record<string, CardDoc> = {};
+  if (!fs.existsSync(cardsDir)) return out;
+  for (const f of fs.readdirSync(cardsDir).sort()) {
+    if (!f.endsWith(".md") || f.startsWith("_") || f.startsWith("REVIEW")) continue;
+    const c = parseCard(fs.readFileSync(path.join(cardsDir, f), "utf8"), path.relative(path.resolve(cardsDir, "../../../.."), path.join(cardsDir, f)));
+    if (c) out[c.role] = c;
+  }
+  return out;
+}
+
+/** Lock file with a PID → is that process alive? */
+function lockAt(f: string): LockInfo | undefined {
+  if (!fs.existsSync(f)) return undefined;
+  const st = fs.statSync(f);
+  const pid = Number(fs.readFileSync(f, "utf8").trim());
+  let alive = false;
+  if (Number.isInteger(pid) && pid > 0) {
+    try {
+      process.kill(pid, 0);
+      alive = true;
+    } catch (e) {
+      alive = (e as NodeJS.ErrnoException).code === "EPERM";
+    }
+  }
+  return { present: true, alive, mtime: st.mtime.toISOString() };
+}
+
 function listFiles(orderDir: string): string[] {
   if (!fs.existsSync(orderDir)) return [];
   const out: string[] = [];
@@ -88,8 +153,15 @@ export function readLiveInput(runsDir: string, cardsDir: string, now = new Date(
   const files: Record<string, string[]> = {};
   for (const o of orders) files[o.id] = listFiles(path.join(runsDir, o.id));
   const plist = path.join(os.homedir(), "Library/LaunchAgents/work.good-inventions.tars-orch.plist");
+  const orderLocks: Record<string, LockInfo> = {};
+  for (const o of orders) {
+    const l = lockAt(path.join(runsDir, o.id, ".lock"));
+    if (l) orderLocks[o.id] = l;
+  }
   return {
     orders,
+    orderLocks,
+    cardDocs: readCardDocs(cardsDir),
     log: readLog(runsDir),
     lock: readLock(runsDir),
     cards: readCards(cardsDir),
