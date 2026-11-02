@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 
 import { scenario, SCENARIOS, type Scenario } from "./mission-control/fixtures";
 import { readLiveInput } from "./mission-control/live";
+import { CSS_A, CSS_B, renderPreviewA, renderPreviewB } from "./mission-control/preview";
 import { q, renderDocument, renderFocusFragment, renderMainFragment } from "./mission-control/render";
+import { buildStory } from "./mission-control/story";
 import { buildFocus, buildView, type McInput } from "./mission-control/view";
 import { Store } from "./store";
 import type { Order } from "./types";
@@ -116,7 +118,14 @@ export function handler(root: string, cards = cardsDir) {
     const demo = url.searchParams.get("demo") === "1";
     const qs = q(demo, demo ? url.searchParams.get("scenario") ?? undefined : undefined);
     const focusId = /^\/zakazka\/(wo-[0-9A-Za-z-]+)$/.exec(url.pathname)?.[1];
-    if (url.pathname === "/" || (url.pathname === "/fragment" && !url.searchParams.get("order"))) {
+    const pv = /^\/preview\/(a|b)$/.exec(url.pathname)?.[1] ?? (url.pathname === "/fragment" ? url.searchParams.get("preview") : null);
+    if (pv === "a" || pv === "b") {
+      // V2 compositions for the owner's choice; production `/` stays unchanged.
+      const story = buildStory(inputFor(root, url, cards));
+      const frag = pv === "a" ? renderPreviewA(story, qs) : renderPreviewB(story, qs);
+      const src = `/fragment${qs ? `${qs}&` : "?"}preview=${pv}`;
+      res.writeHead(200, HTML).end(url.pathname === "/fragment" ? frag : renderDocument(`TARS · náhled ${pv.toUpperCase()}`, frag, src, pv === "a" ? CSS_A : CSS_B));
+    } else if (url.pathname === "/" || (url.pathname === "/fragment" && !url.searchParams.get("order"))) {
       const view = buildView(inputFor(root, url, cards));
       const frag = renderMainFragment(view, qs);
       const src = `/fragment${qs}`;

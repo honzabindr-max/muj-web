@@ -3,7 +3,7 @@
 import type { LogEntry, Order, OrderState, StateTransitionRecord } from "../types";
 import type { McInput } from "./view";
 
-export const SCENARIOS = ["aktivita", "cekani", "chyba", "dokonceni", "prazdno"] as const;
+export const SCENARIOS = ["aktivita", "oprava", "cekani", "chyba", "dokonceni", "prazdno"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
 const CARDS: Record<string, string> = {
@@ -79,6 +79,20 @@ export function scenario(name: Scenario, now = new Date().toISOString()): McInpu
         ...common,
         orders: [prev, o],
         log: [...prevLog, guard, sup(id, 1), chk(id, 2, "PASS"), tr(id, 2, "NEW", "PLANNED", "planned", "supervisor"), tr(id, 2, "PLANNED", "DOING", "start", "orchestrator")],
+        lock: { present: true, alive: true, mtime: t(base, 0) },
+      };
+    }
+    case "oprava": {
+      const o = order(id, t(base, 0), "FIXING", [
+        ["NEW", "PLANNED", "planned", t(base, 2)],
+        ["PLANNED", "DOING", "start", t(base, 2)],
+        ["DOING", "CHECKING", "created", t(base, 7)],
+        ["CHECKING", "FIXING", "verdict", t(base, 8)],
+      ], { card_role: "copy-studio", fix_rounds: 1, last_issues: ["CTA v hero chybí sekundární akce."] });
+      return {
+        ...common,
+        orders: [prev, o],
+        log: [...prevLog, guard, sup(id, 1), chk(id, 2, "PASS"), tr(id, 2, "NEW", "PLANNED", "planned", "supervisor"), tr(id, 2, "PLANNED", "DOING", "start", "orchestrator"), cre(id, 7), tr(id, 7, "DOING", "CHECKING", "created", "creator"), chk(id, 8, "FIX", "claude -p --model opus (opus)", "CTA v hero chybí sekundární akce."), tr(id, 8, "CHECKING", "FIXING", "verdict", "checker")],
         lock: { present: true, alive: true, mtime: t(base, 0) },
       };
     }

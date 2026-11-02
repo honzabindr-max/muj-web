@@ -14,13 +14,13 @@ import {
 export const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-const clock = (iso?: string) =>
+export const clock = (iso?: string) =>
   iso ? new Date(iso).toLocaleTimeString("cs-CZ", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit" }) : "—";
 
 /** Live relative time; the client ticks the text every second, server text is the no-JS fallback. */
-const ago = (iso: string | undefined, now: string) =>
+export const ago = (iso: string | undefined, now: string) =>
   iso ? `<time data-ago="${esc(iso)}" datetime="${esc(iso)}" title="${esc(clock(iso))}">${esc(formatAgo(iso, now))}</time>` : "nelze ověřit";
-const running = (from: string, to: string | undefined, now: string) =>
+export const running = (from: string, to: string | undefined, now: string) =>
   to
     ? `<span>${esc(formatDuration(Date.parse(to) - Date.parse(from)))}</span>`
     : `<time data-since="${esc(from)}">${esc(formatDuration(Date.parse(now) - Date.parse(from)))}</time>`;
@@ -321,13 +321,13 @@ function dur(ms){if(!isFinite(ms)||ms<0)return '—';var s=Math.round(ms/1000);i
 function ago(ms){if(!isFinite(ms))return 'nelze ověřit';var s=Math.max(0,Math.round(ms/1000));if(s<60)return 'před chvílí';var m=Math.floor(s/60);if(m<60)return 'před '+m+' min';var h=Math.floor(m/60);if(h<24)return 'před '+h+' h '+(m%60)+' min';return 'před '+Math.floor(h/24)+' d'}
 function tick(){var n=Date.now();document.querySelectorAll('time[data-since]').forEach(function(t){t.textContent=dur(n-Date.parse(t.dataset.since))});document.querySelectorAll('time[data-ago]').forEach(function(t){t.textContent=ago(n-Date.parse(t.dataset.ago))})}
 function bind(){var b=document.getElementById('theme');if(b)b.onclick=function(){var cur=root.getAttribute('data-theme')==='light'?'light':'dark';var nx=cur==='light'?'dark':'light';apply(nx);try{localStorage.setItem('tars-theme',nx)}catch(e){}}}
-var app=document.getElementById('app');var norm=function(h){return h.replace(/(<time[^>]*>)[^<]*(<\\/time>)/g,'$1$2')};var last=norm(app.innerHTML);
-async function refresh(){try{var r=await fetch(app.dataset.src,{cache:'no-store'});if(!r.ok)throw new Error(r.status);var h=await r.text();var n=norm(h);if(n!==last){var open=[].map.call(document.querySelectorAll('details[open]'),function(d){return d.id});app.innerHTML=h;open.forEach(function(id){var d=document.getElementById(id);if(d)d.open=true});last=n;bind()}document.body.classList.remove('offline');tick()}catch(e){document.body.classList.add('offline');var p=document.querySelector('.pill');if(p){p.className='pill bad';p.lastChild.textContent='Nedostupné'}}}
+var app=document.getElementById('app');var norm=function(h){return h.replace(/(<time[^>]*>)[^<]*(<\\/time>)/g,'$1$2')};var last=norm(app.innerHTML);var ph0=app.querySelector('[data-phase]');var lastPhase=ph0?ph0.dataset.phase:null;
+async function refresh(){try{var r=await fetch(app.dataset.src,{cache:'no-store'});if(!r.ok)throw new Error(r.status);var h=await r.text();var n=norm(h);if(n!==last){var open=[].map.call(document.querySelectorAll('details[open]'),function(d){return d.id});app.innerHTML=h;var ph=app.querySelector('[data-phase]');if(ph&&lastPhase&&ph.dataset.phase!==lastPhase){ph.classList.add('phase-changed');setTimeout(function(){ph.classList.remove('phase-changed')},2400)}lastPhase=ph?ph.dataset.phase:null;open.forEach(function(id){var d=document.getElementById(id);if(d)d.open=true});last=n;bind()}document.body.classList.remove('offline');tick()}catch(e){document.body.classList.add('offline');var p=document.querySelector('.pill');if(p){p.className='pill bad';p.lastChild.textContent='Nedostupné'}}}
 bind();tick();setInterval(tick,1000);if(app.dataset.src)setInterval(refresh,3000);
 })();`;
 
-export function renderDocument(title: string, fragment: string, src: string): string {
+export function renderDocument(title: string, fragment: string, src: string, css = CSS): string {
   return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark light"><title>${esc(title)}</title><style>${CSS}</style></head>
+<meta name="color-scheme" content="dark light"><title>${esc(title)}</title><style>${css}</style></head>
 <body><div id="app" data-src="${esc(src)}">${fragment}</div><script>${SCRIPT}</script></body></html>`;
 }

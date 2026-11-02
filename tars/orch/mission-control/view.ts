@@ -144,9 +144,9 @@ export interface McView {
   guard?: { at: string; ok: boolean };
 }
 
-const ACTIVE_STATES: readonly OrderState[] = ["NEW", "PLANNED", "DOING", "CHECKING", "FIXING", "DELIVERED", "PAUSED"];
+export const ACTIVE_STATES: readonly OrderState[] = ["NEW", "PLANNED", "DOING", "CHECKING", "FIXING", "DELIVERED", "PAUSED"];
 
-const STATE_LABEL: Record<OrderState, string> = {
+export const STATE_LABEL: Record<OrderState, string> = {
   NEW: "Plánuje se",
   PLANNED: "Zadání schváleno",
   DOING: "Tvorba",
@@ -165,7 +165,7 @@ export const missionName = (m: string) => MISSION_NAME[m] ?? m;
 
 const DEPT_NAME: Record<string, string> = { copy: "Copy a kreativa", dev: "Vývoj", vizual: "Vizuál" };
 
-const TEAM_BASE: Record<TeamKey, { name: string; role: string; card?: string; fallback: string }> = {
+export const TEAM_BASE: Record<TeamKey, { name: string; role: string; card?: string; fallback: string }> = {
   vedouci: { name: "Vedoucí", role: "Delivery Lead · supervizor", card: "supervizor", fallback: "Vybírá další zakázku z HANDOFF a píše zadání; sám netvoří ani nekontroluje." },
   copywriter: { name: "Copywriter", role: "Copy Studio", card: "copy-studio", fallback: "Píše zákaznickou komunikaci mise." },
   designer: { name: "Designér", role: "Visual/UI Lead", card: "vizual", fallback: "Navrhuje vizuální směr a rozhraní." },
@@ -175,7 +175,7 @@ const TEAM_BASE: Record<TeamKey, { name: string; role: string; card?: string; fa
   strazce: { name: "Strážce", role: "TARS-GUARD", fallback: "Před během ověřuje bezpečnostní invarianty; při poplachu se supervizor zastaví (TARS-ORCH-001 §6)." },
 };
 
-const CREATOR_BY_DEPT: Record<string, TeamKey> = { copy: "copywriter", vizual: "designer", dev: "vyvojar" };
+export const CREATOR_BY_DEPT: Record<string, TeamKey> = { copy: "copywriter", vizual: "designer", dev: "vyvojar" };
 
 /** Text from data is shown only when it carries no secret pattern. */
 export function safe(text: string | undefined | null, max = 240): string {
@@ -243,7 +243,7 @@ function consequence(state: OrderState): string {
   return "";
 }
 
-interface CallInfo extends LogEntry {
+export interface CallInfo extends LogEntry {
   member: TeamKey;
   phase: "brief" | "work";
 }
