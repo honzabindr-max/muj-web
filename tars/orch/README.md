@@ -14,7 +14,7 @@ Models only produce text:
 | Copy checker | `claude -p --model opus` | create |
 | Dev creator | `~/Projects/ai-chain/run.sh` (Claude chain) | check |
 | Dev checker | deterministic checks + `codex exec` review | create |
-| Notion transport | `claude -p --model sonnet` + one Notion MCP tool (or REST if `NOTION_TOKEN` is set) | write content |
+| Notion transport | Notion REST API with the token from the macOS Keychain; without it `claude -p --model sonnet` + one Notion MCP tool | write content |
 
 The code refuses to start when a department has creator and checker from the same model family.
 
@@ -89,9 +89,30 @@ Log in to Claude, ChatGPT and Notion only (no e-mail, bank, GitHub admin, no Chr
 cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts browser-check
 ```
 
+## Notion zápis přes REST (DR-029 krok 5)
+
+- Zápis stránek (DRAFT, karty GO/REJECT) a řádků panelu „TARS — Zakázky“ jde přímo na Notion REST API (`notion.ts`, `panel.ts`), bez Sonnetu. Token je jen v macOS Klíčence (`security find-generic-password -s tars-notion -a tars -w`, bez shellu). Nikdy z `.env` ani prostředí, nikdy v argumentu příkazu, v logu ani v Notionu.
+- Když token v Klíčence není: log `Notion REST: token chybí, používám fallback` a funguje dosavadní cesta přes `claude -p` s Notion MCP. Stejně se chová jednotlivý zápis, který Notion odmítl dřív, než cokoli uložil (404/403 = stránka není sdílena s integrací, 401, 429). 401 a 429 vypnou REST do konce běhu pro zapisovač stránek i panel společně (jeden klient). Nejasný výsledek (5xx, síť) se u vytvoření stránky nebo řádku naslepo neopakuje přes MCP, aby nevznikl duplikát; u řádku panelu se zakázka označí v `panel-index.json` a příští synchronizace nejdřív dohledá řádek podle „ID zakázky“ (REST dotaz s filtrem, nikdy SQL/rows) a teprve potom případně vytvoří nový; 503 s `committed_resource_id` se bere jako uloženo. Aktualizace řádku a čtení se po 5xx/síti opakují přes fallback. Chyba zadání (400) fallback nespouští. Každé volání `claude -p` (i supervizor a kontroloři) má zakázané SQL/rows nástroje Notionu (`--disallowedTools`).
+- Integrace je sdílena jen se stránkou „TARS META OS — Bootstrap“ a jejími podstránkami. Čtení HANDOFF a zdrojů zůstává přes MCP; stránky mimo Bootstrap (například rodičovská stránka MEZI VÁMI) REST nevidí a jdou fallbackem.
+- Řádek panelu: nově „Kde běží“ (orchestrátor na Macu = Mac), „Proč tento model“, „Karta rozhodnutí“. Pole **„Rozhodnutí vlastníka“ orchestrátor nikdy nezapisuje**. Když u zakázky ve `WAITING_OWNER` vlastník vybere GO, GO A, GO B nebo REJECT, tick hodnotu přečte a provede přechod (GO / GO A / GO B → `DONE`, volba A/B se uloží do `meta.owner_option`; REJECT → `FAILED`). Prázdná nebo neznámá hodnota se ignoruje. Rozhodnutí se čte **jen přes REST**: bez tokenu (fallback `claude -p`) se nepřebírá vůbec a do logu se jednou zapíše „čeká na token“; `cli owner GO|REJECT` funguje vždy. `cli owner`, `abort` a převzetí z Notionu sdílejí krátký zámek `.state.lock`, takže ruční REJECT nelze přepsat.
+- Secret-scan: token se po načtení registruje a hledá se i přesná hodnota. Obsah stránky s tokenem se neodešle (žádná cesta), řádek panelu a každý záznam `log.jsonl` jde přes vymazání, chybové zprávy REST nesou jen status a kód.
+- Kontrola nastavení: `npx tsx tars/orch/cli.ts notion-check` (vypíše jen OK nebo důvod, token nikdy).
+
+### Jednorázové založení integrace (vlastník, iPhone nebo Mac, asi 2 minuty)
+
+1. **Založ integraci.** Otevři https://www.notion.so/profile/integrations (v prohlížeči na iPhonu nebo Macu), klepni na „Nová integrace“, typ „Interní“ (Internal), název `TARS`, vyber svůj workspace a ulož. Na záložce „Capabilities / Oprávnění“ zaškrtni **Read content**, **Update content** a **Insert content** (TARS zakládá nové stránky a řádky, bez „Insert“ vrací Notion 403). „User information“ nech vypnuté. Na záložce „Configuration“ klepni na „Show“ a „Copy“ u „Internal Integration Secret“. Token nikam nevkládej ani nikomu neposílej.
+2. **Sdílej jen jednu stránku.** Otevři stránku „TARS META OS — Bootstrap“, klepni na ••• vpravo nahoře, „Connections / Připojení“ (v aplikaci na iPhonu „Add connections“), vyber `TARS` a potvrď. Žádnou jinou stránku ani databázi s integrací nesdílej (podstránky Bootstrapu, včetně „TARS — Zakázky“, ji zdědí).
+3. **Ulož token do Klíčenky.** Na Macu otevři Terminál a spusť (bez hodnoty, macOS se na ni sám zeptá a nezůstane v historii shellu):
+   ```
+   security add-generic-password -s tars-notion -a tars -w
+   ```
+   Na „password data for new item:“ vlož zkopírovaný token (z iPhonu přes univerzální schránku) a potvrď Enter, na „retype password:“ ho vlož znovu. Ověř: `cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts notion-check` musí vypsat „Notion REST: token platný, stránka TARS META OS — Bootstrap je integraci sdílena“. Změna tokenu později: stejný příkaz s `-U` (`security add-generic-password -U -s tars-notion -a tars -w`).
+
+Další tick (launchd, každých 30 min) už píše přes REST. Bez tokenu nebo při chybě se nic nerozbije, zápis jde fallbackem.
+
 ## Control panels
 
-- Notion „TARS — Zakázky“ (https://app.notion.com/p/f12aa6d7804b4af0858db6b46167a3e5): one row per order, rewritten by the script on every transition (`panel.ts`). Values are computed from `state.json`; the MCP transport is verified against the computed payload. A failed write is logged and caught up by the next transition. View „Panel“ groups by Fronta: waiting for owner → running → done.
+- Notion „TARS — Zakázky“ (https://app.notion.com/p/f12aa6d7804b4af0858db6b46167a3e5): one row per order, rewritten by the script on every transition (`panel.ts`). Values are computed from `state.json`; the REST payload is a fixed whitelist of columns and the MCP fallback transport is verified against the computed payload. A failed write is logged and caught up by the next transition. View „Panel“ groups by Fronta: waiting for owner → running → done.
 - Local live panel — **TARS Mission Control**: `npm run tars:panel` → http://127.0.0.1:4747 (read-only, refresh 3 s, `panel-server.ts` + `mission-control/`).
   - `/` owner view — V2-A final (`mission-control/final.ts`, `final-render.ts`): main area = the order closest to the owner's decision or delivery, other running orders (max 3, §2d) as live rows (`?focus=<id>` switches), flow drawn from the order's recipe (§2c), FIX loops, team shows who works on which order.
   - `/role/<id>` role page: description, Postup and Dosah from the card (else „Zatím nedefinováno“), current work, history from the log.
