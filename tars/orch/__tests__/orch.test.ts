@@ -653,6 +653,32 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
     expect(Object.keys(panelRow(store.load(id), "a", "b"))).not.toContain("Rozhodnutí vlastníka");
   });
 
+  it("a manual REJECT that lands while the Notion read is in flight is not overwritten by GO", async () => {
+    const panel = new MockPanel();
+    const { o, id } = await waiting(panel);
+    panel.decision = "GO";
+    panel.readOwnerDecision = async () => {
+      store.save(transition(store.load(id), { type: "owner", decision: "REJECT" }, NOW)); // CLI `owner <id> REJECT` during the read
+      return "GO";
+    };
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("FAILED");
+    expect(store.load(id).failure_reason).toBe("owner REJECT");
+  });
+
+  it("a row whose every earlier write failed is written again so the decision can be read", async () => {
+    const panel = new MockPanel();
+    panel.failNext = 100; // every write fails up to WAITING_OWNER
+    const { o, id } = await waiting(panel);
+    expect(panel.rows).toHaveLength(0);
+    panel.failNext = 0;
+    panel.decision = "GO";
+    await o.pollOwnerDecisions();
+    expect(panel.rows.length).toBeGreaterThan(0);
+    expect(panel.rows[0].row["Stav"]).toBe("WAITING_OWNER");
+    expect(store.load(id).state).toBe("DONE");
+  });
+
   it("deterministic mapping and new columns", () => {
     expect(ownerEventFor("GO")).toEqual({ type: "owner", decision: "GO" });
     expect(ownerEventFor("GO A")).toEqual({ type: "owner", decision: "GO", option: "A" });
@@ -1207,5 +1233,6 @@ describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
     const lines = fs.readFileSync(log, "utf8").split("\n");
     expect(lines.filter((l) => l === "-p")).toHaveLength(3);
     expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(3);
+    expect(lines.filter((l) => l.includes("notion-query-data-sources"))).toHaveLength(3); // SQL/rows tools denied on all three
   });
 });

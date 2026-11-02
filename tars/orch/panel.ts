@@ -10,8 +10,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { ORCH_CLAUDE_SETTINGS, runProcess } from "./adapters";
-import { extractToolResult, isFallbackEligible, type NotionRestApi } from "./notion";
+import { NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS, runProcess } from "./adapters";
+import { isFallbackEligible, NotionRestError, stopsRestForRun, type NotionRestApi } from "./notion";
 import { redactDeep, redactSecrets } from "./secret-scan";
 import type { Order } from "./types";
 
@@ -222,7 +222,8 @@ export function toolCalls(streamJson: string): StreamCall[] {
 export class McpPanelSink implements PanelSink {
   constructor(private cwd: string) {}
 
-  async upsert(row: PanelRow, existingPageId?: string): Promise<string> {
+  async upsert(unsafeRow: PanelRow, existingPageId?: string): Promise<string> {
+    const row = redactDeep(unsafeRow); // a loaded token never enters the claude -p prompt or the Notion row
     const tool = existingPageId
       ? "mcp__claude_ai_Notion__notion-update-page"
       : "mcp__claude_ai_Notion__notion-create-pages";
@@ -250,6 +251,8 @@ export class McpPanelSink implements PanelSink {
         ORCH_CLAUDE_SETTINGS,
         "--allowedTools",
         tool,
+        "--disallowedTools",
+        NOTION_QUERY_TOOLS_DENIED,
         "--output-format",
         "stream-json",
         "--verbose",
@@ -283,19 +286,42 @@ export class McpPanelSink implements PanelSink {
   }
 
   async readOwnerDecision(pageId: string): Promise<string | undefined> {
-    const tool = "mcp__claude_ai_Notion__notion-fetch";
     const r = await runProcess(
       "claude",
-      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", tool, "--output-format", "stream-json", "--verbose"],
-      `Zavolej PŘESNĚ JEDNOU nástroj ${tool} s id ${pageId} a odpověz jen OK.`,
+      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", FETCH_TOOL, "--disallowedTools", NOTION_QUERY_TOOLS_DENIED, "--output-format", "stream-json", "--verbose"],
+      `Zavolej PŘESNĚ JEDNOU nástroj ${FETCH_TOOL} s id ${pageId} a odpověz jen OK.`,
       this.cwd,
       4 * 60_000,
     );
-    const props = parsePropertiesBlock(extractToolResult(r.stdout) ?? "");
-    if (!props) throw new Error("panel: owner decision unreadable");
-    const v = props[OWNER_DECISION_PROPERTY];
-    return typeof v === "string" && v ? v : undefined;
+    return ownerDecisionFromStream(r.stdout, pageId);
   }
+}
+
+const FETCH_TOOL = "mcp__claude_ai_Notion__notion-fetch";
+const hex32 = (s: string) => s.replace(/-/g, "").toLowerCase();
+
+/**
+ * Owner decision from a `claude -p` stream, bound to the requested row: exactly one notion-fetch call,
+ * its `id` is the page asked for, and the returned document is that page (its URL carries the id).
+ * Anything else throws, so a model that fetched a different row can never approve this order.
+ */
+export function ownerDecisionFromStream(streamJson: string, pageId: string): string | undefined {
+  const want = hex32(pageId);
+  const calls = toolCalls(streamJson).filter((c) => c.name === FETCH_TOOL);
+  if (calls.length !== 1) throw new Error(`panel: expected 1 ${FETCH_TOOL} call, got ${calls.length}`);
+  if (!hex32(String(calls[0].input.id ?? "")).endsWith(want)) throw new Error("panel: owner decision fetch asked for another page");
+  let doc = calls[0].result;
+  try {
+    doc = (JSON.parse(doc) as { text?: string }).text ?? doc;
+  } catch {
+    /* plain text result */
+  }
+  const url = /<page url="([^"]+)"/.exec(doc)?.[1] ?? "";
+  if (!hex32(url).endsWith(want)) throw new Error("panel: owner decision document is another page");
+  const props = parsePropertiesBlock(doc);
+  if (!props) throw new Error("panel: owner decision unreadable");
+  const v = props[OWNER_DECISION_PROPERTY];
+  return typeof v === "string" && v ? v : undefined;
 }
 
 /** Pulls the `<properties>` JSON object out of a Notion MCP fetch result. */
@@ -319,12 +345,18 @@ export class RestPanelSink implements PanelSink {
       await this.api.request("PATCH", `/v1/pages/${existingPageId}`, { properties });
       return existingPageId;
     }
-    const j = await this.api.request<{ id?: string }>("POST", "/v1/pages", {
-      parent: { type: "data_source_id", data_source_id: PANEL_DATA_SOURCE_ID },
-      properties,
-    });
-    if (!j.id) throw new Error("panel: created page id not found");
-    return j.id.replace(/-/g, "");
+    try {
+      const j = await this.api.request<{ id?: string }>("POST", "/v1/pages", {
+        parent: { type: "data_source_id", data_source_id: PANEL_DATA_SOURCE_ID },
+        properties,
+      });
+      if (!j.id) throw new Error("panel: created page id not found");
+      return j.id.replace(/-/g, "");
+    } catch (e) {
+      // 503 after the row was saved: Notion names it, so the same order never gets a second row.
+      if (e instanceof NotionRestError && e.committedId) return e.committedId;
+      throw e;
+    }
   }
 
   async readOwnerDecision(pageId: string): Promise<string | undefined> {
@@ -343,25 +375,27 @@ export class HybridPanelSink implements PanelSink {
     private log: (message: string) => void,
   ) {}
 
-  private async viaRest<T>(call: () => Promise<T>): Promise<{ value: T } | undefined> {
+  private async viaRest<T>(idempotent: boolean, call: () => Promise<T>): Promise<{ value: T } | undefined> {
     if (this.restDown) return undefined;
     try {
       return { value: await call() };
     } catch (e) {
-      if (!isFallbackEligible(e)) throw e;
-      if (e.status === 401) this.restDown = true;
+      if (!isFallbackEligible(e, idempotent)) throw e;
+      if (stopsRestForRun(e)) this.restDown = true;
       this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
       return undefined;
     }
   }
 
-  async upsert(row: PanelRow, existingPageId?: string): Promise<string> {
-    const r = await this.viaRest(() => this.rest.upsert(row, existingPageId));
+  async upsert(unsafeRow: PanelRow, existingPageId?: string): Promise<string> {
+    const row = redactDeep(unsafeRow); // same row goes to whichever transport is chosen
+    // Updating a known row repeats safely; creating one after an uncertain failure would risk a duplicate row.
+    const r = await this.viaRest(existingPageId !== undefined, () => this.rest.upsert(row, existingPageId));
     return r ? r.value : this.mcp.upsert(row, existingPageId);
   }
 
   async readOwnerDecision(pageId: string): Promise<string | undefined> {
-    const r = await this.viaRest(() => this.rest.readOwnerDecision!(pageId));
+    const r = await this.viaRest(true, () => this.rest.readOwnerDecision!(pageId));
     return r ? r.value : this.mcp.readOwnerDecision?.(pageId);
   }
 }

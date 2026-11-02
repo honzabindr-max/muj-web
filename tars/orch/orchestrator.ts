@@ -253,16 +253,24 @@ export class Orchestrator {
   async pollOwnerDecisions(): Promise<void> {
     const panel = this.d.panel;
     if (!panel?.sink.readOwnerDecision) return;
-    for (const o of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
-      const pageId = panel.index.get(o.id);
-      if (!pageId) continue;
+    for (const waiting of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
       try {
+        let pageId = panel.index.get(waiting.id);
+        if (!pageId) {
+          // Every earlier write of this row failed: write it now, otherwise the owner's tap could never be read.
+          await this.resyncPanel(waiting.id);
+          pageId = panel.index.get(waiting.id);
+          if (!pageId) continue;
+        }
         const value = await panel.sink.readOwnerDecision(pageId);
         const ev = ownerEventFor(value);
         if (!ev) continue;
-        this.apply(o, ev, { role: "orchestrator", result: `owner ${value} (Notion)` });
+        // The read took a while: act on the stored state, not on the snapshot taken before it (a manual REJECT may have landed).
+        const fresh = this.d.store.load(waiting.id);
+        if (fresh.state !== "WAITING_OWNER") continue;
+        this.apply(fresh, ev, { role: "orchestrator", result: `owner ${value} (Notion)` });
       } catch (e) {
-        this.log({ order: o.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
+        this.log({ order: waiting.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
       }
     }
   }

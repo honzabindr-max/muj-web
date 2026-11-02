@@ -19,7 +19,7 @@ export class Store {
   save(order: Order): void {
     const file = path.join(this.orderDir(order.id), "state.json");
     const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(order, null, 2) + "\n");
+    fs.writeFileSync(tmp, JSON.stringify(redactDeep(order), null, 2) + "\n"); // state.json never keeps a token either
     fs.renameSync(tmp, file); // atomic replace: a crash never leaves half a state
   }
 

@@ -42,7 +42,11 @@ export function looksLikeLimit(text: string): boolean {
   return LIMIT_RE.test(text);
 }
 
+/** SQL/rows queries on Notion databases are rate-limited per workspace hour; no TARS call may ever make them. */
+export const NOTION_QUERY_TOOLS_DENIED = "mcp__claude_ai_Notion__notion-query-data-sources,mcp__claude_ai_Notion__notion-query-multiple-data-sources";
+
 const STRIP_ENV = [
+  "NOTION_TOKEN",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
   "OPENAI_API_KEY",
@@ -117,7 +121,7 @@ export class ClaudeCli implements TextAdapter {
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
     const args = ["-p", "--model", this.model, "--output-format", "json", "--settings", ORCH_CLAUDE_SETTINGS];
     if (opts.allowedTools?.length)
-      args.push("--allowedTools", opts.allowedTools.join(","));
+      args.push("--allowedTools", opts.allowedTools.join(","), "--disallowedTools", NOTION_QUERY_TOOLS_DENIED);
     const r = await runProcess(
       "claude",
       args,

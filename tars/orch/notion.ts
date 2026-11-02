@@ -7,7 +7,7 @@
 //     the returned URL.
 // The token is never read from .env/env, never put on a command line, never logged or written
 // to Notion: every write is secret-scanned first (a hit aborts the write, no fallback).
-import { ORCH_CLAUDE_SETTINGS, runProcess, type TextAdapter } from "./adapters";
+import { NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS, runProcess, type TextAdapter } from "./adapters";
 import { redactSecrets, registerKnownSecret, scanSecrets } from "./secret-scan";
 
 export interface NotionPage {
@@ -65,7 +65,7 @@ export class McpNotion implements NotionClient {
   async fetchPage(pageId: string): Promise<string> {
     const r = await runProcess(
       "claude",
-      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", "mcp__claude_ai_Notion__notion-fetch", "--output-format", "stream-json", "--verbose"],
+      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", "mcp__claude_ai_Notion__notion-fetch", "--disallowedTools", NOTION_QUERY_TOOLS_DENIED, "--output-format", "stream-json", "--verbose"],
       `Zavolej nástroj mcp__claude_ai_Notion__notion-fetch s id ${pageId} a odpověz jen slovem HOTOVO.`,
       this.cwd,
       5 * 60_000,
@@ -81,6 +81,7 @@ export class McpNotion implements NotionClient {
     title: string,
     markdown: string,
   ): Promise<NotionPage> {
+    assertNoSecret(`${title}\n${markdown}`);
     const prompt = [
       "Jsi transportní vrstva, ne autor. Proveď přesně jedno volání nástroje mcp__claude_ai_Notion__notion-create-pages:",
       `- parent: {"type":"page_id","page_id":"${parentPageId}"}`,
@@ -125,10 +126,14 @@ export class NotionRestError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string,
+    /** Notion answered 503 but the write was committed (`additional_data.committed_resource_id`). */
+    public readonly committedId?: string,
   ) {
     super(`notion REST ${status} ${code}`);
   }
 }
+
+const COMMITTED_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
 /** Content that would reach Notion contains a secret. Never retried through another path. */
 export class SecretLeakError extends Error {}
@@ -152,7 +157,7 @@ export class NotionRestApi {
   private auth: string;
 
   async request<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
-    let res;
+    let res: Awaited<ReturnType<FetchLike>>;
     try {
       res = await this.fetchImpl(`https://api.notion.com${path}`, {
         method,
@@ -165,15 +170,22 @@ export class NotionRestApi {
     }
     if (!res.ok) {
       let code = "error";
+      let committedId: string | undefined;
       try {
-        const j = (await res.json()) as { code?: unknown };
+        const j = (await res.json()) as { code?: unknown; additional_data?: { committed_resource_id?: unknown } };
         if (typeof j.code === "string" && KNOWN_ERROR_CODES.has(j.code)) code = j.code;
+        const c = j.additional_data?.committed_resource_id;
+        if (typeof c === "string" && COMMITTED_ID_RE.test(c)) committedId = c.replace(/-/g, "");
       } catch {
         /* body is not JSON */
       }
-      throw new NotionRestError(res.status, code);
+      throw new NotionRestError(res.status, code, committedId);
     }
-    return (await res.json()) as T;
+    try {
+      return (await res.json()) as T;
+    } catch {
+      throw new NotionRestError(res.status, "bad_response"); // body content is never echoed
+    }
   }
 }
 
@@ -182,20 +194,36 @@ export class RestNotion implements NotionClient {
 
   async createPage(parentPageId: string, title: string, markdown: string): Promise<NotionPage> {
     assertNoSecret(`${title}\n${markdown}`);
-    const j = await this.api.request<{ url?: string }>("POST", "/v1/pages", {
-      parent: { type: "page_id", page_id: parentPageId },
-      properties: { title: { title: [{ type: "text", text: { content: title.slice(0, 2000) } }] } },
-      markdown,
-    });
-    if (!j.url) throw new NotionRestError(200, "no_url");
-    return { url: j.url };
+    try {
+      const j = await this.api.request<{ url?: string }>("POST", "/v1/pages", {
+        parent: { type: "page_id", page_id: parentPageId },
+        properties: { title: { title: [{ type: "text", text: { content: title.slice(0, 2000) } }] } },
+        markdown,
+      });
+      if (!j.url) throw new NotionRestError(200, "no_url");
+      return { url: j.url };
+    } catch (e) {
+      // Notion may answer 503 after it saved the page: the id says it exists, so never create it a second time.
+      if (e instanceof NotionRestError && e.committedId) return { url: `https://www.notion.so/${e.committedId}` };
+      throw e;
+    }
   }
 }
 
-/** Errors after which the old `claude -p` path may still do the job (not our bug, not a secret). */
-export function isFallbackEligible(e: unknown): e is NotionRestError {
-  return e instanceof NotionRestError && (e.status === 0 || e.status === 401 || e.status === 403 || e.status === 404 || e.status === 429 || e.status >= 500);
+/**
+ * Errors after which the old `claude -p` path may still do the job (not our bug, not a secret).
+ * 401/403/404/429 mean Notion refused the request before doing anything, so any call may be repeated.
+ * Network errors and 5xx are uncertain (the write may have been saved): only an idempotent call
+ * (PATCH of a whole row, GET) may be repeated; a create is never repeated blindly, to avoid duplicates.
+ */
+export function isFallbackEligible(e: unknown, idempotent: boolean): e is NotionRestError {
+  if (!(e instanceof NotionRestError)) return false;
+  if (e.status === 401 || e.status === 403 || e.status === 404 || e.status === 429) return true;
+  return idempotent && (e.status === 0 || e.status >= 500);
 }
+
+/** After these the REST path is skipped for the rest of the run (bad token; rate limit shared by the workspace). */
+export const stopsRestForRun = (e: NotionRestError): boolean => e.status === 401 || e.status === 429;
 
 /** REST first; MCP for pages outside the integration's share and whenever REST is unavailable. Reads stay on MCP. */
 export class HybridNotion implements NotionClient {
@@ -216,8 +244,8 @@ export class HybridNotion implements NotionClient {
       try {
         return await this.rest.createPage(parentPageId, title, markdown);
       } catch (e) {
-        if (!isFallbackEligible(e)) throw e;
-        if (e.status === 401) this.restDown = true; // bad/revoked token: do not retry for the rest of this run
+        if (!isFallbackEligible(e, false)) throw e;
+        if (stopsRestForRun(e)) this.restDown = true;
         this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
       }
     }

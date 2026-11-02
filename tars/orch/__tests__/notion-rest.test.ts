@@ -21,7 +21,8 @@ import {
   SecretLeakError,
 } from "../notion";
 import { KEYCHAIN_ARGS, readNotionToken } from "../notion-token";
-import { HybridPanelSink, panelRow, PANEL_DATA_SOURCE_ID, rowToRestProperties, RestPanelSink, type PanelRow, type PanelSink } from "../panel";
+import { childEnv, NOTION_QUERY_TOOLS_DENIED } from "../adapters";
+import { HybridPanelSink, McpPanelSink, ownerDecisionFromStream, panelRow, PANEL_DATA_SOURCE_ID, rowToRestProperties, RestPanelSink, type PanelRow, type PanelSink } from "../panel";
 import { clearKnownSecrets, redactDeep, redactSecrets, scanSecrets } from "../secret-scan";
 import { Store } from "../store";
 import type { Order } from "../types";
@@ -143,8 +144,8 @@ describe("zápis stránek přes REST", () => {
     expect(c.body).not.toContain(TOKEN);
   });
 
-  it("stránka mimo sdílení integrace (404/403) a výpadky (401, 429, 5xx, síť) → jen ten jeden zápis jde přes fallback", async () => {
-    for (const status of [404, 403, 429, 502]) {
+  it("stránka mimo sdílení integrace (404/403) a odmítnutí před zápisem (401, 429) → jen ten jeden zápis jde přes fallback", async () => {
+    for (const status of [404, 403, 401, 429]) {
       const f = mockFetch(() => ({ status, json: { code: "object_not_found" } }));
       const t = new StubTransport();
       const logs: string[] = [];
@@ -153,24 +154,33 @@ describe("zápis stránek přes REST", () => {
       expect(page.url).toBe("https://app.notion.com/p/viamcp");
       expect(f.calls).toHaveLength(1);
       expect(logs).toEqual([`Notion REST: notion REST ${status} object_not_found, používám fallback`]);
-      await stack.notion.createPage("p", "T2", "x"); // další zápis zkusí REST znovu
-      expect(f.calls).toHaveLength(2);
+      await stack.notion.createPage("p", "T2", "x");
+      // 404/403: další zápis zkusí REST znovu; 401 (špatný token) a 429 (limit sdílený s workspace) REST do konce běhu vypnou
+      expect(f.calls).toHaveLength(status === 401 || status === 429 ? 1 : 2);
     }
-    const net = mockFetch(() => new Error(`connect ECONNRESET with header Bearer ${TOKEN}`));
-    const logs: string[] = [];
-    const stack = makeNotionStack(new StubTransport(), dir, { token: TOKEN, fetchImpl: net.fn, log: (m) => logs.push(m) });
-    await stack.notion.createPage("p", "T", "x");
-    expect(logs.join("\n")).not.toContain(TOKEN);
-    expect(logs[0]).toBe("Notion REST: notion REST 0 network, používám fallback");
   });
 
-  it("401 (neplatný token) vypne REST do konce běhu, další zápisy jdou rovnou fallbackem", async () => {
-    const f = mockFetch(() => ({ status: 401, json: { code: "unauthorized" } }));
-    const stack = makeNotionStack(new StubTransport(), dir, { token: TOKEN, fetchImpl: f.fn });
-    await stack.notion.createPage("p", "T", "x");
-    await stack.notion.createPage("p", "T2", "x");
-    await stack.notion.createPage("p", "T3", "x");
-    expect(f.calls).toHaveLength(1);
+  it("nejasný výsledek vytvoření (5xx, síť, rozbité tělo) se naslepo neopakuje přes MCP, aby nevznikl duplikát", async () => {
+    for (const r of [{ status: 502, json: { code: "service_unavailable" } }, { status: 500 }, new Error(`reset ${TOKEN}`)]) {
+      const f = mockFetch(() => r);
+      const t = new StubTransport();
+      const stack = makeNotionStack(t, dir, { token: TOKEN, fetchImpl: f.fn });
+      await expect(stack.notion.createPage("p", "T", "x")).rejects.toBeInstanceOf(NotionRestError);
+      expect(t.prompts).toHaveLength(0);
+    }
+    const bad = { ok: true, status: 200, json: async () => { throw new Error(`Unexpected token ${TOKEN}`); } };
+    const err = await new NotionRestApi(TOKEN, (async () => bad) as never).request("GET", "/v1/pages/x").catch((e: unknown) => e);
+    expect((err as Error).message).toBe("notion REST 200 bad_response");
+  });
+
+  it("503 po uložení stránky (committed_resource_id) = stránka existuje, nevzniká druhá", async () => {
+    const f = mockFetch(() => ({ status: 503, json: { code: "service_unavailable", additional_data: { committed_resource_id: "11111111-2222-3333-4444-555555555555" } } }));
+    const t = new StubTransport();
+    const stack = makeNotionStack(t, dir, { token: TOKEN, fetchImpl: f.fn });
+    expect((await stack.notion.createPage("p", "T", "x")).url).toBe("https://www.notion.so/11111111222233334444555555555555");
+    expect(t.prompts).toHaveLength(0);
+    const sink = new RestPanelSink(new NotionRestApi(TOKEN, f.fn));
+    expect(await sink.upsert(panelRow(order(), "a", "b"))).toBe("11111111222233334444555555555555");
   });
 
   it("chyba zadání (400) fallback nespustí", async () => {
@@ -239,16 +249,59 @@ describe("řádek panelu přes REST", () => {
     expect(f.calls.every((c) => c.method === "GET" && c.body === undefined)).toBe(true);
   });
 
-  it("HybridPanelSink: REST first, při 404/401/5xx stejný zápis jde přes MCP sink", async () => {
+  it("HybridPanelSink: odmítnutí před zápisem (404/401/429) jde přes MCP; update řádku i po 5xx/síti, vytvoření řádku po 5xx ne", async () => {
+    for (const status of [404, 401, 429]) {
+      const f = mockFetch(() => ({ status, json: { code: "object_not_found" } }));
+      const written: PanelRow[] = [];
+      const mcp: PanelSink = { upsert: async (r) => (written.push(r), "mcpid"), readOwnerDecision: async () => "GO" };
+      const logs: string[] = [];
+      const sink = new HybridPanelSink(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)), mcp, (m) => logs.push(m));
+      expect(await sink.upsert(row())).toBe("mcpid");
+      expect(await sink.readOwnerDecision("x")).toBe("GO");
+      expect(written).toHaveLength(1);
+      expect(logs.length).toBeGreaterThan(0);
+    }
+    for (const r of [{ status: 502 }, new Error("ECONNRESET")]) {
+      const f = mockFetch(() => r);
+      const written: PanelRow[] = [];
+      const mcp: PanelSink = { upsert: async (x) => (written.push(x), "mcpid") };
+      const sink = new HybridPanelSink(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)), mcp, () => undefined);
+      expect(await sink.upsert(row(), "known-page")).toBe("mcpid"); // PATCH celého řádku je bezpečné opakovat
+      await expect(sink.upsert(row())).rejects.toBeInstanceOf(NotionRestError); // POST nového řádku nejistého výsledku ne
+      expect(written).toHaveLength(1);
+    }
+  });
+
+  it("řádek s tokenem jde vymazaný i do fallbacku (MCP sink dostane kopii bez tokenu)", async () => {
     const f = mockFetch(() => ({ status: 404, json: { code: "object_not_found" } }));
-    const written: PanelRow[] = [];
-    const mcp: PanelSink = { upsert: async (r) => (written.push(r), "mcpid"), readOwnerDecision: async () => "GO" };
-    const logs: string[] = [];
-    const sink = new HybridPanelSink(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)), mcp, (m) => logs.push(m));
-    expect(await sink.upsert(row())).toBe("mcpid");
-    expect(await sink.readOwnerDecision("x")).toBe("GO");
-    expect(written).toHaveLength(1);
-    expect(logs).toHaveLength(2);
+    const seen: PanelRow[] = [];
+    const mcp: PanelSink = { upsert: async (r) => (seen.push(r), "mcpid") };
+    const sink = new HybridPanelSink(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)), mcp, () => undefined);
+    const r = row();
+    r["Poslední krok"] = `Zastaveno: ${TOKEN}`;
+    await sink.upsert(r);
+    expect(JSON.stringify(seen)).not.toContain(TOKEN);
+    expect(JSON.stringify(seen)).toContain("[skryto: citlivý údaj]");
+  });
+
+  it("McpPanelSink.upsert nevloží token do promptu pro claude -p", async () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "fake-claude-"));
+    const sink = path.join(bin, "stdin.txt");
+    fs.writeFileSync(path.join(bin, "claude"), `#!/bin/bash\ncat >> "${sink}"\nprintf '%s\\n' "$@" >> "${sink}"\necho '{}'\n`, { mode: 0o755 });
+    const old = process.env.PATH;
+    process.env.PATH = `${bin}:${old}`;
+    try {
+      readNotionToken({ platform: "darwin", run: () => TOKEN });
+      const r = row();
+      r["Poslední krok"] = `selhalo ${TOKEN}`;
+      await new McpPanelSink(dir).upsert(r).catch(() => undefined);
+    } finally {
+      process.env.PATH = old;
+    }
+    const seen = fs.readFileSync(sink, "utf8");
+    expect(seen).toContain("notion-create-pages");
+    expect(seen).not.toContain(TOKEN);
+    expect(seen).toContain(NOTION_QUERY_TOOLS_DENIED); // SQL/rows nástroje Notionu jsou zakázané
   });
 
   it("Notion: zapsaný řádek obsahuje jen sloupce, které schéma „TARS — Zakázky“ zná", () => {
@@ -337,5 +390,54 @@ describe("secret-scan: token nesmí ven (log ani Notion)", () => {
     expect(f.calls.length).toBe(5);
     for (const c of f.calls) expect(c.body ?? "").not.toContain(TOKEN);
     expect(fs.readFileSync(path.join(dir, "log.jsonl"), "utf8")).not.toContain(TOKEN);
+  });
+});
+
+
+describe("čtení rozhodnutí přes MCP je svázané s požadovaným řádkem", () => {
+  const PAGE = "40c0ae49f507815f9273ccb3de43e8b6";
+  const TOOL = "mcp__claude_ai_Notion__notion-fetch";
+  const doc = (id: string, decision?: string) =>
+    `<page url="https://app.notion.com/p/${id}">\n<properties>\n${JSON.stringify({ Zakázka: "x", ...(decision ? { "Rozhodnutí vlastníka": decision } : {}) })}\n</properties>\n</page>`;
+  const stream = (calls: Array<{ id: string; result: string; name?: string }>) =>
+    calls
+      .flatMap((c, i) => [
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: `t${i}`, name: c.name ?? TOOL, input: { id: c.id } }] } }),
+        JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: `t${i}`, content: [{ type: "text", text: JSON.stringify({ text: c.result }) }] }] } }),
+      ])
+      .join("\n");
+
+  it("správná stránka → hodnota; prázdná → undefined; URL s pomlčkami projde", () => {
+    expect(ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE, "GO A") }]), PAGE)).toBe("GO A");
+    expect(ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE) }]), PAGE)).toBeUndefined();
+    const dashed = "40c0ae49-f507-815f-9273-ccb3de43e8b6";
+    expect(ownerDecisionFromStream(stream([{ id: dashed, result: doc(PAGE, "REJECT") }]), PAGE)).toBe("REJECT");
+  });
+
+  it("jiný řádek, jiný dokument, víc volání nebo žádné volání → chyba, nikdy rozhodnutí", () => {
+    const other = "11111111111111111111111111111111";
+    expect(() => ownerDecisionFromStream(stream([{ id: other, result: doc(other, "GO") }]), PAGE)).toThrow(/another page/);
+    expect(() => ownerDecisionFromStream(stream([{ id: PAGE, result: doc(other, "GO") }]), PAGE)).toThrow(/another page/);
+    expect(() => ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE, "GO") }, { id: other, result: doc(other, "GO") }]), PAGE)).toThrow(/expected 1/);
+    expect(() => ownerDecisionFromStream(stream([]), PAGE)).toThrow(/expected 1/);
+    expect(() => ownerDecisionFromStream(stream([{ id: PAGE, result: doc(PAGE, "GO"), name: "mcp__claude_ai_Notion__notion-search" }]), PAGE)).toThrow(/expected 1/);
+  });
+});
+
+describe("ostatní ochrany tokenu", () => {
+  it("MCP cesta bez tokenu také odmítne obsah s tokenem a podřízené procesy nedědí NOTION_TOKEN", async () => {
+    readNotionToken({ platform: "darwin", run: () => TOKEN });
+    const t = new StubTransport();
+    await expect(new McpNotion(t, dir).createPage("p", "T", `klíč ${TOKEN}`)).rejects.toBeInstanceOf(SecretLeakError);
+    expect(t.prompts).toHaveLength(0);
+    process.env.NOTION_TOKEN = TOKEN;
+    expect(childEnv().NOTION_TOKEN).toBeUndefined();
+  });
+
+  it("state.json i log.jsonl uloží token vymazaný", () => {
+    readNotionToken({ platform: "darwin", run: () => TOKEN });
+    const store = new Store(dir);
+    store.save({ ...order(), failure_reason: `transport: ${TOKEN}` });
+    expect(fs.readFileSync(path.join(dir, "wo-t", "state.json"), "utf8")).not.toContain(TOKEN);
   });
 });
