@@ -144,6 +144,25 @@ function runKey(runId: string): string | undefined {
   }
 }
 
+/**
+ * True when text carries any Konzilium key (64 hex chars the pattern secret-scan cannot recognise). The GPT
+ * process runs in codex's read-only sandbox, which does not forbid reading ~/.tars/konzilium-keys, so its reply
+ * (and the expanded prompt, as a second line of defence) is checked against the real keys before going on.
+ */
+export function containsRunKey(text: string): boolean {
+  let names: string[];
+  try {
+    names = fs.readdirSync(keysDir()).filter((n) => /^[0-9a-f]{8}\.key$/.test(n));
+  } catch {
+    return false;
+  }
+  const hay = text.toLowerCase();
+  return names.some((n) => {
+    const k = runKey(n.slice(0, 8));
+    return !!k && hay.includes(k.toLowerCase());
+  });
+}
+
 function macOf(sc: Omit<Sidecar, "mac">, key: string): string {
   const fields = [sc.family, sc.model, String(sc.verified), sc.role, sc.run_id, sc.sha, sc.prompt_sha ?? ""].join("\n");
   return crypto.createHmac("sha256", key).update(fields).digest("hex");
@@ -1227,9 +1246,13 @@ export async function gpt(
   const expanded = expandFiles(payload(prompt), out, run);
   const sec = scanSecrets(expanded);
   if (!sec.clean) return fail(`secret-scan: vstup pro GPT obsahuje vzor ${sec.kinds.join(", ")} — GPT nevolán, běh zastaven`);
+  if (containsRunKey(expanded)) return fail("secret-scan: vstup pro GPT obsahuje klíč Konzilia — GPT nevolán, běh zastaven");
   const r = await deps.run(expanded, { cwd: kdir(out), outputSchema: SCHEMAS[schemaName] });
   // a failed reply is scanned like a successful one: a secret in it stops the run and is never passed on
-  if (!scanSecrets(`${r.error ?? ""}\n${r.text ?? ""}`).clean) return fail("secret-scan: odpověď GPT obsahuje vzor tajemství — běh zastaven");
+  const reply = `${r.error ?? ""}\n${r.text ?? ""}`;
+  if (!scanSecrets(reply).clean) return fail("secret-scan: odpověď GPT obsahuje vzor tajemství — běh zastaven");
+  // the codex sandbox can read the keys folder: a key in the reply stops the run and is never written or passed on
+  if (containsRunKey(reply)) return fail("secret-scan: odpověď GPT obsahuje klíč Konzilia — běh zastaven");
   if (!r.ok) return fail(r.error ?? "codex selhal", r.limit);
   if (!scanSecrets(r.text).clean) return fail("secret-scan: výstup GPT obsahuje vzor tajemství — běh zastaven");
   // free text (zapracovaný draft): a reply wrapped as one ```markdown block is unwrapped, nothing else changes

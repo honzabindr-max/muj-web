@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ADVOCATE_SCHEMA,
   attest,
+  containsRunKey,
   EXPERT_SCHEMA,
   JUDGE_SCHEMA,
   familyOf,
@@ -762,6 +763,27 @@ describe("kolo 4: nálezy 4. kontroly GPT", () => {
     expect(wf.result.status).toBe("FAILED");
     expect(JSON.stringify(wf.result)).not.toContain(token);
     expect(fs.existsSync(path.join(dir, "decision.json"))).toBe(false);
+  });
+
+  it("nález 1b: klíč běhu, který GPT přečte sám (sandbox read-only čtení nezakazuje), v odpovědi zastaví běh a nezapíše se", async () => {
+    const r = prep(dir, { ...ARGS4, out_dir: dir } as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(true);
+    const key = fs.readFileSync(path.join(process.env.TARS_KONZILIUM_KEYS!, `${r.run!.run_id}.key`), "utf8").trim();
+    const { gpt } = await import("../konzilium-bridge");
+    for (const reply of [
+      { ok: true, text: expert().replace("}", `,"poznamka":"${key.toUpperCase()}"}`), limit: false },
+      { ok: false, text: "", limit: false, error: `cat: ${key}` },
+    ]) {
+      const deps = { run: async () => reply, model: () => "gpt-6.1-sol" };
+      const res = await gpt(dir, "ux-ui", "expert", "ux-ui.json", fnv1a("P"), "P", deps);
+      expect(res).toMatchObject({ ok: false, fatal: true, error: expect.stringMatching(/^secret-scan/) });
+      expect(JSON.stringify(res).toLowerCase()).not.toContain(key);
+      expect(fs.existsSync(path.join(dir, "konzilium", "ux-ui.json"))).toBe(false);
+    }
+    // the key of another run in the same folder is caught too; an ordinary reply passes
+    expect(containsRunKey(`x ${"ab".repeat(32)} y`)).toBe(false);
+    const ok = await gpt(dir, "ux-ui", "expert", "ux-ui.json", fnv1a("P"), "P", { run: async () => ({ ok: true, text: expert(), limit: false }), model: () => "gpt-6.1-sol" });
+    expect(ok).toMatchObject({ ok: true });
   });
 });
 
