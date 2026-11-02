@@ -526,6 +526,18 @@ describe("Notion panel (mocked)", () => {
     expect(errs).toHaveLength(2);
   });
 
+  it("panel-sync rewrites the current row without a transition", async () => {
+    const panel = new MockPanel();
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = await o.tick();
+    const n = panel.rows.length;
+    const before = store.load((r as { order: string }).order);
+    await o.resyncPanel(before.id);
+    expect(panel.rows).toHaveLength(n + 1);
+    expect(panel.rows.at(-1)!.row).toEqual(panel.rows.at(-2)!.row);
+    expect(store.load(before.id).state).toBe(before.state);
+  });
+
   it("row values are deterministic from state", () => {
     const o = transition(blank("CHECKING"), { type: "verdict", verdict: "FIX", issues: ["x"] }, NOW);
     expect(lastStepSentence(o)).toBe("Kontrolor vrátil opravy (kolo 1).");

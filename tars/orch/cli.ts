@@ -93,7 +93,8 @@ async function main() {
   const store = new Store(runsDir);
   switch (cmd) {
     case "tick": {
-      await refreshBrowserStatus();
+      // Rung 3 login check opens Chrome — only when the vizual department is in scope.
+      if (!enabledDepartments.length || enabledDepartments.includes("vizual")) await refreshBrowserStatus();
       const r = await build().tick();
       console.log(JSON.stringify(r));
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;
@@ -125,6 +126,15 @@ async function main() {
       console.log(`${o.id} → ${o.state}`);
       return;
     }
+    case "panel-sync": {
+      const [id] = args;
+      if (!id) throw new Error("usage: panel-sync <order-id>");
+      await build().resyncPanel(id);
+      const last = store.readLog(50).filter((e) => e.order === id && e.role === "transport").at(-1);
+      console.log(`${id} panel: ${last?.result ?? "?"} ${last?.reason ?? ""}`.trim());
+      process.exitCode = last?.kind === "error" ? 1 : 0;
+      return;
+    }
     case "owner": {
       const [id, decision] = args;
       if (!id || (decision !== "GO" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|REJECT");
@@ -135,7 +145,7 @@ async function main() {
       return;
     }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|REJECT");
+      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|REJECT | panel-sync <id>");
       process.exitCode = 1;
   }
 }

@@ -148,6 +148,12 @@ export class Orchestrator {
   }
 
   /** Waits for pending panel writes (end of tick, tests). */
+  /** Rewrites the panel row of one order from its state.json (idempotent, no transition). */
+  resyncPanel(id: string): Promise<void> {
+    this.syncPanel(this.d.store.load(id));
+    return this.flushPanel();
+  }
+
   flushPanel(): Promise<void> {
     return this.panelQueue;
   }
