@@ -1,6 +1,6 @@
 ---
 name: konzilium-prodejni-psycholog
-description: Konzilium TARS – Prodejní psycholog (CRO, behaviorální ekonomie): verdikt PALEC/VÝHRADA/ÚPRAVA k draftu. Spouští ho jen workflow /konzilium.
+description: "Konzilium TARS – Prodejní psycholog (CRO, behaviorální ekonomie): verdikt PALEC/VÝHRADA/ÚPRAVA k draftu. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
 role: prodejni-psycholog

@@ -111,10 +111,22 @@ async function runRole(label, family, agentType, prompt, file, schema, shape) {
   const write = schema === 'text'
     ? `VÝSTUP: celý výsledný dokument zapiš nástrojem Write do souboru ${target}. Jiné soubory nevytvářej ani neměň. Potom vrať {"written": true}.`
     : `VÝSTUP: zapiš nástrojem Write do souboru ${target} jeden čistý JSON objekt (bez markdownu, bez komentářů) přesně v tomto tvaru:\n${shape}\nJiné soubory nevytvářej ani neměň a nic nespouštěj. Potom vrať {"written": true}.`
-  const opts = { label: `${label} · Claude`, phase: currentPhase, model: 'opus', schema: ACK_SCHEMA }
-  if (agentType) opts.agentType = agentType
+  // Claude roles run only as their subagent definitions (tools: Read, Write); a generic subagent would inherit Bash and MCP.
+  if (!agentType) {
+    step(`${label}: chybí definice subagenta, role se nespustí.`)
+    return { ok: false, family: 'claude' }
+  }
+  const opts = { label: `${label} · Claude`, phase: currentPhase, model: 'opus', schema: ACK_SCHEMA, agentType }
   const r = await agent(`${prompt}\n\n${write}`, opts)
   return { ok: Boolean(r && r.written), family: 'claude' }
+}
+
+/** Claude subagent finished → the bridge records provenance (run + content). Without it the output never counts. */
+async function attest(label, files) {
+  if (!files.length) return { ok: true, attested: [] }
+  const r = await bridge(`původ · ${label}`, `attest --out ${sq(OUT)} --files ${files.join(',')}`)
+  if (!r || !r.ok) step(`Záznam původu (${label}) selhal: ${(r && r.error) || 'chyba'} — výstupy se nezapočtou.`)
+  return r
 }
 
 // ───────────── vstupy pro prompty (GPT: obsah vloží most, Claude: přečte nástrojem Read) ─────────────
@@ -196,6 +208,8 @@ const councilRuns = await parallel([
   }),
 ])
 if (councilRuns.some((r) => r && r.limit)) return done('LIMIT', { reason: 'limit předplatného během rady (GPT)' })
+const councilRoles = ['advokat', ...EXPERTS]
+await attest('rada', councilRoles.filter((r, i) => councilRuns[i] && councilRuns[i].ok && councilRuns[i].family === 'claude').map((r) => `${r}.json`))
 const council = await bridge('kontrola rady', `council --out ${sq(OUT)}`)
 if (!council || !council.ok) return done(council && council.status ? council.status : 'FAILED', { reason: (council && council.error) || 'kontrola rady selhala' })
 step(`Rada: čitelné verdikty ${council.readable}/5 z rodin ${council.families.join(' + ')}, advokát ${council.advocate_ok ? 'ok' : 'UNKNOWN'}.`)
@@ -230,7 +244,7 @@ ${inline(fam, 'DRAFT', DRAFT)}
 
 ${inline(fam, 'PRIPOMINKY_KONZILIA', FEEDBACK)}`
 }
-const rev = await runRole('tvůrce', CREATOR, null, creatorPrompt(CREATOR), 'draft-konzilium.md', 'text', '')
+const rev = await runRole('tvůrce', CREATOR, C.tvurce.agent, creatorPrompt(CREATOR), 'draft-konzilium.md', 'text', '')
 if (rev && rev.limit) return done('LIMIT', { reason: 'limit předplatného při zapracování' })
 function checkerPrompt(fam) {
   return `Jsi KONTROLOR oddělení "Copy a kreativa" (jiná rodina modelů než tvůrce). Netvoříš, jen hodnotíš.
@@ -253,10 +267,13 @@ ${STRUCTURED_FORMAT}`
 }
 let revision = { accepted: false, verdict: 'FIX', issues: ['tvůrce nevrátil zapracovaný draft'] }
 if (rev && rev.ok) {
-  const chk = await runRole('kontrola zapracování', OTHER, null, checkerPrompt(OTHER), 'zapracovani-kontrola.json', 'review', 'jeden JSON objekt {"verdict","findings"} podle formátu výše')
+  const chk = await runRole('kontrola zapracování', OTHER, C.kontrolor.agent, checkerPrompt(OTHER), 'zapracovani-kontrola.json', 'review', 'jeden JSON objekt {"verdict","findings"} podle formátu výše')
   if (chk && chk.limit) return done('LIMIT', { reason: 'limit předplatného při kontrole zapracování' })
+  const claudeFiles = [CREATOR === 'claude' && rev.ok ? 'draft-konzilium.md' : null, OTHER === 'claude' && chk && chk.ok ? 'zapracovani-kontrola.json' : null].filter(Boolean)
+  if (claudeFiles.length) await attest('zapracování', claudeFiles)
 }
 const rv = await bridge('verdikt zapracování', `review --out ${sq(OUT)}`)
+if (rv && rv.status === 'FAILED') return done('FAILED', { reason: rv.error || 'kontrola zapracování selhala' })
 if (rv && rv.ok) revision = rv
 step(revision.accepted ? 'Zapracování prošlo kontrolou jiné rodiny (PASS).' : `Zapracování neprošlo (${revision.verdict}): balíček stojí na původním draftu.`)
 
@@ -288,8 +305,10 @@ let judged = null
 for (let attempt = 0; attempt < 2 && !judged; attempt++) {
   const j = await runRole(`soudce (pokus ${attempt + 1})`, OTHER, OTHER === 'claude' ? C.soudce.agent : null, judgePrompt(OTHER, issues), `soudce-a${attempt}.json`, 'judge', JUDGE_SHAPE)
   if (j && j.limit) return done('LIMIT', { reason: 'limit předplatného u soudce' })
+  if (OTHER === 'claude' && j && j.ok) await attest(`soudce ${attempt + 1}`, [`soudce-a${attempt}.json`])
   const jc = await bridge(`kontrola soudce ${attempt + 1}`, `judge-check --out ${sq(OUT)} --attempt ${attempt}`)
   if (jc && jc.status === 'NELZE_OVERIT') return done('NELZE_OVERIT', { reason: (jc.problems || []).join('; ') || 'rodinu soudce nejde ověřit' })
+  if (jc && jc.status === 'FAILED') return done('FAILED', { reason: (jc.problems || []).join('; ') || 'kontrola soudce selhala' })
   if (jc && jc.ok) judged = { attempt }
   else issues = (jc && jc.problems) || ['výstup soudce nejde zkontrolovat']
 }

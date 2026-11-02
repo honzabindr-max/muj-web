@@ -1,6 +1,6 @@
 ---
 name: konzilium-soudce
-description: Konzilium TARS – Soudce: z draftů a verdiktů rady sestaví rozhodovací balíček doslovnými citacemi. Spouští ho jen workflow /konzilium, když je tvůrce GPT.
+description: "Konzilium TARS – Soudce: z draftů a verdiktů rady sestaví rozhodovací balíček doslovnými citacemi. Spouští ho jen workflow /konzilium, když je tvůrce GPT."
 model: opus
 tools: Read, Write
 role: soudce

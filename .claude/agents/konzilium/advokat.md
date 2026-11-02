@@ -1,6 +1,6 @@
 ---
 name: konzilium-advokat
-description: Konzilium TARS – Advokát prvního principu: klade otázky „proč“ k zadání a draftu, nic nerozhoduje. Spouští ho jen workflow /konzilium.
+description: "Konzilium TARS – Advokát prvního principu: klade otázky „proč“ k zadání a draftu, nic nerozhoduje. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
 role: advokat

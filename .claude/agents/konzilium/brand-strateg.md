@@ -1,6 +1,6 @@
 ---
 name: konzilium-brand-strateg
-description: Konzilium TARS – Brand stratég: verdikt PALEC/VÝHRADA/ÚPRAVA k draftu. Spouští ho jen workflow /konzilium.
+description: "Konzilium TARS – Brand stratég: verdikt PALEC/VÝHRADA/ÚPRAVA k draftu. Spouští ho jen workflow /konzilium."
 model: opus
 tools: Read, Write
 role: brand-strateg

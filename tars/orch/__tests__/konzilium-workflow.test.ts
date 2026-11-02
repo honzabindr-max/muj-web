@@ -2,6 +2,7 @@
 // Workflow se tu spouští v sandboxu s falešným agent(): transportní agenti volají skutečný most (main) in-process,
 // Claude role zapisují své soubory, GPT (codex) a Notion jsou podvržené závislosti.
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   ADVOCATE_SCHEMA,
+  attest,
   EXPERT_SCHEMA,
   JUDGE_SCHEMA,
   familyOf,
@@ -17,6 +19,9 @@ import {
   konziliumPanelRow,
   loadCards,
   main,
+  panel,
+  prep,
+  provenFamily,
   quoteProblems,
   type BridgeIO,
   type DecisionPackage,
@@ -139,6 +144,7 @@ interface Scenario {
   out?: Partial<Record<string, string | ((n: number) => string)>>;
   tamperGptPrompt?: boolean;
   panel?: boolean;
+  draft?: string;
 }
 
 let dir: string;
@@ -221,13 +227,15 @@ async function runWorkflow(sc: Scenario = {}) {
       };
       return { line: JSON.stringify(await main(argv.slice(3), io)) };
     }
-    // Claude role: writes its single output file (Write tool)
+    // Claude role: only as a Konzilium subagent definition, then writes its single output file (Write tool)
+    expect(String(opts.agentType)).toMatch(/^konzilium-(advokat|prodejni-psycholog|brand-strateg|eticky-strazce|soudce|tvurce|kontrolor)$/);
     const target = /Write do souboru (\/\S+?\.(?:json|md))(?=[\s.])/.exec(prompt)?.[1];
     if (!target) throw new Error(`neznámé volání agenta: ${prompt.slice(0, 120)}`);
     fs.writeFileSync(target, content(path.basename(target)));
     return { written: true };
   };
   const parallel = async (thunks: Array<() => Promise<unknown>>) => Promise.all(thunks.map((t) => t().catch(() => null)));
+  if (sc.draft !== undefined) fs.writeFileSync(path.join(dir, "draft-v1.md"), sc.draft);
   const args = {
     out_dir: dir,
     draft: "draft-v1.md",
@@ -296,7 +304,7 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
     expect(ux).not.toMatch(/\{\{(FILE|CARD):/);
     // Claude roles run as their subagent definitions on Opus
     const claudeRoles = calls.filter((c) => c.opts.agentType).map((c) => c.opts.agentType);
-    expect(claudeRoles.sort()).toEqual(["konzilium-advokat", "konzilium-brand-strateg", "konzilium-eticky-strazce", "konzilium-prodejni-psycholog", "konzilium-soudce"]);
+    expect(claudeRoles.sort()).toEqual(["konzilium-advokat", "konzilium-brand-strateg", "konzilium-eticky-strazce", "konzilium-kontrolor", "konzilium-prodejni-psycholog", "konzilium-soudce"]);
     expect(calls.filter((c) => c.opts.agentType).every((c) => c.opts.model === "opus")).toBe(true);
     // kontrola zapracování = Claude (other family than the GPT creator), structured verdict format of krok 1
     const checker = calls.find((c) => /Jsi KONTROLOR oddělení/.test(c.prompt))!;
@@ -319,10 +327,19 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
     expect(gptCalls.find((c) => c.file === "soudce-a0.json")!.schema).toBe(JUDGE_SCHEMA);
     expect(gptCalls.find((c) => c.file === "zapracovani-kontrola.json")!.prompt).toContain(STRUCTURED_FORMAT);
     expect(gptCalls.some((c) => c.file === "draft-konzilium.md")).toBe(false); // Claude creator revises itself
+    expect(calls.some((c) => c.opts.agentType === "konzilium-tvurce")).toBe(true);
+    expect(calls.some((c) => c.opts.agentType === "konzilium-kontrolor")).toBe(false);
   });
 
   it("rodina tvůrce chybí nebo nesedí s modelem → NELZE_OVERIT, nic se nespustí ani nezapíše", async () => {
-    for (const sc of [{ creatorFamily: "" }, { creatorFamily: "gemini" }, { creatorFamily: "gpt", creatorModel: "claude -p --model opus" }, { creatorFamily: "gpt", creatorModel: "neznámý model" }]) {
+    for (const sc of [
+      { creatorFamily: "" },
+      { creatorFamily: "gemini" },
+      { creatorFamily: "gpt", creatorModel: "claude -p --model opus" },
+      { creatorFamily: "gpt", creatorModel: "neznámý model" },
+      { creatorFamily: "gpt", creatorModel: "codex-default" },
+      { creatorFamily: "gpt", creatorModel: "codex exec (llama3)" },
+    ]) {
       const { result, rows, gptCalls } = await runWorkflow(sc);
       expect(result.status, JSON.stringify(sc)).toBe("NELZE_OVERIT");
       expect(gptCalls).toHaveLength(0);
@@ -333,6 +350,7 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
 
   it("codex nehlásí model OpenAI → GPT verdikty neověřené, rada bez GPT → NELZE_OVERIT (nikdy PASS)", async () => {
     for (const gptModel of ["codex-default", "llama3.1:70b"]) {
+      fs.rmSync(path.join(dir, "konzilium"), { recursive: true, force: true }); // each run needs a fresh folder
       const { result, rows } = await runWorkflow({ gptModel });
       expect(result.status, gptModel).toBe("NELZE_OVERIT");
       expect(String(result.reason)).toMatch(/obou rodin/);
@@ -389,6 +407,98 @@ describe("workflow /konzilium (DR-029 krok 3)", () => {
     expect(rows).toHaveLength(0);
     expect(fs.existsSync(path.join(dir, "decision.json"))).toBe(true);
   });
+  it("nový běh ve složce s výstupy jiného běhu se nespustí (staré PASS se nikdy nepoužije)", async () => {
+    expect((await runWorkflow()).result.status).toBe("WAITING_OWNER");
+    fs.rmSync(path.join(dir, "decision.json"));
+    const second = await runWorkflow({ out: { "soudce-a0.json": judgeJson("Vymyšlený"), "soudce-a1.json": judgeJson("Vymyšlený") } });
+    expect(second.result.status).toBe("FAILED");
+    expect(String(second.result.reason)).toMatch(/výstupy jiného běhu/);
+    expect(second.gptCalls).toHaveLength(0);
+    expect(fs.existsSync(path.join(dir, "decision.json"))).toBe(false);
+  });
+
+  it("tajemství v draftu zastaví běh v přípravě, nic nejde žádnému modelu", async () => {
+    const { result, calls, gptCalls } = await runWorkflow({ draft: `${DRAFT}\nklíč: sk-ant-${"a".repeat(30)}\n` });
+    expect(result.status).toBe("FAILED");
+    expect(String(result.reason)).toMatch(/secret-scan/);
+    expect(gptCalls).toHaveLength(0);
+    expect(calls.filter((c) => c.opts.agentType)).toHaveLength(0);
+  });
+
+  it("tajemství ve výstupu role Claude zastaví běh, do zpětné vazby se nedostane", async () => {
+    const { result, gptCalls } = await runWorkflow({ out: { "brand-strateg.json": expert().replace("Shrnutí.", `ghp_${"b".repeat(36)}`) } });
+    expect(result.status).toBe("FAILED");
+    expect(String(result.reason)).toMatch(/secret-scan/);
+    expect(fs.existsSync(path.join(dir, "konzilium/zpetna-vazba.md"))).toBe(false);
+    expect(gptCalls.some((c) => c.file === "draft-konzilium.md")).toBe(false);
+  });
+});
+
+describe("konzilium-bridge: původ, vstupy, panel", () => {
+  const ARGS = (over: Record<string, unknown> = {}) => ({ out_dir: dir, draft: "draft-v1.md", creator_family: "gpt", creator_model: "codex exec (gpt-6.1-sol)", brief: BRIEF, ...over });
+  const noIO = { stdin: async () => "", now: () => "2026-11-02T19:00:00.000Z", gptDeps: () => ({ run: async () => ({ ok: false, text: "", limit: false }), model: () => "" }), panelDeps: () => ({ sink: { upsert: async () => "x" } }) } as BridgeIO;
+
+  it("Claude výstup bez záznamu, z jiného běhu nebo se změněným obsahem se nezapočte", () => {
+    const r = prep(dir, ARGS() as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(true);
+    const f = path.join(dir, "konzilium", "brand-strateg.json");
+    fs.writeFileSync(f, expert());
+    expect(provenFamily(f, "claude", r.run!.run_id)).toBeUndefined(); // no record = not proven
+    expect(attest(dir, ["brand-strateg.json"]).attested).toEqual(["brand-strateg.json"]);
+    expect(provenFamily(f, "claude", r.run!.run_id)).toMatchObject({ family: "claude" });
+    expect(provenFamily(f, "claude", "jinybeh")).toBeUndefined();
+    expect(provenFamily(f, "gpt", r.run!.run_id)).toBeUndefined();
+    expect(attest(dir, ["brand-strateg.json"]).ok).toBe(false); // a record is never overwritten
+    fs.writeFileSync(f, expert("PALEC"));
+    expect(provenFamily(f, "claude", r.run!.run_id)).toBeUndefined(); // changed after attest
+    expect(attest(dir, ["../x.json"]).ok).toBe(false);
+  });
+
+  it("--sha a --in: jen 8 hex znaků, jen soubor v konzilium/, mazání až po shodě součtu", async () => {
+    fs.mkdirSync(path.join(dir, "konzilium"), { recursive: true });
+    const victim = path.join(dir, "obet.txt");
+    fs.writeFileSync(victim, "nesmí zmizet");
+    const r1 = await main(["prep", "--out", dir, "--sha", "x/../../obet", "--in", victim], noIO).catch((e: Error) => ({ ok: false, error: e.message }));
+    expect(r1).toMatchObject({ ok: false });
+    expect(fs.existsSync(victim)).toBe(true);
+    const inFile = path.join(dir, "konzilium", ".in-0000beef.txt");
+    fs.writeFileSync(inFile, "jiný obsah");
+    const r2 = await main(["prep", "--out", dir, "--sha", "0000beef", "--in", inFile], noIO).catch((e: Error) => ({ ok: false, error: e.message }));
+    expect(r2).toMatchObject({ ok: false });
+    expect(fs.existsSync(inFile)).toBe(true); // wrong checksum → nothing deleted
+    fs.rmSync(inFile);
+    fs.symlinkSync(victim, inFile);
+    const r3 = await main(["prep", "--out", dir, "--sha", "0000beef", "--in", inFile], noIO).catch((e: Error) => ({ ok: false, error: e.message }));
+    expect(r3).toMatchObject({ ok: false });
+    expect(fs.existsSync(victim)).toBe(true);
+  });
+
+  it("GPT nedostane vstup s tajemstvím a výstup se nikdy nepřepíše", async () => {
+    const r = prep(dir, ARGS({ sources: [{ key: "handoff", path: "sources/handoff.md" }] }) as never, "2026-11-02T19:00:00.000Z");
+    expect(r.ok).toBe(true);
+    let called = 0;
+    const deps = { run: async () => (called++, { ok: true, text: expert(), limit: false }), model: () => "gpt-6.1-sol" };
+    const bad = `Prompt {{FILE:${path.join(dir, "sources", "handoff.md")}}}`;
+    fs.appendFileSync(path.join(dir, "sources", "handoff.md"), `\nAKIA${"A".repeat(16)}\n`);
+    const { gpt } = await import("../konzilium-bridge");
+    expect(await gpt(dir, "ux-ui", "expert", "ux-ui.json", fnv1a(bad), bad, deps)).toMatchObject({ ok: false, error: expect.stringMatching(/secret-scan/) });
+    expect(called).toBe(0);
+    const ok = "Prompt bez tajemství";
+    expect(await gpt(dir, "ux-ui", "expert", "ux-ui.json", fnv1a(ok), ok, deps)).toMatchObject({ ok: true, verified: true });
+    expect(await gpt(dir, "ux-ui", "expert", "ux-ui.json", fnv1a(ok), ok, deps)).toMatchObject({ ok: false, error: expect.stringMatching(/nepřepisuje/) });
+    expect(provenFamily(path.join(dir, "konzilium", "ux-ui.json"), "gpt", r.run!.run_id)).toMatchObject({ family: "gpt" });
+  });
+
+  it("panel: nejasný výsledek prvního zápisu → druhý pokus řádek znovu nezaloží", async () => {
+    const r = prep(dir, ARGS({ panel_title: "TEST" }) as never, "2026-11-02T19:00:00.000Z");
+    fs.writeFileSync(path.join(dir, "decision.json"), JSON.stringify({ author: { model: "m" }, recommended: { label: "A", summary: "S.", blocks: [] }, alternative: null }));
+    let creates = 0;
+    const lost = { sink: { upsert: async () => { creates++; throw new Error("odpověď se ztratila"); } } };
+    await expect(panel(dir, lost)).rejects.toThrow();
+    expect(await panel(dir, { sink: { upsert: async () => (creates++, "row") } })).toMatchObject({ ok: false, status: "FAILED" });
+    expect(creates).toBe(1);
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe("konzilium-bridge", () => {
@@ -406,6 +516,10 @@ describe("konzilium-bridge", () => {
     expect(familyOf("gpt-6.1-sol")).toBe("gpt");
     expect(familyOf("codex exec · claude")).toBeUndefined();
     expect(familyOf("llama")).toBeUndefined();
+    expect(familyOf("codex-default")).toBeUndefined();
+    expect(familyOf("codex exec")).toBeUndefined();
+    expect(familyOf("codex exec (llama3)")).toBeUndefined();
+    expect(familyOf("codex exec (o3)")).toBe("gpt");
     expect(isGptModel("gpt-6.1-sol")).toBe(true);
     expect(isGptModel("codex-default")).toBe(false);
     expect(isGptModel("gpt-5-codex")).toBe(true);
@@ -415,10 +529,31 @@ describe("konzilium-bridge", () => {
   it("cards: 7 roles, rada = mix Claude/GPT, Claude roles are Opus subagents with Read+Write, GPT roles are not subagents, shared section = krok 2", () => {
     const { cards, problems } = loadCards();
     expect(problems).toEqual([]);
-    expect(Object.keys(cards).sort()).toEqual(["advokat", "brand-strateg", "eticky-strazce", "hlas-zakaznika", "prodejni-psycholog", "soudce", "ux-ui"]);
+    expect(Object.keys(cards).sort()).toEqual(["advokat", "brand-strateg", "eticky-strazce", "hlas-zakaznika", "kontrolor", "prodejni-psycholog", "soudce", "tvurce", "ux-ui"]);
     expect(["ux-ui", "hlas-zakaznika"].map((r) => cards[r].family)).toEqual(["gpt", "gpt"]);
     expect(["advokat", "prodejni-psycholog", "brand-strateg", "eticky-strazce"].map((r) => cards[r].family)).toEqual(["claude", "claude", "claude", "claude"]);
     expect(cards.soudce.family).toBe("cross");
+    expect(["tvurce", "kontrolor"].map((r) => cards[r].family)).toEqual(["claude", "claude"]);
+    // frontmatter must be valid YAML (Claude Code skips definitions it cannot parse)
+    const req = createRequire(__filename);
+    let yaml: { load(s: string): unknown } | undefined;
+    try {
+      yaml = req("js-yaml") as { load(s: string): unknown };
+    } catch {
+      yaml = undefined;
+    }
+    for (const c of Object.values(cards)) {
+      const fm = /^---\n([\s\S]*?)\n---\n/.exec(fs.readFileSync(c.file, "utf8"))![1];
+      for (const line of fm.split("\n")) {
+        const v = /^[a-z_]+: (.*)$/.exec(line)?.[1] ?? "";
+        if (!v.startsWith('"')) expect(v, `${c.role}: ${line}`).not.toMatch(/: | #|^[&*!|>'%@`{[]/);
+      }
+      if (yaml) {
+        const doc = yaml.load(fm) as Record<string, unknown>;
+        expect(doc.role, c.role).toBe(c.role);
+        if (c.agent) expect([doc.name, doc.model, doc.tools], c.role).toEqual([c.agent, "opus", "Read, Write"]);
+      }
+    }
     const shared = (f: string) => fs.readFileSync(f, "utf8").split("\n## Společné podklady")[1];
     const ref = shared(path.join(ROOT, ".claude/agents/supervizor.md"));
     for (const c of Object.values(cards)) {

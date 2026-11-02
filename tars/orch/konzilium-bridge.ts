@@ -10,6 +10,7 @@
 //   npx tsx tars/orch/konzilium-bridge.ts gpt --out <dir> --role <r> --schema <s> --file <f> --sha <fnv> --in <soubor>   (soubor: prompt)
 // Vstupní soubor zapisuje transportní agent nástrojem Write do <dir>/konzilium/.in-<fnv>.txt (Bash odmítá heredoc
 // se složenými závorkami a uvozovkami); most ho přijme jen se shodným součtem a po přečtení smaže. Bez --in čte stdin.
+//   npx tsx tars/orch/konzilium-bridge.ts attest --out <dir> --files <a.json,b.md>   (Claude subagent hotový → záznam o původu)
 //   npx tsx tars/orch/konzilium-bridge.ts council --out <dir>
 //   npx tsx tars/orch/konzilium-bridge.ts review --out <dir>
 //   npx tsx tars/orch/konzilium-bridge.ts judge-check --out <dir> --attempt <n>
@@ -37,7 +38,9 @@ export const HONEST_NOTE =
   "Poctivě: nikdo předem neví, který text přinese nejvíc nákupů. Konzilium dává nejlepší odborný odhad z různých rodin modelů, ne důkaz. Konverzi ověří až test se skutečnými návštěvníky (T5 5.3).";
 
 export const EXPERT_ROLES = ["prodejni-psycholog", "ux-ui", "brand-strateg", "hlas-zakaznika", "eticky-strazce"] as const;
-export const ALL_ROLES = ["advokat", ...EXPERT_ROLES, "soudce"] as const;
+/** Claude containers for the creator's incorporation and its check (tools restricted to Read, Write like every role). */
+export const CLAUDE_STEP_ROLES = ["tvurce", "kontrolor"] as const;
+export const ALL_ROLES = ["advokat", ...EXPERT_ROLES, "soudce", ...CLAUDE_STEP_ROLES] as const;
 
 /** Text result of the whole run as seen by the owner / caller. Never "PASS" when families are unverifiable. */
 export type RunStatus = "OK" | "WAITING_OWNER" | "NELZE_OVERIT" | "FAILED" | "LIMIT";
@@ -65,12 +68,15 @@ export function payload(s: string): string {
 
 // ───────────────────────────── families ─────────────────────────────
 
-/** Family of a model description ("claude -p --model opus", "codex exec (gpt-6.1-sol)"); undefined = not provable. */
+/**
+ * Family of a model description ("claude -p --model opus", "codex exec (gpt-6.1-sol)"); undefined = not provable.
+ * Only a model name counts: the CLI name alone ("codex exec", "codex-default", "codex exec (llama3)") proves nothing.
+ */
 export function familyOf(model: string | undefined): ModelFamily | undefined {
   if (!model) return undefined;
   const claude = /\b(claude|opus|sonnet|haiku|fable)\b/i.test(model);
-  const gpt = /\b(gpt[\w.-]*|codex|o[1-9][\w.-]*)\b/i.test(model);
-  if (claude === gpt) return undefined;
+  const gpt = /(^|[\s(])(gpt-[\w.-]+|o[1-9][\w.-]*|codex-mini[\w.-]*)($|[\s),])/i.test(model);
+  if (claude === gpt || (claude && /\bcodex\b/i.test(model))) return undefined;
   return claude ? "claude" : "gpt";
 }
 
@@ -80,12 +86,18 @@ export function isGptModel(model: string | undefined): boolean {
   return Boolean(model && /^(gpt-|o[1-9]|codex-mini)/i.test(model.trim()));
 }
 
+/**
+ * Provenance record `<file>.meta.json`, written only by this bridge: by `gpt` after a codex call, by `attest` after
+ * the workflow confirmed that its Claude subagent finished. Bound to the run (run_id) and to the exact content (sha).
+ */
 export interface Sidecar {
   family: ModelFamily;
   model: string;
   verified: boolean;
   role: string;
-  prompt_sha: string;
+  run_id: string;
+  sha: string;
+  prompt_sha?: string;
 }
 
 function sidecarPath(file: string): string {
@@ -102,18 +114,57 @@ function readSidecar(file: string): Sidecar | undefined {
   }
 }
 
+export const CLAUDE_AGENT_MODEL = "workflow /konzilium (Claude Opus)";
+
 /**
- * Who produced `file`: GPT = sidecar written by `gpt` (codex reported an OpenAI model), Claude = written by a
- * workflow subagent (no sidecar). Returns undefined when the evidence does not match the expected family.
+ * Who produced `file`: a positive record of this run for exactly this content. GPT = codex reported an OpenAI model,
+ * Claude = attested after the workflow's Claude subagent finished. No record, another run, changed content or a
+ * different family → undefined (the caller reports „Nelze ověřit“, never PASS).
  */
-export function provenFamily(file: string, expected: ModelFamily): { family: ModelFamily; model: string } | undefined {
+export function provenFamily(file: string, expected: ModelFamily, runId: string): { family: ModelFamily; model: string } | undefined {
   const sc = readSidecar(file);
-  if (expected === "gpt") {
-    if (!sc || sc.family !== "gpt" || !sc.verified || !isGptModel(sc.model)) return undefined;
-    return { family: "gpt", model: `codex exec (${sc.model})` };
+  if (!sc || sc.family !== expected || sc.run_id !== runId || !fs.existsSync(file)) return undefined;
+  if (sc.sha !== fnv1a(fs.readFileSync(file, "utf8"))) return undefined;
+  if (expected === "gpt") return sc.verified && isGptModel(sc.model) ? { family: "gpt", model: `codex exec (${sc.model})` } : undefined;
+  return sc.model === CLAUDE_AGENT_MODEL ? { family: "claude", model: CLAUDE_AGENT_MODEL } : undefined;
+}
+
+/** Output file names the workflow may produce (no paths). */
+export const OUTPUT_FILE_RE = /^[a-z0-9-]+\.(json|md)$/;
+
+/**
+ * `attest`: the workflow confirms that its Claude subagent finished and wrote these files. Never overwrites a record
+ * (a GPT output cannot be re-labelled as Claude), records the content hash of this moment.
+ */
+export function attest(out: string, files: string[]): { ok: boolean; attested: string[]; missing: string[]; error?: string } {
+  const run = readRun(out);
+  const attested: string[] = [];
+  const missing: string[] = [];
+  for (const f of files) {
+    if (!OUTPUT_FILE_RE.test(f)) return { ok: false, attested, missing, error: `neplatný název souboru ${f}` };
+    const file = kfile(out, f);
+    if (!fs.existsSync(file) || fs.lstatSync(file).isSymbolicLink()) {
+      missing.push(f);
+      continue;
+    }
+    if (fs.existsSync(sidecarPath(file))) return { ok: false, attested, missing, error: `${f} už má záznam o původu` };
+    const sc: Sidecar = { family: "claude", model: CLAUDE_AGENT_MODEL, verified: true, role: f.replace(/\.(json|md)$/, ""), run_id: run.run_id, sha: fnv1a(fs.readFileSync(file, "utf8")) };
+    fs.writeFileSync(sidecarPath(file), JSON.stringify(sc, null, 2) + "\n", { flag: "wx" });
+    attested.push(f);
   }
-  if (sc) return undefined; // a codex sidecar next to a file the Claude role should have written
-  return { family: "claude", model: "workflow /konzilium (Claude Opus)" };
+  return { ok: true, attested, missing };
+}
+
+/** A secret-scan hit stops the run (nothing is passed on to the next role, model or page). */
+export class SecretHit extends Error {}
+
+/** Reads a model output: secret-scan first, then strict JSON (bare or one fenced block). */
+function readOutput(file: string): string | undefined {
+  if (!fs.existsSync(file)) return undefined;
+  const text = fs.readFileSync(file, "utf8");
+  const s = scanSecrets(text);
+  if (!s.clean) throw new SecretHit(`secret-scan: ${path.basename(file)} obsahuje vzor ${s.kinds.join(", ")} — běh zastaven`);
+  return text;
 }
 
 // ───────────────────────────── cards ─────────────────────────────
@@ -122,7 +173,7 @@ export interface KonziliumCard {
   role: string;
   /** Claude subagent name (agentType in the workflow); undefined for GPT roles. */
   agent?: string;
-  konzilium_role: "advocate" | "expert" | "judge";
+  konzilium_role: "advocate" | "expert" | "judge" | "creator" | "checker";
   title: string;
   family: ModelFamily | "cross";
   sources: string[];
@@ -164,9 +215,11 @@ export function loadCards(dir = KONZILIUM_CARDS_DIR): { cards: Record<string, Ko
     }
     const family = fm.family as KonziliumCard["family"];
     const kr = fm.konzilium_role as KonziliumCard["konzilium_role"];
-    const expectKr = role === "advokat" ? "advocate" : role === "soudce" ? "judge" : "expert";
+    const expectKr = { advokat: "advocate", soudce: "judge", tvurce: "creator", kontrolor: "checker" }[role as string] ?? "expert";
     if (kr !== expectKr) problems.push(`${role}: konzilium_role musí být ${expectKr}`);
     if (role === "soudce" ? family !== "cross" : family !== "claude" && family !== "gpt") problems.push(`${role}: neplatná rodina ${family}`);
+    if ((CLAUDE_STEP_ROLES as readonly string[]).includes(role) && family !== "claude") problems.push(`${role}: musí být rodina claude`);
+    if (/^description: [^"]/m.test(FM.exec(text)?.[1] ?? "")) problems.push(`${role}: description musí být v uvozovkách (YAML)`);
     // Claude roles (and the Claude variant of the judge) are subagents; GPT roles must not be loadable as one.
     if (family === "gpt" && fm.name) problems.push(`${role}: role GPT nesmí být Claude subagent (name)`);
     if (family !== "gpt") {
@@ -229,6 +282,8 @@ export interface RunFile {
   archive_parent?: string;
   mission: string;
   now: string;
+  /** Identity of this run: every output record must carry it (stale outputs of another run never count). */
+  run_id: string;
 }
 
 const kdir = (out: string) => path.join(out, KONZILIUM_DIR);
@@ -287,15 +342,22 @@ export function prep(out: string, args: RunArgs, now: string): PrepResult {
   if (!fs.existsSync(creatorCard)) return fail("FAILED", "karta tvůrce neexistuje");
   const { cards, problems } = loadCards();
   if (problems.length) return fail("NELZE_OVERIT", `karty konzilia: ${problems.join(" | ")}`);
+  // A new run never reuses outputs of an earlier one: konzilium/ must be empty (except this run's input file).
   fs.mkdirSync(kdir(out), { recursive: true });
-  const prev = fs.existsSync(kfile(out, "run.json")) ? readRun(out) : undefined;
-  if (prev && prev.creator.family !== family)
-    return fail("FAILED", "out_dir už obsahuje Konzilium s tvůrcem jiné rodiny; použij novou složku");
+  const leftovers = fs.readdirSync(kdir(out)).filter((f) => !/^\.in-[0-9a-f]{8}\.txt$/.test(f));
+  if (leftovers.length) return fail("FAILED", `out_dir/konzilium už obsahuje výstupy jiného běhu (${leftovers.slice(0, 3).join(", ")}…); nový běh = nová složka`);
   const order = args.order?.trim() || path.basename(out);
   const sources = (args.sources ?? []).map((s) => {
     const p = path.resolve(out, s.path);
-    return { key: s.key, path: p, ok: fs.existsSync(p) };
+    return { key: s.key, path: p, ok: fs.existsSync(p) && fs.statSync(p).isFile() };
   });
+  // Inputs go to Claude and GPT: a secret in the draft, brief, card or sources stops the run before any model sees it.
+  const inputs = [draft, creatorCard, ...sources.filter((x) => x.ok).map((x) => x.path)];
+  for (const f of inputs) {
+    const s = scanSecrets(fs.readFileSync(f, "utf8"));
+    if (!s.clean) return fail("FAILED", `secret-scan: vstup ${path.basename(f)} obsahuje vzor ${s.kinds.join(", ")} — běh zastaven`);
+  }
+  if (!scanSecrets(JSON.stringify(args.brief)).clean) return fail("FAILED", "secret-scan: zadání obsahuje vzor tajemství — běh zastaven");
   const run: RunFile = {
     order,
     kind,
@@ -314,6 +376,7 @@ export function prep(out: string, args: RunArgs, now: string): PrepResult {
     archive_parent: args.archive_parent,
     mission: args.mission?.trim() || "MEZI VÁMI",
     now,
+    run_id: fnv1a(`${now}\n${JSON.stringify(args)}`),
   };
   fs.writeFileSync(run.brief_file, briefMarkdown(args.brief) + "\n");
   writeAtomic(kfile(out, "run.json"), JSON.stringify(run, null, 2) + "\n");
@@ -661,8 +724,9 @@ export function konziliumFeedback(experts: ExpertVerdict[], questions: AdvocateQ
 
 // ───────────────────────────── steps ─────────────────────────────
 
-function readFileJson(file: string): unknown {
-  return fs.existsSync(file) ? readJsonText(fs.readFileSync(file, "utf8")) : undefined;
+function readOutputJson(file: string): unknown {
+  const t = readOutput(file);
+  return t === undefined ? undefined : readJsonText(t);
 }
 
 export interface CouncilResult {
@@ -679,47 +743,55 @@ export function council(out: string): CouncilResult {
   const run = readRun(out);
   const { cards, problems } = loadCards();
   if (problems.length) return { ok: false, status: "NELZE_OVERIT", readable: 0, families: [], advocate_ok: false, error: problems.join(" | ") };
-  const advFile = kfile(out, "advokat.json");
-  const advFam = provenFamily(advFile, "claude");
-  const advParsed = advFam ? parseAdvocate(readFileJson(advFile)) : undefined;
-  const questions = finalizeQuestions(advParsed, mandatoryQuestions(run.brief));
-  if (!advParsed)
-    questions.push({
-      question: "UNKNOWN: advokát nevrátil čitelné otázky; v balíčku jsou jen povinné otázky receptu.",
-      why: advFam ? "výstup nečitelný" : "Nelze ověřit původ výstupu advokáta",
-      touches: "none",
-      decision_key: "advokat-unknown",
+  try {
+    const advFile = kfile(out, "advokat.json");
+    const advFam = provenFamily(advFile, "claude", run.run_id);
+    const advRaw = readOutputJson(advFile);
+    const advParsed = advFam ? parseAdvocate(advRaw) : undefined;
+    const questions = finalizeQuestions(advParsed, mandatoryQuestions(run.brief));
+    if (!advParsed)
+      questions.push({
+        question: "UNKNOWN: advokát nevrátil čitelné otázky; v balíčku jsou jen povinné otázky receptu.",
+        why: advFam ? "výstup nečitelný" : "Nelze ověřit původ výstupu advokáta",
+        touches: "none",
+        decision_key: "advokat-unknown",
+      });
+    const experts: ExpertVerdict[] = EXPERT_ROLES.map((role) => {
+      const card = cards[role];
+      const fam = card.family as ModelFamily;
+      const file = kfile(out, `${role}.json`);
+      const raw = readOutputJson(file);
+      const proven = provenFamily(file, fam, run.run_id);
+      const p = proven ? parseExpert(raw) : undefined;
+      return {
+        role,
+        title: card.title,
+        model: proven?.model ?? (fam === "gpt" ? "codex exec (rodina neověřena)" : `${CLAUDE_AGENT_MODEL} (neověřeno)`),
+        family: fam,
+        ok: Boolean(p),
+        verdict: p?.verdict,
+        summary: p?.summary ?? "",
+        changes: p?.changes ?? [],
+        error: p ? undefined : !fs.existsSync(file) ? "výstup chybí" : proven ? "verdikt nečitelný" : "Nelze ověřit rodinu modelu",
+      };
     });
-  const experts: ExpertVerdict[] = EXPERT_ROLES.map((role) => {
-    const card = cards[role];
-    const fam = card.family as ModelFamily;
-    const file = kfile(out, `${role}.json`);
-    const proven = provenFamily(file, fam);
-    const p = proven ? parseExpert(readFileJson(file)) : undefined;
-    return {
-      role,
-      title: card.title,
-      model: proven?.model ?? (fam === "gpt" ? "codex exec (rodina neověřena)" : "workflow /konzilium (Claude Opus)"),
-      family: fam,
-      ok: Boolean(p),
-      verdict: p?.verdict,
-      summary: p?.summary ?? "",
-      changes: p?.changes ?? [],
-      error: p ? undefined : !fs.existsSync(file) ? "výstup chybí" : proven ? "verdikt nečitelný" : "Nelze ověřit rodinu modelu",
-    };
-  });
-  writeAtomic(kfile(out, "rada.json"), JSON.stringify({ experts, advocate: questions, advocate_ok: Boolean(advParsed) }, null, 2) + "\n");
-  fs.writeFileSync(kfile(out, "zpetna-vazba.md"), konziliumFeedback(experts, questions) + "\n");
-  const readable = experts.filter((e) => e.ok);
-  const families = [...new Set(readable.map((e) => e.family))];
-  if (readable.length < 3) return { ok: false, status: "FAILED", readable: readable.length, families, advocate_ok: Boolean(advParsed), error: `čitelné verdikty jen ${readable.length}/5` };
-  if (families.length < 2)
-    return { ok: false, status: "NELZE_OVERIT", readable: readable.length, families, advocate_ok: Boolean(advParsed), error: "rada nemá čitelné verdikty obou rodin (Claude i GPT)" };
-  return { ok: true, status: "OK", readable: readable.length, families, advocate_ok: Boolean(advParsed) };
+    writeAtomic(kfile(out, "rada.json"), JSON.stringify({ experts, advocate: questions, advocate_ok: Boolean(advParsed) }, null, 2) + "\n");
+    fs.writeFileSync(kfile(out, "zpetna-vazba.md"), konziliumFeedback(experts, questions) + "\n");
+    const readable = experts.filter((e) => e.ok);
+    const families = [...new Set(readable.map((e) => e.family))];
+    if (readable.length < 3) return { ok: false, status: "FAILED", readable: readable.length, families, advocate_ok: Boolean(advParsed), error: `čitelné verdikty jen ${readable.length}/5` };
+    if (families.length < 2)
+      return { ok: false, status: "NELZE_OVERIT", readable: readable.length, families, advocate_ok: Boolean(advParsed), error: "rada nemá čitelné verdikty obou rodin (Claude i GPT)" };
+    return { ok: true, status: "OK", readable: readable.length, families, advocate_ok: Boolean(advParsed) };
+  } catch (e) {
+    if (e instanceof SecretHit) return { ok: false, status: "FAILED", readable: 0, families: [], advocate_ok: false, error: e.message };
+    throw e;
+  }
 }
 
 export interface ReviewResult {
   ok: boolean;
+  status: RunStatus;
   accepted: boolean;
   verdict: string;
   issues: string[];
@@ -735,32 +807,39 @@ export function review(out: string): ReviewResult {
   let verdict = "FIX";
   let issues: string[] = [];
   let checkerModel = "—";
-  if (!fs.existsSync(revisedFile) || !fs.readFileSync(revisedFile, "utf8").trim()) {
-    issues = ["tvůrce nevrátil zapracovaný draft"];
-  } else if (!provenFamily(revisedFile, run.creator.family)) {
-    issues = unverifiable(`zapracovaný draft nepochází prokazatelně od tvůrce rodiny ${run.creator.family}`).issues;
-  } else {
-    const det = run.kind === "copy" ? copyDeterministicIssues(fs.readFileSync(revisedFile, "utf8")) : [];
-    const proven = fs.existsSync(checkFile) ? provenFamily(checkFile, checkerFamily) : undefined;
-    if (det.length) issues = det;
-    else if (!fs.existsSync(checkFile)) issues = unverifiable("kontrolor nevrátil verdikt").issues;
-    else if (!proven) issues = unverifiable(`kontrolor není prokazatelně rodiny ${checkerFamily}`).issues;
-    else {
-      checkerModel = proven.model;
-      const raw = fs.readFileSync(checkFile, "utf8").trim();
-      const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(raw);
-      const s = parseStructuredVerdict(fenced ? fenced[1] : raw, REVIEW_VERDICTS);
-      const v = s ?? unverifiable("verdikt kontrolora není validní JSON podle schématu");
-      verdict = v.verdict;
-      issues = v.issues;
+  try {
+    const revised = readOutput(revisedFile);
+    const checkRaw = readOutput(checkFile);
+    if (!revised?.trim()) {
+      issues = ["tvůrce nevrátil zapracovaný draft"];
+    } else if (!provenFamily(revisedFile, run.creator.family, run.run_id)) {
+      issues = unverifiable(`zapracovaný draft nepochází prokazatelně od tvůrce rodiny ${run.creator.family}`).issues;
+    } else {
+      const det = run.kind === "copy" ? copyDeterministicIssues(revised) : [];
+      const proven = checkRaw !== undefined ? provenFamily(checkFile, checkerFamily, run.run_id) : undefined;
+      if (det.length) issues = det;
+      else if (checkRaw === undefined) issues = unverifiable("kontrolor nevrátil verdikt").issues;
+      else if (!proven) issues = unverifiable(`kontrolor není prokazatelně rodiny ${checkerFamily}`).issues;
+      else {
+        checkerModel = proven.model;
+        const raw = checkRaw.trim();
+        const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(raw);
+        const v = parseStructuredVerdict(fenced ? fenced[1] : raw, REVIEW_VERDICTS) ?? unverifiable("verdikt kontrolora není validní JSON podle schématu");
+        verdict = v.verdict;
+        issues = v.issues;
+      }
     }
+  } catch (e) {
+    if (!(e instanceof SecretHit)) throw e;
+    writeAtomic(kfile(out, "zapracovani.json"), JSON.stringify({ accepted: false, verdict: "FIX", issues: [e.message], checker: { family: checkerFamily, model: checkerModel } }, null, 2) + "\n");
+    return { ok: false, status: "FAILED", accepted: false, verdict: "FIX", issues: [e.message], error: e.message };
   }
   const accepted = verdict === "PASS";
   writeAtomic(
     kfile(out, "zapracovani.json"),
     JSON.stringify({ accepted, verdict, issues, checker: { family: checkerFamily, model: checkerModel } }, null, 2) + "\n",
   );
-  return { ok: true, accepted, verdict, issues: issues.slice(0, 8) };
+  return { ok: true, status: "OK", accepted, verdict, issues: issues.slice(0, 8) };
 }
 
 function revisionAccepted(out: string): boolean {
@@ -781,10 +860,17 @@ export function judgeCheck(out: string, attempt: number): JudgeCheck {
   const run = readRun(out);
   const file = kfile(out, `soudce-a${attempt}.json`);
   if (run.judge_family === run.creator.family) return { ok: false, status: "NELZE_OVERIT", problems: ["soudce je stejné rodiny jako tvůrce"] };
+  let raw: unknown;
+  try {
+    raw = readOutputJson(file);
+  } catch (e) {
+    if (e instanceof SecretHit) return { ok: false, status: "FAILED", problems: [e.message] };
+    throw e;
+  }
   if (!fs.existsSync(file)) return { ok: false, status: "FIX", problems: ["soudce nevrátil výstup"] };
-  const proven = provenFamily(file, run.judge_family);
+  const proven = provenFamily(file, run.judge_family, run.run_id);
   if (!proven) return { ok: false, status: "NELZE_OVERIT", problems: [`Nelze ověřit: soudce není prokazatelně rodiny ${run.judge_family}`] };
-  const parsed = parseJudge(readFileJson(file));
+  const parsed = parseJudge(raw);
   if (!parsed) return { ok: false, status: "FIX", problems: ["výstup soudce není čitelný JSON podle formátu"] };
   const original = fs.readFileSync(run.draft, "utf8");
   const revised = revisionAccepted(out) ? fs.readFileSync(kfile(out, "draft-konzilium.md"), "utf8") : original;
@@ -839,7 +925,7 @@ export function assemble(out: string, attempt: number): AssembleResult {
   const run = readRun(out);
   const jc = judgeCheck(out, attempt);
   // A judge that fails the code check is never shown to the owner (PR #82: unknown, not a decision).
-  if (!jc.ok || !jc.judge) return { ok: false, status: "NELZE_OVERIT", error: `soudce neprošel kontrolou kódu: ${jc.problems.slice(0, 5).join("; ")}` };
+  if (!jc.ok || !jc.judge) return { ok: false, status: jc.status === "FAILED" ? "FAILED" : "NELZE_OVERIT", error: `soudce neprošel kontrolou kódu: ${jc.problems.slice(0, 5).join("; ")}` };
   const radaFile = kfile(out, "rada.json");
   if (!fs.existsSync(radaFile)) return { ok: false, status: "FAILED", error: "chybí rada.json (krok council)" };
   const rada = JSON.parse(fs.readFileSync(radaFile, "utf8")) as { experts: ExpertVerdict[]; advocate: AdvocateQuestion[] };
@@ -956,9 +1042,18 @@ export async function panel(out: string, deps: PanelDeps): Promise<{ ok: boolean
     writeAtomic(decFile, JSON.stringify(pkg, null, 2) + "\n");
   }
   if (!link) link = run.draft_url ?? null;
-  // Exactly one create per run: a known row is never created twice (the panel has no SQL/rows lookup).
-  const row = prev.row ?? (await deps.sink.upsert(konziliumPanelRow(run, pkg, link)));
+  if (prev.row) return { ok: true, status: "WAITING_OWNER", row: prev.row, link };
+  // Exactly one create per run (the panel has no SQL/rows lookup): an atomic marker is taken before the request.
+  // If it already exists without a known row, an earlier create may have succeeded → never create again blindly.
+  const marker = kfile(out, "panel.creating");
+  try {
+    fs.writeFileSync(marker, run.run_id, { flag: "wx" });
+  } catch {
+    return { ok: false, status: "FAILED", error: "předchozí zápis řádku do panelu skončil nejasně; zkontroluj panel ručně (řádek se znovu nezakládá)" };
+  }
+  const row = await deps.sink.upsert(konziliumPanelRow(run, pkg, link));
   writeAtomic(kfile(out, "panel.json"), JSON.stringify({ row, link }, null, 2) + "\n");
+  fs.rmSync(marker, { force: true });
   return { ok: true, status: "WAITING_OWNER", row, link };
 }
 
@@ -990,20 +1085,26 @@ export async function gpt(
 ): Promise<{ ok: boolean; family: "gpt"; model?: string; verified?: boolean; limit?: boolean; error?: string }> {
   const fail = (error: string, limit = false) => ({ ok: false, family: "gpt" as const, error, limit });
   if (!(schemaName in SCHEMAS)) return fail(`neznámé schéma ${schemaName}`);
-  if (!/^[a-z0-9-]+(\.json|\.md)$/.test(file)) return fail("neplatný název výstupního souboru");
+  if (!OUTPUT_FILE_RE.test(file)) return fail("neplatný název výstupního souboru");
   if (fnv1a(payload(prompt)) !== sha) return fail("prompt se při přenosu změnil (sha nesedí) — GPT nevolán");
+  const run = readRun(out);
   const target = kfile(out, file);
-  const r = await deps.run(expandFiles(payload(prompt)), { cwd: kdir(out), outputSchema: SCHEMAS[schemaName] });
+  if (fs.existsSync(target) || fs.existsSync(sidecarPath(target))) return fail(`${file} už existuje — výstup se nepřepisuje`);
+  const expanded = expandFiles(payload(prompt));
+  const sec = scanSecrets(expanded);
+  if (!sec.clean) return fail(`secret-scan: vstup pro GPT obsahuje vzor ${sec.kinds.join(", ")} — GPT nevolán, běh zastaven`);
+  const r = await deps.run(expanded, { cwd: kdir(out), outputSchema: SCHEMAS[schemaName] });
   if (!r.ok) return fail(r.error ?? "codex selhal", r.limit);
-  if (!scanSecrets(r.text).clean) return fail("secret-scan: výstup GPT obsahuje vzor tajemství");
+  if (!scanSecrets(r.text).clean) return fail("secret-scan: výstup GPT obsahuje vzor tajemství — běh zastaven");
   // free text (zapracovaný draft): a reply wrapped as one ```markdown block is unwrapped, nothing else changes
   const fenced = schemaName === "text" ? /^```[\w-]*\n([\s\S]*?)\n```$/.exec(r.text.trim()) : null;
   const text = fenced ? `${fenced[1]}\n` : r.text;
   const model = deps.model();
   const verified = isGptModel(model);
-  fs.writeFileSync(target, text.endsWith("\n") ? text : `${text}\n`);
-  const sc: Sidecar = { family: "gpt", model, verified, role, prompt_sha: sha };
-  fs.writeFileSync(sidecarPath(target), JSON.stringify(sc, null, 2) + "\n");
+  const body = text.endsWith("\n") ? text : `${text}\n`;
+  fs.writeFileSync(target, body, { flag: "wx" });
+  const sc: Sidecar = { family: "gpt", model, verified, role, run_id: run.run_id, sha: fnv1a(body), prompt_sha: sha };
+  fs.writeFileSync(sidecarPath(target), JSON.stringify(sc, null, 2) + "\n", { flag: "wx" });
   return { ok: true, family: "gpt", model, verified };
 }
 
@@ -1042,13 +1143,23 @@ const realIO: BridgeIO = {
 };
 
 /** Payload of prep/gpt: the --in file (only <out>/konzilium/.in-<sha>.txt, removed after reading) or stdin. */
+/**
+ * Payload of prep/gpt: the --in file or stdin. The file must be exactly <out>/konzilium/.in-<8 hex>.txt (no symlink,
+ * no path tricks in --sha) and is removed only after its content matched the checksum.
+ */
 async function input(rest: string[], out: string, io: BridgeIO): Promise<string> {
   const f = flag(rest, "in");
+  const sha = flag(rest, "sha") ?? "";
+  if (!/^[0-9a-f]{8}$/.test(sha)) throw new Error("--sha musí být 8 hexadecimálních znaků");
   if (!f) return io.stdin();
-  const expected = path.join(kdir(out), `.in-${flag(rest, "sha") ?? ""}.txt`);
+  const dir = kdir(out);
+  const expected = path.join(dir, `.in-${sha}.txt`);
   if (path.resolve(f) !== expected) throw new Error("--in musí být <out>/konzilium/.in-<sha>.txt");
-  const text = io.readIn ? io.readIn(f) : fs.readFileSync(f, "utf8");
-  fs.rmSync(f, { force: true });
+  if (!fs.existsSync(expected) || fs.lstatSync(expected).isSymbolicLink() || fs.lstatSync(dir).isSymbolicLink() || fs.realpathSync(dir) !== path.join(fs.realpathSync(path.resolve(out)), KONZILIUM_DIR))
+    throw new Error("vstupní soubor chybí nebo je symlink");
+  const text = io.readIn ? io.readIn(expected) : fs.readFileSync(expected, "utf8");
+  if (fnv1a(payload(text)) !== sha) throw new Error("vstup se při přenosu změnil (sha nesedí)");
+  fs.rmSync(expected, { force: true });
   return text;
 }
 
@@ -1090,6 +1201,8 @@ export async function main(argv: string[], io: BridgeIO = realIO): Promise<Recor
     }
     case "gpt":
       return (await gpt(out, flag(rest, "role") ?? "", flag(rest, "schema") ?? "", flag(rest, "file") ?? "", flag(rest, "sha") ?? "", await input(rest, out, io), io.gptDeps())) as unknown as Record<string, unknown>;
+    case "attest":
+      return attest(out, (flag(rest, "files") ?? "").split(",").filter(Boolean)) as unknown as Record<string, unknown>;
     case "council":
       return council(out) as unknown as Record<string, unknown>;
     case "review":
