@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- TARS-ORCH v0 runner: every 30 min one tick (continue / resume after PAUSED / pick next order).
+<!-- Node (npx, codex) comes from fnm, which only .zshrc loads; the job loads it itself.
+     TARS-ORCH v0 runner: every 30 min one tick (continue / resume after PAUSED / pick next order).
      Install: tars/orch/launchd/install.sh  ·  Remove: launchctl bootout gui/$(id -u)/work.good-inventions.tars-orch -->
 <plist version="1.0">
 <dict>
@@ -10,7 +11,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>cd "$HOME/Projects/muj-web" &amp;&amp; npx tsx tars/orch/cli.ts tick</string>
+    <string>eval "$(fnm env --shell zsh)" &amp;&amp; fnm use default &gt;/dev/null &amp;&amp; cd "$HOME/Projects/muj-web" &amp;&amp; npx tsx tars/orch/cli.ts tick</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
