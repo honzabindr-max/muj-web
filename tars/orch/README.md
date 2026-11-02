@@ -70,4 +70,13 @@ cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts browser-check
 ## Control panels
 
 - Notion „TARS — Zakázky“ (https://app.notion.com/p/f12aa6d7804b4af0858db6b46167a3e5): one row per order, rewritten by the script on every transition (`panel.ts`). Values are computed from `state.json`; the MCP transport is verified against the computed payload. A failed write is logged and caught up by the next transition. View „Panel“ groups by Fronta: waiting for owner → running → done.
-- Local live panel: `npm run tars:panel` → http://127.0.0.1:4747 (read-only, refresh 5 s, `panel-server.ts`).
+- Local live panel — **TARS Mission Control**: `npm run tars:panel` → http://127.0.0.1:4747 (read-only, refresh 3 s, `panel-server.ts` + `mission-control/`).
+  - `/` owner view — V2-A final (`mission-control/final.ts`, `final-render.ts`): main area = the order closest to the owner's decision or delivery, other running orders (max 3, §2d) as live rows (`?focus=<id>` switches), flow drawn from the order's recipe (§2c), FIX loops, team shows who works on which order.
+  - `/role/<id>` role page: description, Postup and Dosah from the card (else „Zatím nedefinováno“), current work, history from the log.
+  - Optional data contract read by the dashboard (nothing breaks without it): `state.json` `recipe: { id, version?, steps: [{ role, label?, kind?: create|check|deliver|owner }] }` + `recipe_step`; per-order lock `runs/<id>/.lock` (PID); log entry `card` = role id of the specialist that made the call.
+  - `/p0` the P0 owner view; `/preview/a`, `/preview/b` the V2 compositions.
+  - `/zakazka/<id>` Focus Mode: full chronology, handoffs, verdicts, artifacts.
+  - `/detail` technical panel (the former live panel: raw timeline, verdict reasons, screenshots).
+  - `?demo=1&scenario=aktivita|oprava|cekani|chyba|dokonceni|prazdno|paralel` (or `?demo=paralel`) mock data from `mission-control/fixtures.ts`, always labelled „Ukázková data“.
+  - Truth rules: status comes only from `state.json`, `log.jsonl` and `runs/.lock` (live PID). An active order without a live orchestrator process is shown as „Nelze ověřit“, never as working. Text from data passes the secret scan before it is rendered.
+  - Different runs dir: `TARS_RUNS_DIR=/path/to/runs npm run tars:panel`.
