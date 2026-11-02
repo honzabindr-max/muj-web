@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { AdapterResult, AiChain, TextAdapter } from "./adapters";
-import { RuleViolation, UiUnknownError, type BrowserStep } from "./browser";
+import { DriverLimitError, RuleViolation, UiUnknownError, type BrowserStep } from "./mcp-browser";
 import { stripFrontmatter } from "./cards";
 import type { NotionClient } from "./notion";
 import { scanSecrets } from "./secret-scan";
@@ -471,7 +471,7 @@ export class VizualDepartment implements DepartmentRunner {
       return { ok: true, model: this.creatorModel(), draft_file: name };
     } catch (e) {
       const unknown = e instanceof UiUnknownError || e instanceof RuleViolation;
-      return { ok: false, error: `${unknown ? "UI_UNKNOWN" : "browser"}: ${(e as Error).message}`, model: this.creatorModel(), ui_unknown: unknown };
+      return { ok: false, error: `${unknown ? "UI_UNKNOWN" : "browser"}: ${(e as Error).message}`, model: this.creatorModel(), ui_unknown: unknown, limit: e instanceof DriverLimitError };
     }
   }
 

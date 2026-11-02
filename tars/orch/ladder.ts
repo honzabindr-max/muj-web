@@ -1,6 +1,6 @@
 // Adapter ladder (TARS-ORCH-001 §2b): CLI/API → MCP → browser → desktop.
 // Rungs 3–4 have hard rules; the orchestrator refuses to start a specialist whose adapter
-// preconditions are not met. Rules are data here, enforcement lives in browser.ts / desktop.ts.
+// preconditions are not met. Rules are data here, enforcement lives in mcp-browser.ts (plan) + mcp-gate.ts (every MCP tool call) / desktop.ts.
 import { spawnSync } from "node:child_process";
 
 import type { Card } from "./cards";
@@ -35,6 +35,14 @@ export const FORBIDDEN_ACTION_RE =
 
 export function actionAllowed(targetLabel: string): boolean {
   return !FORBIDDEN_ACTION_RE.test(targetLabel);
+}
+
+/** Bot challenge pages (Cloudflare etc.). TARS never solves or evades them; it stops. */
+export const BOT_CHALLENGE_RE =
+  /(Verify you are human|Potvrďte, že jste člověk|bezpečnostního ověření|security verification|Just a moment|cf-challenge|challenges\.cloudflare\.com)/i;
+
+export function isBotChallenge(pageText: string): boolean {
+  return BOT_CHALLENGE_RE.test(pageText);
 }
 
 /** UI failure policy: 2 attempts, then UNKNOWN + owner card; never blind write retries. */

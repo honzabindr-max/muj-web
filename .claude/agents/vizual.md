@@ -71,7 +71,7 @@ Výběr vizuálního směru nebo kombinace prvků (Build OS P1.3 „Honzík Gate
 
 ## Příčka §2b
 
-Příčka 3 (prohlížeč). Technický protokol v0 (implementační volba orchestrátoru, ne pravidlo ze zdroje), varianta B od 2. 11. 2026: orchestrátor spustí skutečný Chrome s izolovaným profilem TARS-agent a ladicím portem jen na 127.0.0.1, jen po dobu zakázky; Playwright se připojí přes CDP (`tars/orch/cdp.ts`, `browser.ts`). Před akcí fail-closed ověří, že proces na portu je profil TARS-agent a profil nemá Google účet; po zakázce Chrome ukončí. Hlídá TARS-GUARD I8 (`tars/orch/guard/i8.sh`). Bez přihlášeného profilu nebo při ověření proti botům se nespouští (preflight v `orchestrator.ts`, testy v `__tests__/orch.test.ts`).
+Příčka 3 (prohlížeč). Technický protokol v0 (implementační volba orchestrátoru, ne pravidlo ze zdroje), varianta B od 2. 11. 2026: orchestrátor spustí skutečný Chrome s izolovaným profilem TARS-agent a ladicím portem jen na 127.0.0.1, jen po dobu zakázky; Playwright MCP se připojí přes CDP (`tars/orch/mcp-browser.ts`; Chrome i MCP spouští jen `tars/orch/guard/tars-browser.sh`, každé volání nástroje prochází `mcp-gate.ts`). Před akcí fail-closed ověří, že proces na portu je profil TARS-agent a profil nemá Google účet; po zakázce Chrome ukončí. Hlídá TARS-GUARD I8 (`tars/orch/guard/i8.sh`). Bez přihlášeného profilu nebo při ověření proti botům se nespouští (preflight v `orchestrator.ts`, testy v `__tests__/orch.test.ts`).
 
 ## Společné podklady (dříve `_spolecne.md`)
 

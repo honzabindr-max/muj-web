@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
 import { AiChain, ClaudeCli, CodexCli, looksLikeLimit, NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS } from "../adapters";
-import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../browser";
+import { asData, checkStep, isBotChallenge, RuleViolation, UiUnknownError, type BrowserStep } from "../mcp-browser";
 import { CardRegistry, validateCardText } from "../cards";
 import {
   callChecker,
@@ -30,7 +30,6 @@ import { missingSources, SourceLoader } from "../sources";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
 import { spawnSync } from "node:child_process";
 
-import { googleAccountCount, isTarsAgentProcess, profileAlreadyOpen } from "../cdp";
 import { combineI8, parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
 import { extractNotionUrl, McpNotion, NotionRestError } from "../notion";
@@ -977,8 +976,8 @@ describe("canonical sources (§2a bod 2)", () => {
 // ─── variant B + TARS-GUARD I8 ───
 const I8 = path.join(__dirname, "..", "guard", "i8.sh");
 function runI8(psLines: string[], opts: { lock?: boolean; accounts?: number } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "i8-"));
-  const prof = path.join(root, "TARS profile");
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "i8-")));
+  const prof = path.join(root, "TARS profile", "TARS-agent", "chrome-profile");
   fs.mkdirSync(path.join(prof, "Default"), { recursive: true });
   fs.writeFileSync(path.join(prof, "Default", "Preferences"), JSON.stringify({ account_info: Array(opts.accounts ?? 0).fill({ email: "x" }), other: 1 }));
   if (opts.lock) {
@@ -1017,25 +1016,6 @@ describe("TARS-GUARD I8", () => {
     expect(combineI8({ alarm: false, summary: "TARS-GUARD OK (7/7)" }, "I8 ALARM x").alarm).toBe(true);
     expect(combineI8({ alarm: false, summary: "TARS-GUARD OK (7/7)" }, "I8 OK y").alarm).toBe(false);
     expect(combineI8({ alarm: false, summary: "ok" }, "").alarm).toBe(true);
-  });
-});
-
-describe("variant B identity (fail-closed)", () => {
-  const prof = "/Users/x/Library/Application Support/TARS-agent/chrome-profile";
-  it("only the TARS-agent profile on 127.0.0.1 and our port passes", () => {
-    expect(isTarsAgentProcess(`${CH} --user-data-dir=${prof} --remote-debugging-port=9333 --remote-debugging-address=127.0.0.1`, prof, 9333)).toBe(true);
-    expect(isTarsAgentProcess(`${CH} --remote-debugging-port=9333`, prof, 9333)).toBe(false);
-    expect(isTarsAgentProcess(`${CH} --user-data-dir=/Users/x/Library/Application Support/Google/Chrome --remote-debugging-port=9333`, prof, 9333)).toBe(false);
-    expect(isTarsAgentProcess(`${CH} --user-data-dir=${prof} --remote-debugging-port=9333 --remote-debugging-address=0.0.0.0`, prof, 9333)).toBe(false);
-    expect(isTarsAgentProcess(`${CH} --user-data-dir=${prof} --remote-debugging-port=9444`, prof, 9333)).toBe(false);
-  });
-  it("detects an already open TARS-agent window and Google accounts", () => {
-    expect(profileAlreadyOpen(prof, `${CH} --user-data-dir=${prof}\n${CH} --type=renderer --user-data-dir=${prof}`)).toBe(true);
-    expect(profileAlreadyOpen(prof, `${CH}`)).toBe(false);
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), "prof-"));
-    fs.mkdirSync(path.join(d, "Default"));
-    fs.writeFileSync(path.join(d, "Default", "Preferences"), JSON.stringify({ account_info: [{}, {}] }));
-    expect(googleAccountCount(d)).toBe(2);
   });
 });
 

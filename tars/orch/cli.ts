@@ -5,11 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
-import { BrowserAdapter } from "./browser";
 import { CardRegistry } from "./cards";
 import { CopyDepartment, DevDepartment, VizualDepartment, type DepartmentRunner } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
+import { McpBrowser } from "./mcp-browser";
 import { runGuardWithI8 } from "./guard";
 import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE } from "./notion";
 import { readNotionToken } from "./notion-token";
@@ -41,14 +41,17 @@ function browserReady(): PreflightResult {
   return { ok: st.ok, reasons: st.reasons };
 }
 
+/** Rung 3 = Playwright MCP driven by Claude (sonnet), Chrome TARS-agent started and closed by guard/tars-browser.sh. */
+const makeBrowser = () => new McpBrowser(new SecretScanningAdapter(new ClaudeCli("sonnet")), { runsDir });
+
 async function refreshBrowserStatus(): Promise<PreflightResult> {
-  const b = new BrowserAdapter();
+  const b = makeBrowser();
   let r: PreflightResult;
   // The debugging port may only exist while TARS holds the run lock (I8).
   const lockStore = new Store(runsDir);
   if (!lockStore.acquireLock()) return { ok: false, reasons: ["běží jiná zakázka (lock)"] };
   try {
-    r = await b.loginCheck("https://claude.ai/new", runsDir);
+    r = await b.loginCheck("https://claude.ai/new", path.join(runsDir, "browser-check"));
   } catch (e) {
     r = { ok: false, reasons: [`login check selhal: ${(e as Error).message.split("\n")[0]}`] };
   } finally {
@@ -92,11 +95,11 @@ function build(): Orchestrator {
     departments: onlyEnabled<DepartmentRunner>(enabledDepartments, {
       copy: new CopyDepartment(codex, opus, cardText("copy-studio")), // GPT creates, Claude checks
       dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "invariant-sentinel.md")), // Claude chain creates, GPT reviews
-      vizual: new VizualDepartment(new BrowserAdapter(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
+      vizual: new VizualDepartment(makeBrowser(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
     }),
     notion,
     sources: new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache")),
-    guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot),
+    guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot, runsDir),
     draftParentId,
     repoRoot,
     capsulePath: path.join(repoRoot, "missions/mezi-vami/capsule.md"),
@@ -134,6 +137,18 @@ async function main() {
       const r = await checkRestAccess(new NotionRestApi(token));
       console.log(r.detail);
       process.exitCode = r.ok ? 0 : 1;
+      return;
+    }
+    case "browser-smoke": {
+      // Opens about:blank in the TARS-agent profile through Playwright MCP (Chrome and lock handled like a real order).
+      const lock = new Store(runsDir);
+      if (!lock.acquireLock()) throw new Error("běží jiná zakázka (lock)");
+      try {
+        const r = await makeBrowser().run([{ kind: "goto", url: "about:blank" }, { kind: "read" }], path.join(runsDir, "browser-smoke"));
+        console.log(JSON.stringify({ ok: r.finalUrl === "about:blank", finalUrl: r.finalUrl, screenshots: r.screenshots.length, reads: r.reads.length }));
+      } finally {
+        lock.releaseLock();
+      }
       return;
     }
     case "cards": {
