@@ -67,8 +67,10 @@ export function playwrightMcpConfig(script = BROWSER_SCRIPT, runsDir?: string) {
 }
 
 /** Inline --settings of the browser run: no codex gate; Pre (fail-closed) and Post hook on every Playwright tool call. */
-export function browserSettings(gate: string, statePath: string): string {
-  const cmd = (mode: "pre" | "post") => `TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
+export function browserSettings(gate: string, statePath: string, filesDir?: string): string {
+  // filesDir = shots dir relative to the MCP workspace: the only place the model may name a snapshot/screenshot file.
+  const files = filesDir ? `TARS_GATE_FILES="${filesDir}" ` : "";
+  const cmd = (mode: "pre" | "post") => `${files}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
   const matcher = `mcp__${MCP_SERVER}__.*`;
   return JSON.stringify({
     ...JSON.parse(ORCH_CLAUDE_SETTINGS),
@@ -185,7 +187,7 @@ export class McpBrowser {
         allowedTools: BROWSER_ALLOWED_TOOLS,
         noBuiltinTools: true,
         mcpConfig: cfg,
-        settings: browserSettings(this.gate, statePath),
+        settings: browserSettings(this.gate, statePath, path.basename(shotsDir)),
       });
     } catch (e) {
       failure = e;

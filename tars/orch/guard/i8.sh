@@ -46,11 +46,13 @@ while IFS= read -r line; do
     continue
   fi
   case "$line" in *--remote-debugging-port*) ;; *) continue ;; esac
-  case "$line" in
-    *"--user-data-dir=$prof"*)
-      [ -f "$runs/.lock" ] || alarm+=("ladicí port profilu TARS-agent je otevřený mimo běžící zakázku")
-      ;;
-    *) alarm+=("ladicí port Chromu běží mimo profil TARS-agent (automatizace by mířila na jiný profil)") ;;
+  # Profil TARS-agent přesně (hranice hodnoty = mezera nebo konec řádku, ne …/chrome-profile-other) a žádný další
+  # --user-data-dir (Chrome bere poslední výskyt).
+  rest="$line "
+  rest="${rest//"--user-data-dir=$prof "/}"
+  case "$rest" in
+    "$line "|*--user-data-dir*) alarm+=("ladicí port Chromu běží mimo profil TARS-agent (automatizace by mířila na jiný profil)") ;;
+    *) [ -f "$runs/.lock" ] || alarm+=("ladicí port profilu TARS-agent je otevřený mimo běžící zakázku") ;;
   esac
   case "$line" in
     *--remote-debugging-address=127.0.0.1*) ;;

@@ -46,14 +46,26 @@ export interface GateState {
 
 export const emptyState = (): GateState => ({ calls: 0, submits: 0, refs: {} });
 
+/**
+ * A file name the model gives a snapshot/screenshot must stay inside the shots dir of this run (`filesDir`, relative
+ * to the MCP workspace = runs/): the workspace also holds other orders, which the browser run must not overwrite.
+ */
+export function filenameAllowed(filename: unknown, filesDir: string | undefined): boolean {
+  if (filename === undefined) return true;
+  if (typeof filename !== "string" || !filesDir || path.isAbsolute(filename) || filename.includes("\\")) return false;
+  const n = path.posix.normalize(filename);
+  return !n.split("/").includes("..") && n.startsWith(`${filesDir}/`);
+}
+
 /** Returns the reason a tool call is denied, or undefined when it is allowed (pure; the caller counts the call). */
-export function gateMcpCall(toolName: string, input: Record<string, unknown> = {}, state: GateState = emptyState()): string | undefined {
+export function gateMcpCall(toolName: string, input: Record<string, unknown> = {}, state: GateState = emptyState(), filesDir?: string): string | undefined {
   const prefix = `mcp__${MCP_SERVER}__`;
   if (!toolName.startsWith(prefix)) return undefined; // not ours (matcher keeps this from happening)
   const tool = toolName.slice(prefix.length);
   if (state.blocked) return `běh zastaven (${state.blocked.kind === "bot" ? "ověření proti botům" : "stránka mimo povolené hosty"}): ${state.blocked.detail}`;
   if (state.calls >= MAX_TOOL_CALLS) return `překročen limit ${MAX_TOOL_CALLS} volání nástrojů prohlížeče`;
   if (!(BROWSER_MCP_TOOLS as readonly string[]).includes(tool)) return `nástroj ${tool} není pro prohlížeč TARS povolen`;
+  if (!filenameAllowed(input.filename, filesDir)) return `soubor smí být jen ve složce ${filesDir ?? "(neurčena)"}/ tohoto běhu: ${String(input.filename).slice(0, 80)}`;
   if (tool === "browser_navigate") {
     const url = String(input.url ?? "");
     if (url !== "about:blank" && !hostAllowed(url)) return `host není povolen: ${url}`;
@@ -136,10 +148,13 @@ export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
   return refs;
 }
 
-/** The snapshot content of a tool response: inline YAML, or the file the MCP server saved (only inside `cwd`). */
-function snapshotOf(text: string, cwd: string | undefined): string {
+/**
+ * The snapshot content of a tool response: inline YAML, or the file the MCP server saved (only inside `cwd`).
+ * undefined = the response has no snapshot; "" = it has one the gate cannot read (the caller fails closed).
+ */
+function snapshotOf(text: string, cwd: string | undefined): string | undefined {
   const m = /(?:^|\n)### Snapshot\n([\s\S]*)$/.exec(text);
-  if (!m) return "";
+  if (!m) return undefined;
   const body = m[1];
   const fence = /^```yaml\n([\s\S]*?)\n```/.exec(body);
   if (fence) return fence[1];
@@ -159,18 +174,22 @@ function snapshotOf(text: string, cwd: string | undefined): string {
 export function observeResponse(response: unknown, state: GateState, cwd?: string): void {
   const text = textOf(response);
   // The "### Page" section precedes the title and the snapshot; its first URL line is the MCP server's own.
-  const page = /(?:^|\n)### Page\n([\s\S]*?)(?=\n### |$)/.exec(text);
-  const url = page ? /^- Page URL:[ \t]*(\S+)[ \t]*$/m.exec(page[1])?.[1] : undefined;
-  if (url) {
-    state.url = url;
-    if (url !== "about:blank" && !hostAllowed(url)) state.blocked ??= { kind: "offhost", detail: url };
-  }
+  // An "Error"/"Result" section before it can quote page text, so every "### Page" section and every URL line in it
+  // is checked (fail-closed): injected text can only cause a false stop, never hide a real off-allowlist page.
+  const urls = [...text.matchAll(/(?:^|\n)### Page\n([\s\S]*?)(?=\n### |$)/g)].flatMap((p) => [...p[1].matchAll(/^- Page URL:[ \t]*(\S+)[ \t]*$/gm)].map((m) => m[1]));
+  if (urls.length) state.url = urls[0];
+  const off = urls.find((u) => u !== "about:blank" && !hostAllowed(u));
+  if (off) state.blocked ??= { kind: "offhost", detail: off };
   const snap = snapshotOf(text, cwd);
   if (snap) {
     const refs = parseSnapshotRefs(snap);
     if (Object.keys(refs).length) state.refs = refs;
+  } else if (snap === "") {
+    // The page changed but its snapshot cannot be read (file outside cwd, missing, too big): the old refs no longer
+    // describe the page and a challenge in it would stay unseen, so no click/type until a readable snapshot.
+    state.refs = {};
   }
-  if (isBotChallenge(`${text}\n${snap}`)) state.blocked ??= { kind: "bot", detail: "stránka vyžaduje ověření proti botům" };
+  if (isBotChallenge(`${text}\n${snap ?? ""}`)) state.blocked ??= { kind: "bot", detail: "stránka vyžaduje ověření proti botům" };
 }
 
 /** Missing or damaged state → undefined (the caller decides; `pre` treats damage as deny). */
@@ -227,7 +246,7 @@ async function main() {
       state = s;
     } else state = emptyState();
     if (mode === "pre") {
-      const why = gateMcpCall(name, input, state);
+      const why = gateMcpCall(name, input, state, process.env.TARS_GATE_FILES || undefined);
       if (why) {
         process.stderr.write(`TARS: ${why}\n`);
         process.exitCode = 2;
