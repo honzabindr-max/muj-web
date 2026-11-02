@@ -3,13 +3,16 @@
 //  2) otherwise → official Notion MCP connector inside `claude -p` (subscription), with a
 //     tool allowlist of exactly one Notion tool. The model only transports; code validates
 //     the returned URL. No key is ever read from disk, printed or logged by this module.
-import type { TextAdapter } from "./adapters";
+import { runProcess, type TextAdapter } from "./adapters";
+import { scanSecrets } from "./secret-scan";
 
 export interface NotionPage {
   url: string;
 }
 
 export interface NotionClient {
+  /** Raw page content (Notion-flavored markdown) exactly as the Notion tool returned it. */
+  fetchPage?(pageId: string): Promise<string>;
   /** Create a child page with markdown content; returns its URL. */
   createPage(
     parentPageId: string,
@@ -25,11 +28,49 @@ export function extractNotionUrl(text: string): string | undefined {
   return NOTION_URL_RE.exec(text)?.[0];
 }
 
+/** Pulls the raw tool_result of the Notion fetch out of claude's stream-json (no model paraphrase). */
+export function extractToolResult(streamJson: string): string | undefined {
+  let out: string | undefined;
+  for (const line of streamJson.split("\n")) {
+    let e: { type?: string; message?: { content?: unknown } };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (e.type !== "user" || !Array.isArray(e.message?.content)) continue;
+    for (const c of e.message!.content as Array<{ type?: string; content?: unknown }>) {
+      if (c.type !== "tool_result") continue;
+      out = Array.isArray(c.content) ? (c.content as Array<{ text?: string }>).map((x) => x.text ?? "").join("") : String(c.content ?? "");
+    }
+  }
+  if (out === undefined) return undefined;
+  try {
+    return (JSON.parse(out) as { text?: string }).text ?? out;
+  } catch {
+    return out;
+  }
+}
+
 export class McpNotion implements NotionClient {
   constructor(
     private transport: TextAdapter,
     private cwd: string,
   ) {}
+
+  async fetchPage(pageId: string): Promise<string> {
+    const r = await runProcess(
+      "claude",
+      ["-p", "--model", "sonnet", "--allowedTools", "mcp__claude_ai_Notion__notion-fetch", "--output-format", "stream-json", "--verbose"],
+      `Zavolej nástroj mcp__claude_ai_Notion__notion-fetch s id ${pageId} a odpověz jen slovem HOTOVO.`,
+      this.cwd,
+      5 * 60_000,
+    );
+    const text = extractToolResult(r.stdout);
+    if (!text || text.length < 200) throw Object.assign(new Error(`notion fetch ${pageId} failed`), { limit: /limit/i.test(r.stdout + r.stderr) });
+    if (!scanSecrets(text).clean) throw new Error(`notion fetch ${pageId}: secret-scan hit`);
+    return text;
+  }
 
   async createPage(
     parentPageId: string,

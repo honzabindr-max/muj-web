@@ -3,19 +3,26 @@
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
+import type { CardRegistry } from "./cards";
 import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
+import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { scanSecrets } from "./secret-scan";
 import { isActionable, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
-import { BriefError, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "./supervisor";
+import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
+import { parseVerdict } from "./departments";
 import type { Department, LogEntry, Order } from "./types";
 
 export interface OrchestratorDeps {
   store: Store;
   supervisor: TextAdapter;
-  departments: Record<Department, DepartmentRunner>;
+  /** GPT checker of the supervisor's brief (karta supervizor.md, bod 6). Must differ in family. */
+  briefChecker: TextAdapter;
+  departments: Partial<Record<Department, DepartmentRunner>>;
+  cards: CardRegistry;
+  ladder: LadderEnv;
   notion: NotionClient;
   guard: () => GuardResult;
   draftParentId: string;
@@ -29,6 +36,7 @@ export interface OrchestratorDeps {
 
 export type TickResult =
   | { status: "guard_alarm"; summary: string }
+  | { status: "no_supervisor_card"; problems: string[] }
   | { status: "locked" }
   | { status: "paused"; order: string; resume_after: string }
   | { status: "waiting_owner"; order: string }
@@ -54,8 +62,9 @@ export class SecretScanningAdapter implements TextAdapter {
   }
 }
 
-export function assertFamilies(depts: Record<string, DepartmentRunner>): void {
+export function assertFamilies(depts: Partial<Record<string, DepartmentRunner>>): void {
   for (const [k, d] of Object.entries(depts)) {
+    if (!d) continue;
     if (d.creatorFamily === d.checkerFamily) {
       throw new Error(`department ${k}: creator and checker are both ${d.creatorFamily} (tvůrce ≠ kontrolor)`);
     }
@@ -67,6 +76,7 @@ export class Orchestrator {
   private ctx: DeptContext;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
+    if (d.briefChecker.family === d.supervisor.family) throw new Error("brief checker must be another model family than the supervisor");
     this.now = d.now ?? (() => new Date());
     this.ctx = { store: d.store, notion: d.notion, draftParentId: d.draftParentId, repoRoot: d.repoRoot };
   }
@@ -114,7 +124,35 @@ export class Orchestrator {
     return order;
   }
 
+  /**
+   * §2a + §2b gate for a department: creator card valid, card matches the runner
+   * (families, card role), checker of another family, adapter rules of the card's rung met.
+   */
+  preflight(dept: Department): PreflightResult & { maxFix?: number; cardRole?: string } {
+    const runner = this.d.departments[dept];
+    if (!runner) return { ok: false, reasons: [`oddělení ${dept} není v v0 zapojeno`] };
+    const c = this.d.cards.creatorFor(dept);
+    if (!c.ok || !c.card) return { ok: false, reasons: c.problems };
+    const reasons: string[] = [];
+    if (c.card.role !== runner.cardRole) reasons.push(`karta ${c.card.role} ≠ runner ${runner.cardRole}`);
+    if (c.card.family !== runner.creatorFamily) reasons.push(`karta říká tvůrce ${c.card.family}, runner ${runner.creatorFamily}`);
+    if (c.card.checker_family !== runner.checkerFamily) reasons.push(`karta říká kontrolor ${c.card.checker_family}, runner ${runner.checkerFamily}`);
+    if (runner.creatorFamily === runner.checkerFamily) reasons.push("tvůrce ≠ kontrolor porušeno");
+    const ladder = adapterPreflight(c.card, this.d.ladder);
+    reasons.push(...ladder.reasons);
+    return { ok: reasons.length === 0, reasons, maxFix: c.card.max_fix_rounds, cardRole: c.card.role };
+  }
+
+  availability(): DeptAvailability[] {
+    return (["copy", "dev", "vizual"] as const).map((d) => {
+      const p = this.preflight(d);
+      return { department: d, card: p.cardRole ?? "—", available: p.ok, reasons: p.reasons };
+    });
+  }
+
   async tick(): Promise<TickResult> {
+    const sc = this.d.cards.check("supervizor");
+    if (!sc.ok) return { status: "no_supervisor_card", problems: sc.problems };
     const g = this.d.guard();
     this.log({ order: "-", kind: "guard", result: g.alarm ? "ALARM" : "OK", reason: g.summary });
     if (g.alarm) return { status: "guard_alarm", summary: g.summary };
@@ -150,6 +188,13 @@ export class Orchestrator {
   /** Common handling of a model step outcome: limit → PAUSED, error → FAILED. */
   private bad(order: Order, r: StepOutcome, role: LogEntry["role"]): Order | undefined {
     if (r.ok) return undefined;
+    if (r.ui_unknown) {
+      // §2b: UI failure after 2 attempts → UNKNOWN + owner card, never blind retry.
+      void this.d.notion
+        .createPage(this.d.draftParentId, `KARTA UNKNOWN — ${order.brief?.title ?? order.id} (${order.id})`, `## Co\nAdaptér prohlížeče selhal po 2 pokusech.\n\n## Důkaz\n- ${r.error}\n- screenshoty: runs/${order.id}/shots-*\n\n## Rozhodnutí\nZkontroluj UI a zakázku zopakuj nebo zahoď.`)
+        .catch(() => undefined);
+      return this.apply(order, { type: "unknown", reason: `${role}: ${r.error}` }, { role, model: r.model });
+    }
     if (r.limit) {
       const resume = new Date(this.now().getTime() + (this.d.pauseMinutes ?? 60) * 60_000).toISOString();
       return this.apply(order, { type: "limit", resume_after: resume }, { role, model: r.model, reason: r.error });
@@ -167,29 +212,54 @@ export class Orchestrator {
           .listOrders()
           .filter((o) => o.id !== order.id && o.brief)
           .map((o) => `${o.id} [${o.state}] ${o.brief!.title}`);
-        const prompt = buildSupervisorPrompt(capsule, this.d.store.readLog(200), open);
-        let lastErr = "";
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const r = await this.d.supervisor.run(prompt, {
-            cwd: this.d.store.orderDir(order.id),
-            allowedTools: ["mcp__claude_ai_Notion__notion-fetch"],
-          });
-          const out: StepOutcome = { ok: r.ok, limit: r.limit, error: r.error, model: this.d.supervisor.model, duration_ms: r.duration_ms };
-          this.log({ order: order.id, kind: "call", role: "supervisor", model: this.d.supervisor.model, family: this.d.supervisor.family, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
-          if (!r.ok) return this.bad(order, out, "supervisor")!;
+        const avail = this.availability();
+        this.d.store.writeFile(order.id, "availability.json", JSON.stringify(avail, null, 2));
+        let handoff = "";
+        if (this.d.notion.fetchPage) {
           try {
-            const brief = parseBrief(r.text);
-            this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
-            return this.apply({ ...order, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `${brief.department}: ${brief.title}` });
+            handoff = await this.d.notion.fetchPage(HANDOFF_PAGE_ID);
+            this.d.store.writeFile(order.id, "handoff-snapshot.md", handoff);
+          } catch (e) {
+            return this.bad(order, { ok: false, error: `HANDOFF fetch: ${(e as Error).message}`, limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
+          }
+        }
+        const card = this.d.cards.text("supervizor");
+        let lastErr = "";
+        let issues: string[] = [];
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const prompt = buildSupervisorPrompt(capsule, this.d.store.readLog(200), open, avail, card, handoff, issues);
+          const r = await this.d.supervisor.run(prompt, { cwd: this.d.store.orderDir(order.id) });
+          this.log({ order: order.id, kind: "call", role: "supervisor", model: this.d.supervisor.model, family: this.d.supervisor.family, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
+          if (!r.ok) return this.bad(order, { ok: false, limit: r.limit, error: r.error, model: this.d.supervisor.model }, "supervisor")!;
+          let brief;
+          try {
+            brief = parseBrief(r.text);
           } catch (e) {
             if (!(e instanceof BriefError)) throw e;
             lastErr = e.message;
+            continue;
           }
+          // Supervisor card, bod 6: the brief is checked by a model of the other family.
+          const c = await this.d.briefChecker.run(buildBriefCheckPrompt(brief, handoff, card), { cwd: this.d.store.orderDir(order.id) });
+          const v = c.ok ? parseVerdict(c.text) : undefined;
+          this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
+          if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
+          this.d.store.writeFile(order.id, `brief-check-a${attempt}.md`, c.text);
+          if (v?.verdict === "PASS") {
+            this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
+            return this.apply({ ...order, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `${brief.department}: ${brief.title}` });
+          }
+          issues = v?.issues ?? ["verdikt kontrolora nečitelný"];
+          lastErr = `brief check ${v?.verdict ?? "unparseable"}: ${issues.join("; ")}`;
         }
         return this.apply(order, { type: "unknown", reason: `supervisor brief invalid: ${lastErr}` }, { role: "supervisor" });
       }
-      case "PLANNED":
-        return this.apply(order, { type: "start" }, { role: "orchestrator", result: dept!.name });
+      case "PLANNED": {
+        // Never start a specialist without a card or with unmet §2b adapter rules.
+        const p = this.preflight(order.brief!.department);
+        const o = { ...order, max_fix_rounds: p.maxFix, card_role: p.cardRole };
+        return this.apply(o, { type: "start", preflight: { ok: p.ok, reasons: p.reasons } }, { role: "orchestrator", result: p.ok ? dept?.name : "preflight FAIL", reason: p.reasons.join("; ") || undefined });
+      }
       case "DOING": {
         const r = await dept!.create(order, this.ctx);
         this.log({ order: order.id, kind: "call", role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
@@ -209,7 +279,7 @@ export class Orchestrator {
         this.log({ order: order.id, kind: "call", role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
         const b = this.bad(order, r, "creator");
         if (b) return b;
-        return this.apply({ ...order, draft_file: r.draft_file ?? order.draft_file }, { type: "revised" }, { role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms });
+        return this.apply({ ...order, draft_file: r.draft_file ?? order.draft_file, meta: { ...order.meta, ...((r as { meta?: Record<string, string> }).meta ?? {}) } }, { type: "revised" }, { role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms });
       }
       case "DELIVERED": {
         let o = order;
@@ -246,6 +316,13 @@ export class Orchestrator {
       default:
         return order;
     }
+  }
+
+  /** Manual abort by a human — counted as a manual intervention. */
+  abort(id: string, reason: string): Order {
+    const o = this.d.store.load(id);
+    const counted = { ...o, manual_interventions: o.manual_interventions + 1 };
+    return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
   }
 
   /** Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED. */

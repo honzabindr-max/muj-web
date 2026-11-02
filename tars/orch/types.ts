@@ -25,7 +25,7 @@ export const TERMINAL_STATES: readonly OrderState[] = [
 
 export type ModelFamily = "claude" | "gpt";
 
-export type Department = "dev" | "copy";
+export type Department = "dev" | "copy" | "vizual";
 
 export type Verdict = "PASS" | "FIX" | "BLOCK";
 
@@ -58,8 +58,12 @@ export interface Order {
   created_at: string;
   updated_at: string;
   brief?: OrderBrief;
-  /** Number of FIXING rounds already used (max MAX_FIX_ROUNDS). */
+  /** Number of FIXING rounds already used. */
   fix_rounds: number;
+  /** Max FIXING rounds from the creator card (≤ MAX_FIX_ROUNDS); default MAX_FIX_ROUNDS. */
+  max_fix_rounds?: number;
+  /** Creator specialist card role (TARS-ORCH-001 §2a). */
+  card_role?: string;
   /** State to return to after PAUSED. */
   paused_from?: OrderState;
   resume_after?: string;

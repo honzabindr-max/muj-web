@@ -8,7 +8,7 @@ export const MAX_FIX_ROUNDS = 3;
 
 export type OrderEvent =
   | { type: "planned" }
-  | { type: "start" }
+  | { type: "start"; preflight: { ok: boolean; reasons: string[] } }
   | { type: "created" }
   | { type: "verdict"; verdict: "PASS" | "FIX" | "BLOCK"; issues?: string[] }
   | { type: "revised" }
@@ -37,7 +37,8 @@ function target(order: Order, ev: OrderEvent): OrderState {
       if (s === "NEW") return "PLANNED";
       break;
     case "start":
-      if (s === "PLANNED") return "DOING";
+      // §2a/§2b: no card or unmet adapter rules → never DOING.
+      if (s === "PLANNED") return ev.preflight.ok ? "DOING" : "UNKNOWN";
       break;
     case "created":
       if (s === "DOING") return "CHECKING";
@@ -46,7 +47,7 @@ function target(order: Order, ev: OrderEvent): OrderState {
       if (s === "CHECKING") {
         if (ev.verdict === "PASS") return "DELIVERED";
         if (ev.verdict === "BLOCK") return "FAILED";
-        return order.fix_rounds >= MAX_FIX_ROUNDS ? "FAILED" : "FIXING";
+        return order.fix_rounds >= maxFix(order) ? "FAILED" : "FIXING";
       }
       break;
     case "revised":
@@ -95,7 +96,7 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
         next.failure_reason =
           ev.verdict === "BLOCK"
             ? `checker BLOCK: ${(ev.issues ?? []).join("; ")}`.slice(0, 500)
-            : `fix limit ${MAX_FIX_ROUNDS} exhausted`;
+            : `fix limit ${maxFix(order)} exhausted`;
       break;
     case "delivered":
       next.owner_needed = ev.owner_needed;
@@ -108,6 +109,9 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       next.paused_from = undefined;
       next.resume_after = undefined;
       break;
+    case "start":
+      if (!ev.preflight.ok) next.failure_reason = `preflight: ${ev.preflight.reasons.join("; ")}`.slice(0, 500);
+      break;
     case "owner":
       if (ev.decision === "REJECT") next.failure_reason = "owner REJECT";
       break;
@@ -117,6 +121,10 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       break;
   }
   return next;
+}
+
+export function maxFix(order: Order): number {
+  return Math.min(order.max_fix_rounds ?? MAX_FIX_ROUNDS, MAX_FIX_ROUNDS);
 }
 
 export function isTerminal(s: OrderState): boolean {
