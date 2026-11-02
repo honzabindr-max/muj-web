@@ -6,8 +6,9 @@
 #   I3 token nemá Administration (ochrana větve main vrací 403)
 #   I4 ruleset na main je aktivní (deletion, non_fast_forward, pull_request, required_status_checks)
 #   I5 SSH klíč na tomto stroji se ke GitHubu nepřihlásí
-#   I6 na disku nejsou .env.migrate* starší než 12 h (ty smaže; podle write-migrate-env.sh žijí jen po dobu session)
-# Jediná zápisová akce je smazání starých .env.migrate*. Obsah .env ani tokenů se nikdy nečte.
+#   I6 na disku nejsou .env.migrate* ani .env.verify starší než 12 h (smaže je; vznikají skripty write-*-env.sh jen na dobu práce)
+#   I7 Vercel CLI je odhlášené (jinak by agent stáhl produkční proměnné přes vercel env pull)
+# Zápisové akce: smazání starých .env.migrate*/.env.verify a chmod 600 na .env.local. Obsah .env ani tokenů se nikdy nečte.
 # Výstup: JSON hookSpecificOutput.additionalContext. Log bez tajemství: /tmp/tars-guard.log
 # Hook vždy končí exit 0 (nikdy neblokuje start session); porušení hlásí jako ALARM do kontextu.
 
@@ -72,19 +73,33 @@ case "$s" in
   *) warn+=("I5 SSH ke GitHubu UNKNOWN (offline?)") ;;
 esac
 
-# I6 staré .env.migrate* (jen názvy, obsah se nečte)
-stale=$(find "$root" -maxdepth 1 -name '.env.migrate*' -type f -mmin +720 2>/dev/null)
+# I6 dočasné soubory s DB hesly (.env.migrate*, .env.verify) žijí max 12 h (jen názvy, obsah se nečte)
+pattern=( -name '.env.migrate*' -o -name '.env.verify' )
+stale=$(find "$root" -maxdepth 1 -type f \( "${pattern[@]}" \) -mmin +720 2>/dev/null)
 if [ -n "$stale" ]; then
   names=$(printf '%s\n' "$stale" | xargs -n1 basename | tr '\n' ' ')
-  find "$root" -maxdepth 1 -name '.env.migrate*' -type f -mmin +720 -delete 2>/dev/null
-  warn+=("I6 smazány staré soubory s hesly migrátoru (>12 h): $names")
+  find "$root" -maxdepth 1 -type f \( "${pattern[@]}" \) -mmin +720 -delete 2>/dev/null
+  warn+=("I6 smazány staré soubory s DB hesly (>12 h): $names")
 else
-  ok+=("I6 žádné staré .env.migrate*")
+  ok+=("I6 žádné staré .env.migrate*/.env.verify")
 fi
-fresh=$(find "$root" -maxdepth 1 -name '.env.migrate*' -type f 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
-[ -n "$fresh" ] && warn+=("I6 na disku jsou čerstvé $fresh– po dokončení migrace je smaž")
-known=""
-for f in .env.local .env.verify; do [ -f "$root/$f" ] && known="$known $f"; done
+fresh=$(find "$root" -maxdepth 1 -type f \( "${pattern[@]}" \) 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
+[ -n "$fresh" ] && warn+=("I6 na disku jsou čerstvé ${fresh}– do 12 h je hlídač smaže")
+
+# I7 Vercel CLI nesmí být přihlášené (jinak agent stáhne produkční env přes vercel env pull)
+if command -v vercel >/dev/null 2>&1; then
+  v=$(cd /tmp && vercel whoami 2>&1)
+  case "$v" in
+    *"Logged out"*|*"not logged in"*|*"No existing credentials"*) ok+=("I7 Vercel CLI odhlášené") ;;
+    *"Error"*|*"fetch failed"*|*"ENOTFOUND"*) warn+=("I7 Vercel CLI UNKNOWN (offline?)") ;;
+    *) alarm+=("I7 Vercel CLI je přihlášené – agent může stáhnout produkční proměnné (vercel env pull). Odhlas: vercel logout") ;;
+  esac
+else
+  ok+=("I7 Vercel CLI není nainstalované")
+fi
+
+# .env.local = vývojové prostředí agenta (DR-022, přijaté riziko); jen oprávnění 600
+[ -f "$root/.env.local" ] && chmod 600 "$root/.env.local" 2>/dev/null
 
 # Výstup
 {
@@ -93,10 +108,9 @@ for f in .env.local .env.verify; do [ -f "$root/$f" ] && known="$known $f"; done
     for a in "${alarm[@]}"; do echo "- $a"; done
     echo "POKYN: Než uděláš cokoli jiného, nahlas tento ALARM vlastníkovi. Do vyřešení nepracuj s main, secrets, workflowy, nasazením ani produkční DB."
   else
-    printf 'TARS-GUARD OK (%s/6):' "${#ok[@]}"; for o in "${ok[@]}"; do printf ' %s;' "$o"; done; echo
+    printf 'TARS-GUARD OK (%s/7):' "${#ok[@]}"; for o in "${ok[@]}"; do printf ' %s;' "$o"; done; echo
   fi
   for w in "${warn[@]}"; do echo "TARS-GUARD upozornění: $w"; done
-  [ -n "$known" ] && echo "TARS-GUARD známé riziko (audit c):$known jsou na disku a čitelné přes shell – obsah nečti."
 } > /tmp/tars-guard.out.$$
 status=$([ ${#alarm[@]} -gt 0 ] && echo ALARM || echo OK)
 echo "$(date -Iseconds 2>/dev/null || date) $status root=$root alarm=${#alarm[@]} warn=${#warn[@]}" >> /tmp/tars-guard.log 2>/dev/null
