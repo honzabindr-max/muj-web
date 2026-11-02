@@ -284,7 +284,11 @@ function headlineFor(o: Order, steps: Step[], calls: CallInfo[], verified: boole
     return { ...base, tone: "check", title: `${name} ${o.fix_rounds ? "znovu " : ""}kontroluje výstup`, subtitle: `Ověřuje výstup předchozího kroku receptu. ${then}`.trim() };
   if (o.state === "FIXING")
     return { ...base, tone: "fix", title: `${name} ${v?.fix ?? "upravuje výstup po kontrole"}`, subtitle: `Zapracovává připomínky z ${o.fix_rounds}. kola. Následně proběhne opakovaná kontrola.` };
-  return { ...base, tone: "live", title: `${name} ${v?.work ?? "pracuje na svém kroku"}`, subtitle: `Krok ${steps.indexOf(cur) - 1} z ${steps.filter((s, i) => i >= 2 && s.kind !== "deliver" && s.kind !== "owner").length} receptu ${safe(recipeOf(o)!.id, 30)}. ${then}`.trim() };
+  // position and total both count the recipe's own steps (a delivery step such as „merge“ included)
+  const r = recipeOf(o)!;
+  const pos = /^r(\d+)$/.exec(cur.id);
+  const where = pos ? `Krok ${Number(pos[1]) + 1} z ${r.steps.length} receptu ${safe(r.id, 30)}.` : `Recept ${safe(r.id, 30)}.`;
+  return { ...base, tone: "live", title: `${name} ${v?.work ?? "pracuje na svém kroku"}`, subtitle: `${where} ${then}`.trim() };
 }
 
 function liveOrder(input: McInput, o: Order, calls: CallInfo[], cards: Record<string, CardDoc>, view: McView): LiveOrder {

@@ -336,3 +336,49 @@ describe("review #83/2: a dev run in its „merge“ (deliver) step", () => {
     srv.close();
   });
 });
+
+// ---- third GPT review of PR #83 ----
+
+describe("review #83/3: /p0 and / judge the system status the same way", () => {
+  it("finished main mission + unproven dev run → „Nelze ověřit“ on /p0 too", () => {
+    const i = withBackground(scenario("dokonceni", NOW), [dev("dev-run3", "DOING")], {});
+    const v = buildView(i);
+    expect(v.status).toBe("unknown");
+    expect(v.statusLabel).toBe("Nelze ověřit");
+    expect(renderMainFragment(v)).toMatch(/data-sys[^>]*>[\s\S]*?Nelze ověřit/);
+    expect(buildFinal(i).status).toBe("unknown");
+  });
+
+  it("every combination of main and background gives the same status on / and /p0", () => {
+    const mains: Array<[string, McInput]> = [
+      ["aktivita živá", scenario("aktivita", NOW)],
+      ["aktivita mrtvá", { ...scenario("aktivita", NOW), lock: { present: true, alive: false } }],
+      ["dokončeno", scenario("dokonceni", NOW)],
+      ["čekání", scenario("cekani", NOW)],
+      ["prázdno", scenario("prazdno", NOW)],
+    ];
+    const bgs: Array<[string, Order[], Record<string, boolean>]> = [
+      ["nic", [], {}],
+      ["živý", [dev("dev-a", "DOING")], { "dev-a": true }],
+      ["neověřený", [dev("dev-a", "DOING")], {}],
+      ["hotový", [dev("dev-a", "DONE")], {}],
+    ];
+    for (const [mn, m] of mains)
+      for (const [bn, orders, locks] of bgs) {
+        const i = withBackground(m, orders, locks);
+        expect(`${mn}/${bn}: ${buildView(i).status}`).toBe(`${mn}/${bn}: ${buildFinal(i).status}`);
+      }
+  });
+});
+
+describe("review #83/3: step count matches the position", () => {
+  const at = (step: number) => {
+    const o = dev("dev-run3", "DOING");
+    (o as unknown as { recipe_step: number }).recipe_step = step;
+    return buildFinal(withBackground(scenario("aktivita", NOW), [o], { "dev-run3": true }), "dev-run3").focus!.headline.subtitle;
+  };
+  it("merge (deliver) is step 4 of 4, Claude Code step 2 of 4", () => {
+    expect(at(3)).toMatch(/^Krok 4 z 4 receptu fable-claude-gpt-merge\./);
+    expect(at(1)).toMatch(/^Krok 2 z 4 receptu/);
+  });
+});

@@ -665,6 +665,8 @@ export function buildView(input: McInput): McView {
   const team = membersFor(input, calls, current, currentView);
   const guardLast = input.log.filter((e) => e.kind === "guard").at(-1);
   const unreadable = input.unreadable?.length ?? 0;
+  const mainActive = Boolean(current && ACTIVE_STATES.includes(current.state) && current.state !== "PAUSED");
+  const activeAnywhere = orders.some((o) => ACTIVE_STATES.includes(o.state) && o.state !== "PAUSED");
 
   // status (zadání §3A: pracuje, čeká, pozastaveno, problém, nedostupné, neznámé)
   let status: SysStatus;
@@ -678,13 +680,17 @@ export function buildView(input: McInput): McView {
   } else if (unreadable) {
     status = "unknown";
     statusSentence = unreadableSentence(unreadable);
-  } else if (current && ACTIVE_STATES.includes(current.state) && current.state !== "PAUSED") {
-    const alive = lockFor(input, current.id).alive;
-    status = alive ? "working" : "unknown";
-    statusSentence = alive ? "Tým pracuje na zakázce." : "Zakázka je podle záznamu rozpracovaná, ale orchestrátor neběží.";
-  } else if (liveOrders) {
+  } else if (mainActive && lockFor(input, current!.id).alive) {
     status = "working";
-    statusSentence = `Na pozadí běží práce (${liveOrders}×). Hlavní mise teď nepracuje.`;
+    statusSentence = "Tým pracuje na zakázce.";
+  } else if (liveOrders) {
+    // same rule as the main page: proven work anywhere → working
+    status = "working";
+    statusSentence = mainActive ? `Práce běží (${liveOrders}×), ale rozpracovanou zakázku hlavní mise nelze ověřit.` : `Na pozadí běží práce (${liveOrders}×). Hlavní mise teď nepracuje.`;
+  } else if (activeAnywhere) {
+    // …and active but unproven anywhere (main or background) → cannot be verified
+    status = "unknown";
+    statusSentence = mainActive ? "Zakázka je podle záznamu rozpracovaná, ale orchestrátor neběží." : "Na pozadí je podle záznamu rozpracovaná zakázka, ale její běh nelze ověřit.";
   } else if (current?.state === "PAUSED") {
     status = "paused";
     statusSentence = "Práce je pozastavená kvůli limitu předplatného.";
