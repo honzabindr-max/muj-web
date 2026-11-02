@@ -158,9 +158,13 @@ export class CardRegistry {
   }
 
   /** Raw card text for prompts (frontmatter stripped). */
+  /** Card body plus `_spolecne.md` when the card refers to it (shared sources and bans, „platí celé“). */
   text(role: string): string {
-    return fs
+    const body = fs
       .readFileSync(path.join(this.dir, `${role}.md`), "utf8")
       .replace(/^---\n[\s\S]*?\n---\n/, "");
+    const shared = path.join(this.dir, "_spolecne.md");
+    if (!body.includes("_spolecne.md") || !fs.existsSync(shared)) return body;
+    return `${body}\n\n<<<_spolecne.md\n${fs.readFileSync(shared, "utf8")}\n_spolecne.md>>>\n`;
   }
 }
