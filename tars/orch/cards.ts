@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { parseSourceKeys, SOURCE_REGISTRY } from "./sources";
 import type { Department, ModelFamily } from "./types";
 
 export const REQUIRED_SECTIONS = [
@@ -29,6 +30,8 @@ export interface Card {
   rung: Rung;
   checker_family: ModelFamily | "none";
   max_fix_rounds: number;
+  /** Required canonical sources (keys of SOURCE_REGISTRY), §2a bod 2. */
+  sources: string[];
   file: string;
 }
 
@@ -96,6 +99,9 @@ export function validateCardText(text: string, file: string): CardCheck {
     problems.push("max_fix_rounds musí být 0–3");
   if (!fm.role || !fm.title || !fm.model || !fm.adapter)
     problems.push("chybí role/title/model/adapter");
+  const sources = parseSourceKeys(fm.sources);
+  for (const k of sources) if (!SOURCE_REGISTRY[k]) problems.push(`neznámý zdroj "${k}"`);
+  if (kind !== "checker" && !sources.includes("handoff")) problems.push("povinné zdroje musí obsahovat handoff");
   if (problems.length) return { ok: false, problems };
   return {
     ok: true,
@@ -111,6 +117,7 @@ export function validateCardText(text: string, file: string): CardCheck {
       rung: rung as Rung,
       checker_family: checkerFamily!,
       max_fix_rounds: maxFix,
+      sources,
       file,
     },
   };

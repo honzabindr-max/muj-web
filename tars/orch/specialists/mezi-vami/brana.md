@@ -8,6 +8,7 @@ adapter: codex
 rung: 1
 checker: claude -p --model sonnet — kontrola formy a doložení verdiktu
 checker_family: claude
+sources: buildos, funnel, ui_build_brief
 max_fix_rounds: 1
 ---
 
@@ -22,8 +23,12 @@ Nezávislá brána: adversarial review, contract drift, privacy/security/data in
 ## 2. Kanonické vstupy
 
 - Gate Packet nebo výstup zakázky + zadání (Build OS §17 formát Gate Packetu).
+- `buildos` — P1.6 rozsah red-teamu (funnel fidelity, clarity, trust, conversion friction, mobile usability, privacy UX, unsupported/error states, promise mismatch, mock assumptions), §17, A4.
+- `funnel` — zamčená architektura obrazovek (měřítko funnel fidelity).
+- `ui_build_brief` — inventář obrazovek a stavů.
 - Zamčené kontrakty z `_spolecne.md`.
-- Pro UI/Product red-team rozsah Build OS P1.6: funnel fidelity, clarity, trust, conversion friction, mobile usability, privacy UX, unsupported/error states, promise mismatch, mock assumptions.
+
+Povinné zdroje (frontmatter `sources`, klíče registru `tars/orch/sources.ts`) načítá orchestrátor z Notionu beze změny (surový výstup nástroje, ne parafráze) a vkládá je do promptu. Zdroj, který nejde načíst, je v promptu označen `UNKNOWN (důvod)`; nikdy se nepíše „specialista ho nemá“. Zadání supervizora musí všechny povinné zdroje uvést v poli `sources`, jinak kontrola zadání vrací FIX.
 
 ## 3. Zamčené kontrakty a zákazy
 

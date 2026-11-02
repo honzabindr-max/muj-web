@@ -9,6 +9,7 @@ import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
+import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
 import { isActionable, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
@@ -31,6 +32,8 @@ export interface OrchestratorDeps {
   capsulePath: string;
   /** Notion control panel (TARS — Zakázky). Optional; failures never stop an order. */
   panel?: { sink: PanelSink; index: PanelIndex };
+  /** Canonical source loader (karta §2a bod 2). Without it, sources are UNKNOWN. */
+  sources?: SourceLoader;
   mission?: string;
   now?: () => Date;
   pauseMinutes?: number;
@@ -129,6 +132,19 @@ export class Orchestrator {
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
+  }
+
+  private async loadSources(keys: string[]): Promise<LoadedSource[]> {
+    if (this.d.sources) return this.d.sources.loadAll(keys);
+    return keys.map((key) => ({ key, title: key, ok: false, reason: "zavaděč zdrojů není nakonfigurován" }));
+  }
+
+  /** Writes the creator card's sources to runs/<id>/sources/ (+ status) for the departments. */
+  private async stageSources(o: Order): Promise<void> {
+    const keys = this.d.cards.creatorFor(o.brief!.department).card?.sources ?? [];
+    const loaded = await this.loadSources(keys);
+    for (const s of loaded) if (s.ok) this.d.store.writeFile(o.id, `sources/${s.key}.md`, s.text!);
+    this.d.store.writeFile(o.id, "sources.json", JSON.stringify(loaded.map(({ key, title, ok, reason }) => ({ key, title, ok, reason })), null, 2));
   }
 
   /** Waits for pending panel writes (end of tick, tests). */
@@ -257,10 +273,18 @@ export class Orchestrator {
           }
         }
         const card = this.d.cards.text("supervizor");
+        // §2a bod 2: supervisor reads its own sources + required sources of every available department.
+        const requiredByDept: Record<string, string[]> = {};
+        for (const a of avail.filter((x) => x.available)) requiredByDept[a.department] = this.d.cards.creatorFor(a.department as Department).card?.sources ?? [];
+        const supKeys = this.d.cards.check("supervizor").card?.sources ?? [];
+        const allKeys = [...new Set([...supKeys, ...Object.values(requiredByDept).flat()])].filter((k) => k !== "handoff" && k !== "capsule");
+        const loaded: LoadedSource[] = await this.loadSources(allKeys);
+        this.d.store.writeFile(order.id, "sources-status.json", JSON.stringify(loaded.map(({ key, ok, reason }) => ({ key, ok, reason })), null, 2));
+        const supSources = sourcesBlock(loaded);
         let lastErr = "";
         let issues: string[] = [];
         for (let attempt = 0; attempt < 2; attempt++) {
-          const prompt = buildSupervisorPrompt(capsule, this.d.store.readLog(200), open, avail, card, handoff, issues);
+          const prompt = buildSupervisorPrompt(capsule, this.d.store.readLog(200), open, avail, card, handoff, issues, supSources, requiredByDept);
           const r = await this.d.supervisor.run(prompt, { cwd: this.d.store.orderDir(order.id) });
           this.log({ order: order.id, kind: "call", role: "supervisor", model: this.d.supervisor.model, family: this.d.supervisor.family, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
           if (!r.ok) return this.bad(order, { ok: false, limit: r.limit, error: r.error, model: this.d.supervisor.model }, "supervisor")!;
@@ -272,8 +296,18 @@ export class Orchestrator {
             lastErr = e.message;
             continue;
           }
+          // Deterministic: every required source of the creator card must be referenced (else FIX).
+          const required = requiredByDept[brief.department] ?? this.d.cards.creatorFor(brief.department).card?.sources ?? [];
+          const missing = missingSources(required, brief.sources);
+          if (missing.length) {
+            issues = missing.map((k) => `zadání neuvádí povinný zdroj karty: ${k}`);
+            lastErr = `brief check FIX (deterministic): ${issues.join("; ")}`;
+            this.log({ order: order.id, kind: "call", role: "checker", model: "deterministic", family: "none", result: "FIX", reason: issues.join(" | ") });
+            continue;
+          }
+          const deptSources = sourcesBlock(loaded.filter((l) => required.includes(l.key)));
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const c = await this.d.briefChecker.run(buildBriefCheckPrompt(brief, handoff, card, capsule), { cwd: this.d.store.orderDir(order.id) });
+          const c = await this.d.briefChecker.run(buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources), { cwd: this.d.store.orderDir(order.id) });
           const v = c.ok ? parseVerdict(c.text) : undefined;
           this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
           if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
@@ -291,6 +325,7 @@ export class Orchestrator {
         // Never start a specialist without a card or with unmet §2b adapter rules.
         const p = this.preflight(order.brief!.department);
         const o = { ...order, max_fix_rounds: p.maxFix, card_role: p.cardRole };
+        if (p.ok) await this.stageSources(o);
         return this.apply(o, { type: "start", preflight: { ok: p.ok, reasons: p.reasons } }, { role: "orchestrator", result: p.ok ? dept?.name : "preflight FAIL", reason: p.reasons.join("; ") || undefined });
       }
       case "DOING": {

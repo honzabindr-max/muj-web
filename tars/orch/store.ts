@@ -57,6 +57,7 @@ export class Store {
 
   writeFile(id: string, name: string, content: string): string {
     const p = path.join(this.orderDir(id), name);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, content);
     return p;
   }

@@ -134,7 +134,7 @@ export class CopyDepartment implements DepartmentRunner {
     return `${this.checker.name} (${this.checker.model})`;
   }
 
-  private creatorPrompt(b: OrderBrief, extra = ""): string {
+  private creatorPrompt(b: OrderBrief, extra = "", sources = ""): string {
     return `Jsi copywriter oddělení "Copy a kreativa" projektu MEZI VÁMI (prémiový vztahový report, čeština).
 Napiš DRAFT podle zakázky níže. Tón: tichý, sebejistý, elegantní zdrženlivost, žádné AI buzzwords, žádný hype.
 Pravidla:
@@ -151,11 +151,14 @@ ${this.cardText}
 KARTA>>>
 
 ${briefMarkdown(b)}
+
+KANONICKÉ ZDROJE (povinné podle karty; načtené beze změny; UNKNOWN = nešlo načíst). Fakta a omezení ber z nich, ne z hlavy:
+${sources}
 ${extra}`;
   }
 
   async create(order: Order, ctx: DeptContext) {
-    const r = await this.creator.run(this.creatorPrompt(order.brief!), { cwd: ctx.store.orderDir(order.id) });
+    const r = await this.creator.run(this.creatorPrompt(order.brief!, "", orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id) });
     if (!r.ok) return fromAdapter(r, this.creatorModel());
     const name = "draft-v0.md";
     ctx.store.writeFile(order.id, name, r.text);
@@ -179,6 +182,9 @@ KARTA_TVURCE>>>
 
 ${briefMarkdown(order.brief!)}
 
+KANONICKÉ ZDROJE (povinné podle karty; posuzuj draft proti nim, zvlášť zamčenou architekturu obrazovek a rozsah P1.2):
+${orderSources(ctx, order)}
+
 <<<DRAFT
 ${draft}
 DRAFT>>>
@@ -195,7 +201,7 @@ ${VERDICT_FORMAT}`;
   async revise(order: Order, ctx: DeptContext) {
     const draft = ctx.store.readFile(order.id, order.draft_file!);
     const extra = `\nPŘEDCHOZÍ DRAFT (oprav ho, nepiš od nuly, pokud to není nutné):\n<<<DRAFT\n${draft}\nDRAFT>>>\n\nPŘIPOMÍNKY KONTROLORA (všechny vypořádej):\n${(order.last_issues ?? []).map((x) => `- ${x}`).join("\n")}`;
-    const r = await this.creator.run(this.creatorPrompt(order.brief!, extra), { cwd: ctx.store.orderDir(order.id) });
+    const r = await this.creator.run(this.creatorPrompt(order.brief!, extra, orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id) });
     if (!r.ok) return fromAdapter(r, this.creatorModel());
     const name = `draft-v${order.fix_rounds}.md`;
     ctx.store.writeFile(order.id, name, r.text);
@@ -259,7 +265,7 @@ export class DevDepartment implements DepartmentRunner {
     const zadani = ctx.store.writeFile(
       order.id,
       `zadani-r${order.fix_rounds}.md`,
-      `${briefMarkdown(order.brief!)}\n\n## Zákazy\n- Žádný merge, deploy, DB zápis, dispatch workflow, nákup ani placené API.\n- Neměnit zamčené kontrakty MEZI VÁMI.\n- Neprovádět commit ani push (to dělá orchestrátor).\n${extra}`,
+      `${briefMarkdown(order.brief!)}\n\n## Zákazy\n- Žádný merge, deploy, DB zápis, dispatch workflow, nákup ani placené API.\n- Neměnit zamčené kontrakty MEZI VÁMI.\n- Neprovádět commit ani push (to dělá orchestrátor).\n\n## Kanonické zdroje (přečti před návrhem)\n${orderSourcePaths(ctx, order)}\n${extra}`,
     );
     stageAiChainPrompts(dir, path.join(path.dirname(this.chain.runSh), "prompts"), this.sentinelSpec);
     const r = await this.chain.run(zadani, wt, dir);
@@ -473,4 +479,35 @@ ZADÁNÍ:\n${briefMarkdown(order.brief!)}\n\nVERDIKT BRÁNY:\n${r.text}\n\n${VER
     const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, `**DRAFT — není schváleno.** Tvůrce: ${this.creatorModel()} · Kontrolor: ${this.checkerModel()}.\n\n${draft}`);
     return { ok: true, url: page.url, model: "notion" };
   }
+}
+
+interface SourceStatus {
+  key: string;
+  title: string;
+  ok: boolean;
+  reason?: string;
+}
+
+function sourceStatus(ctx: DeptContext, order: Order): SourceStatus[] {
+  const f = path.join(ctx.store.orderDir(order.id), "sources.json");
+  return fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, "utf8")) as SourceStatus[]) : [];
+}
+
+/** Sources staged for the order (runs/<id>/sources/), as a prompt block; failed ones = UNKNOWN. */
+export function orderSources(ctx: DeptContext, order: Order): string {
+  const st = sourceStatus(ctx, order);
+  if (!st.length) return "UNKNOWN (zdroje nebyly připraveny)";
+  return st
+    .map((s) =>
+      s.ok
+        ? `<<<ZDROJ ${s.key} — ${s.title}\n${fs.readFileSync(path.join(ctx.store.orderDir(order.id), "sources", `${s.key}.md`), "utf8")}\nZDROJ ${s.key}>>>`
+        : `ZDROJ ${s.key} — ${s.title}: UNKNOWN (${s.reason})`,
+    )
+    .join("\n\n");
+}
+
+export function orderSourcePaths(ctx: DeptContext, order: Order): string {
+  const st = sourceStatus(ctx, order);
+  if (!st.length) return "- UNKNOWN (zdroje nebyly připraveny)";
+  return st.map((s) => (s.ok ? `- ${s.title}: ${path.join(ctx.store.orderDir(order.id), "sources", `${s.key}.md`)}` : `- ${s.title}: UNKNOWN (${s.reason})`)).join("\n");
 }

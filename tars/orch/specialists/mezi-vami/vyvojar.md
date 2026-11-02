@@ -9,6 +9,7 @@ adapter: ai-chain
 rung: 1
 checker: codex exec (GPT) + deterministické kontroly + CI test/janitor
 checker_family: gpt
+sources: handoff, capsule, buildos, ui_build_brief, ui_data_contract
 max_fix_rounds: 3
 ---
 
@@ -23,10 +24,15 @@ Odchylka (doloženo kódem): `~/Projects/ai-chain/run.sh` řádek 99 volá `clau
 
 ## 2. Kanonické vstupy
 
-- Zadání zakázky (`zadani-r<N>.md` v adresáři zakázky).
-- Repo `muj-web` (`app/mezi-vami`, `CLAUDE.md`), kufřík mise.
+- `handoff`, `capsule` — stav a fakta mise.
+- `buildos` — §4 Executor, §19 Engineering workflow, A2 (`ui_data_contract_v1`, fixtures), A4 (strojově dohledatelná evidence).
+- `ui_build_brief` — inventář obrazovek a stavů.
+- `ui_data_contract` — `ui_data_contract_v1` (podstránka 6).
+- Zadání zakázky (`zadani-r<N>.md`), repo `muj-web` (`app/mezi-vami`, `CLAUDE.md`).
 - Seznam zákazů MEZI VÁMI pro sentinel: `tars/orch/specialists/mezi-vami/ai-chain-mezi-vami/invariant-sentinel.md` (orchestrátor ho kopíruje do `runs/<order-id>/prompts/invariant-sentinel.md`, odkud ho čte `run.sh`).
-- Build OS §19 Engineering workflow: `main` = stable, krátké feature branche / PR, CI typecheck + lint + unit tests.
+- Načtené zdroje dostává AI Chain jako soubory `runs/<order-id>/sources/<klíč>.md`, cesty jsou v zadání.
+
+Povinné zdroje (frontmatter `sources`, klíče registru `tars/orch/sources.ts`) načítá orchestrátor z Notionu beze změny (surový výstup nástroje, ne parafráze) a vkládá je do promptu. Zdroj, který nejde načíst, je v promptu označen `UNKNOWN (důvod)`; nikdy se nepíše „specialista ho nemá“. Zadání supervizora musí všechny povinné zdroje uvést v poli `sources`, jinak kontrola zadání vrací FIX.
 
 ## 3. Zamčené kontrakty a zákazy
 

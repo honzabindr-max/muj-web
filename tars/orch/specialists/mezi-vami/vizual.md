@@ -9,6 +9,7 @@ adapter: browser
 rung: 3
 checker: brana (GPT fresh-context přes codex exec)
 checker_family: gpt
+sources: handoff, capsule, buildos, funnel, ui_build_brief, design_handoff
 max_fix_rounds: 1
 ---
 
@@ -22,10 +23,14 @@ Navrhuje vizuál: visual direction, hierarchy, component look, responsive behavi
 
 ## 2. Kanonické vstupy
 
-- Zadání zakázky (fakta z HANDOFF a kufříku vložená supervizorem).
-- Skutečná copy (Build OS P1.3 „Claude Design dostane skutečnou copy“): pracovní copy prototypu, dokud `3.1` je OPEN.
-- Vybraný vizuální směr 3.2 (HANDOFF rozhodnutí č. 15): plátno „MEZI VÁMI — webdesign“, tmavá švestková, teplé světelné křivky, EB Garamond + Jost; tokeny v `muj-web/app/mezi-vami`.
-- Tip k pohybu 3.2/3.3 (HANDOFF): `prefers-reduced-motion`, výkon na mobilu.
+- `handoff`, `capsule` — stav, vybraný vizuální směr 3.2 (HANDOFF rozhodnutí č. 15: plátno „MEZI VÁMI — webdesign“, tmavá švestková, teplé světelné křivky, EB Garamond + Jost; tokeny v `muj-web/app/mezi-vami`), tip k pohybu 3.2/3.3.
+- `buildos` — §4 role Claude Design, §8 P1.3 „Claude Design directions“, P1.6 red-team rozsah.
+- `funnel` — zamčená architektura obrazovek (design nesmí změnit funnel).
+- `ui_build_brief` — inventář obrazovek a stavů.
+- `design_handoff` — `CLAUDE_DESIGN_HANDOFF_V1` (podstránka 10, PREPARED — NOT EXECUTED; operační vrstva).
+- Skutečná copy (Build OS P1.3): pracovní copy prototypu, dokud `3.1` je OPEN.
+
+Povinné zdroje (frontmatter `sources`, klíče registru `tars/orch/sources.ts`) načítá orchestrátor z Notionu beze změny (surový výstup nástroje, ne parafráze) a vkládá je do promptu. Zdroj, který nejde načíst, je v promptu označen `UNKNOWN (důvod)`; nikdy se nepíše „specialista ho nemá“. Zadání supervizora musí všechny povinné zdroje uvést v poli `sources`, jinak kontrola zadání vrací FIX.
 
 ## 3. Zamčené kontrakty a zákazy
 

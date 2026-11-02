@@ -24,6 +24,7 @@ import { jsonEqual, lastStepSentence, McpPanelSink, PanelIndex, panelRow, queueO
 import http from "node:http";
 
 import { handler, listShots, safeShotPath, snapshot } from "../panel-server";
+import { missingSources, SourceLoader } from "../sources";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
 import { parseGuardOutput } from "../guard";
 import type { NotionClient } from "../notion";
@@ -84,6 +85,7 @@ const BRIEF = (extra: Record<string, unknown> = {}) =>
     inputs: ["fakt A"],
     acceptance: ["kritérium 1"],
     owner_decisions: [],
+    sources: ["handoff", "capsule", "buildos", "funnel", "ui_build_brief", "copy_handoff"],
     ...extra,
   }) +
   "\n```";
@@ -111,6 +113,7 @@ function orch(
     browser?: BrowserRunner;
     briefChecker?: MockAdapter;
     panel?: PanelSink;
+    sourcesNotion?: NotionClient;
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
@@ -139,6 +142,7 @@ function orch(
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,
     panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
+    sources: new SourceLoader(opts.sourcesNotion ?? notion, dir, path.join(dir, "sources-cache")),
   });
   return { o, supervisor, creator, checker, notion, gate, browser };
 }
@@ -327,7 +331,12 @@ describe("parsers", () => {
 });
 
 // ─── §2a cards and §2b ladder ───
-const VIZ_BRIEF = BRIEF({ department: "vizual", title: "Varianty obrazovky Proof", goal: "Navrhnout 2 varianty obrazovky" });
+const VIZ_BRIEF = BRIEF({
+  department: "vizual",
+  title: "Varianty obrazovky Proof",
+  goal: "Navrhnout 2 varianty obrazovky",
+  sources: ["handoff", "capsule", "buildos", "funnel", "ui_build_brief", "design_handoff"],
+});
 
 describe("specialist cards (§2a)", () => {
   it("all five MEZI VÁMI cards are valid and creator/checker families differ", () => {
@@ -588,5 +597,50 @@ describe("bot challenge (fix after live run 3)", () => {
     expect(isBotChallenge("claude.ai Provádění bezpečnostního ověření Potvrďte, že jste člověk CLOUDFLARE")).toBe(true);
     expect(isBotChallenge("Verify you are human by completing the action below.")).toBe(true);
     expect(isBotChallenge("How can I help you today?")).toBe(false);
+  });
+});
+
+// ─── required canonical sources (§2a bod 2) ───
+class SourceNotion extends MockNotion {
+  failing = new Set<string>();
+  async fetchPage(id: string) {
+    if (this.failing.has(id)) throw new Error("timeout");
+    return `RAW PAGE ${id} ` + "x".repeat(300);
+  }
+}
+
+describe("canonical sources (§2a bod 2)", () => {
+  it("cards declare required sources; copy needs Build OS, Funnel V1 and UI_BUILD_BRIEF_V1", () => {
+    const reg = new CardRegistry(CARDS_DIR);
+    expect(reg.creatorFor("copy").card!.sources).toEqual(expect.arrayContaining(["handoff", "capsule", "buildos", "funnel", "ui_build_brief"]));
+    expect(reg.creatorFor("dev").card!.sources).toContain("ui_data_contract");
+    expect(reg.check("supervizor").card!.sources).toContain("buildos");
+    expect(missingSources(["a", "b"], ["a"])).toEqual(["b"]);
+  });
+
+  it("brief without a required source → deterministic FIX → supervisor rewrites", async () => {
+    const noFunnel = BRIEF({ sources: ["handoff", "capsule", "buildos", "ui_build_brief", "copy_handoff"] });
+    const bc = new MockAdapter("gpt", "gpt-brief", [{ text: PASS }]);
+    const { o, supervisor } = orch({ supervisor: [{ text: noFunnel }, { text: BRIEF() }], briefChecker: bc, sourcesNotion: new SourceNotion() });
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    expect(supervisor.calls).toHaveLength(2);
+    expect(supervisor.calls[1]).toContain("zadání neuvádí povinný zdroj karty: funnel");
+    expect(bc.calls).toHaveLength(1); // the model checker only sees the corrected brief
+    expect(bc.calls[0]).toContain("Chybějící povinný zdroj = FIX");
+  });
+
+  it("sources reach supervisor, checker and creator; failed source = UNKNOWN with reason", async () => {
+    const n = new SourceNotion();
+    n.failing.add("3d00ae49f50781d58306ec854f9d809d"); // funnel
+    const { o, supervisor, creator, checker } = orch({ sourcesNotion: n });
+    await o.tick();
+    expect(supervisor.calls[0]).toContain("RAW PAGE 3d10ae49f50781e78cbadb30aaac2346");
+    expect(creator.calls[0]).toContain("RAW PAGE 3d10ae49f507817dbd65e733a98c96e8");
+    expect(creator.calls[0]).toMatch(/ZDROJ funnel — .*: UNKNOWN \(načtení selhalo: timeout\)/);
+    expect(creator.calls[0]).not.toContain("nemá");
+    expect(checker.calls[0]).toContain("RAW PAGE 3d10ae49f50781e78cbadb30aaac2346");
+    const id = store.listOrders()[0].id;
+    const st = JSON.parse(fs.readFileSync(path.join(dir, id, "sources.json"), "utf8")) as Array<{ key: string; ok: boolean }>;
+    expect(st.find((x) => x.key === "funnel")!.ok).toBe(false);
   });
 });

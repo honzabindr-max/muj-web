@@ -8,6 +8,7 @@ adapter: claude-opus
 rung: 1
 checker: codex exec (GPT) — kontrola zadání
 checker_family: gpt
+sources: handoff, capsule, buildos
 max_fix_rounds: 0
 ---
 
@@ -22,11 +23,13 @@ Zdroj role: Build OS §4 „Claude Opus — Delivery Lead: plán, backlog, seque
 
 ## 2. Kanonické vstupy
 
-- HANDOFF — MEZI VÁMI, sekce ACTIVE TRACK a DALŠÍ KROK (jediný povolený zdroj zakázek, TARS-ORCH-001 §3 bod 1; HANDOFF Resume protokol).
-- HANDOFF sekce „Otevřená rozhodnutí pro Sponzora“ a „Co se NESMÍ dělat znovu“.
-- Kufřík mise `missions/mezi-vami/capsule.md` (index, ne zdroj pravdy).
+- `handoff` — HANDOFF — MEZI VÁMI, sekce ACTIVE TRACK a DALŠÍ KROK (jediný povolený zdroj zakázek, TARS-ORCH-001 §3 bod 1), „Otevřená rozhodnutí pro Sponzora“, „Co se NESMÍ dělat znovu“.
+- `capsule` — kufřík mise `missions/mezi-vami/capsule.md` (index, ne zdroj pravdy).
+- `buildos` — Build OS V1: §4 role, P1 pořadí, LOCKED AMENDMENTS.
+- Povinné zdroje každého dostupného oddělení (z karet tvůrců); supervizor je dostává celé a do zadání uvede ty, které karta zvoleného oddělení vyžaduje.
 - Epizodický záznam `runs/log.jsonl` (neopakovat stejnou chybu, TARS-ORCH-001 §4).
-- Seznam karet v `tars/orch/specialists/mezi-vami/` (kdo smí být spuštěn).
+
+Povinné zdroje (frontmatter `sources`, klíče registru `tars/orch/sources.ts`) načítá orchestrátor z Notionu beze změny (surový výstup nástroje, ne parafráze) a vkládá je do promptu. Zdroj, který nejde načíst, je v promptu označen `UNKNOWN (důvod)`; nikdy se nepíše „specialista ho nemá“. Zadání supervizora musí všechny povinné zdroje uvést v poli `sources`, jinak kontrola zadání vrací FIX.
 
 ## 3. Zamčené kontrakty a zákazy
 

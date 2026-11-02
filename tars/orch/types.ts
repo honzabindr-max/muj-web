@@ -42,6 +42,8 @@ export interface OrderBrief {
   acceptance: string[];
   /** Sponsor-reserved decisions touched (LOCK, price, brand, payments, legal, CTE). */
   owner_decisions: string[];
+  /** Keys of canonical sources the order relies on (must cover the creator card's required sources). */
+  sources: string[];
 }
 
 export interface StateTransitionRecord {

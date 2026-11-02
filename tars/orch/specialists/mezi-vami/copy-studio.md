@@ -9,6 +9,7 @@ adapter: codex
 rung: 1
 checker: claude -p --model opus
 checker_family: claude
+sources: handoff, capsule, buildos, funnel, ui_build_brief, copy_handoff
 max_fix_rounds: 3
 ---
 
@@ -22,11 +23,14 @@ Píše zákaznickou komunikaci MEZI VÁMI: marketing copy, UX copy, offer framin
 
 ## 2. Kanonické vstupy
 
-- Zadání zakázky (fakta z HANDOFF a kufříku vložená supervizorem; tvůrce nemá přístup do Notionu).
-- Build OS P1.2 „GPT Copy System“: seznam bloků (positioning, hero, landing core, Free DNA intro, birth-time helper, loading/proof, reveal, Free→Paid bridge, offer benefits, CTA, sample framing, checkout microcopy, error/recovery).
-- `UI_BUILD_BRIEF_V1` a locked product/funnel kontrakty (Build OS P1.2: „GPT dostane UI Build Brief a locked product/funnel“). Pro zakázku na `COPY_SYSTEM_V1` jsou POVINNÉ: když je zadání neobsahuje, kontrolor vrací BLOCK (nestačí UNKNOWN v textu).
-- Funnel V1 / Architecture & Screen Inventory (zamčená architektura obrazovek).
+- `handoff`, `capsule` — stav a fakta mise.
+- `buildos` — Build OS §8 P1.2 „GPT Copy System“ (rozsah bloků, rozdělení marketing / UX / factual-legal-privacy copy, max 3 směry, DoD `COPY_SYSTEM_V1` + vybraný direction po Honzík review) a LOCKED AMENDMENTS A2 „Copy amendment“ (Fáze C = semantic/terminology baseline; kreativní přepis v rámci locked promise/funnel/factual meaning).
+- `funnel` — Funnel V1 / Architecture & Screen Inventory: zamčená architektura obrazovek; sekce FÁZE C = sémantická baseline copy.
+- `ui_build_brief` — `UI_BUILD_BRIEF_V1` (P1 READINESS PACKET V1, podstránka 5): inventář obrazovek a stavů, copy constraints. Build OS P1.2: „GPT dostane UI Build Brief a locked product/funnel“.
+- `copy_handoff` — `GPT_COPY_STUDIO_HANDOFF_V1` (podstránka 9, PREPARED — NOT EXECUTED; operační vrstva, při rozporu platí kanonické zdroje).
 - Pracovní copy prototypu v repu `app/mezi-vami` (hero varianta A = pracovní, ne schválená).
+
+Povinné zdroje (frontmatter `sources`, klíče registru `tars/orch/sources.ts`) načítá orchestrátor z Notionu beze změny (surový výstup nástroje, ne parafráze) a vkládá je do promptu. Zdroj, který nejde načíst, je v promptu označen `UNKNOWN (důvod)`; nikdy se nepíše „specialista ho nemá“. Zadání supervizora musí všechny povinné zdroje uvést v poli `sources`, jinak kontrola zadání vrací FIX.
 
 ## 3. Zamčené kontrakty a zákazy
 

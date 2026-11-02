@@ -34,7 +34,12 @@ export function buildSupervisorPrompt(
   supervisorCard = "",
   handoff = "",
   checkerIssues: string[] = [],
+  sourcesText = "",
+  requiredByDept: Record<string, string[]> = {},
 ): string {
+  const reqLines = Object.entries(requiredByDept)
+    .map(([d, keys]) => `- ${d}: ${keys.join(", ")}`)
+    .join("\n");
   const deptLines = depts
     .map((d) => `- ${d.department} (karta ${d.card}): ${d.available ? "DOSTUPNÉ" : `NEDOSTUPNÉ — ${d.reasons.join("; ")}`}`)
     .join("\n");
@@ -64,6 +69,12 @@ ${ROLE_FACTS}
 ${handoff}
 HANDOFF>>>
 ${checkerIssues.length ? `\nKONTROLOR (GPT) VRÁTIL PŘEDCHOZÍ ZADÁNÍ — vypořádej:\n${checkerIssues.map((x) => `- ${x}`).join("\n")}\n` : ""}
+POVINNÉ ZDROJE PODLE ODDĚLENÍ (karta tvůrce, §2a bod 2) — zadání je MUSÍ všechny uvést v poli "sources" a vycházet z nich:
+${reqLines || "- (nedodáno)"}
+
+KANONICKÉ ZDROJE (načtené orchestrátorem z Notionu beze změny; UNKNOWN = nešlo načíst, důvod uveden):
+${sourcesText || "(žádné)"}
+
 TVOJE KARTA (TARS-ORCH-001 §2a) — dodržuj ji:
 <<<KARTA
 ${supervisorCard}
@@ -80,7 +91,7 @@ ZÁZNAM BĚHŮ (posledních 30 událostí, JSONL):
 ${log || "(prázdný)"}
 
 VÝSTUP: vrať POUZE jeden JSON objekt v bloku \`\`\`json, bez dalšího textu, přesně tohoto tvaru:
-{"title": "...", "department": "copy"|"dev"|"vizual", "milestone": "např. 3.1", "why": "citace z ACTIVE TRACK / DALŠÍ KROK a proč teď", "goal": "...", "inputs": ["..."], "acceptance": ["měřitelné kritérium", "..."], "owner_decisions": ["..."]}`;
+{"title": "...", "department": "copy"|"dev"|"vizual", "milestone": "např. 3.1", "why": "citace z ACTIVE TRACK / DALŠÍ KROK a proč teď", "goal": "...", "inputs": ["..."], "acceptance": ["měřitelné kritérium", "..."], "owner_decisions": ["..."], "sources": ["klíče povinných zdrojů zvoleného oddělení"]}`;
 }
 
 export class BriefError extends Error {}
@@ -114,6 +125,7 @@ export function parseBrief(text: string): OrderBrief {
     inputs: arr("inputs", 1),
     acceptance: arr("acceptance", 1),
     owner_decisions: arr("owner_decisions", 0),
+    sources: arr("sources", 1),
   };
 }
 
@@ -128,7 +140,14 @@ export const ROLE_FACTS = `ROZDĚLENÍ ROLÍ (TARS-ORCH-001 §1–§3, fakt, ne 
 - Doručení: copy a vizual → Notion podstránka DRAFT, kterou zakládá orchestrátor; dev → PR draft (TARS-ORCH-001 §2, §3 bod 6). To je vlastnost systému, ne pravomoc, kterou musí dokládat HANDOFF.
 - Rozhodnutí vyhrazená Sponzorovi končí ve WAITING_OWNER s kartou GO / REJECT (TARS-ORCH-001 §3 bod 7, §5).`;
 
-export function buildBriefCheckPrompt(brief: OrderBrief, handoff: string, supervisorCard: string, capsule = ""): string {
+export function buildBriefCheckPrompt(
+  brief: OrderBrief,
+  handoff: string,
+  supervisorCard: string,
+  capsule = "",
+  requiredSources: string[] = [],
+  sourcesText = "",
+): string {
   return `Jsi KONTROLOR zadání supervizora (GPT, jiná rodina než supervizor Claude Opus). Netvoříš, jen hodnotíš.
 Checklist (karta supervizor.md, body 3, 5 a 6):
 1. "why" cituje text, který v HANDOFF skutečně stojí v sekci ACTIVE TRACK nebo DALŠÍ KROK.
@@ -136,6 +155,10 @@ Checklist (karta supervizor.md, body 3, 5 a 6):
 3. "inputs" obsahují jen fakta, která v HANDOFF nebo kufříku stojí; pracovní hodnoty nejsou podané jako zamčené.
 4. "acceptance" jsou ověřitelná kritéria.
 5. "owner_decisions" vyjmenovává každé dotčené rozhodnutí Sponzora (cena, značka/název, platby, právo, LOCK, CTE, vizuální směr, copy preference); supervizor je nerozhoduje.
+6. Zadání odkazuje na VŠECHNY povinné zdroje karty tvůrce (${requiredSources.join(", ") || "—"}) a jeho fakta s nimi nejsou v rozporu (zamčená architektura obrazovek, rozsah P1.2 apod.). Chybějící povinný zdroj = FIX.
+
+POVINNÉ ZDROJE ODDĚLENÍ "${brief.department}" (načtené beze změny):
+${sourcesText || "(žádné)"}
 
 ${ROLE_FACTS}
 

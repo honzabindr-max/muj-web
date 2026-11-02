@@ -14,6 +14,7 @@ import { runGuard } from "./guard";
 import { makeNotion } from "./notion";
 import { Orchestrator, SecretScanningAdapter } from "./orchestrator";
 import { McpPanelSink, PanelIndex } from "./panel";
+import { SourceLoader } from "./sources";
 import { Store } from "./store";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -58,6 +59,7 @@ function build(): Orchestrator {
   const cards = new CardRegistry(cardsDir);
   const cardText = (role: string) => (cards.check(role).ok ? cards.text(role) : "");
   const desktop = new NotImplementedDesktop();
+  const notion = makeNotion(sonnet, runsDir);
   return new Orchestrator({
     cards,
     ladder: { browserReady, desktopReady: () => desktop.preflight(), hasCli: defaultHasCli },
@@ -69,7 +71,8 @@ function build(): Orchestrator {
       dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "ai-chain-mezi-vami/invariant-sentinel.md")), // Claude chain creates, GPT reviews
       vizual: new VizualDepartment(new BrowserAdapter(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
     },
-    notion: makeNotion(sonnet, runsDir),
+    notion,
+    sources: new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache")),
     guard: () => runGuard(guardScript, repoRoot),
     draftParentId,
     repoRoot,
