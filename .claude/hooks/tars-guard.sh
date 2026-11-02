@@ -8,6 +8,9 @@
 #   I5 SSH klíč na tomto stroji se ke GitHubu nepřihlásí
 #   I6 na disku nejsou .env.migrate* ani .env.verify starší než 12 h (smaže je; vznikají skripty write-*-env.sh jen na dobu práce)
 #   I7 Vercel CLI je odhlášené (jinak by agent stáhl produkční proměnné přes vercel env pull)
+#   I8 prohlížečová automatizace jen v izolovaném profilu TARS-agent: ladicí port Chromu jen s --user-data-dir
+#      profilu TARS-agent, jen na 127.0.0.1 a jen po dobu zakázky (runs/.lock); v profilu není Google účet.
+#      Logika žije v tars/orch/guard/i8.sh (testovaná), hook ji jen volá.
 # Zápisové akce: smazání starých .env.migrate*/.env.verify a chmod 600 na .env.local. Obsah .env ani tokenů se nikdy nečte.
 # Výstup: JSON hookSpecificOutput.additionalContext. Log bez tajemství: /tmp/tars-guard.log
 # Hook vždy končí exit 0 (nikdy neblokuje start session); porušení hlásí jako ALARM do kontextu.
@@ -98,6 +101,20 @@ else
   ok+=("I7 Vercel CLI není nainstalované")
 fi
 
+# I8 prohlížečová automatizace jen v profilu TARS-agent (tars/orch/guard/i8.sh)
+if [ -f "$root/tars/orch/guard/i8.sh" ]; then
+  i8out=$(TARS_GUARD_REPO="$root" bash "$root/tars/orch/guard/i8.sh" 2>/dev/null)
+  while IFS= read -r l; do
+    case "$l" in
+      "I8 ALARM "*) alarm+=("I8 ${l#I8 ALARM }") ;;
+      "I8 WARN "*) warn+=("I8 ${l#I8 WARN }") ;;
+      "I8 OK "*) ok+=("I8 ${l#I8 OK }") ;;
+    esac
+  done <<< "$i8out"
+else
+  warn+=("I8 skript tars/orch/guard/i8.sh chybí – UNKNOWN")
+fi
+
 # .env.local = vývojové prostředí agenta (DR-022, přijaté riziko); jen oprávnění 600
 [ -f "$root/.env.local" ] && chmod 600 "$root/.env.local" 2>/dev/null
 
@@ -108,7 +125,7 @@ fi
     for a in "${alarm[@]}"; do echo "- $a"; done
     echo "POKYN: Než uděláš cokoli jiného, nahlas tento ALARM vlastníkovi. Do vyřešení nepracuj s main, secrets, workflowy, nasazením ani produkční DB."
   else
-    printf 'TARS-GUARD OK (%s/7):' "${#ok[@]}"; for o in "${ok[@]}"; do printf ' %s;' "$o"; done; echo
+    printf 'TARS-GUARD OK (%s/8):' "${#ok[@]}"; for o in "${ok[@]}"; do printf ' %s;' "$o"; done; echo
   fi
   for w in "${warn[@]}"; do echo "TARS-GUARD upozornění: $w"; done
 } > /tmp/tars-guard.out.$$
