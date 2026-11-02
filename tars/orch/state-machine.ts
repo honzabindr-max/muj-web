@@ -13,7 +13,7 @@ export type OrderEvent =
   | { type: "verdict"; verdict: "PASS" | "FIX" | "BLOCK"; issues?: string[] }
   | { type: "revised" }
   | { type: "delivered"; owner_needed: boolean }
-  | { type: "owner"; decision: "GO" | "REJECT" }
+  | { type: "owner"; decision: "GO" | "REJECT"; option?: "A" | "B" }
   | { type: "limit"; resume_after: string }
   | { type: "resume" }
   | { type: "fail"; reason: string }
@@ -114,6 +114,7 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       break;
     case "owner":
       if (ev.decision === "REJECT") next.failure_reason = "owner REJECT";
+      if (ev.option) next.meta = { ...order.meta, owner_option: ev.option };
       break;
     case "fail":
     case "unknown":
@@ -121,6 +122,26 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       break;
   }
   return next;
+}
+
+/** Values of the Notion select „Rozhodnutí vlastníka“ (owner writes it on iPhone). */
+export const OWNER_DECISION_VALUES = ["GO", "GO A", "GO B", "REJECT"] as const;
+export type OwnerDecisionValue = (typeof OWNER_DECISION_VALUES)[number];
+
+/** Deterministic mapping of the owner's select value to the `owner` event. Anything else → undefined (ignored). */
+export function ownerEventFor(value: unknown): Extract<OrderEvent, { type: "owner" }> | undefined {
+  switch (value) {
+    case "GO":
+      return { type: "owner", decision: "GO" };
+    case "GO A":
+      return { type: "owner", decision: "GO", option: "A" };
+    case "GO B":
+      return { type: "owner", decision: "GO", option: "B" };
+    case "REJECT":
+      return { type: "owner", decision: "REJECT" };
+    default:
+      return undefined;
+  }
 }
 
 export function maxFix(order: Order): number {

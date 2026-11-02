@@ -1,13 +1,18 @@
 // Notion control panel "TARS — Zakázky": one row per order, rewritten on EVERY state transition.
 // The row is computed deterministically from state.json (no LLM decides any value).
-// Transport: Notion REST API if NOTION_TOKEN is set; otherwise the official Notion MCP connector
-// via `claude -p`, where the code verifies that the executed tool call carried exactly the
-// payload it asked for (stream-json tool_use input == expected) — the model only transports.
+// Transport: Notion REST API when the integration token is in the macOS Keychain (DR-029 krok 5);
+// otherwise (or when REST is unavailable) the official Notion MCP connector via `claude -p`,
+// where the code verifies that the executed tool call carried exactly the payload it asked for
+// (stream-json tool_use input == expected) — the model only transports.
 // A panel failure never stops an order: it is logged and caught up on the next transition.
+// The orchestrator NEVER writes „Rozhodnutí vlastníka“ — that select belongs to the owner.
+// It only reads it (readOwnerDecision) while an order is in WAITING_OWNER.
 import fs from "node:fs";
 import path from "node:path";
 
 import { ORCH_CLAUDE_SETTINGS, runProcess } from "./adapters";
+import { extractToolResult, isFallbackEligible, type NotionRestApi } from "./notion";
+import { redactDeep, redactSecrets } from "./secret-scan";
 import type { Order } from "./types";
 
 export const PANEL_DATA_SOURCE_ID = "93d450d0-fabd-4e29-8f09-decda4ad45b6";
@@ -32,7 +37,15 @@ export interface PanelRow {
   "Ruční zásahy": number;
   "Odkaz na výstup": string | null;
   "Čeká na vlastníka": "__YES__" | "__NO__";
+  /** Orchestrator on the Mac writes „Mac“; Fable cloud agents write „Cloud“. */
+  "Kde běží": "Mac" | "Cloud";
+  "Proč tento model": string;
+  /** URL of the visual decision card (owner card page). */
+  "Karta rozhodnutí": string | null;
 }
+
+/** Name of the owner-only select. Deliberately NOT a key of PanelRow. */
+export const OWNER_DECISION_PROPERTY = "Rozhodnutí vlastníka";
 
 const STEP_TEXT: Record<string, string> = {
   planned: "Supervizor vybral zakázku z HANDOFF a GPT schválil zadání.",
@@ -79,6 +92,12 @@ export function queueOf(o: Order): string {
   return "2 · Běží";
 }
 
+/** One deterministic sentence, DR-030: Opus = úsudek, Sonnet = přesné zadání, GPT = kontrola jiné rodiny. */
+export function modelReason(o: Order, creator: string, checker: string): string {
+  if (!o.brief) return "Supervizor (Opus) vybírá práci a píše zadání, zadání kontroluje GPT.";
+  return `Tvůrce ${creator} a kontrolor ${checker} jsou z různých modelových rodin (pravidlo „kontroluje jiná rodina“).`;
+}
+
 export function panelRow(o: Order, creator: string, checker: string): PanelRow {
   return {
     Zakázka: o.brief?.title ?? `Nová zakázka ${o.id}`,
@@ -98,12 +117,48 @@ export function panelRow(o: Order, creator: string, checker: string): PanelRow {
     "Ruční zásahy": o.manual_interventions,
     "Odkaz na výstup": o.delivered_url ?? null,
     "Čeká na vlastníka": o.state === "WAITING_OWNER" ? "__YES__" : "__NO__",
+    "Kde běží": "Mac",
+    "Proč tento model": modelReason(o, creator, checker),
+    "Karta rozhodnutí": o.owner_card_url ?? null,
   };
 }
 
 export interface PanelSink {
   /** Creates or updates the row; returns the row page id. Throws on failure. */
   upsert(row: PanelRow, existingPageId?: string): Promise<string>;
+  /** Raw value of the owner-only select „Rozhodnutí vlastníka“ of a row (undefined = empty). Read-only. */
+  readOwnerDecision?(pageId: string): Promise<string | undefined>;
+}
+
+const text = (s: string | null | undefined) => ({ rich_text: s ? [{ type: "text", text: { content: s.slice(0, 2000) } }] : [] });
+const select = (s: string | null | undefined) => ({ select: s ? { name: s.replace(/,/g, " ").slice(0, 100) } : null });
+const date = (iso: string) => ({ date: { start: iso } });
+
+/**
+ * PanelRow → REST `properties`. An explicit whitelist of exactly the columns the orchestrator owns;
+ * „Rozhodnutí vlastníka“ is not among them and can never be emitted.
+ */
+export function rowToRestProperties(row: PanelRow): Record<string, unknown> {
+  return {
+    Zakázka: { title: [{ type: "text", text: { content: row.Zakázka.slice(0, 2000) } }] },
+    "ID zakázky": text(row["ID zakázky"]),
+    Mise: text(row.Mise),
+    Oddělení: select(row.Oddělení),
+    Stav: select(row.Stav),
+    Fronta: select(row.Fronta),
+    "Tvůrce (model)": text(row["Tvůrce (model)"]),
+    "Kontrolor (model)": text(row["Kontrolor (model)"]),
+    "Kolo oprav": { number: row["Kolo oprav"] },
+    "Poslední krok": text(row["Poslední krok"]),
+    Start: date(row["date:Start:start"]),
+    "Poslední změna": date(row["date:Poslední změna:start"]),
+    "Ruční zásahy": { number: row["Ruční zásahy"] },
+    "Odkaz na výstup": { url: row["Odkaz na výstup"] },
+    "Čeká na vlastníka": { checkbox: row["Čeká na vlastníka"] === "__YES__" },
+    "Kde běží": select(row["Kde běží"]),
+    "Proč tento model": text(row["Proč tento model"]),
+    "Karta rozhodnutí": { url: row["Karta rozhodnutí"] },
+  };
 }
 
 /** Deep equality for plain JSON values (used to verify the transported tool payload). */
@@ -225,6 +280,89 @@ export class McpPanelSink implements PanelSink {
       )?.[1];
     if (!id) throw new Error("panel: created page id not found");
     return id.replace(/-/g, "");
+  }
+
+  async readOwnerDecision(pageId: string): Promise<string | undefined> {
+    const tool = "mcp__claude_ai_Notion__notion-fetch";
+    const r = await runProcess(
+      "claude",
+      ["-p", "--model", "sonnet", "--settings", ORCH_CLAUDE_SETTINGS, "--allowedTools", tool, "--output-format", "stream-json", "--verbose"],
+      `Zavolej PŘESNĚ JEDNOU nástroj ${tool} s id ${pageId} a odpověz jen OK.`,
+      this.cwd,
+      4 * 60_000,
+    );
+    const props = parsePropertiesBlock(extractToolResult(r.stdout) ?? "");
+    if (!props) throw new Error("panel: owner decision unreadable");
+    const v = props[OWNER_DECISION_PROPERTY];
+    return typeof v === "string" && v ? v : undefined;
+  }
+}
+
+/** Pulls the `<properties>` JSON object out of a Notion MCP fetch result. */
+export function parsePropertiesBlock(fetchResult: string): Record<string, unknown> | undefined {
+  const m = /<properties>\s*([\s\S]*?)\s*<\/properties>/.exec(fetchResult);
+  if (!m) return undefined;
+  try {
+    return JSON.parse(m[1]) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+/** REST sink: PATCH/POST /v1/pages with the whitelisted properties; secrets in the row are redacted first. */
+export class RestPanelSink implements PanelSink {
+  constructor(private api: NotionRestApi) {}
+
+  async upsert(row: PanelRow, existingPageId?: string): Promise<string> {
+    const properties = rowToRestProperties(redactDeep(row));
+    if (existingPageId) {
+      await this.api.request("PATCH", `/v1/pages/${existingPageId}`, { properties });
+      return existingPageId;
+    }
+    const j = await this.api.request<{ id?: string }>("POST", "/v1/pages", {
+      parent: { type: "data_source_id", data_source_id: PANEL_DATA_SOURCE_ID },
+      properties,
+    });
+    if (!j.id) throw new Error("panel: created page id not found");
+    return j.id.replace(/-/g, "");
+  }
+
+  async readOwnerDecision(pageId: string): Promise<string | undefined> {
+    const j = await this.api.request<{ in_trash?: boolean; properties?: Record<string, { select?: { name?: string } | null }> }>("GET", `/v1/pages/${pageId}`);
+    if (j.in_trash) return undefined;
+    return j.properties?.[OWNER_DECISION_PROPERTY]?.select?.name ?? undefined;
+  }
+}
+
+/** REST first; the claude -p MCP sink when REST is unavailable (no share, bad token, 429/5xx, network). */
+export class HybridPanelSink implements PanelSink {
+  private restDown = false;
+  constructor(
+    private rest: PanelSink,
+    private mcp: PanelSink,
+    private log: (message: string) => void,
+  ) {}
+
+  private async viaRest<T>(call: () => Promise<T>): Promise<{ value: T } | undefined> {
+    if (this.restDown) return undefined;
+    try {
+      return { value: await call() };
+    } catch (e) {
+      if (!isFallbackEligible(e)) throw e;
+      if (e.status === 401) this.restDown = true;
+      this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
+      return undefined;
+    }
+  }
+
+  async upsert(row: PanelRow, existingPageId?: string): Promise<string> {
+    const r = await this.viaRest(() => this.rest.upsert(row, existingPageId));
+    return r ? r.value : this.mcp.upsert(row, existingPageId);
+  }
+
+  async readOwnerDecision(pageId: string): Promise<string | undefined> {
+    const r = await this.viaRest(() => this.rest.readOwnerDecision!(pageId));
+    return r ? r.value : this.mcp.readOwnerDecision?.(pageId);
   }
 }
 

@@ -11,7 +11,7 @@ import type { NotionClient } from "./notion";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
-import { isActionable, transition, type OrderEvent } from "./state-machine";
+import { isActionable, ownerEventFor, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
 import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
 import { callChecker } from "./departments";
@@ -215,6 +215,7 @@ export class Orchestrator {
     if (g.alarm) return { status: "guard_alarm", summary: g.summary };
     if (!this.d.store.acquireLock()) return { status: "locked" };
     try {
+      await this.pollOwnerDecisions();
       const orders = this.d.store.listOrders();
       let order = orders.find((o) => isActionable(o.state));
       if (!order) {
@@ -240,6 +241,29 @@ export class Orchestrator {
     } finally {
       await this.flushPanel();
       this.d.store.releaseLock();
+    }
+  }
+
+  /**
+   * Owner gate through the Notion panel: for every order in WAITING_OWNER the owner may have filled the
+   * select „Rozhodnutí vlastníka“ (GO | GO A | GO B | REJECT) on the iPhone. The orchestrator only READS it
+   * (never writes that property) and runs the matching `owner` transition. Unknown/empty values are ignored;
+   * a failed read is logged and retried on the next tick.
+   */
+  async pollOwnerDecisions(): Promise<void> {
+    const panel = this.d.panel;
+    if (!panel?.sink.readOwnerDecision) return;
+    for (const o of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
+      const pageId = panel.index.get(o.id);
+      if (!pageId) continue;
+      try {
+        const value = await panel.sink.readOwnerDecision(pageId);
+        const ev = ownerEventFor(value);
+        if (!ev) continue;
+        this.apply(o, ev, { role: "orchestrator", result: `owner ${value} (Notion)` });
+      } catch (e) {
+        this.log({ order: o.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
+      }
     }
   }
 
@@ -402,9 +426,9 @@ export class Orchestrator {
   }
 
   /** Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED. */
-  owner(id: string, decision: "GO" | "REJECT"): Order {
+  owner(id: string, decision: "GO" | "REJECT", option?: "A" | "B"): Order {
     const o = this.d.store.load(id);
-    return this.apply(o, { type: "owner", decision }, { role: "orchestrator", result: `owner ${decision}` });
+    return this.apply(o, { type: "owner", decision, option }, { role: "orchestrator", result: `owner ${decision}${option ? ` ${option}` : ""}` });
   }
 }
 
@@ -431,7 +455,9 @@ export function ownerCard(o: Order, reasons: string[], dept: DepartmentRunner): 
     `- **GO** — přijímám výstup jako podklad; další krok podle HANDOFF.`,
     `- **REJECT** — výstup zahodit; důvod napiš do komentáře.`,
     "",
-    "Zápis rozhodnutí do orchestrátoru:",
+    "Na iPhonu: v přehledu „TARS — Zakázky“ vyber u této zakázky v poli „Rozhodnutí vlastníka“ GO, GO A, GO B nebo REJECT. Orchestrátor hodnotu jen čte a při dalším ticku (do 30 min) provede přechod stavu.",
+    "",
+    "Nebo zápis rozhodnutí do orchestrátoru ručně:",
     "```",
     `cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts owner ${o.id} GO`,
     "```",

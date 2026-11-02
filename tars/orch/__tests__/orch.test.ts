@@ -36,7 +36,7 @@ import type { NotionClient } from "../notion";
 import { extractNotionUrl, McpNotion } from "../notion";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
-import { MAX_FIX_ROUNDS, transition, TransitionError } from "../state-machine";
+import { MAX_FIX_ROUNDS, ownerEventFor, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
 import { buildBriefCheckPrompt, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "../supervisor";
 import type { ModelFamily, Order } from "../types";
@@ -485,6 +485,15 @@ describe("supervisor brief checker (karta supervizor bod 6)", () => {
 class MockPanel implements PanelSink {
   rows: Array<{ row: PanelRow; page?: string }> = [];
   failNext = 0;
+  /** What the owner "typed" into „Rozhodnutí vlastníka“; reads never change it, only the test does. */
+  decision: string | undefined;
+  reads = 0;
+  failRead = false;
+  async readOwnerDecision() {
+    this.reads++;
+    if (this.failRead) throw new Error("notion 502");
+    return this.decision;
+  }
   async upsert(row: PanelRow, page?: string) {
     if (this.failNext > 0) {
       this.failNext--;
@@ -562,6 +571,101 @@ describe("Notion panel (mocked)", () => {
     expect(jsonEqual(calls[0].input.properties, row)).toBe(true);
     expect(jsonEqual(toolCalls(stream({ ...row, Stav: "DONE" }))[0].input.properties, row)).toBe(false);
     expect(new McpPanelSink(dir)).toBeTruthy();
+  });
+});
+
+describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => {
+  async function waiting(panel: MockPanel) {
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string; status: string };
+    expect(r.status).toBe("waiting_owner");
+    return { o, id: r.order };
+  }
+
+  it.each([
+    ["GO", "DONE", undefined],
+    ["GO A", "DONE", "A"],
+    ["GO B", "DONE", "B"],
+    ["REJECT", "FAILED", undefined],
+  ])("%s → %s", async (value, state, option) => {
+    const panel = new MockPanel();
+    const { o, id } = await waiting(panel);
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    panel.decision = value;
+    await o.pollOwnerDecisions();
+    await o.flushPanel();
+    const after = store.load(id);
+    expect(after.state).toBe(state);
+    expect(after.meta.owner_option).toBe(option);
+    if (state === "FAILED") expect(after.failure_reason).toBe("owner REJECT");
+    expect(panel.rows.at(-1)!.row["Stav"]).toBe(state);
+    expect(panel.rows.at(-1)!.row["Fronta"]).toBe("3 · Hotové");
+  });
+
+  it("empty or unknown value changes nothing; a failed read is logged and retried", async () => {
+    const panel = new MockPanel();
+    const { o, id } = await waiting(panel);
+    for (const v of [undefined, "", "go", "GO C", "ano", "GO A "]) {
+      panel.decision = v;
+      await o.pollOwnerDecisions();
+      expect(store.load(id).state).toBe("WAITING_OWNER");
+    }
+    panel.failRead = true;
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.readLog(200).some((e) => e.kind === "error" && e.result === "owner decision read failed")).toBe(true);
+    panel.failRead = false;
+    panel.decision = "GO";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("DONE");
+  });
+
+  it("tick picks the decision up (WIP limit holds until then)", async () => {
+    const panel = new MockPanel();
+    const { o, id } = await waiting(panel);
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner", order: id });
+    expect(panel.reads).toBeGreaterThan(0);
+    panel.decision = "GO B";
+    const { o: o2 } = orch({ panel, supervisor: [{ text: BRIEF() }] });
+    await o2.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("DONE");
+  });
+
+  it("only WAITING_OWNER orders are read; no panel row → no read", async () => {
+    const panel = new MockPanel();
+    const { o } = orch({ panel });
+    await o.tick(); // DONE without owner
+    const reads = panel.reads;
+    panel.decision = "REJECT";
+    await o.pollOwnerDecisions();
+    expect(panel.reads).toBe(reads);
+    expect(store.listOrders().every((x) => x.state === "DONE")).toBe(true);
+  });
+
+  it("the orchestrator never writes „Rozhodnutí vlastníka“, in any row of the whole life cycle", async () => {
+    const panel = new MockPanel();
+    const { o, id } = await waiting(panel);
+    panel.decision = "GO A";
+    await o.pollOwnerDecisions();
+    await o.flushPanel();
+    expect(panel.rows.length).toBeGreaterThan(3);
+    for (const { row } of panel.rows) expect(Object.keys(row)).not.toContain("Rozhodnutí vlastníka");
+    expect(Object.keys(panelRow(store.load(id), "a", "b"))).not.toContain("Rozhodnutí vlastníka");
+  });
+
+  it("deterministic mapping and new columns", () => {
+    expect(ownerEventFor("GO")).toEqual({ type: "owner", decision: "GO" });
+    expect(ownerEventFor("GO A")).toEqual({ type: "owner", decision: "GO", option: "A" });
+    expect(ownerEventFor("GO B")).toEqual({ type: "owner", decision: "GO", option: "B" });
+    expect(ownerEventFor("REJECT")).toEqual({ type: "owner", decision: "REJECT" });
+    expect(ownerEventFor("cokoli jiného")).toBeUndefined();
+    const row = panelRow({ ...blank("WAITING_OWNER"), owner_card_url: "https://app.notion.com/p/karta" }, "gpt", "opus");
+    expect(row["Kde běží"]).toBe("Mac");
+    expect(row["Karta rozhodnutí"]).toBe("https://app.notion.com/p/karta");
+    expect(row["Proč tento model"]).toContain("Supervizor");
+    const withBrief = panelRow({ ...blank("DOING"), brief: parseBrief(BRIEF()) }, "gpt", "opus");
+    expect(withBrief["Proč tento model"]).toBe("Tvůrce gpt a kontrolor opus jsou z různých modelových rodin (pravidlo „kontroluje jiná rodina“).");
+    expect(panelRow(blank("NEW"), "—", "—")["Karta rozhodnutí"]).toBeNull();
   });
 });
 
@@ -1096,11 +1200,12 @@ describe("ClaudeCli (automat) nespouští review gate pluginu Codex", () => {
     try {
       await new McpNotion(new MockAdapter("claude", "sonnet", [{}]), dir).fetchPage("p1").catch(() => undefined);
       await new McpPanelSink(dir).upsert({} as PanelRow).catch(() => undefined);
+      await new McpPanelSink(dir).readOwnerDecision("p1").catch(() => undefined);
     } finally {
       process.env.PATH = old;
     }
     const lines = fs.readFileSync(log, "utf8").split("\n");
-    expect(lines.filter((l) => l === "-p")).toHaveLength(2);
-    expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(2);
+    expect(lines.filter((l) => l === "-p")).toHaveLength(3);
+    expect(lines.filter((l) => l === ORCH_CLAUDE_SETTINGS)).toHaveLength(3);
   });
 });

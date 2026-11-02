@@ -24,6 +24,25 @@ const PATTERNS: Array<[string, RegExp]> = [
   ["telegram_bot_token", /\b\d{8,10}:AA[A-Za-z0-9_-]{30,}\b/],
 ];
 
+// Exact values of credentials this process has loaded (e.g. the Notion token from the Keychain).
+// They are matched literally, independent of any token format, so a changed prefix can never
+// let the loaded token slip into a log, a Notion page or a stored output.
+const KNOWN_SECRETS = new Set<string>();
+const MIN_KNOWN_SECRET = 12;
+
+export function registerKnownSecret(value: string | undefined): void {
+  if (value && value.length >= MIN_KNOWN_SECRET) KNOWN_SECRETS.add(value);
+}
+
+export function clearKnownSecrets(): void {
+  KNOWN_SECRETS.clear();
+}
+
+function hasKnownSecret(text: string): boolean {
+  for (const k of KNOWN_SECRETS) if (text.includes(k)) return true;
+  return false;
+}
+
 export interface SecretScanResult {
   clean: boolean;
   /** Names of matched pattern kinds only — never the values. */
@@ -32,6 +51,7 @@ export interface SecretScanResult {
 
 export function scanSecrets(text: string): SecretScanResult {
   const kinds = PATTERNS.filter(([, re]) => re.test(text)).map(([k]) => k);
+  if (hasKnownSecret(text)) kinds.push("loaded_credential");
   return { clean: kinds.length === 0, kinds };
 }
 
@@ -44,6 +64,7 @@ const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END
 
 export function redactSecrets(text: string): string {
   let out = text.replace(PRIVATE_KEY_BLOCK, REDACTED);
+  for (const k of KNOWN_SECRETS) out = out.split(k).join(REDACTED);
   for (const [, re] of PATTERNS) out = out.replace(new RegExp(re.source, `${re.flags.replace("g", "")}g`), REDACTED);
   return out;
 }

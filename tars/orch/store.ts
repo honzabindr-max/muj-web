@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { redactDeep } from "./secret-scan";
 import type { LogEntry, Order } from "./types";
 
 export class Store {
@@ -41,10 +42,11 @@ export class Store {
       .map((d) => this.load(d));
   }
 
+  /** Every string in a log entry passes the secret redaction: a token never reaches log.jsonl. */
   log(entry: LogEntry): void {
     fs.appendFileSync(
       path.join(this.runsDir, "log.jsonl"),
-      JSON.stringify(entry) + "\n",
+      JSON.stringify(redactDeep(entry)) + "\n",
     );
   }
 

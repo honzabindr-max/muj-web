@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | owner <order-id> GO|REJECT
+// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,10 +11,12 @@ import { CopyDepartment, DevDepartment, VizualDepartment, type DepartmentRunner 
 import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import { runGuardWithI8 } from "./guard";
-import { makeNotion } from "./notion";
+import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE } from "./notion";
+import { readNotionToken } from "./notion-token";
 import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
-import { McpPanelSink, PanelIndex } from "./panel";
+import { HybridPanelSink, McpPanelSink, PanelIndex, RestPanelSink } from "./panel";
 import { SourceLoader } from "./sources";
+import { ownerEventFor } from "./state-machine";
 import { Store } from "./store";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -57,6 +59,17 @@ async function refreshBrowserStatus(): Promise<PreflightResult> {
   return r;
 }
 
+/**
+ * Transport notices: always on stderr (launchd log); in runs/log.jsonl only when the message differs from the last
+ * one written, so a missing token does not flood the log the supervisor reads on every tick.
+ */
+function logNotionMode(store: Store, message: string): void {
+  console.error(message);
+  const last = store.readLog(30).filter((e) => e.role === "transport" && e.kind === "info" && /^Notion REST:/.test(e.result ?? "")).at(-1);
+  if (last?.result === message) return;
+  store.log({ ts: new Date().toISOString(), order: "-", kind: "info", role: "transport", result: message });
+}
+
 function build(): Orchestrator {
   const store = new Store(runsDir);
   const wrap = <T extends ConstructorParameters<typeof SecretScanningAdapter>[0]>(a: T) => new SecretScanningAdapter(a);
@@ -66,7 +79,10 @@ function build(): Orchestrator {
   const cards = new CardRegistry(cardsDir);
   const cardText = (role: string) => (cards.check(role).ok ? cards.text(role) : "");
   const desktop = new NotImplementedDesktop();
-  const notion = makeNotion(sonnet, runsDir);
+  const stack = makeNotionStack(sonnet, runsDir, { token: readNotionToken(), log: (m) => logNotionMode(store, m) });
+  const notion = stack.notion;
+  const mcpSink = new McpPanelSink(runsDir);
+  const panelSink = stack.rest ? new HybridPanelSink(new RestPanelSink(stack.rest), mcpSink, (m) => logNotionMode(store, m)) : mcpSink;
   return new Orchestrator({
     cards,
     ladder: { browserReady, desktopReady: () => desktop.preflight(), hasCli: defaultHasCli },
@@ -84,7 +100,7 @@ function build(): Orchestrator {
     draftParentId,
     repoRoot,
     capsulePath: path.join(repoRoot, "missions/mezi-vami/capsule.md"),
-    panel: process.env.TARS_PANEL === "0" ? undefined : { sink: new McpPanelSink(runsDir), index: new PanelIndex(runsDir) },
+    panel: process.env.TARS_PANEL === "0" ? undefined : { sink: panelSink, index: new PanelIndex(runsDir) },
   });
 }
 
@@ -106,6 +122,18 @@ async function main() {
       return;
     case "browser-check": {
       console.log(JSON.stringify(await refreshBrowserStatus()));
+      return;
+    }
+    case "notion-check": {
+      const token = readNotionToken();
+      if (!token) {
+        console.log(NO_TOKEN_MESSAGE);
+        process.exitCode = 1;
+        return;
+      }
+      const r = await checkRestAccess(new NotionRestApi(token));
+      console.log(r.detail);
+      process.exitCode = r.ok ? 0 : 1;
       return;
     }
     case "cards": {
@@ -137,15 +165,16 @@ async function main() {
     }
     case "owner": {
       const [id, decision] = args;
-      if (!id || (decision !== "GO" && decision !== "REJECT")) throw new Error("usage: owner <order-id> GO|REJECT");
+      const ev = ownerEventFor(decision);
+      if (!id || !ev) throw new Error("usage: owner <order-id> GO|'GO A'|'GO B'|REJECT");
       const orch = build();
-      const o = orch.owner(id, decision);
+      const o = orch.owner(id, ev.decision, ev.option);
       await orch.flushPanel();
       console.log(`${o.id} → ${o.state}`);
       return;
     }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|REJECT | panel-sync <id>");
+      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id>");
       process.exitCode = 1;
   }
 }
