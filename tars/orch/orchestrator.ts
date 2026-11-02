@@ -146,7 +146,8 @@ export class Orchestrator {
         panel.index.set(o.id, id);
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
       } catch (e) {
-        if (creating && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
+        // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
+        if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });

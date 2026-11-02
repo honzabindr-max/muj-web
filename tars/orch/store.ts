@@ -80,18 +80,17 @@ export class Store {
       try {
         fs.writeFileSync(f, String(process.pid), { flag: "wx" });
         break;
-      } catch {
-        try {
-          if (Date.now() - fs.statSync(f).mtimeMs > staleMs) {
-            fs.rmSync(f, { force: true });
-            continue;
-          }
-        } catch {
-          continue; // lock vanished between the two calls
-        }
-        if (Date.now() - t0 >= waitMs) throw new Error("stav zakázky právě mění jiný proces (zámek .state.lock), zkus to za chvíli");
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; // EACCES, ENOSPC, ...: not a collision, never wait on it
       }
+      // Somebody holds it. Whatever happens below, the timeout is checked on every pass.
+      try {
+        if (Date.now() - fs.statSync(f).mtimeMs > staleMs) fs.rmSync(f, { force: true });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // vanished meanwhile: just try again
+      }
+      if (Date.now() - t0 >= waitMs) throw new Error("stav zakázky právě mění jiný proces (zámek .state.lock), zkus to za chvíli");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
     try {
       return fn();

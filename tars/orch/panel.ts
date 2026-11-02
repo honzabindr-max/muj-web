@@ -292,6 +292,9 @@ export class McpPanelSink implements PanelSink {
   }
 }
 
+/** Most pages read when looking a row up by order id (a filtered result is normally a single row). */
+const FIND_MAX_PAGES = 5;
+
 /** REST sink: PATCH/POST /v1/pages with the whitelisted properties; secrets in the row are redacted first. */
 export class RestPanelSink implements PanelSink {
   constructor(private api: NotionRestApi) {}
@@ -317,13 +320,26 @@ export class RestPanelSink implements PanelSink {
   }
 
   async findRowByOrderId(orderId: string): Promise<string | undefined> {
-    const j = await this.api.request<{ results?: Array<{ id?: string; in_trash?: boolean }> }>("POST", `/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`, {
-      filter: { property: "ID zakázky", rich_text: { equals: orderId } },
-      sorts: [{ timestamp: "created_time", direction: "ascending" }],
-      page_size: 5,
-    });
-    const hit = (j.results ?? []).find((r) => r.id && !r.in_trash);
-    return hit?.id ? hit.id.replace(/-/g, "") : undefined;
+    let cursor: string | undefined;
+    for (let page = 0; page < FIND_MAX_PAGES; page++) {
+      const j = await this.api.request<{ results?: Array<{ id?: string; in_trash?: boolean }>; has_more?: boolean; next_cursor?: string | null }>(
+        "POST",
+        `/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`,
+        {
+          filter: { property: "ID zakázky", rich_text: { equals: orderId } },
+          sorts: [{ timestamp: "created_time", direction: "ascending" }],
+          page_size: 25,
+          ...(cursor ? { start_cursor: cursor } : {}),
+        },
+      );
+      const hit = (j.results ?? []).find((r) => r.id && !r.in_trash);
+      if (hit?.id) return hit.id.replace(/-/g, "");
+      if (!j.has_more) return undefined; // the whole result was read and holds no live row: it does not exist
+      if (!j.next_cursor) break;
+      cursor = j.next_cursor;
+    }
+    // Page limit reached, or Notion says there is more without telling where: we cannot tell, so never answer „does not exist“.
+    throw new Error("dohledání řádku nelze ověřit (neúplný výsledek)");
   }
 
   async readOwnerDecision(pageId: string): Promise<string | undefined> {

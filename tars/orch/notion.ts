@@ -233,10 +233,13 @@ export function isFallbackEligible(e: unknown, idempotent: boolean): e is Notion
 }
 
 /**
- * A create whose result is unknown: the request may have been saved (network error, 5xx, unreadable answer).
- * Such a create is never repeated blindly; the order is marked and its row looked up by order id first.
+ * A create whose result is unknown: it may have been saved although we got no usable answer. That is EVERYTHING except
+ * a clean refusal (REST 4xx other than 408: nothing was written). Network errors, 5xx, unreadable or id-less answers,
+ * plain Errors and failures of the claude -p fallback all count. Such a create is never repeated blindly; the order is
+ * marked and its row looked up by order id first.
  */
-export const isUncertainOutcome = (e: unknown): boolean => e instanceof NotionRestError && !e.committedId && (e.status === 0 || e.status >= 500 || e.code === "bad_response");
+export const isUncertainOutcome = (e: unknown): boolean =>
+  !(e instanceof NotionRestError && e.status >= 400 && e.status < 500 && e.status !== 408);
 
 /** REST first; MCP for pages outside the integration's share and whenever REST is unavailable. Reads stay on MCP. */
 export class HybridNotion implements NotionClient {

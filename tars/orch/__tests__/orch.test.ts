@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
 import { AiChain, ClaudeCli, CodexCli, looksLikeLimit, NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS } from "../adapters";
@@ -722,6 +722,22 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
     expect(b.withStateLock(() => "took over", 60)).toBe("took over");
   });
 
+  it("state lock: an error other than EEXIST is thrown at once; a lock that vanishes while we look never loops past the timeout", () => {
+    const a = new Store(dir);
+    const w = vi.spyOn(fs, "writeFileSync");
+    w.mockImplementation(() => { throw Object.assign(new Error("denied"), { code: "EACCES" }); });
+    const t0 = Date.now();
+    expect(() => a.withStateLock(() => 1, 10_000)).toThrow("denied");
+    expect(Date.now() - t0).toBeLessThan(1000); // no waiting on a non-collision
+    w.mockImplementation(() => { throw Object.assign(new Error("exists"), { code: "EEXIST" }); });
+    const st = vi.spyOn(fs, "statSync").mockImplementation(() => { throw Object.assign(new Error("gone"), { code: "ENOENT" }); });
+    expect(() => a.withStateLock(() => 1, 120)).toThrow(/zámek/); // the old code looped here for ever
+    st.mockImplementation(() => { throw Object.assign(new Error("denied"), { code: "EACCES" }); });
+    expect(() => a.withStateLock(() => 1, 10_000)).toThrow("denied");
+    vi.restoreAllMocks();
+    expect(a.withStateLock(() => "fine", 100)).toBe("fine");
+  });
+
   it("deterministic mapping and new columns", () => {
     expect(ownerEventFor("GO")).toEqual({ type: "owner", decision: "GO" });
     expect(ownerEventFor("GO A")).toEqual({ type: "owner", decision: "GO", option: "A" });
@@ -810,8 +826,48 @@ describe("create of unknown outcome never produces a second row (krok 5, kolo 3)
     expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
   });
 
+  it.each([
+    ["a plain Error", () => new Error("boom")],
+    ["a REST answer without id", () => new Error("panel: created page id not found")],
+    ["a 5xx", () => new NotionRestError(502, "service_unavailable")],
+    ["a network error", () => new NotionRestError(0, "network")],
+    ["an unreadable 200 answer", () => new NotionRestError(200, "bad_response")],
+    ["a failure of the claude -p fallback", () => new Error("claude -p: timeout")],
+  ])("%s after the row was saved still marks the order; the next sync looks it up instead of creating again", async (_n, mkErr) => {
+    const rows = new Map<string, PanelRow>();
+    let creates = 0;
+    let lookups = 0;
+    const panel: PanelSink = {
+      upsert: async (row, page) => {
+        if (page) return rows.set(page, row), page;
+        creates++;
+        rows.set("saved1", row); // Notion saved it ...
+        if (creates === 1) throw mkErr(); // ... but we never got a usable answer
+        return "saved1";
+      },
+      findRowByOrderId: async (id) => (lookups++, [...rows.entries()].find(([, r]) => r["ID zakázky"] === id)?.[0]),
+    };
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.flushPanel();
+    expect(creates).toBe(1);
+    expect(lookups).toBeGreaterThan(0);
+    expect(rows.size).toBe(1);
+    expect(new PanelIndex(dir).get(r.order)).toBe("saved1");
+  });
+
+  it("a sink that cannot look rows up never marks (the mark could not be resolved and would block the panel for good)", async () => {
+    let creates = 0;
+    const panel: PanelSink = { upsert: async () => { creates++; throw new Error("boom"); } };
+    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const r = (await o.tick()) as { order: string };
+    await o.flushPanel();
+    expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
+    expect(creates).toBeGreaterThan(1); // every sync still tries again, as before
+  });
+
   it("only uncertain outcomes mark; a clean error (404) does not", async () => {
-    const panel: PanelSink = { upsert: async () => { throw new NotionRestError(404, "object_not_found"); } };
+    const panel: PanelSink = { upsert: async () => { throw new NotionRestError(404, "object_not_found"); }, findRowByOrderId: async () => undefined };
     const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
     const r = (await o.tick()) as { order: string };
     await o.flushPanel();
