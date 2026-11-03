@@ -174,6 +174,40 @@ export function assertClean(where: string, texts: readonly string[], scan: (t: s
   if (kinds.size) throw new SecretStop(where, [...kinds]);
 }
 
+/**
+ * Podoby textu modelu, které se skenují: surový text, text s rozbalenými escapy \uXXXX / \xXX a všechny řetězce (i klíče)
+ * dekódovaného JSON (celá odpověď nebo jeden ```json blok). Tajemství zapsané escapem tak neprojde do run.json ani na kartu.
+ */
+export function scanVariants(text: string): string[] {
+  const out = [text];
+  const unescaped = text
+    .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_m, h: string) => safeChar(parseInt(h, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => safeChar(parseInt(h, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_m, h: string) => safeChar(parseInt(h, 16)))
+    .replace(/\\\//g, "/");
+  if (unescaped !== text) out.push(unescaped);
+  const strings: string[] = [];
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") strings.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (isObj(v))
+      for (const [k, x] of Object.entries(v)) {
+        strings.push(k);
+        walk(x);
+      }
+  };
+  walk(readWholeJson(text));
+  return [...out, ...strings];
+}
+
+function safeChar(code: number): string {
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return "";
+  }
+}
+
 // ───────────────────────────── návrh Clauda (striktní schéma) ─────────────────────────────
 
 export interface Variant {
@@ -387,7 +421,10 @@ export interface CallRecord {
 
 export interface VerdictRecord {
   round: number;
+  /** Platný verdikt (PASS s bezpečnostním nálezem = FIX). */
   verdict: KonziliumVerdict;
+  /** Verdikt, jak ho GPT vrátil, když se liší od platného. */
+  reported_verdict?: KonziliumVerdict;
   findings: Finding[];
   output_sha256: string;
 }
@@ -490,7 +527,7 @@ export function buildCardMarkdown(run: KonziliumRun, input: KonziliumInput, prop
     "",
     `## Oponentura (GPT, ${md(run.checker.name, 60)})`,
     ...run.verdicts.flatMap((v) => [
-      `**Kolo ${v.round}: ${v.verdict}**`,
+      `**Kolo ${v.round}: ${v.verdict}**${v.reported_verdict ? ` (GPT vrátil ${v.reported_verdict}; bezpečnostní nález platí jako FIX)` : ""}`,
       ...(v.findings.length ? v.findings.map((f) => `- ${md(formatFinding(f))}`) : ["- bez nálezů"]),
     ]),
     "",
@@ -536,6 +573,21 @@ export function konziliumPanelRow(run: KonziliumRun, input: KonziliumInput, verd
 }
 
 // ───────────────────────────── běh ─────────────────────────────
+
+/**
+ * Model z codex config.toml: jen řádek `model = "…"` před první sekcí. Izolovaný běh (`--ignore-user-config`) config
+ * nenačítá, proto se model předá přes -m. Nic jiného se z configu nečte.
+ */
+export function codexConfigModel(file: string): string | undefined {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return undefined;
+  }
+  const head = text.split(/^\s*\[/m)[0];
+  return /^\s*model\s*=\s*"([A-Za-z0-9._:-]{1,80})"\s*$/m.exec(head)?.[1];
+}
 
 export interface KonziliumDeps {
   /** Claude (v cli.ts `claude -p --model opus`). */
@@ -660,7 +712,7 @@ async function callModel(
   }
   rec.duration_ms = r.duration_ms;
   try {
-    assertClean(`výstup modelu (${step})`, [String(r.text ?? ""), String(r.error ?? "")]);
+    assertClean(`výstup modelu (${step})`, [...scanVariants(String(r.text ?? "")), ...scanVariants(String(r.error ?? ""))]);
   } catch (e) {
     rec.result = "secret-scan";
     ctx.save();
@@ -690,6 +742,7 @@ async function review(
 ): Promise<StructuredVerdict<KonziliumVerdict> | Outcome> {
   const r = await callModel(ctx, round === 1 ? "oponentura" : "overeni", "checker", deps.checker, snap, buildCheckerPrompt(input, proposal, previous), {
     outputSchema: KONZILIUM_REVIEW_SCHEMA,
+    isolated: true, // codex bez config.toml (MCP Notion apod.), pluginů, apps, hooků, shellu a webu
     timeoutMs: deps.timeoutMs,
   });
   if (!r.ok)
@@ -697,9 +750,18 @@ async function review(
       ? { status: "PENDING", reason: "GPT je na limitu — Konzilium počká, nic není ověřené (Claude GPT nenahrazuje)" }
       : { status: "PAUSED", reason: `GPT nedostupný (${r.error ?? "chyba"}) — nic není ověřené (Claude GPT nenahrazuje)` };
   // Verdikt jen z výstupu kontrolora a jen přesně podle schématu; cokoli jiného není PASS.
-  const v = parseStructuredVerdict(r.text, KONZILIUM_VERDICTS);
-  if (!v) return { status: "PAUSED", reason: "posudek GPT není platný JSON podle schématu — nelze ověřit" };
-  ctx.run.verdicts.push({ round, verdict: v.verdict, findings: v.findings, output_sha256: sha256(r.text) });
+  const parsed = parseStructuredVerdict(r.text, KONZILIUM_VERDICTS);
+  if (!parsed) return { status: "PAUSED", reason: "posudek GPT není platný JSON podle schématu — nelze ověřit" };
+  // DR-031: bezpečnostní nález blokuje vždy, i když ho GPT označí low/info a verdikt je PASS → platí jako FIX.
+  const v: StructuredVerdict<KonziliumVerdict> =
+    parsed.verdict === "PASS" && parsed.findings.some(isBlocking) ? { ...parsed, verdict: "FIX" } : parsed;
+  ctx.run.verdicts.push({
+    round,
+    verdict: v.verdict,
+    ...(v.verdict !== parsed.verdict ? { reported_verdict: parsed.verdict } : {}),
+    findings: v.findings,
+    output_sha256: sha256(r.text),
+  });
   ctx.save();
   return v;
 }
@@ -722,6 +784,13 @@ const isOutcome = (x: unknown): x is Outcome => isObj(x) && typeof x.status === 
  */
 export async function runKonzilium(inputFile: string, deps: KonziliumDeps): Promise<KonziliumResult> {
   const snaps = assertKonziliumFamilies(deps.creator, deps.checker);
+  // Popis adaptérů jde do run.json, karty i panelu: zkontroluje se dřív, než se cokoli zapíše.
+  try {
+    assertClean("popis adaptérů", [snaps.creator.name, snaps.creator.model, snaps.checker.name, snaps.checker.model]);
+  } catch (e) {
+    if (e instanceof SecretStop) return { status: "STOP", reason: e.message, calls: 0 };
+    throw e;
+  }
   const now = deps.now ?? (() => new Date());
   const root = path.join(deps.runsDir, KONZILIUM_DIR);
   fs.mkdirSync(root, { recursive: true });
@@ -783,7 +852,7 @@ async function runLocked(
   };
   try {
     // 1) Vstup: cesta, celý soubor a každé pole zvlášť. Nic z něj neodejde k modelu, dokud není čisté.
-    assertClean("vstup (cesta a soubor)", [inputFile, raw]);
+    assertClean("vstup (cesta a soubor)", [inputFile, ...scanVariants(raw)]);
     let input: KonziliumInput;
     try {
       input = parseInput(raw);

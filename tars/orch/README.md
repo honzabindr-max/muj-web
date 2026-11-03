@@ -73,7 +73,8 @@ tars/orch/launchd/install.sh
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 
 Jen před podstatným rozhodnutím (`kind`: nabidka | ux | znacka | cena | architektura | bezpecnost). Claude (Opus, bez nástrojů)
-navrhne jednu verzi + nejvýš 1 alternativu, GPT (`codex exec --output-schema`, read-only) ji oponuje (zákazník, obor,
+navrhne jednu verzi + nejvýš 1 alternativu, GPT (`codex exec --output-schema`, read-only, izolovaně: `CODEX_ISOLATION_ARGS` = bez config.toml a jeho MCP,
+pluginů, apps, hooků, shellu a webu; model z config.toml přes `-m`) ji oponuje (zákazník, obor,
 bezpečnost, první princip). Normálně 2 volání, s jednou opravou nejvýš 4. Výstupy, kartu (card-data v1) a řádek panelu
 (WAITING_OWNER) zapisuje jen skript, přes Notion REST (bez tokenu se nic nespustí). Rodina modelu je z konfigurace adaptéru.
 Secret-scan všech vstupů i výstupů, nález nebo chyba scanu = STOP. GPT na limitu = PENDING, neověřitelný posudek = PAUSED.

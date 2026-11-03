@@ -11,7 +11,7 @@ import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import { McpBrowser } from "./mcp-browser";
 import { runGuardWithI8 } from "./guard";
-import { exitCodeFor, runKonzilium } from "./konzilium-lite";
+import { codexConfigModel, exitCodeFor, runKonzilium } from "./konzilium-lite";
 import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE, RestNotion } from "./notion";
 import { readNotionToken } from "./notion-token";
 import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
@@ -198,7 +198,8 @@ async function main() {
       const api = new NotionRestApi(token);
       const r = await runKonzilium(path.resolve(file), {
         creator: new ClaudeCli("opus"),
-        checker: new CodexCli(),
+        // Izolovaný codex nečte config.toml, model z něj se proto předá přes -m.
+        checker: new CodexCli(codexConfigModel(path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "config.toml")) ?? "codex-default"),
         runsDir,
         notion: new RestNotion(api),
         panel: new RestPanelSink(api),

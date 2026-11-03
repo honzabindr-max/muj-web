@@ -23,7 +23,26 @@ export interface RunOpts {
   env?: Record<string, string>;
   /** codex only: JSON Schema for `codex exec --output-schema` (structured verdict). Other adapters ignore it. */
   outputSchema?: JsonSchema;
+  /**
+   * codex only: pure text review without side channels (Konzilium Lite): no user config.toml (its MCP servers, plugins,
+   * hooks, profiles), no session files, and apps/plugins/hooks/browser/computer use/shell/web search switched off
+   * (CODEX_ISOLATION_ARGS). Other adapters ignore it.
+   */
+  isolated?: boolean;
 }
+
+/**
+ * `codex exec` flags of an isolated run. `--ignore-user-config` drops ~/.codex/config.toml (MCP servers such as Notion,
+ * plugins, hooks); `--disable plugins/apps` also drops bundled plugin servers and ChatGPT connectors (`-c mcp_servers={}`
+ * alone does not: it is merged, checked with `codex mcp list`). Auth still comes from CODEX_HOME.
+ */
+export const CODEX_ISOLATION_ARGS: readonly string[] = [
+  "--ignore-user-config",
+  "--ephemeral",
+  ...["plugins", "apps", "hooks", "remote_plugin", "browser_use", "browser_use_external", "in_app_browser", "computer_use", "image_generation", "multi_agent", "shell_tool", "unified_exec", "tool_suggest", "skill_mcp_dependency_install"].flatMap((f) => ["--disable", f]),
+  "-c",
+  "web_search=disabled",
+];
 
 export interface AdapterResult {
   ok: boolean;
@@ -186,6 +205,7 @@ export class CodexCli implements TextAdapter {
       out,
     ];
     if (this.model !== "codex-default") args.push("-m", this.model);
+    if (opts.isolated) args.push(...CODEX_ISOLATION_ARGS);
     const schema = opts.outputSchema ? writeSchemaFile(opts.outputSchema) : undefined;
     if (schema) args.push("--output-schema", schema.file);
     args.push("-"); // prompt from stdin

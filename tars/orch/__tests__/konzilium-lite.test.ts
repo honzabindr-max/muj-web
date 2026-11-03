@@ -5,10 +5,11 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { AdapterResult, RunOpts, TextAdapter } from "../adapters";
+import { CODEX_ISOLATION_ARGS, CodexCli, type AdapterResult, type RunOpts, type TextAdapter } from "../adapters";
 import { NO_MCP_CONFIG, validateCardData } from "../card-data";
 import {
   assertClean,
+  codexConfigModel,
   KONZILIUM_REVIEW_SCHEMA,
   KonziliumConfigError,
   MAX_MODEL_CALLS,
@@ -25,6 +26,8 @@ import type { ModelFamily } from "../types";
 
 // Vzor tajemství se skládá až za běhu (v repozitáři není celý token).
 const SECRET = ["gh", "p_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"].join("");
+/** Totéž tajemství s prvním znakem jako JSON unicode escape (surový text pak vzor neobsahuje). */
+const ESCAPED = `\\u0067${SECRET.slice(1)}`;
 
 type Reply = Partial<AdapterResult>;
 
@@ -134,7 +137,11 @@ function readRun(runId: string): KonziliumRun {
 function noSecretOnDisk(): void {
   const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   if (!fs.existsSync(runsDir)) return;
-  for (const f of walk(runsDir)) expect(fs.readFileSync(f, "utf8")).not.toContain(SECRET);
+  for (const f of walk(runsDir)) {
+    const body = fs.readFileSync(f, "utf8");
+    expect(body).not.toContain(SECRET);
+    expect(body).not.toContain(SECRET.slice(1)); // ani zakódovaná podoba (escape prvního znaku)
+  }
 }
 
 describe("Konzilium Lite — šťastná cesta", () => {
@@ -151,6 +158,7 @@ describe("Konzilium Lite — šťastná cesta", () => {
     expect(creator.opts[0]).toMatchObject({ noBuiltinTools: true, mcpConfig: NO_MCP_CONFIG });
     expect(creator.opts[0].allowedTools).toBeUndefined();
     expect(checker.opts[0].outputSchema).toEqual(KONZILIUM_REVIEW_SCHEMA);
+    expect(checker.opts[0].isolated).toBe(true);
     for (const o of [...creator.opts, ...checker.opts]) {
       expect(o.cwd.startsWith(tmpRoot)).toBe(true);
       expect(fs.existsSync(o.cwd)).toBe(false);
@@ -244,6 +252,31 @@ describe("Konzilium Lite — oprava (max 4 volání)", () => {
     const card = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(notion.pages[0].markdown)![1]);
     expect(card.checks).toContainEqual({ label: "Oponentura GPT po opravě: zbývají výhrady (známá rizika)", ok: false });
     expect(card.risks.join(" ")).toContain("nejasná formulace ceny");
+  });
+
+  it("PASS s bezpečnostním nálezem low platí jako FIX: oprava, a když zůstane i po ní → PAUSED", async () => {
+    const passSec = JSON.stringify({ verdict: "PASS", findings: [{ severity: "low", file: null, line: null, text: "Bezpečnost: odkaz na platbu bez HTTPS." }] });
+    const { creator, notion, panel, deps } = setup([{ text: JSON.stringify(PROPOSAL) }, { text: JSON.stringify(PROPOSAL) }], [{ text: passSec }, { text: passSec }]);
+    const r = await runKonzilium(inputFile(), deps);
+    expect(r.status).toBe("PAUSED");
+    expect(r.calls).toBe(4);
+    expect(creator.prompts[1]).toContain("odkaz na platbu bez HTTPS");
+    expect(notion.pages).toHaveLength(0);
+    expect(panel.rows).toHaveLength(0);
+    const run = readRun(r.run_id!);
+    expect(run.verdicts.map((v) => [v.verdict, v.reported_verdict])).toEqual([
+      ["FIX", "PASS"],
+      ["FIX", "PASS"],
+    ]);
+  });
+
+  it("PASS s bezpečnostním nálezem v 1. kole, po opravě čisté PASS → karta", async () => {
+    const passSec = JSON.stringify({ verdict: "PASS", findings: [{ severity: "info", file: null, line: null, text: "[Bezpečnost] chybí zmínka o GDPR." }] });
+    const { notion, deps } = setup([{ text: JSON.stringify(PROPOSAL) }, { text: JSON.stringify(PROPOSAL) }], [{ text: passSec }, { text: PASS }]);
+    const r = await runKonzilium(inputFile(), deps);
+    expect(r.status).toBe("WAITING_OWNER");
+    expect(r.calls).toBe(4);
+    expect(notion.pages[0].markdown).toContain("GPT vrátil PASS; bezpečnostní nález platí jako FIX");
   });
 
   it.each([
@@ -395,14 +428,39 @@ describe("Konzilium Lite — secret-scan (STOP)", () => {
     noSecretOnDisk();
   });
 
-  it("tajemství zapsané v souboru JSON escapem (surový text čistý) chytí scan jednotlivých polí → STOP", async () => {
+  it("tajemství zapsané v souboru JSON escapem (surový text čistý) → STOP", async () => {
     const { creator, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: PASS }]);
-    const raw = JSON.stringify({ ...INPUT, context: `token ${SECRET}` }).replace(SECRET, `\\u0067${SECRET.slice(1)}`);
+    const raw = JSON.stringify({ ...INPUT, context: `token ${SECRET}` }).replace(SECRET, ESCAPED);
     expect(raw).not.toContain(SECRET);
     const r = await runKonzilium(inputFile(raw), deps);
     expect(r.status).toBe("STOP");
-    expect(r.reason).toContain("vstup (pole)");
     expect(creator.prompts).toHaveLength(0);
+  });
+
+  it("tajemství v JSON escapu ve výstupu GPT i Clauda → STOP, nic (ani zakódované) na disku", async () => {
+    const leakVerdict = JSON.stringify({ verdict: "PASS", findings: [{ severity: "info", file: null, line: null, text: `x ${SECRET}` }] }).replace(SECRET, ESCAPED);
+    const a = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: leakVerdict }]);
+    const ra = await runKonzilium(inputFile({ ...INPUT, title: "esc gpt" }), a.deps);
+    expect(ra.status).toBe("STOP");
+    expect(a.notion.pages).toHaveLength(0);
+    expect(readRun(ra.run_id!).verdicts).toHaveLength(0);
+    const leakProposal = JSON.stringify({ ...PROPOSAL, risks: [`r ${SECRET}`] }).replace(SECRET, ESCAPED);
+    const b = setup([{ text: leakProposal }], [{ text: PASS }]);
+    const rb = await runKonzilium(inputFile({ ...INPUT, title: "esc claude" }), b.deps);
+    expect(rb.status).toBe("STOP");
+    expect(b.checker.prompts).toHaveLength(0);
+    noSecretOnDisk();
+  });
+
+  it("tajemství v popisu adaptéru → STOP dřív, než vznikne run.json", async () => {
+    const { creator, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: PASS }]);
+    (deps.checker as Fake).model = SECRET;
+    const r = await runKonzilium(inputFile(), deps);
+    expect(r.status).toBe("STOP");
+    expect(r.run_id).toBeUndefined();
+    expect(creator.prompts).toHaveLength(0);
+    expect(fs.existsSync(path.join(runsDir, "konzilium"))).toBe(false);
+    noSecretOnDisk();
   });
 
   it("tajemství v cestě vstupního souboru → STOP", async () => {
@@ -517,5 +575,47 @@ describe("Konzilium Lite — konfigurace a běh", () => {
     const r = await runKonzilium(inputFile(), deps);
     expect(r.status).toBe("FAILED");
     expect(panel.rows).toHaveLength(0);
+  });
+});
+
+describe("Konzilium Lite — izolovaný codex (falešný codex na PATH)", () => {
+  let bin: string;
+  let oldPath: string | undefined;
+  beforeEach(() => {
+    bin = fs.mkdtempSync(path.join(os.tmpdir(), "fake-codex-konz-"));
+    oldPath = process.env.PATH;
+    process.env.PATH = `${bin}:${oldPath}`;
+    // Falešný codex zapíše své argumenty a vrátí platný verdikt do -o souboru.
+    fs.writeFileSync(
+      path.join(bin, "codex"),
+      `#!/bin/bash\ncat > /dev/null\nprintf '%s\\n' "$@" > "${bin}/args"\nout=""\nwhile [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; esac; shift; done\nprintf '%s' '${PASS}' > "$out"\n`,
+      { mode: 0o755 },
+    );
+  });
+  afterEach(() => {
+    process.env.PATH = oldPath;
+    fs.rmSync(bin, { recursive: true, force: true });
+  });
+
+  it("isolated: bez config.toml (MCP), pluginů, apps, hooků, shellu a webu; model přes -m; bez isolated se nic nemění", async () => {
+    const cwd = fs.mkdtempSync(path.join(tmpRoot, "c-"));
+    const r = await new CodexCli("gpt-test-1").run("p", { cwd, outputSchema: KONZILIUM_REVIEW_SCHEMA, isolated: true });
+    expect(r.ok).toBe(true);
+    const args = fs.readFileSync(path.join(bin, "args"), "utf8").split("\n");
+    expect(args).toEqual(expect.arrayContaining(["-s", "read-only", "-m", "gpt-test-1", ...CODEX_ISOLATION_ARGS]));
+    for (const f of ["plugins", "apps", "hooks", "shell_tool"]) expect(args.join(" ")).toContain(`--disable ${f}`);
+    expect(args).toContain("--ignore-user-config");
+    await new CodexCli().run("p", { cwd });
+    const plain = fs.readFileSync(path.join(bin, "args"), "utf8").split("\n");
+    expect(plain).not.toContain("--ignore-user-config");
+  });
+
+  it("codexConfigModel čte jen model před první sekcí", () => {
+    const f = path.join(dir, "config.toml");
+    fs.writeFileSync(f, 'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "xhigh"\n[mcp_servers.notion]\nmodel = "jiny"\n');
+    expect(codexConfigModel(f)).toBe("gpt-6.1-sol");
+    fs.writeFileSync(f, '[profiles.x]\nmodel = "gpt-x"\n');
+    expect(codexConfigModel(f)).toBeUndefined();
+    expect(codexConfigModel(path.join(dir, "neni.toml"))).toBeUndefined();
   });
 });
