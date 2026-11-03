@@ -521,7 +521,7 @@ export class Orchestrator {
             } catch (e) {
               // Čisté odmítnutí (REST 4xx, nic se nezapsalo) kvůli sekci s daty karty: stránka vznikne bez ní.
               if (!dataSection || !(e instanceof NotionRestError) || e.status < 400 || e.status >= 500 || e.status === 408 || e.status === 429) throw e;
-              this.log({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
+              this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
               card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
             }
             o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
@@ -549,12 +549,21 @@ export class Orchestrator {
       const data = await buildCardData(o, draft, o.delivered_url, {
         adapter: this.d.cardAdapter,
         cwd: this.d.store.orderDir(o.id),
-        onFallback: (reason) => this.log({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: záložní objekt", reason }),
+        onFallback: (reason) => this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: záložní objekt", reason }),
       });
       return cardDataSection(data);
     } catch (e) {
-      this.log({ order: o.id, kind: "error", role: "orchestrator", result: "card-data: sekce vynechána", reason: (e as Error).message.slice(0, 200) });
+      this.safeLog({ order: o.id, kind: "error", role: "orchestrator", result: "card-data: sekce vynechána", reason: String((e as Error)?.message ?? e).slice(0, 200) });
       return "";
+    }
+  }
+
+  /** Diagnostický log karty: jeho selhání (plný disk, zámek …) nesmí shodit doručení zakázky. */
+  private safeLog(e: Omit<LogEntry, "ts">): void {
+    try {
+      this.log(e);
+    } catch {
+      /* log je jen diagnostika */
     }
   }
 
