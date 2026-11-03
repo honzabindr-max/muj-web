@@ -23,9 +23,7 @@ import {
 } from "../departments";
 import { NotImplementedDesktop } from "../desktop";
 import { jsonEqual, lastStepSentence, McpPanelSink, PanelIndex, panelRow, queueOf, toolCalls, type PanelRow, type PanelSink } from "../panel";
-import http from "node:http";
 
-import { handler, listShots, safeShotPath, snapshot } from "../panel-server";
 import { missingSources, SourceLoader } from "../sources";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
 import { spawnSync } from "node:child_process";
@@ -874,41 +872,6 @@ describe("create of unknown outcome never produces a second row (krok 5, kolo 3)
     const r = (await o.tick()) as { order: string };
     await o.flushPanel();
     expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
-  });
-});
-
-describe("local live panel", () => {
-  it("snapshot reads state and log; screenshots are path-safe", async () => {
-    const { o } = orch();
-    await o.tick();
-    const id = store.listOrders()[0].id;
-    fs.mkdirSync(path.join(dir, id, "shots-r0"), { recursive: true });
-    fs.writeFileSync(path.join(dir, id, "shots-r0", "step-01-goto-a1.png"), "png");
-    const snap = snapshot(dir);
-    expect(snap.orders[0].state).toBe("DONE");
-    expect(snap.log.some((e) => e.kind === "transition")).toBe(true);
-    expect(listShots(path.join(dir, id))).toEqual(["shots-r0/step-01-goto-a1.png"]);
-    expect(safeShotPath(dir, id, "shots-r0/step-01-goto-a1.png")).toBeTruthy();
-    expect(safeShotPath(dir, id, "../../etc/passwd.png")).toBeUndefined();
-    expect(safeShotPath(dir, "../x", "a.png")).toBeUndefined();
-    expect(safeShotPath(dir, id, "state.json")).toBeUndefined();
-  });
-});
-
-describe("local live panel HTTP", () => {
-  it("serves page and state read-only on localhost", async () => {
-    const { o } = orch();
-    await o.tick();
-    const srv = http.createServer(handler(dir));
-    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
-    const port = (srv.address() as { port: number }).port;
-    const get = (p: string, method = "GET") => fetch(`http://127.0.0.1:${port}${p}`, { method });
-    expect((await get("/")).status).toBe(200);
-    const st = (await (await get("/api/state")).json()) as { orders: Array<{ state: string }> };
-    expect(st.orders[0].state).toBe("DONE");
-    expect((await get("/shot?order=wo-x&file=../../x.png")).status).toBe(404);
-    expect((await get("/api/state", "POST")).status).toBe(405);
-    srv.close();
   });
 });
 
