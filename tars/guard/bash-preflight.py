@@ -34,6 +34,7 @@ REASONS = {
     "inplace": "Úprava souboru na místě (sed -i / perl -i) vyvolá ruční schvalování. Soubor uprav nástrojem Edit.",
 }
 
+NOVALUE_OPTS = {"-0", "--null", "--no-run-if-empty", "--verbose", "--interactive", "--open-tty"}
 WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout"}
 SHELLS = {"sh", "bash", "zsh", "dash"}
 OK_TARGETS = {"/dev/null", "/dev/stderr", "/dev/stdout"}
@@ -355,7 +356,7 @@ class Parser:
         if first == "find":
             for k in range(idx + 1, n):
                 if words[k] in ("-exec", "-execdir", "-ok", "-okdir") and k + 1 < n:
-                    self.apply(words[k + 1:])
+                    self.check(words[k + 1:])
             return
         if first == "command" and idx + 1 < n and words[idx + 1] in ("-v", "-V"):
             return
@@ -368,7 +369,8 @@ class Parser:
             while k < n:
                 w = words[k]
                 if w.startswith("-"):
-                    after_opt = True
+                    # přepínače bez hodnoty (xargs -0 apod.) nepřisuzují hodnotu následujícímu slovu
+                    after_opt = w not in NOVALUE_OPTS
                     k += 1
                     continue
                 if ENV_RE.match(w) or re.match(r"^[0-9.]+[smhd]?$", w):
