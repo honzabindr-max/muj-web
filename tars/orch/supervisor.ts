@@ -2,7 +2,7 @@
 // writes its brief. It never creates and never checks (§1) — it only returns JSON that the
 // code validates. Order source is restricted to HANDOFF ACTIVE TRACK / DALŠÍ KROK.
 import type { LogEntry, OrderBrief } from "./types";
-import { STRUCTURED_FORMAT } from "./verdict";
+import { formatFinding, STRUCTURED_FORMAT, type Finding } from "./verdict";
 
 export const HANDOFF_PAGE_ID = "3d40ae49f507817db496c4e823996bc4";
 
@@ -145,15 +145,13 @@ export const ROLE_FACTS = `ROZDĚLENÍ ROLÍ (TARS-ORCH-001 §1–§3, fakt, ne 
 /**
  * DR-031 b. 2: verdikt FIX, jehož VŠECHNY nálezy mají výslovnou severity medium/low/info, jde přijmout
  * jako "PASS s výhradami". Vrací nálezy (známá rizika) nebo undefined, když přijmout nelze
- * (jiný verdikt, prázdný seznam, nález bez čitelné severity, např. "Nelze ověřit", nebo critical/high).
+ * (jiný verdikt, žádné strukturované findings, prázdný seznam nebo critical/high).
  */
-export function acceptableCheckNotes(verdict: string | undefined, issues: string[]): string[] | undefined {
-  if (verdict !== "FIX" || issues.length === 0) return undefined;
-  for (const i of issues) {
-    const m = /^\[(critical|high|medium|low|info)\]/.exec(i);
-    if (!m || m[1] === "critical" || m[1] === "high") return undefined;
-  }
-  return issues;
+export function acceptableCheckNotes(verdict: string | undefined, findings: Finding[] | undefined): string[] | undefined {
+  // Jen strukturovaný verdikt (parseStructuredVerdict uspěl); severity se bere z findings[].severity, ne z textu.
+  if (verdict !== "FIX" || !findings || findings.length === 0) return undefined;
+  if (findings.some((f) => f.severity !== "medium" && f.severity !== "low" && f.severity !== "info")) return undefined;
+  return findings.map(formatFinding);
 }
 
 export function buildBriefCheckPrompt(
