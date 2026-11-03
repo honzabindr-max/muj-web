@@ -16,7 +16,7 @@ import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } fr
 import { scanSecrets } from "./secret-scan";
 import { isActionable, ownerEventFor, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
-import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
+import { acceptableCheckNotes, BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
 import { callChecker } from "./departments";
 import type { Department, LogEntry, Order } from "./types";
 
@@ -448,13 +448,20 @@ export class Orchestrator {
           }
           const deptSources = sourcesBlock(loaded.filter((l) => required.includes(l.key)));
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const { r: c, v } = await callChecker(this.d.briefChecker, buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources, Boolean(this.d.briefChecker.supportsOutputSchema)), this.d.store.orderDir(order.id));
+          const { r: c, v, findings: cFindings } = await callChecker(this.d.briefChecker, buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources, Boolean(this.d.briefChecker.supportsOutputSchema)), this.d.store.orderDir(order.id));
           this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
           if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
           this.d.store.writeFile(order.id, `brief-check-a${attempt}.md`, c.text);
           if (v?.verdict === "PASS") {
             this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
             return this.apply({ ...order, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `${brief.department}: ${brief.title}` });
+          }
+          // DR-031 b. 2: poslední pokus s FIX jen medium/low/info = známá rizika, zadání se přijme s výhradami.
+          const notes = attempt === 1 && this.d.briefChecker.supportsOutputSchema ? acceptableCheckNotes(v?.verdict, cFindings) : undefined;
+          if (notes) {
+            const accepted = { ...brief, check_notes: notes };
+            this.d.store.writeFile(order.id, "brief.md", briefMarkdown(accepted));
+            return this.apply({ ...order, brief: accepted }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `PASS s výhradami (DR-031): ${brief.department}: ${brief.title}`, reason: notes.join(" | ").slice(0, 500) });
           }
           issues = v?.issues ?? ["verdikt kontrolora nečitelný"];
           lastErr = `brief check ${v?.verdict ?? "unparseable"}: ${issues.join("; ")}`;

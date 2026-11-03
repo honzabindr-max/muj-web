@@ -44,6 +44,8 @@ export interface OrderBrief {
   owner_decisions: string[];
   /** Keys of canonical sources the order relies on (must cover the creator card's required sources). */
   sources: string[];
+  /** Výhrady kontroly zadání (medium/low/info nálezy posledního kola), přijaté jako známá rizika (DR-031 b. 2). */
+  check_notes?: string[];
 }
 
 export interface StateTransitionRecord {

@@ -2,7 +2,7 @@
 // writes its brief. It never creates and never checks (§1) — it only returns JSON that the
 // code validates. Order source is restricted to HANDOFF ACTIVE TRACK / DALŠÍ KROK.
 import type { LogEntry, OrderBrief } from "./types";
-import { STRUCTURED_FORMAT } from "./verdict";
+import { formatFinding, STRUCTURED_FORMAT, type Finding } from "./verdict";
 
 export const HANDOFF_PAGE_ID = "3d40ae49f507817db496c4e823996bc4";
 
@@ -142,6 +142,18 @@ export const ROLE_FACTS = `ROZDĚLENÍ ROLÍ (TARS-ORCH-001 §1–§3, fakt, ne 
 - Doručení: copy a vizual → Notion podstránka DRAFT, kterou zakládá orchestrátor; dev → PR draft (TARS-ORCH-001 §2, §3 bod 6). To je vlastnost systému, ne pravomoc, kterou musí dokládat HANDOFF.
 - Rozhodnutí vyhrazená Sponzorovi končí ve WAITING_OWNER s kartou GO / REJECT (TARS-ORCH-001 §3 bod 7, §5).`;
 
+/**
+ * DR-031 b. 2: verdikt FIX, jehož VŠECHNY nálezy mají výslovnou severity medium/low/info, jde přijmout
+ * jako "PASS s výhradami". Vrací nálezy (známá rizika) nebo undefined, když přijmout nelze
+ * (jiný verdikt, žádné strukturované findings, prázdný seznam nebo critical/high).
+ */
+export function acceptableCheckNotes(verdict: string | undefined, findings: Finding[] | undefined): string[] | undefined {
+  // Jen strukturovaný verdikt (parseStructuredVerdict uspěl); severity se bere z findings[].severity, ne z textu.
+  if (verdict !== "FIX" || !findings || findings.length === 0) return undefined;
+  if (findings.some((f) => f.severity !== "medium" && f.severity !== "low" && f.severity !== "info")) return undefined;
+  return findings.map(formatFinding);
+}
+
 export function buildBriefCheckPrompt(
   brief: OrderBrief,
   handoff: string,
@@ -188,6 +200,7 @@ KALIBRACE VERDIKTU:
 - FIX jen pro vadu, která by vedla ke špatnému výstupu, porušila zákaz nebo by rozhodla za Sponzora. Jinak PASS a drobnosti uveď jako poznámky.
 - BLOCK jen když zakázka nejde udělat bez vlastníka nebo porušuje "Co se NESMÍ dělat znovu".
 - Nehledej nové typy připomínek v dalších kolech; posuď, zda jsou vyřešeny dřívější blokující vady.
+- U každého FIX nálezu popiš konkrétní scénář, jak by tvůrce kvůli vadě dodal špatný výstup nebo rozhodl za Sponzora. Bez takového scénáře nález uveď jako low (známé riziko).
 
 ${structured ? STRUCTURED_FORMAT : `Vrať POUZE JSON v bloku \`\`\`json: {"verdict": "PASS"|"FIX"|"BLOCK", "issues": ["konkrétní nedostatek s odkazem na bod checklistu"]}`}`;
 }

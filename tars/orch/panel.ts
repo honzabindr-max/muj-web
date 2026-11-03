@@ -78,6 +78,10 @@ export function lastStepSentence(o: Order): string {
         : "Výstup doručen, zakázka hotová.";
     case "owner":
       return h.to === "DONE" ? "Vlastník dal GO." : "Vlastník dal REJECT.";
+    case "planned":
+      return o.brief?.check_notes?.length
+        ? "Supervizor vybral zakázku z HANDOFF, kontrola zadání: PASS s výhradami (DR-031)."
+        : STEP_TEXT.planned;
     case "fail":
     case "unknown":
       return `Zastaveno: ${(o.failure_reason ?? "").slice(0, 150)}`;
