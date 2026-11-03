@@ -209,12 +209,13 @@ describe("state machine", () => {
       [w({ approved_hash: H, artifact_hash: G, readback: rb(H) }), /artifact_hash ≠ approved_hash/],
       [w({ approved_hash: H, artifact_hash: H }), /čeká na read-back/],
       [w({ approved_hash: H, artifact_hash: H, readback: "{nečitelné" }), /čeká na read-back/],
-      [w({ approved_hash: H, artifact_hash: H, readback: rb(G) }), /neodpovídá/],
+      [w({ approved_hash: H, artifact_hash: H, readback: rb(G) }), /obsah se po vydání karty změnil/],
+      // Kolo oprav 1: rendered_hash už není druhý přijatý otisk.
+      [w({ approved_hash: H, artifact_hash: H, rendered_hash: G, readback: rb(G) }), /obsah se po vydání karty změnil/],
       [w({ approved_hash: H, artifact_hash: H, readback: rb(H, "https://app.notion.com/p/jina") }), /jiné URL/],
     ] as const)
       expect(() => transition(o, go, NOW)).toThrow(why);
-    // Notion's own rendering of the same DRAFT (rendered_hash) is accepted as well.
-    expect(transition(w({ approved_hash: H, artifact_hash: H, rendered_hash: G, readback: rb(G) }), go, NOW).state).toBe("DONE");
+    expect(transition(w({ approved_hash: H, artifact_hash: H, readback: rb(H) }), go, NOW).state).toBe("DONE");
     expect(transition(w({}), { type: "owner", decision: "REJECT" }, NOW).state).toBe("FAILED");
   });
 
@@ -383,7 +384,7 @@ describe("parsers", () => {
   });
 
   it("guard-unknown-fails-closed (DR-039): anything but a clean 8/8 with I1–I8 is an alarm", () => {
-    const items = ["I1 a", "I2 b", "I3 c", "I4 d", "I5 e", "I6 f", "I7 g", "I8 h"];
+    const items = ["I1 OK", "I2 PASS", "I3 OK", "I4 OK", "I5 OK", "I6 OK", "I7 Vercel CLI není nainstalované", "I8 OK"];
     const line = (xs: string[], n = xs.length, t = 8) => `TARS-GUARD OK (${n}/${t}): ${xs.map((x) => `${x};`).join(" ")}`;
     expect(parseGuardOutput(line(items)).alarm).toBe(false);
     for (const out of [
@@ -402,9 +403,21 @@ describe("parsers", () => {
       "TARS-GUARD OK (osm/8): I1",
       "nějaký šum bez stavového řádku",
       line(items.map((x) => (x.startsWith("I2") ? "I2 přihlášení gh UNKNOWN" : x))),
+      // Kolo oprav 1: každá položka musí mít výslovně kladný stav.
+      "TARS-GUARD OK (8/8): I1 SKIP; I2 SKIP; I3 SKIP; I4 SKIP; I5 SKIP; I6 SKIP; I7 SKIP; I8 SKIP;",
+      line(items.map((x) => (x.startsWith("I3") ? "I3 SKIP" : x))), // one SKIP
+      line(items.map((x) => (x.startsWith("I4") ? "I4" : x))), // empty state
+      line(items.map((x) => (x.startsWith("I5") ? "I5 něco jiného" : x))), // unknown state
+      line(items.map((x) => (x.startsWith("I6") ? "I6 OK ale ne" : x))), // OK with extra text is not a known state
+      line([...items.slice(0, 7), "I1 OK"]), // duplicate I1 instead of I8
+      line([...items, "I1 OK"], 8), // duplicate I1, 9 items
+      line(items.map((x) => (x.startsWith("I2") ? "I2 a" : x))),
     ])
       expect(parseGuardOutput(out).alarm, out).toBe(true);
     expect(parseGuardOutput(line(items.slice(0, 7), 7)).summary).toMatch(/fail-closed/);
+    expect(parseGuardOutput("TARS-GUARD OK (8/8): I1 SKIP; I2 SKIP; I3 SKIP; I4 SKIP; I5 SKIP; I6 SKIP; I7 SKIP; I8 SKIP;").summary).toMatch(/I1 stav „SKIP“ není kladný/);
+    expect(parseGuardOutput(line(items.map((x) => (x.startsWith("I4") ? "I4" : x)))).summary).toMatch(/I4 bez stavu/);
+    expect(parseGuardOutput(line([...items.slice(0, 7), "I1 OK"])).summary).toMatch(/chybí I8|I1 uvedeno víckrát/);
   });
 
   it("I8 OK next to I8 WARN / UNKNOWN is an alarm (fail-closed)", () => {
@@ -688,14 +701,14 @@ describe("DR-039: GO bound to the artifact hash, DONE only with a read-back", ()
     return { ...x, id: r.order };
   }
 
-  it("the card binds GO to the sha256 of the DRAFT exactly as sent; GO is recorded, the read-back makes it DONE", async () => {
+  it("the card binds GO to the sha256 of the DRAFT read back before the card; GO is recorded, the read-back makes it DONE", async () => {
     const { o, notion, id } = await waitingOrder();
     const w = store.load(id);
     const sent = artifactHash(notion.pages[0].md);
     expect(w.meta.delivered_hash).toBe(sent);
-    expect(w.meta.approved_hash).toBe(sent);
+    expect(w.meta.approved_hash).toBe(sent); // the mock returns the page unchanged
     expect(w.meta.artifact_hash).toBe(sent);
-    expect(w.meta.rendered_hash).toBeUndefined(); // the mock returns the page unchanged
+    expect(notion.reads).toBe(1); // one read-back, before the card was written
     expect(notion.pages[1].md).toContain(sent.slice(0, 16));
     const go = o.owner(id, "GO", "A");
     expect(go.state).toBe("WAITING_OWNER");
@@ -752,7 +765,7 @@ describe("DR-039: GO bound to the artifact hash, DONE only with a read-back", ()
     expect(held.meta.owner_go).toBeUndefined();
     expect(held.meta.artifact_hash).not.toBe(held.meta.approved_hash);
     expect(JSON.parse(held.meta.readback).hash).toBe(held.meta.artifact_hash);
-    expect(store.readLog(200).some((e) => /obsah cílové stránky se liší/.test(e.result ?? ""))).toBe(true);
+    expect(store.readLog(200).some((e) => /obsah se po vydání karty změnil/.test(e.result ?? ""))).toBe(true);
     expect(o.owner(id, "GO").meta.owner_go).toBeUndefined(); // stale now
     expect(o.owner(id, "REJECT").state).toBe("FAILED"); // REJECT always works
   });
@@ -771,42 +784,77 @@ describe("DR-039: GO bound to the artifact hash, DONE only with a read-back", ()
     expect(store.load(id).state).toBe("DONE");
   });
 
-  it("no read-back path at all (Notion without REST token) → GO stays WAITING_OWNER", async () => {
-    const plain: NotionClient = { createPage: async () => ({ url: "https://app.notion.com/p/plain1" }) };
-    const { o, id } = await waitingOrder({ notionClient: plain });
-    o.owner(id, "GO");
-    await o.verifyApprovals();
-    expect(store.load(id).state).toBe("WAITING_OWNER");
-    expect(store.readLog(200).some((e) => e.result === "čeká na read-back" && /read-back není k dispozici/.test(e.reason ?? ""))).toBe(true);
+  it("page changed between delivery and card issuance → approved_hash = what the owner sees, not what was sent; GO → DONE", async () => {
+    const x = orch(OWNER);
+    x.notion.render = (md) => md + "\n\nÚprava mezi doručením a vydáním karty.";
+    const r = (await x.o.tick()) as { order: string; status: string };
+    expect(r.status).toBe("waiting_owner");
+    const w = store.load(r.order);
+    const seen = artifactHash(x.notion.render(x.notion.pages[0].md));
+    expect(w.meta.approved_hash).toBe(seen);
+    expect(w.meta.approved_hash).not.toBe(w.meta.delivered_hash);
+    expect(w.meta.artifact_hash).toBe(seen);
+    expect(x.notion.pages[1].md).toContain(seen.slice(0, 16));
+    x.o.owner(r.order, "GO");
+    await x.o.verifyApprovals();
+    expect(store.load(r.order).state).toBe("DONE");
+  });
+
+  it("no read-back path at all (MCP fallback, Notion without REST token) → no card, stays DELIVERED with the reason", async () => {
+    const created: string[] = [];
+    const plain: NotionClient = { createPage: async (_p, title) => (created.push(title), { url: "https://app.notion.com/p/plain1" }) };
+    const x = orch({ ...OWNER, notionClient: plain });
+    const r = (await x.o.tick()) as { order: string; status: string };
+    const o1 = store.load(r.order);
+    expect(o1.state).toBe("DELIVERED");
+    expect(o1.owner_card_url).toBeUndefined();
+    expect(o1.meta.approved_hash).toBeUndefined();
+    expect(created.some((t) => t.startsWith("KARTA"))).toBe(false);
+    expect(store.readLog(200).some((e) => e.result === "karta nevydána: read-back DRAFTu selhal" && /read-back není k dispozici/.test(e.reason ?? ""))).toBe(true);
+  });
+
+  it("read-back fails at card issuance → no card; the next tick with a working read-back issues it", async () => {
+    const x = orch(OWNER);
+    x.notion.readFails = true;
+    const r = (await x.o.tick()) as { order: string; status: string };
+    expect(store.load(r.order).state).toBe("DELIVERED");
+    expect(store.load(r.order).owner_card_url).toBeUndefined();
+    expect(x.notion.pages.some((p) => p.title.startsWith("KARTA"))).toBe(false);
+    x.notion.readFails = false;
+    await x.o.tick();
+    const w = store.load(r.order);
+    expect(w.state).toBe("WAITING_OWNER");
+    expect(w.owner_card_url).toBeTruthy();
+    expect(w.meta.approved_hash).toBe(artifactHash(x.notion.pages[0].md));
   });
 
   it("copy provoz on a fake Notion REST: a real delivered DRAFT still goes GO → DONE, even when Notion re-renders it", async () => {
-    // Notion returns its own markdown (escaped characters, different list marker): rendered_hash covers it.
+    // Notion returns its own markdown (escaped characters, different list marker): the card's read-back hashes that form.
     const f = fakeNotionRest((md) => md.replace(/^- /gm, "* ").replace(/\*\*/g, "__"));
     const { o, id } = await waitingOrder({ notionClient: new RestNotion(f.api) });
     const w = store.load(id);
     expect(w.delivered_url).toMatch(/^https:\/\/www\.notion\.so\/DRAFT-Navrh-0+1$/);
-    expect(w.meta.rendered_hash).toBeTruthy();
-    expect(w.meta.rendered_hash).not.toBe(w.meta.approved_hash);
+    expect(w.meta.approved_hash).not.toBe(w.meta.delivered_hash);
+    expect(w.meta.rendered_hash).toBeUndefined();
     expect(f.calls.filter((c) => c.method === "GET").map((c) => c.url)).toEqual([`https://api.notion.com/v1/pages/${"0".repeat(31)}1/markdown`]);
     o.owner(id, "GO");
     await o.verifyApprovals();
     expect(store.load(id).state).toBe("DONE");
-    expect(JSON.parse(store.load(id).meta.readback).hash).toBe(w.meta.rendered_hash);
+    expect(JSON.parse(store.load(id).meta.readback).hash).toBe(w.meta.approved_hash);
     // No REST write ever carried the owner's property.
     for (const c of f.calls) expect(c.body ?? "").not.toMatch(/"Rozhodnut[ií] vlastn[ií]ka"\s*:/);
   });
 
-  it("fake REST: a truncated or incomplete read-back is not DONE", async () => {
+  it("fake REST: a truncated or incomplete read-back issues no card (stays DELIVERED)", async () => {
     for (const extra of [{ truncated: true }, { unknown_block_ids: ["x"] }, { markdown: undefined }, { markdown: 42 }]) {
       dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-orch-"));
       store = new Store(dir);
       const f = fakeNotionRest((md) => md, extra);
-      const { o, id } = await waitingOrder({ notionClient: new RestNotion(f.api) });
-      o.owner(id, "GO");
-      await o.verifyApprovals();
-      expect(store.load(id).state, JSON.stringify(extra)).toBe("WAITING_OWNER");
-      expect(store.load(id).meta.readback).toBeUndefined();
+      const x = orch({ ...OWNER, notionClient: new RestNotion(f.api) });
+      const r = (await x.o.tick()) as { order: string };
+      expect(store.load(r.order).state, JSON.stringify(extra)).toBe("DELIVERED");
+      expect(store.load(r.order).owner_card_url).toBeUndefined();
+      expect(store.load(r.order).meta.approved_hash).toBeUndefined();
     }
   });
 

@@ -156,6 +156,16 @@ const OWNER_DENY: Array<[string, string]> = [
   ["node -e s execSync", "node -e \"require('child_process').execSync('npx tsx tars/orch/cli.ts owner wo-1 GO')\""],
   ["python3 -c se subprocess", "python3 -c \"import subprocess; subprocess.run(['npx','tsx','tars/orch/cli.ts','owner','wo-1','GO'])\""],
   ["nedovřená uvozovka (parser si není jistý)", "npx tsx tars/orch/cli.ts owner wo-1 'GO"],
+  // Kolo oprav 1 (GPT review): surový text se kontroluje vždy, i když parser příkaz nepozná.
+  ["printf | bash", "printf '%s\\n' 'npx tsx tars/orch/cli.ts owner wo-1 GO' | bash"],
+  ["echo | sh", "echo 'npx tsx tars/orch/cli.ts owner wo-1 GO' | sh"],
+  ["eval s $(...)", "eval \"$(echo 'npx tsx tars/orch/cli.ts owner wo-1 GO')\""],
+  ["xargs s celým příkazem v textu", "echo 'tars/orch/cli.ts owner wo-1 GO' | xargs npx tsx"],
+  ["bash -c s proměnnou", "C='npx tsx tars/orch/cli.ts owner wo-1 GO'; bash -c \"$C\""],
+  ["bash -c $'...' s escape", "bash -c $'npx tsx tars/orch/cli.ts \\x6fwner wo-1 GO'"],
+  ["heredoc do bash", "bash <<EOF\nnpx tsx tars/orch/cli.ts owner wo-1 GO\nEOF"],
+  ["tars/orch/cli bez přípony", "printf 'npx tsx tars/orch/cli owner wo-1 GO' | sh"],
+  ["přepínač před owner v textu", "echo 'tars/orch/cli.ts --verbose owner wo-1 GO' | bash"],
 ];
 
 const OWNER_ALLOW: Array<[string, string]> = [
@@ -167,6 +177,9 @@ const OWNER_ALLOW: Array<[string, string]> = [
   ["git log cli.ts", "git log --oneline -- tars/orch/cli.ts"],
   ["commit zpráva zmiňuje owner a cli.ts", 'git commit -m "docs: owner v cli.ts jen pro vlastníka"'],
   ["cat cli.ts", "cat tars/orch/cli.ts"],
+  ["rg owner v cli.ts", "rg -n 'owner' tars/orch/cli.ts"],
+  ["echo cli.ts tick | bash", "echo 'npx tsx tars/orch/cli.ts tick' | bash"],
+  ["printf cli.ts status | sh", "printf 'npx tsx tars/orch/cli.ts status' | sh"],
 ];
 
 describe("bash-preflight: cli.ts owner (DR-039)", () => {

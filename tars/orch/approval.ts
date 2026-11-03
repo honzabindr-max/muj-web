@@ -57,18 +57,12 @@ export function parseReadback(
   }
 }
 
-/** Otisky, které read-back smí mít: odeslaný obsah, nebo jeho podoba v Notionu přečtená hned po doručení. */
-export function acceptedHashes(o: Pick<Order, "meta">): string[] {
-  return [o.meta.approved_hash, o.meta.rendered_hash].filter(
-    (h): h is string => typeof h === "string" && /^[0-9a-f]{64}$/.test(h),
-  );
-}
-
 /**
  * Důvod, proč GO nesmí do DONE (undefined = smí). Platí současně:
  *  - existuje `delivered_url` a `approved_hash`,
  *  - `artifact_hash === approved_hash` (vlastník schválil právě tento obsah),
- *  - existuje read-back stejné URL, jehož otisk je jeden z přijatých otisků.
+ *  - existuje read-back stejné URL, jehož otisk se rovná `approved_hash` (= otisk DRAFTu přečteného při vydání karty,
+ *    tedy přesně to, co vlastník na stránce viděl). Žádný jiný otisk (odeslaný obsah, „rendered“ podoba) neplatí.
  */
 export function goBlocker(
   o: Pick<Order, "meta" | "delivered_url">,
@@ -81,7 +75,7 @@ export function goBlocker(
   const rb = parseReadback(o.meta.readback);
   if (!rb) return "čeká na read-back";
   if (rb.url !== o.delivered_url) return "read-back jiné URL než delivered_url";
-  if (!acceptedHashes(o).includes(rb.hash))
-    return "read-back: otisk cílové stránky neodpovídá schválenému obsahu";
+  if (!/^[0-9a-f]{64}$/.test(approved) || rb.hash !== approved)
+    return "obsah se po vydání karty změnil";
   return undefined;
 }

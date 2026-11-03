@@ -10,13 +10,32 @@ export interface GuardResult {
 /** Invariants the guard must confirm, each one as its own OK item (DR-022 I1–I8). */
 export const GUARD_INVARIANTS = ["I1", "I2", "I3", "I4", "I5", "I6", "I7", "I8"] as const;
 
+/**
+ * Explicit positive state of each invariant, exactly as `tars-guard.sh` prints it into the OK line (`ok+=("I1 …")`;
+ * for I8 the text after „I8 OK “ from `i8.sh`). A bare `OK` / `PASS` also counts. Anything else (SKIP, empty,
+ * unknown text) is not a positive state = alarm.
+ */
+export const GUARD_OK_TEXTS: Record<(typeof GUARD_INVARIANTS)[number], readonly string[]> = {
+  I1: ["všechny klony HTTPS"],
+  I2: ["fine-grained token"],
+  I3: ["token bez Administration"],
+  I4: ["ruleset main aktivní"],
+  I5: ["SSH ke GitHubu zamítnuto"],
+  I6: ["žádné staré .env.migrate*/.env.verify"],
+  I7: ["Vercel CLI odhlášené", "Vercel CLI není nainstalované"],
+  I8: ["prohlížečová automatizace jen v profilu TARS-agent, bez Google účtu"],
+};
+const OK_WORDS = new Set(["OK", "PASS"]);
+const ITEM_RE = /^(I\d+)(?:\s+(.*))?$/;
+
 const OK_LINE_RE = /^TARS-GUARD OK \((\d+)\/(\d+)\)(?::(.*))?$/;
 const UNSURE_RE = /\bUNKNOWN\b|\bFAIL(?:ED)?\b|\bALARM\b/i;
 
 /**
  * Fail-closed (DR-039): the gate opens only for exactly one line „TARS-GUARD OK (8/8): …“ that lists every one of
- * I1–I8 as an OK item, and nothing in the whole output says UNKNOWN, FAIL or ALARM (a summary OK next to a partial
- * UNKNOWN/FAIL is a contradiction = alarm). Missing, unparseable, duplicated or < 8/8 output = alarm.
+ * I1–I8 exactly once with an explicitly positive state (`GUARD_OK_TEXTS`, or OK / PASS), and nothing in the whole
+ * output says UNKNOWN, FAIL or ALARM (a summary OK next to a partial UNKNOWN/FAIL is a contradiction = alarm).
+ * Missing, unparseable, duplicated, SKIP / empty / unknown state or < 8/8 output = alarm.
  */
 export function parseGuardOutput(out: string): GuardResult {
   const lines = out.split("\n").map((l) => l.trim());
@@ -37,6 +56,17 @@ export function parseGuardOutput(out: string): GuardResult {
   const missing = GUARD_INVARIANTS.filter((k) => !items.some((it) => new RegExp(`^${k}(?![0-9])`).test(it)));
   if (missing.length) return fail(`chybí ${missing.join(", ")}`);
   if (items.length !== GUARD_INVARIANTS.length) return fail(`${items.length} položek místo ${GUARD_INVARIANTS.length}`);
+  const seen = new Set<string>();
+  for (const it of items) {
+    const im = ITEM_RE.exec(it);
+    const k = im?.[1] as (typeof GUARD_INVARIANTS)[number] | undefined;
+    if (!im || !k || !GUARD_INVARIANTS.includes(k)) return fail(`neznámá položka: ${it.slice(0, 60)}`);
+    if (seen.has(k)) return fail(`${k} uvedeno víckrát`);
+    seen.add(k);
+    const state = (im[2] ?? "").trim();
+    if (!state) return fail(`${k} bez stavu`);
+    if (!OK_WORDS.has(state) && !GUARD_OK_TEXTS[k].includes(state)) return fail(`${k} stav „${state.slice(0, 60)}“ není kladný`);
+  }
   const unsure = lines.find((l) => UNSURE_RE.test(l));
   if (unsure) return fail(`rozpor: ${unsure.slice(0, 120)}`);
   return { alarm: false, summary: statusLine.slice(0, 300) };

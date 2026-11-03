@@ -15,6 +15,10 @@ Chyba hooku nikdy neblokuje práci: skončí exit 1 (nezablokující chyba) s hl
 DR-039: navíc zamítne každé spuštění tars/orch/cli.ts s podpříkazem `owner` (npx tsx, node --import,
 tsx, npm exec, cesta relativní i absolutní, uvozovky, proměnné před příkazem, env, bash -c, $(...)),
 i když by ho povolil allowlist. Podpříkaz, který nejde určit (proměnná, $(...), xargs), se bere jako owner.
+Vedle parseru se VŽDY kontroluje surový text celého příkazu (OWNER_RAW_RE): cli.ts následované tokenem owner
+kdekoli, i v uvozovkách, heredoc, argumentu echo/printf (printf '...' | bash), bash -c, eval, xargs.
+Mimo dosah textového hooku: zakódované/obfuskované varianty (base64, skládání řetězců za běhu, vlastní skript
+volající orch.owner()) - ty řeší pravidlo P20 (rozhodnutí vlastníka DR-039).
 Je to obrana ve vrstvách, ne důkaz identity: při chybě python3 hook propustí (fail-open, viz výše).
 
 Vstup: JSON na stdin (tool_input.command). Výstup při zamítnutí: JSON
@@ -46,7 +50,9 @@ CLI_NAMES = {"cli.ts", "cli.js", "cli.mjs", "cli.cjs"}
 RUNNERS = {"npx", "tsx", "node", "npm", "pnpm", "pnpx", "yarn", "bun", "bunx", "deno", "ts-node", "vite-node"}
 # Interprety, které spouštějí kód z argumentu (node -e, python -c ...): jejich argument se prohledá jako text.
 EVAL_RUNNERS = {"node", "python", "python3", "perl", "ruby", "deno", "bun", "osascript", "php"}
-OWNER_RAW_RE = re.compile(r"cli\.[cm]?[jt]s\W{0,6}owner\b")
+# Textový vzor nad celým surovým příkazem (i obsah uvozovek, heredoc, echo/printf, bash -c, eval, xargs):
+# cli.ts / tars/orch/cli, volitelně přepínače, pak token owner. `grep owner cli.ts` ani `cli.ts tick` nezachytí.
+OWNER_RAW_RE = re.compile(r"(?:cli\.[cm]?[jt]s|tars/orch/cli\b)(?:\W{1,6}-[\w-]+)*\W{0,6}owner\b")
 
 NOVALUE_OPTS = {"-0", "--null", "--no-run-if-empty", "--verbose", "--interactive", "--open-tty"}
 WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout"}
@@ -106,6 +112,11 @@ def ansi_c(raw):
         return raw.encode("latin-1", "backslashreplace").decode("unicode_escape")
     except Exception:
         return raw
+
+
+def owner_raw(cmd):
+    """DR-039: vzor owner kdekoli v surovém textu, i po dekódování ANSI-C escape ($'\\x6fwner')."""
+    return bool(OWNER_RAW_RE.search(cmd) or OWNER_RAW_RE.search(ansi_c(cmd)))
 
 
 def log(event, detail=""):
@@ -506,8 +517,10 @@ def main():
     except Unsure as e:
         unsure = e
     # DR-039 platí před allowlistem: žádná výjimka nepovolí agentovi zadat rozhodnutí vlastníka.
-    # Když si parser není jistý, rozhoduje textový vzor (fail-closed jen pro owner).
-    if "owner" in parser.found or (unsure is not None and OWNER_RAW_RE.search(cmd)):
+    # Textový vzor se kontroluje VŽDY nad surovým textem, bez ohledu na to, zda parser příkaz poznal
+    # (printf '...cli.ts owner...' | bash, echo | sh, xargs, bash -c "$C"). Zakódované varianty (base64,
+    # skládání řetězců za běhu, vlastní skript volající orch.owner()) jsou mimo dosah hooku; řeší je P20.
+    if "owner" in parser.found or owner_raw(cmd):
         log("DENY_OWNER")
         return deny(OWNER_REASON)
     for pat in load_allow():

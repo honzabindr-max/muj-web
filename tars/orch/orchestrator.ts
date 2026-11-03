@@ -3,7 +3,7 @@
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
-import { acceptedHashes, artifactHash, goBlocker } from "./approval";
+import { artifactHash, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
@@ -412,10 +412,11 @@ export class Orchestrator {
 
   /**
    * DR-039: GO → DONE only after a fresh read-back. For every WAITING_OWNER order with a recorded GO, read the target
-   * at `delivered_url`, store `meta.readback` {url, hash, verified_at} and run the `owner` GO transition when the hash
-   * is the approved one (the state machine re-checks it in `goBlocker`). No read-back, an error or an unclear answer:
-   * the order stays WAITING_OWNER („čeká na read-back“) and the next tick tries again. A different hash: the GO is
-   * dropped and `artifact_hash` set to the hash found, so the same GO can never be accepted again for that content.
+   * at `delivered_url`, store `meta.readback` {url, hash, verified_at} and run the `owner` GO transition only when the
+   * hash equals `approved_hash` (the state machine re-checks it in `goBlocker`). No read-back, an error or an unclear
+   * answer: the order stays WAITING_OWNER („čeká na read-back“) and the next tick tries again. A different hash: the
+   * order stays WAITING_OWNER with „obsah se po vydání karty změnil“, the GO is dropped and `artifact_hash` set to the
+   * hash found, so the same GO can never be accepted again for that content.
    */
   async verifyApprovals(): Promise<void> {
     for (const w of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER" && x.meta.owner_go)) {
@@ -434,7 +435,7 @@ export class Orchestrator {
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(w.id);
           if (fresh.state !== "WAITING_OWNER" || fresh.meta.owner_go !== w.meta.owner_go || fresh.delivered_url !== w.delivered_url) return;
-          const matched = acceptedHashes(fresh).includes(hash);
+          const matched = hash === fresh.meta.approved_hash;
           const meta: Record<string, string> = {
             ...fresh.meta,
             readback: JSON.stringify({ url: fresh.delivered_url, hash, verified_at: this.iso() }),
@@ -446,7 +447,7 @@ export class Orchestrator {
             const held: Order = { ...fresh, updated_at: this.iso(), meta };
             this.d.store.save(held);
             this.syncPanel(held);
-            this.log({ order: w.id, kind: "error", role: "orchestrator", result: "read-back: obsah cílové stránky se liší od schváleného, GO zrušeno", reason: `hash ${hash.slice(0, 12)} ≠ ${String(fresh.meta.approved_hash).slice(0, 12)}` });
+            this.log({ order: w.id, kind: "error", role: "orchestrator", result: "obsah se po vydání karty změnil, GO zrušeno", reason: `hash ${hash.slice(0, 12)} ≠ ${String(fresh.meta.approved_hash).slice(0, 12)}` });
             return;
           }
           const verified: Order = { ...fresh, meta };
@@ -616,7 +617,18 @@ export class Orchestrator {
         ];
         const ownerNeeded = reasons.length > 0;
         if (ownerNeeded && !o.owner_card_url) {
-          o = await this.renderedBaseline(o);
+          // DR-039: no card without a fingerprint. Right before the card is written the DRAFT is read back; the hash of
+          // exactly what was read (what the owner will see on the page) becomes approved_hash = artifact_hash. A failed
+          // read-back (incl. MCP-only delivery without REST) leaves the order in DELIVERED with the reason and no card;
+          // the next tick retries. It never reaches WAITING_OWNER with a card.
+          let seen: string;
+          try {
+            seen = artifactHash(await this.readArtifact(o));
+          } catch (e) {
+            this.logOnce({ order: o.id, kind: "info", role: "transport", result: "karta nevydána: read-back DRAFTu selhal", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+            return o;
+          }
+          o = { ...o, meta: { ...o.meta, approved_hash: seen, artifact_hash: seen } };
           try {
             const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
             const text = ownerCard(o, reasons, dept!);
@@ -630,9 +642,8 @@ export class Orchestrator {
               this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
               card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
             }
-            // DR-039: the card binds the owner's GO to the delivered artifact (approved_hash) and records the current one (artifact_hash).
-            const h = o.meta.delivered_hash;
-            o = { ...o, owner_card_url: card.url, owner_reasons: reasons, meta: h ? { ...o.meta, approved_hash: h, artifact_hash: h } : o.meta };
+            // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
+            o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
             this.d.store.save(o);
           } catch (e) {
             return this.bad(o, { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
@@ -642,28 +653,6 @@ export class Orchestrator {
       }
       default:
         return order;
-    }
-  }
-
-  /**
-   * DR-039: Notion may return the page in a slightly different markdown than we sent (its own rendering). Right after
-   * delivery, before the card exists, the DRAFT page is read back once; if its hash differs from the sent one it is
-   * kept as `meta.rendered_hash`, the second accepted form of the same artifact. Only Notion pages (no department
-   * read-back), only when a sent hash exists. Never throws: without it the read-back must match the sent content.
-   */
-  private async renderedBaseline(o: Order): Promise<Order> {
-    const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
-    if (!o.delivered_url || !o.meta.delivered_hash || o.meta.rendered_hash || dept?.readback || !this.d.notion.readPage) return o;
-    try {
-      const h = artifactHash(await this.d.notion.readPage(o.delivered_url));
-      if (h === o.meta.delivered_hash) return o;
-      const next = { ...o, meta: { ...o.meta, rendered_hash: h } };
-      this.d.store.save(next);
-      this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "read-back po doručení: Notion vrací vlastní podobu DRAFTu, otisk uložen jako rendered_hash" });
-      return next;
-    } catch (e) {
-      this.safeLog({ order: o.id, kind: "info", role: "transport", result: "read-back po doručení nedostupný", reason: String((e as Error)?.message ?? e).slice(0, 200) });
-      return o;
     }
   }
 
@@ -733,7 +722,7 @@ export function ownerCard(o: Order, reasons: string[], dept: DepartmentRunner): 
     "",
     `## Důkaz`,
     `- Výstup (DRAFT): ${o.delivered_url}`,
-    ...(o.meta.delivered_hash ? [`- Otisk výstupu (sha256): \`${o.meta.delivered_hash.slice(0, 16)}\` — GO platí jen pro tento obsah.`] : []),
+    ...(o.meta.approved_hash ? [`- Otisk výstupu (sha256): \`${o.meta.approved_hash.slice(0, 16)}\` — GO platí jen pro tento obsah.`] : []),
     `- Tvůrce: ${dept.creatorModel()} · Kontrolor: ${dept.checkerModel()} · kol oprav: ${o.fix_rounds}`,
     `- Stav běhu: runs/${o.id}/state.json, záznam runs/log.jsonl (lokálně u orchestrátoru)`,
     "",
