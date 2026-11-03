@@ -142,6 +142,20 @@ export const ROLE_FACTS = `ROZDĚLENÍ ROLÍ (TARS-ORCH-001 §1–§3, fakt, ne 
 - Doručení: copy a vizual → Notion podstránka DRAFT, kterou zakládá orchestrátor; dev → PR draft (TARS-ORCH-001 §2, §3 bod 6). To je vlastnost systému, ne pravomoc, kterou musí dokládat HANDOFF.
 - Rozhodnutí vyhrazená Sponzorovi končí ve WAITING_OWNER s kartou GO / REJECT (TARS-ORCH-001 §3 bod 7, §5).`;
 
+/**
+ * DR-031 b. 2: verdikt FIX, jehož VŠECHNY nálezy mají výslovnou severity medium/low/info, jde přijmout
+ * jako "PASS s výhradami". Vrací nálezy (známá rizika) nebo undefined, když přijmout nelze
+ * (jiný verdikt, prázdný seznam, nález bez čitelné severity, např. "Nelze ověřit", nebo critical/high).
+ */
+export function acceptableCheckNotes(verdict: string | undefined, issues: string[]): string[] | undefined {
+  if (verdict !== "FIX" || issues.length === 0) return undefined;
+  for (const i of issues) {
+    const m = /^\[(critical|high|medium|low|info)\]/.exec(i);
+    if (!m || m[1] === "critical" || m[1] === "high") return undefined;
+  }
+  return issues;
+}
+
 export function buildBriefCheckPrompt(
   brief: OrderBrief,
   handoff: string,
@@ -188,6 +202,7 @@ KALIBRACE VERDIKTU:
 - FIX jen pro vadu, která by vedla ke špatnému výstupu, porušila zákaz nebo by rozhodla za Sponzora. Jinak PASS a drobnosti uveď jako poznámky.
 - BLOCK jen když zakázka nejde udělat bez vlastníka nebo porušuje "Co se NESMÍ dělat znovu".
 - Nehledej nové typy připomínek v dalších kolech; posuď, zda jsou vyřešeny dřívější blokující vady.
+- U každého FIX nálezu popiš konkrétní scénář, jak by tvůrce kvůli vadě dodal špatný výstup nebo rozhodl za Sponzora. Bez takového scénáře nález uveď jako low (známé riziko).
 
 ${structured ? STRUCTURED_FORMAT : `Vrať POUZE JSON v bloku \`\`\`json: {"verdict": "PASS"|"FIX"|"BLOCK", "issues": ["konkrétní nedostatek s odkazem na bod checklistu"]}`}`;
 }

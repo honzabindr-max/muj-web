@@ -36,7 +36,7 @@ import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, ownerEventFor, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
-import { buildBriefCheckPrompt, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "../supervisor";
+import { acceptableCheckNotes, buildBriefCheckPrompt, buildSupervisorPrompt, parseBrief, reservedDecisionHits } from "../supervisor";
 import type { ModelFamily, Order } from "../types";
 import { GATE_SCHEMA, parseStructuredVerdict, REVIEW_SCHEMA, REVIEW_VERDICTS, unverifiable, GATE_VERDICTS } from "../verdict";
 
@@ -1221,6 +1221,78 @@ describe("structured verdict in departments and brief check", () => {
     expect(await o.tick()).toMatchObject({ state: "DONE" });
     expect(supervisor.calls[1]).toContain("zkrátit úvod");
     expect(bc.calls[0]).toContain('"findings"');
+  });
+});
+
+describe("kontrola zadání podle DR-031 (medium = známé riziko)", () => {
+  const briefMd = (id: string) => fs.readFileSync(path.join(store.orderDir(id), "brief.md"), "utf8");
+  const planned = (o: Order) => o.history.some((h) => h.to === "PLANNED");
+  it("(a) 2× FIX jen medium/low → PLANNED s check_notes, brief.md má sekci výhrad, log a panel říkají PASS s výhradami", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [
+      { text: SJ("FIX", [F({ text: "první medium" })]) },
+      { text: SJ("FIX", [F({ text: "druhé medium" }), F({ severity: "low", text: "drobnost" })]) },
+    ]);
+    const { o } = orch({ briefChecker: bc });
+    const res = store.load((await o.tick() as { order: string }).order);
+    expect(planned(res)).toBe(true);
+    expect(res.brief?.check_notes).toEqual(["[medium] a.ts:12 druhé medium", "[low] a.ts:12 drobnost"]); // 1. kolo se nepřenáší
+    const md = briefMd(res.id);
+    expect(md).toContain("## Výhrady kontroly zadání (známá rizika, DR-031 b. 2)");
+    expect(md).toContain("druhé medium");
+    expect(md).not.toContain("první medium");
+    const log = store.readLog(50);
+    expect(log.some((e) => e.kind === "transition" && e.to === "PLANNED" && /PASS s výhradami \(DR-031\)/.test(e.result ?? ""))).toBe(true);
+    const atPlanned = { ...res, state: "PLANNED" as const, history: res.history.filter((h) => h.to === "PLANNED") };
+    expect(lastStepSentence(atPlanned)).toContain("PASS s výhradami (DR-031)");
+  });
+  it("(b) poslední FIX s high → UNKNOWN jako dosud", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: SJ("FIX", [F()]) }, { text: SJ("FIX", [F(), F({ severity: "high", text: "vážné" })]) }]);
+    const { o, creator } = orch({ briefChecker: bc });
+    const res = store.load((await o.tick() as { order: string }).order);
+    expect(res.state).toBe("UNKNOWN");
+    expect(res.failure_reason).toMatch(/supervisor brief invalid/);
+    expect(creator.calls).toHaveLength(0);
+  });
+  it("(b2) FIX bez čitelné severity (Nelze ověřit) se nepřijme", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: "PASS" }]);
+    const { o } = orch({ briefChecker: bc });
+    expect(await o.tick()).toMatchObject({ state: "UNKNOWN" });
+  });
+  it("(c) BLOCK v posledním kole → UNKNOWN beze změny", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: SJ("FIX", [F()]) }, { text: SJ("BLOCK", [F({ severity: "low" })]) }]);
+    const { o, creator } = orch({ briefChecker: bc });
+    const res = store.load((await o.tick() as { order: string }).order);
+    expect(res.state).toBe("UNKNOWN");
+    expect(res.failure_reason).toMatch(/brief check BLOCK/);
+    expect(creator.calls).toHaveLength(0);
+  });
+  it("(d) deterministicky chybějící zdroj → UNKNOWN, kontrolor se ani nezavolá", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: SJ("FIX", [F()]) }]);
+    const { o } = orch({ briefChecker: bc, supervisor: [{ text: BRIEF({ sources: ["handoff"] }) }] });
+    const res = store.load((await o.tick() as { order: string }).order);
+    expect(res.state).toBe("UNKNOWN");
+    expect(res.failure_reason).toMatch(/deterministic/);
+    expect(bc.calls).toHaveLength(0);
+  });
+  it("(e) check_notes se dostanou do promptu tvůrce jako závazné upozornění", async () => {
+    const bc = new StructuredMock("gpt", "gpt-brief", [{ text: SJ("FIX", [F()]) }, { text: SJ("FIX", [F({ text: "zdroj mlčí o ceně" })]) }]);
+    const { o, creator } = orch({ briefChecker: bc });
+    await o.tick();
+    expect(creator.calls[0]).toContain("zdroj mlčí o ceně");
+    expect(creator.calls[0]).toContain("Respektuj tyto výhrady; kde zdroje neurčují údaj, uveď UNKNOWN s odkazem na chybějící zdroj, nic nevymýšlej.");
+  });
+  it("acceptableCheckNotes: jen FIX a jen medium/low/info", () => {
+    expect(acceptableCheckNotes("FIX", ["[medium] x", "[info] y"])).toEqual(["[medium] x", "[info] y"]);
+    expect(acceptableCheckNotes("FIX", ["[critical] x"])).toBeUndefined();
+    expect(acceptableCheckNotes("FIX", ["[low] x", "[high] y"])).toBeUndefined();
+    expect(acceptableCheckNotes("FIX", ["bez severity"])).toBeUndefined();
+    expect(acceptableCheckNotes("FIX", [])).toBeUndefined();
+    expect(acceptableCheckNotes("BLOCK", ["[low] x"])).toBeUndefined();
+    expect(acceptableCheckNotes(undefined, ["[low] x"])).toBeUndefined();
+  });
+  it("prompt kontroly obsahuje kalibraci scénáře", () => {
+    const p = buildBriefCheckPrompt(parseBrief(BRIEF()), "h", "c");
+    expect(p).toContain("Bez takového scénáře nález uveď jako low (známé riziko).");
   });
 });
 

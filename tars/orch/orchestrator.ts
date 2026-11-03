@@ -16,7 +16,7 @@ import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } fr
 import { scanSecrets } from "./secret-scan";
 import { isActionable, ownerEventFor, transition, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
-import { BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
+import { acceptableCheckNotes, BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
 import { callChecker } from "./departments";
 import type { Department, LogEntry, Order } from "./types";
 
@@ -455,6 +455,13 @@ export class Orchestrator {
           if (v?.verdict === "PASS") {
             this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
             return this.apply({ ...order, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `${brief.department}: ${brief.title}` });
+          }
+          // DR-031 b. 2: poslední pokus s FIX jen medium/low/info = známá rizika, zadání se přijme s výhradami.
+          const notes = attempt === 1 ? acceptableCheckNotes(v?.verdict, v?.issues ?? []) : undefined;
+          if (notes) {
+            const accepted = { ...brief, check_notes: notes };
+            this.d.store.writeFile(order.id, "brief.md", briefMarkdown(accepted));
+            return this.apply({ ...order, brief: accepted }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: r.duration_ms, result: `PASS s výhradami (DR-031): ${brief.department}: ${brief.title}`, reason: notes.join(" | ").slice(0, 500) });
           }
           issues = v?.issues ?? ["verdikt kontrolora nečitelný"];
           lastErr = `brief check ${v?.verdict ?? "unparseable"}: ${issues.join("; ")}`;

@@ -85,6 +85,14 @@ export function briefMarkdown(b: OrderBrief): string {
     "",
     "## Rozhodnutí vyhrazená Sponzorovi (NEROZHODOVAT, jen označit)",
     ...(b.owner_decisions.length ? b.owner_decisions.map((x) => `- ${x}`) : ["- žádná"]),
+    ...(b.check_notes?.length
+      ? [
+          "",
+          "## Výhrady kontroly zadání (známá rizika, DR-031 b. 2)",
+          "Respektuj tyto výhrady; kde zdroje neurčují údaj, uveď UNKNOWN s odkazem na chybějící zdroj, nic nevymýšlej.",
+          ...b.check_notes.map((x) => `- ${x}`),
+        ]
+      : []),
   ].join("\n");
 }
 
