@@ -120,7 +120,8 @@ export function parseInput(raw: string): KonziliumInput {
   }
   if (!isObj(j)) throw new KonziliumInputError("vstup musí být JSON objekt");
   const extra = Object.keys(j).filter((k) => !INPUT_KEYS.has(k));
-  if (extra.length) throw new KonziliumInputError(`neznámé pole: ${extra.join(", ")}`);
+  // Názvy ani hodnoty ze vstupu se do chybové zprávy nikdy nevypisují (jdou do run.json a na stdout), jen počet.
+  if (extra.length) throw new KonziliumInputError(`neznámá pole ve vstupu: ${extra.length}`);
   const kind = j.kind;
   if (typeof kind !== "string" || !(KONZILIUM_KINDS as readonly string[]).includes(kind))
     throw new KonziliumInputError(`kind musí být jedno z: ${KONZILIUM_KINDS.join(", ")} (Konzilium jen před podstatným rozhodnutím)`);
@@ -181,21 +182,23 @@ export function assertClean(where: string, texts: readonly string[], scan: (t: s
 //     duplicitních klíčů), surový text a chybová hláška modelu se neukládají ani nevypisují (jen sha256).
 //  2) Surový text i chybová hláška se navíc skenují i po rozbalení escapů a %XX — každým dekodérem zvlášť i kombinovaně,
 //     opakovaně až do ustálení; co se neustálí, je STOP.
-const ESCAPE_RE = /\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|["'\\/bfnrtv])/g;
+// \u a \x i s velkým U/X a velkými hex číslicemi; jednoduché escapy jen v přesném tvaru.
+const ESCAPE_RE = /\\([uU]\{[0-9a-fA-F]{1,6}\}|[uU][0-9a-fA-F]{4}|[xX][0-9a-fA-F]{2}|[0-7]{1,3}|["'\\/bfnrtv])/g;
 const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 const MAX_UNESCAPE_PASSES = 4;
-export const ENCODING_MARKER = /\\[0-7]|\\x[0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|\\u\{[0-9A-Fa-f]|%[0-9A-Fa-f]{2}|&#x?[0-9A-Fa-f]+;?/;
+// Bez ohledu na velikost písmen (&#X67;, \X, %4a/%4A …): fail-closed spíš víc než míň.
+export const ENCODING_MARKER = /\\[0-7]|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|\\u\{[0-9a-f]|%[0-9a-f]{2}|&#x?[0-9a-f]+;?/i;
 
 const unescapeEscapes = (s: string): string =>
   s.replace(ESCAPE_RE, (_m, e: string) => {
-    if (e[0] === "u") return safeChar(parseInt(e.startsWith("u{") ? e.slice(2, -1) : e.slice(1), 16));
-    if (e[0] === "x") return safeChar(parseInt(e.slice(1), 16));
+    if (e[0] === "u" || e[0] === "U") return safeChar(parseInt(e[1] === "{" ? e.slice(2, -1) : e.slice(1), 16));
+    if (e[0] === "x" || e[0] === "X") return safeChar(parseInt(e.slice(1), 16));
     if (/^[0-7]/.test(e)) return safeChar(parseInt(e, 8));
     return SIMPLE_ESCAPES[e];
   });
-const unescapePercent = (s: string): string => s.replace(/%([0-9a-fA-F]{2})/g, (_m, h: string) => safeChar(parseInt(h, 16)));
+const unescapePercent = (s: string): string => s.replace(/%([0-9a-f]{2})/gi, (_m, h: string) => safeChar(parseInt(h, 16)));
 const unescapeEntities = (s: string): string =>
-  s.replace(/&#(x[0-9a-fA-F]+|[0-9]+);?/g, (_m, n: string) => safeChar(n[0] === "x" ? parseInt(n.slice(1), 16) : parseInt(n, 10)));
+  s.replace(/&#(x[0-9a-f]+|[0-9]+);?/gi, (_m, n: string) => safeChar(n[0] === "x" || n[0] === "X" ? parseInt(n.slice(1), 16) : parseInt(n, 10)));
 const DECODERS: Array<(s: string) => string> = [
   unescapeEscapes,
   unescapePercent,
@@ -930,6 +933,14 @@ async function runLocked(
   try {
     // 1) Vstup: cesta, celý soubor a každé pole zvlášť. Nic z něj neodejde k modelu, dokud není čisté.
     assertClean("vstup (cesta a soubor)", [...scanVariants(inputFile, "vstup (cesta)"), ...scanVariants(raw, "vstup (soubor)")]);
+    // Všechny klíče i hodnoty surového vstupu (i neznámé) bez kódování, ještě PŘED validací.
+    let rawJson: unknown;
+    try {
+      rawJson = JSON.parse(raw);
+    } catch {
+      rawJson = undefined; // neplatný JSON odmítne parseInput (zpráva bez obsahu vstupu)
+    }
+    assertNoEncoding("vstup (soubor)", jsonStrings(rawJson));
     let input: KonziliumInput;
     try {
       input = parseInput(raw);

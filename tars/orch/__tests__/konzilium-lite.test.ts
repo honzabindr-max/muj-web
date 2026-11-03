@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CODEX_ISOLATION_ARGS, CodexCli, type AdapterResult, type RunOpts, type TextAdapter } from "../adapters";
 import { NO_MCP_CONFIG, validateCardData } from "../card-data";
@@ -515,6 +515,63 @@ describe("Konzilium Lite — secret-scan (STOP)", () => {
     const dir2 = path.join(runsDir, "konzilium", r.run_id!);
     for (const f of fs.readdirSync(dir2)) expect(fs.readFileSync(path.join(dir2, f), "utf8")).not.toContain("skryté-ABC-987");
     expect(d.notion.pages[0].markdown).not.toContain("skryté-ABC-987");
+  });
+
+  it.each([
+    ["&#X67; (velké X)", `x &#X67;${SECRET.slice(1)}`],
+    ["&#x67; (malé x)", `x &#x67;${SECRET.slice(1)}`],
+    ["&#X6A; velké hex číslice", "x &#X6A;abc"],
+    ["%4A velké hex číslice", "x %4Aabc"],
+    ["\\X41 velké X", "x \\X41abc"],
+  ])("kódování bez ohledu na velikost písmen v nálezu GPT (%s) → STOP, nic na kartu ani do run.json", async (_n, findingText) => {
+    const text = JSON.stringify({ verdict: "PASS", findings: [{ severity: "info", file: null, line: null, text: findingText }] });
+    const { notion, panel, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text }]);
+    const r = await runKonzilium(inputFile({ ...INPUT, title: `case ${_n}` }), deps);
+    expect(r.status).toBe("STOP");
+    expect(notion.pages).toHaveLength(0);
+    expect(panel.rows).toHaveLength(0);
+    const run = readRun(r.run_id!);
+    expect(run.verdicts).toHaveLength(0);
+    expect(JSON.stringify(run)).not.toContain(findingText);
+    noSecretOnDisk();
+  });
+
+  it("klíč vstupu se zakódovanou URL s heslem → STOP; žádná část klíče v run.json, výsledku (stdout) ani na stderr", async () => {
+    const key = "p%6fstgres://review_user:a%40bcd123@db.invalid/review";
+    const parts = ["p%6fstgres", "review_user", "bcd123", "db.invalid", "postgres://"];
+    const errs: string[] = [];
+    const spyErr = vi.spyOn(process.stderr, "write").mockImplementation((c: string | Uint8Array) => {
+      errs.push(String(c));
+      return true;
+    });
+    const spyCon = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
+      errs.push(a.map(String).join(" "));
+    });
+    try {
+      const { creator, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: PASS }]);
+      const r = await runKonzilium(inputFile(`{"title":"x","${key}":1}`), deps);
+      expect(r.status).toBe("STOP");
+      expect(creator.prompts).toHaveLength(0);
+      const out = JSON.stringify(r);
+      const runJson = fs.readFileSync(path.join(runsDir, "konzilium", r.run_id!, "run.json"), "utf8");
+      for (const p of parts) {
+        expect(out).not.toContain(p);
+        expect(runJson).not.toContain(p);
+        expect(errs.join("\n")).not.toContain(p);
+      }
+    } finally {
+      spyErr.mockRestore();
+      spyCon.mockRestore();
+    }
+  });
+
+  it("chyba validace nevypíše název neznámého pole, jen počet", async () => {
+    const { deps } = setup([], []);
+    const r = await runKonzilium(inputFile({ ...INPUT, tajny_nazev_pole_XYZ: 1, dalsi_QQQ: 2 }), deps);
+    expect(r.status).toBe("FAILED");
+    expect(r.reason).toContain("neznámá pole ve vstupu: 2");
+    expect(JSON.stringify(r)).not.toMatch(/tajny_nazev_pole_XYZ|dalsi_QQQ/);
+    expect(fs.readFileSync(path.join(runsDir, "konzilium", r.run_id!, "run.json"), "utf8")).not.toMatch(/tajny_nazev_pole_XYZ|dalsi_QQQ/);
   });
 
   it("zakódovaný obsah ve vstupních polích → STOP", async () => {
