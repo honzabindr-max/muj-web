@@ -2,6 +2,7 @@
 // NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE
 // side states: PAUSED (subscription limit), FAILED, UNKNOWN.
 
+import { goBlocker } from "./approval";
 import type { Order, OrderState } from "./types";
 
 export const MAX_FIX_ROUNDS = 3;
@@ -57,8 +58,13 @@ function target(order: Order, ev: OrderEvent): OrderState {
       if (s === "DELIVERED") return ev.owner_needed ? "WAITING_OWNER" : "DONE";
       break;
     case "owner":
-      if (s === "WAITING_OWNER")
-        return ev.decision === "GO" ? "DONE" : "FAILED";
+      if (s === "WAITING_OWNER") {
+        if (ev.decision === "REJECT") return "FAILED";
+        // DR-039: GO → DONE jen s otiskem schváleného obsahu a čerstvým read-backem cílové stránky.
+        const blocker = goBlocker(order);
+        if (blocker) throw new TransitionError(`GO → DONE zamítnuto: ${blocker}`);
+        return "DONE";
+      }
       break;
     case "limit":
       if (ACTIVE.includes(s)) return "PAUSED";

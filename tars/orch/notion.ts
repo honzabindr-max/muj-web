@@ -17,6 +17,11 @@ export interface NotionPage {
 export interface NotionClient {
   /** Raw page content (Notion-flavored markdown) exactly as the Notion tool returned it. */
   fetchPage?(pageId: string): Promise<string>;
+  /**
+   * Read-back (DR-039): current content of a page the orchestrator created, as markdown, straight from the Notion REST
+   * API (no model in the path). Absent = no read-back available, so an owner GO never reaches DONE.
+   */
+  readPage?(url: string): Promise<string>;
   /** Create a child page with markdown content; returns its URL. */
   createPage(
     parentPageId: string,
@@ -155,6 +160,40 @@ export function assertNoSecret(text: string): void {
   if (!s.clean) throw new SecretLeakError(`secret-scan: ${s.kinds.join(",")} — zápis do Notionu zastaven`);
 }
 
+/** Name of the owner-only select, folded (same as panel.ts OWNER_DECISION_PROPERTY; kept here to avoid an import cycle). */
+const OWNER_DECISION_KEY = "rozhodnuti vlastnika";
+
+const foldKey = (k: string): string =>
+  k.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** True when any object key of the payload (any depth) is the owner decision property (diacritics, case, whitespace folded). */
+export function setsOwnerDecision(body: unknown, depth = 0): boolean {
+  if (depth > 20 || body === null || typeof body !== "object") return false;
+  if (Array.isArray(body)) return body.some((x) => setsOwnerDecision(x, depth + 1));
+  return Object.entries(body as Record<string, unknown>).some(([k, v]) => foldKey(k) === OWNER_DECISION_KEY || setsOwnerDecision(v, depth + 1));
+}
+
+/** The orchestrator tried to write „Rozhodnutí vlastníka“. Nothing is sent and no other path is tried. */
+export class OwnerDecisionWriteError extends Error {
+  constructor() {
+    super("zápis „Rozhodnutí vlastníka“ zablokován: agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)");
+  }
+}
+
+/** 32-hex Notion page id at the end of the URL path (plain or UUID form), undefined when there is none. */
+export function pageIdFromUrl(url: string): string | undefined {
+  let seg: string;
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)notion\.(so|com|site)$/.test(u.hostname)) return undefined;
+    seg = u.pathname.split("/").filter(Boolean).at(-1) ?? "";
+  } catch {
+    return undefined;
+  }
+  const m = /(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(seg);
+  return m ? m[1].replace(/-/g, "").toLowerCase() : undefined;
+}
+
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 /** Thin REST client. The token lives only in the Authorization header of this one request. */
@@ -177,6 +216,8 @@ export class NotionRestApi {
   }
 
   async request<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
+    // DR-039: „Rozhodnutí vlastníka“ belongs to the owner. No write of this client may set it (a key at any depth of the body).
+    if (body !== undefined && setsOwnerDecision(body)) throw new OwnerDecisionWriteError();
     if (this.pausedStatus) throw new NotionRestError(this.pausedStatus, "paused");
     let res: Awaited<ReturnType<FetchLike>>;
     try {
@@ -232,6 +273,19 @@ export class RestNotion implements NotionClient {
       throw e;
     }
   }
+
+  /**
+   * Read-back (DR-039): `GET /v1/pages/{id}/markdown`. Only a complete answer counts: a truncated page, unknown blocks,
+   * a missing `markdown` field or a URL without a page id throw, and the caller keeps the order in WAITING_OWNER.
+   */
+  async readPage(url: string): Promise<string> {
+    const id = pageIdFromUrl(url);
+    if (!id) throw new NotionRestError(0, "no_page_id");
+    const j = await this.api.request<{ markdown?: unknown; truncated?: unknown; unknown_block_ids?: unknown }>("GET", `/v1/pages/${id}/markdown`);
+    if (typeof j.markdown !== "string") throw new NotionRestError(200, "bad_response");
+    if (j.truncated === true || (Array.isArray(j.unknown_block_ids) && j.unknown_block_ids.length > 0)) throw new NotionRestError(200, "incomplete");
+    return j.markdown;
+  }
 }
 
 /**
@@ -265,6 +319,11 @@ export class HybridNotion implements NotionClient {
 
   fetchPage(pageId: string): Promise<string> {
     return this.mcp.fetchPage(pageId);
+  }
+
+  /** Read-back is REST only: a model in the path could not be trusted to report the page content (no MCP fallback). */
+  readPage(url: string): Promise<string> {
+    return this.rest.readPage(url);
   }
 
   async createPage(parentPageId: string, title: string, markdown: string): Promise<NotionPage> {

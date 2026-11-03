@@ -242,7 +242,7 @@ describe("TARS-GUARD I8 for Playwright MCP", () => {
   it("the orchestrator hands the same runs/ dir to TARS-GUARD and I8", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rg-"));
     cleanup.push(() => fs.rmSync(dir, { recursive: true, force: true }));
-    fs.writeFileSync(path.join(dir, "guard.sh"), `#!/bin/bash\necho "g:$TARS_RUNS_DIR" >> "${dir}/seen"\necho "TARS-GUARD OK (7/7)"\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, "guard.sh"), `#!/bin/bash\necho "g:$TARS_RUNS_DIR" >> "${dir}/seen"\necho "TARS-GUARD OK (8/8): I1 a; I2 b; I3 c; I4 d; I5 e; I6 f; I7 g; I8 h;"\n`, { mode: 0o755 });
     fs.writeFileSync(path.join(dir, "i8.sh"), `#!/bin/bash\necho "i8:$TARS_RUNS_DIR" >> "${dir}/seen"\necho "I8 OK x"\n`, { mode: 0o755 });
     const r = runGuardWithI8(path.join(dir, "guard.sh"), path.join(dir, "i8.sh"), dir, "/work/tree/runs");
     expect(r.alarm).toBe(false);

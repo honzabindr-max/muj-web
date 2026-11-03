@@ -12,6 +12,11 @@ a argument "-c" shellů (bash -c '...'), aby se kontrola nedala obejít.
 Když si parser není jistý (nedovřená uvozovka apod.), příkaz POVOLÍ a zaloguje to.
 Chyba hooku nikdy neblokuje práci: skončí exit 1 (nezablokující chyba) s hláškou na stderr.
 
+DR-039: navíc zamítne každé spuštění tars/orch/cli.ts s podpříkazem `owner` (npx tsx, node --import,
+tsx, npm exec, cesta relativní i absolutní, uvozovky, proměnné před příkazem, env, bash -c, $(...)),
+i když by ho povolil allowlist. Podpříkaz, který nejde určit (proměnná, $(...), xargs), se bere jako owner.
+Je to obrana ve vrstvách, ne důkaz identity: při chybě python3 hook propustí (fail-open, viz výše).
+
 Vstup: JSON na stdin (tool_input.command). Výstup při zamítnutí: JSON
 hookSpecificOutput.permissionDecision = "deny" + důvod česky, exit 0.
 Výjimky: tars/guard/bash-preflight.allow (regexy na celé příkazy, re.fullmatch).
@@ -34,6 +39,15 @@ REASONS = {
     "inplace": "Úprava souboru na místě (sed -i / perl -i) vyvolá ruční schvalování. Soubor uprav nástrojem Edit.",
 }
 
+OWNER_REASON = "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)"
+# Zástupná hodnota za $(...) a `...` (obsah se kontroluje zvlášť); pro podpříkaz cli.ts znamená "nejde určit".
+SUB = "\x00sub"
+CLI_NAMES = {"cli.ts", "cli.js", "cli.mjs", "cli.cjs"}
+RUNNERS = {"npx", "tsx", "node", "npm", "pnpm", "pnpx", "yarn", "bun", "bunx", "deno", "ts-node", "vite-node"}
+# Interprety, které spouštějí kód z argumentu (node -e, python -c ...): jejich argument se prohledá jako text.
+EVAL_RUNNERS = {"node", "python", "python3", "perl", "ruby", "deno", "bun", "osascript", "php"}
+OWNER_RAW_RE = re.compile(r"cli\.[cm]?[jt]s\W{0,6}owner\b")
+
 NOVALUE_OPTS = {"-0", "--null", "--no-run-if-empty", "--verbose", "--interactive", "--open-tty"}
 WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout"}
 SHELLS = {"sh", "bash", "zsh", "dash"}
@@ -48,6 +62,42 @@ PERL_I_RE = re.compile(r"^-[0-9adflnpsStTuUwWxX]*i")
 
 class Unsure(Exception):
     pass
+
+
+def undeterminable(word):
+    """Slovo, jehož hodnotu hook nezná: $(...)/`...` nebo neexpandovaná proměnná."""
+    return SUB in word or "$" in word
+
+
+def owner_hit(ws):
+    """DR-039: jednoduchý příkaz (bez přiřazení na začátku) spouští cli.ts s podpříkazem owner?
+
+    cli.ts musí být spuštěné: buď je to samo první slovo, nebo před ním stojí spouštěč (npx, tsx, node, npm ...),
+    obal (env, timeout ...) nebo shell. Podpříkaz = první slovo za cli.ts, které není přepínač. `grep owner cli.ts`
+    tedy projde, `cli.ts tick` / `cli.ts status` také. Neznámý podpříkaz ($X, $(...), xargs bez argumentu) = owner.
+    """
+    if not ws:
+        return False
+    heads = {os.path.basename(w) for w in ws}
+    head = os.path.basename(ws[0])
+    if head in EVAL_RUNNERS and any(OWNER_RAW_RE.search(w) for w in ws[1:]):
+        return True
+    for i, w in enumerate(ws):
+        if os.path.basename(w) not in CLI_NAMES:
+            continue
+        before = {os.path.basename(x) for x in ws[:i]}
+        if i > 0 and not (before & (RUNNERS | WRAPPERS | SHELLS)):
+            continue
+        j = i + 1
+        while j < len(ws) and ws[j].startswith("-") and not undeterminable(ws[j]):
+            j += 1
+        if j >= len(ws):
+            if "xargs" in heads:
+                return True
+            continue
+        if ws[j] == "owner" or undeterminable(ws[j]):
+            return True
+    return False
 
 
 def ansi_c(raw):
@@ -107,7 +157,7 @@ class Parser:
             if c == "\\":
                 if closer == "`" and s.startswith("\\`", i):
                     i = self.parse(i + 2, "\\`")
-                    cur.append("x")
+                    cur.append(SUB)
                     inword = True
                     continue
                 if closer == "\\`" and s.startswith("\\`", i):
@@ -139,7 +189,7 @@ class Parser:
                     endseg()
                     return i + 1
                 i = self.parse(i + 1, "`")
-                cur.append("x")
+                cur.append(SUB)
                 inword = True
                 continue
             if c == "$":
@@ -148,7 +198,7 @@ class Parser:
                     cur.append("0")
                 elif s.startswith("$(", i):
                     i = self.parse(i + 2, ")")
-                    cur.append("x")
+                    cur.append(SUB)
                 elif s.startswith('$"', i):
                     i += 1
                     continue
@@ -253,7 +303,7 @@ class Parser:
                 continue
             if c == "`":
                 i = self.parse(i + 1, "`")
-                cur.append("x")
+                cur.append(SUB)
                 continue
             if s.startswith("$((", i):
                 i = self.skip_arith(i + 3)
@@ -261,7 +311,7 @@ class Parser:
                 continue
             if s.startswith("$(", i):
                 i = self.parse(i + 2, ")")
-                cur.append("x")
+                cur.append(SUB)
                 continue
             cur.append(c)
             i += 1
@@ -352,6 +402,8 @@ class Parser:
             idx += 1
         if idx >= n:
             return
+        if owner_hit(words[idx:]):
+            self.add("owner")
         first = os.path.basename(words[idx])
         if first == "find":
             for k in range(idx + 1, n):
@@ -447,21 +499,31 @@ def main():
     if not isinstance(cmd, str) or not cmd.strip():
         return 0
     cmd = cmd.strip()
+    parser = Parser(cmd)
+    unsure = None
+    try:
+        parser.run()
+    except Unsure as e:
+        unsure = e
+    # DR-039 platí před allowlistem: žádná výjimka nepovolí agentovi zadat rozhodnutí vlastníka.
+    # Když si parser není jistý, rozhoduje textový vzor (fail-closed jen pro owner).
+    if "owner" in parser.found or (unsure is not None and OWNER_RAW_RE.search(cmd)):
+        log("DENY_OWNER")
+        return deny(OWNER_REASON)
     for pat in load_allow():
         if pat.fullmatch(cmd):
             log("ALLOWLIST", cmd[:40])
             return 0
-    parser = Parser(cmd)
-    try:
-        parser.run()
-    except Unsure as e:
-        if not parser.found:
-            log("UNSURE_ALLOW", "%s | %s" % (e, cmd[:40]))
-            return 0
+    if unsure is not None and not parser.found:
+        log("UNSURE_ALLOW", "%s | %s" % (unsure, cmd[:40]))
+        return 0
     if not parser.found:
         return 0
     log("DENY", "%s | %s" % (",".join(parser.found), cmd[:40]))
-    reason = "P04 (DR-036): " + " ".join(REASONS[c] for c in parser.found)
+    return deny("P04 (DR-036): " + " ".join(REASONS[c] for c in parser.found))
+
+
+def deny(reason):
     out = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
