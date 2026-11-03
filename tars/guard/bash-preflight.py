@@ -376,7 +376,7 @@ class Parser:
                 if ENV_RE.match(w) or re.match(r"^[0-9.]+[smhd]?$", w):
                     k += 1
                     continue
-                self.apply(words[k:])
+                self.check(words[k:])
                 if not after_opt:
                     break
                 after_opt = False

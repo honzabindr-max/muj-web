@@ -64,6 +64,8 @@ const DENY: Array<[string, string, RegExp]> = [
   ["xargs -I {}", "xargs -I {} tee f", /tee/],
   ["find -exec sed -i", "find . -type f -exec sed -i s/a/b/ {} \\;", /sed -i/],
   ["find -exec env sed -i", "find . -name '*.txt' -exec env LC_ALL=C sed -i '' 's/old/new/g' {} +", /sed -i/],
+  ["xargs -0 env sed -i", "find . -name '*.txt' -print0 | xargs -0 env LC_ALL=C sed -i '' 's/old/new/g'", /sed -i/],
+  ["xargs --null env sed -i", "find . -name '*.txt' -print0 | xargs --null env LC_ALL=C sed -i '' 's/old/new/g'", /sed -i/],
   ["příkaz v aritmetice", "echo $(( $(echo 1 > f) + 1 ))", /Přesměrování/],
   [">&1foo je soubor, ne dup fd", "echo x >&1foo", /Přesměrování/],
   [">&'f' je soubor", "echo x >&'f'", /Přesměrování/],
