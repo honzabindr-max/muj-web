@@ -1427,10 +1427,10 @@ describe("owner ping (komentář se zmínkou, plán B)", () => {
   const WAIT_BRIEF = BRIEF({ owner_decisions: ["cena"] });
   function restMock(status = 200) {
     const calls: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
-    const state = { status };
+    const state: { status: number; json?: unknown } = { status };
     const fetchImpl = async (url: string, init: { method: string; body?: string }) => {
       calls.push({ url, method: init.method, body: JSON.parse(init.body ?? "{}") });
-      return { ok: state.status < 300, status: state.status, json: async () => (state.status === 403 ? { code: "restricted_resource" } : {}) };
+      return { ok: state.status < 300, status: state.status, json: async () => state.json ?? (state.status === 403 ? { code: "restricted_resource" } : {}) };
     };
     const api = new NotionRestApi("ntn_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3", fetchImpl);
     return { calls, state, ping: new OwnerPing(api, { userId: "user-1" }) };
@@ -1477,6 +1477,97 @@ describe("owner ping (komentář se zmínkou, plán B)", () => {
     await o.resyncPanel(id);
     expect(calls).toHaveLength(3); // dva pokusy s 403 a jeden úspěšný, další zápis už nic neposlal
     expect(store.load(id).meta.owner_ping).toBe("1");
+  });
+
+  it("O2: tick → 403 → další tick → po zapnutí oprávnění přesně jedno odeslání, třetí tick už nic", async () => {
+    const panel = new MockPanel();
+    const { calls, state, ping } = restMock(403);
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    const id = store.listOrders()[0].id;
+    expect(calls).toHaveLength(1); // první tick: jedno odeslání (403)
+    expect(store.load(id).meta.owner_ping).toBeUndefined();
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    expect(calls).toHaveLength(2); // další tick zkusí znovu, nejvýš jednou (stále 403)
+    expect(store.load(id).meta.owner_ping).toBeUndefined();
+    state.status = 200; // vlastník zapnul „Insert comments“
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    expect(calls).toHaveLength(3); // přesně jedno odeslání
+    expect(store.load(id).meta.owner_ping).toBe("1");
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    expect(calls).toHaveLength(3); // značka drží, nic dalšího
+    expect(store.listOrders()).toHaveLength(1);
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+  });
+
+  it("O2: v jednom ticku nejvýš jeden pokus, i když tick zároveň dosyncuje řádek (chybí pageId po neúspěšném zápisu)", async () => {
+    const panel = new MockPanel();
+    const { calls, state, ping } = restMock(403);
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    panel.failNext = 100; // všechny zápisy řádku selžou, řádek ani pageId nevznikne, ping neběží
+    await o.tick();
+    expect(calls).toHaveLength(0);
+    panel.failNext = 0;
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" }); // pollOwnerDecisions dosyncuje řádek (ping) a retry už přidá jen guard
+    expect(calls).toHaveLength(1);
+    state.status = 200;
+    await o.tick();
+    expect(calls).toHaveLength(2);
+  });
+
+  it("O2: nejasný výsledek (5xx) se v dalším ticku naslepo neopakuje", async () => {
+    const panel = new MockPanel();
+    const { calls, ping } = restMock(502);
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    await o.tick();
+    const id = store.listOrders()[0].id;
+    expect(calls).toHaveLength(1);
+    expect(store.load(id).meta.owner_ping).toBe("1"); // značka drží i u uncertain
+    await o.tick();
+    await o.tick();
+    expect(calls).toHaveLength(1);
+  });
+
+  it("O2: selhání jiné než oprávnění (404) se opakuje v dalším ticku, hláška v logu se nezdvojí", async () => {
+    const panel = new MockPanel();
+    const { calls, state, ping } = restMock(404);
+    state.json = { code: "object_not_found", message: "Could not find page with ID: 123. Make sure the relevant pages are shared with your integration." };
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    await o.tick();
+    await o.tick();
+    expect(calls).toHaveLength(2);
+    const hint = store.readLog(200).filter((e) => e.result === "Integrace TARS nevidí stránku zakázky, zkontroluj sdílení stránky TARS META OS — Bootstrap");
+    expect(hint).toHaveLength(1);
+  });
+
+  it("O1: 404 s „Could not find user … read user information“ → hláška o Read user information, zakázka zůstává ve WAITING_OWNER, tělo odpovědi není v logu", async () => {
+    const panel = new MockPanel();
+    const { calls, state, ping } = restMock(404);
+    state.json = { code: "object_not_found", message: "Could not find user with ID: 28ed872b-594c-813f-b94f-00025f08b7b6. Ensure the integration has read user information capability.", extra: "tajne-telo-odpovedi" };
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    expect(await o.tick()).toMatchObject({ status: "waiting_owner" });
+    const id = store.listOrders()[0].id;
+    expect(calls).toHaveLength(1);
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.load(id).meta.owner_ping).toBeUndefined();
+    const log = store.readLog(200);
+    expect(log.filter((e) => e.result === "Integrace TARS nemá oprávnění Read user information (bez e-mailů)")).toHaveLength(1);
+    const dump = JSON.stringify(log);
+    expect(dump).not.toContain("Could not find");
+    expect(dump).not.toContain("tajne-telo-odpovedi");
+    expect(dump).not.toContain("28ed872b");
+  });
+
+  it("O1: 403 po 404 přepíše hlášku podle statusu (každá chyba má svou českou hlášku)", async () => {
+    const panel = new MockPanel();
+    const { state, ping } = restMock(404);
+    const { o } = orch({ panel, ownerPing: ping, supervisor: [{ text: WAIT_BRIEF }] });
+    await o.tick();
+    state.status = 403;
+    await o.tick();
+    const results = store.readLog(200).map((e) => e.result);
+    expect(results).toContain("Integrace TARS nevidí stránku zakázky, zkontroluj sdílení stránky TARS META OS — Bootstrap");
+    expect(results).toContain("Integrace TARS nemá oprávnění Insert comments");
   });
 
   it("bez tokenu se nic neposílá, jen se zaloguje a zakázka pokračuje", async () => {

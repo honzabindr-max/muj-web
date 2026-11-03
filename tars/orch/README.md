@@ -114,6 +114,14 @@ Pro vlastníka: v nastavení integrace TARS (https://www.notion.so/profile/integ
 
 Technicky: při přechodu do `WAITING_OWNER` zapíše integrace přes `POST /v1/comments` na řádek zakázky komentář se zmínkou vlastníka (`owner-ping.ts`), Notion pošle push u zmínky od někoho jiného než vlastníka. Jeden komentář na jeden přechod (značka `meta.owner_ping` ve stavu zakázky), bez tokenu se nic neposílá, text prochází secret-scanem, žádné SQL ani rows dotazy. ID uživatele je výchozí hodnota v kódu, přepíše se `TARS_OWNER_NOTION_USER_ID`.
 
+Hlášky v logu podle odpovědi Notionu (tělo odpovědi se nikdy nelogí, jen známý kód):
+
+- 403 → „Integrace TARS nemá oprávnění Insert comments“
+- 404 „Could not find user … read user information“ → „Integrace TARS nemá oprávnění Read user information (bez e-mailů)“
+- jiná 404 → „Integrace TARS nevidí stránku zakázky, zkontroluj sdílení stránky TARS META OS — Bootstrap“
+
+Když komentář neodešel kvůli oprávnění nebo sdílení (`no_permission`, `failed`), každý další běžný tick to u zakázky ve `WAITING_OWNER` zkusí znovu, nejvýš jednou za tick, a po opravě nastavení komentář odejde sám. Nejasný výsledek (síť, 5xx, `uncertain`) se naslepo neopakuje.
+
 Další tick (launchd, každých 30 min) už píše přes REST. Bez tokenu nebo při chybě se nic nerozbije, zápis jde fallbackem.
 
 ## Control panels

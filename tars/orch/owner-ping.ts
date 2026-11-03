@@ -12,6 +12,8 @@ export const OWNER_USER_ID_ENV = "TARS_OWNER_NOTION_USER_ID";
 export const OVERVIEW_URL = "https://claude.ai/artifact/DvYFryA3HCPTUrnNCv74Sj";
 
 export const NO_COMMENT_PERMISSION_MESSAGE = "Integrace TARS nemá oprávnění Insert comments";
+export const NO_USER_READ_PERMISSION_MESSAGE = "Integrace TARS nemá oprávnění Read user information (bez e-mailů)";
+export const PAGE_NOT_VISIBLE_MESSAGE = "Integrace TARS nevidí stránku zakázky, zkontroluj sdílení stránky TARS META OS — Bootstrap";
 export const NO_TOKEN_PING_MESSAGE = "Upozornění na iPhone: token Notion chybí, komentář se neposílá";
 
 const UUID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
@@ -85,6 +87,9 @@ export class OwnerPing {
     } catch (e) {
       if (!(e instanceof NotionRestError)) return { outcome: "failed", detail: "Upozornění na iPhone: neočekávaná chyba" };
       if (e.status === 403) return { outcome: "no_permission", detail: NO_COMMENT_PERMISSION_MESSAGE };
+      // 404: buď Notion nenašel zmíněného uživatele (integraci chybí „Read user information“), nebo integrace nevidí stránku zakázky.
+      // Do hlášky jde jen tento rozbor, nikdy tělo odpovědi.
+      if (e.status === 404) return { outcome: "failed", detail: e.hint === "read_user_information" ? NO_USER_READ_PERMISSION_MESSAGE : PAGE_NOT_VISIBLE_MESSAGE };
       // 503 s `committed_resource_id`: Notion komentář uložil, druhý se nesmí poslat.
       if (e.committedId) return { outcome: "sent" };
       // Síť a 5xx: komentář mohl vzniknout, naslepo se neopakuje (duplicitní push je horší než chybějící).

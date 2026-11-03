@@ -7,7 +7,9 @@ import {
   commentPlainText,
   DEFAULT_OWNER_NOTION_USER_ID,
   NO_COMMENT_PERMISSION_MESSAGE,
+  NO_USER_READ_PERMISSION_MESSAGE,
   OVERVIEW_URL,
+  PAGE_NOT_VISIBLE_MESSAGE,
   OwnerPing,
   ownerUserIdFromEnv,
   waitingOwnerTransitions,
@@ -102,8 +104,37 @@ describe("odeslání přes POST /v1/comments", () => {
     expect((await committed.ping.send(PAGE, "Z")).outcome).toBe("sent");
   });
 
-  it("ostatní 4xx je selhání bez značky (404 = stránka není sdílena)", async () => {
-    expect((await mock(() => ({ status: 404, json: { code: "object_not_found" } })).ping.send(PAGE, "Z")).outcome).toBe("failed");
+  it("O1: 404 „Could not find user … read user information“ → hláška o oprávnění Read user information, bez těla odpovědi", async () => {
+    const body = { code: "object_not_found", message: "Could not find user with ID: 28ed872b-594c-813f-b94f-00025f08b7b6. Ensure the integration has read user information capability.", secret_field: "tajne" };
+    const r = await mock(() => ({ status: 404, json: body })).ping.send(PAGE, "Z");
+    expect(r).toEqual({ outcome: "failed", detail: NO_USER_READ_PERMISSION_MESSAGE });
+    expect(NO_USER_READ_PERMISSION_MESSAGE).toBe("Integrace TARS nemá oprávnění Read user information (bez e-mailů)");
+    expect(JSON.stringify(r)).not.toMatch(/Could not find|28ed872b|tajne/);
+  });
+
+  it("O1: jiná 404 → hláška o sdílení stránky TARS META OS — Bootstrap, bez těla odpovědi", async () => {
+    const body = { code: "object_not_found", message: "Could not find page with ID: abc. Make sure the relevant pages and databases are shared with your integration." };
+    const r = await mock(() => ({ status: 404, json: body })).ping.send(PAGE, "Z");
+    expect(r).toEqual({ outcome: "failed", detail: PAGE_NOT_VISIBLE_MESSAGE });
+    expect(PAGE_NOT_VISIBLE_MESSAGE).toBe("Integrace TARS nevidí stránku zakázky, zkontroluj sdílení stránky TARS META OS — Bootstrap");
+    expect(JSON.stringify(r)).not.toMatch(/Could not find|abc/);
+    // 404 bez čitelného těla je také „stránka není vidět“
+    expect(await mock(() => ({ status: 404 })).ping.send(PAGE, "Z")).toEqual({ outcome: "failed", detail: PAGE_NOT_VISIBLE_MESSAGE });
+    // zpráva o uživateli bez zmínky o Read user information není rozpoznána jako oprávnění
+    const other = await mock(() => ({ status: 404, json: { code: "object_not_found", message: "Could not find user." } })).ping.send(PAGE, "Z");
+    expect(other.detail).toBe(PAGE_NOT_VISIBLE_MESSAGE);
+  });
+
+  it("O1: 403 vždy hlásí Insert comments, i když tělo zmiňuje uživatele", async () => {
+    const r = await mock(() => ({ status: 403, json: { code: "restricted_resource", message: "Could not find user … read user information" } })).ping.send(PAGE, "Z");
+    expect(r).toEqual({ outcome: "no_permission", detail: NO_COMMENT_PERMISSION_MESSAGE });
+  });
+
+  it("ostatní 4xx (např. 400) je selhání bez značky, jen se známým kódem, ne tělem", async () => {
+    const r = await mock(() => ({ status: 400, json: { code: "validation_error", message: "tajný text těla" } })).ping.send(PAGE, "Z");
+    expect(r.outcome).toBe("failed");
+    expect(r.detail).toContain("notion REST 400 validation_error");
+    expect(JSON.stringify(r)).not.toContain("tajný text těla");
   });
 
   it("nikdy nevolá SQL ani rows (jen /v1/comments)", async () => {
