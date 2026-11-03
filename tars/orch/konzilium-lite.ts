@@ -174,18 +174,39 @@ export function assertClean(where: string, texts: readonly string[], scan: (t: s
   if (kinds.size) throw new SecretStop(where, [...kinds]);
 }
 
+// Jeden průchod rozbalení escapů (JSON/JS: \uXXXX, \u{…}, \xXX, \n \t \" \\ …) a procentového kódování (%XX).
+const ESCAPE_RE = /\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|["'\\/bfnrtv0])/g;
+const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "0": "\0" };
+const MAX_UNESCAPE_PASSES = 4;
+
+function unescapeOnce(s: string): string {
+  return s
+    .replace(ESCAPE_RE, (_m, e: string) =>
+      e[0] === "u" ? safeChar(parseInt(e.startsWith("u{") ? e.slice(2, -1) : e.slice(1), 16)) : e[0] === "x" ? safeChar(parseInt(e.slice(1), 16)) : SIMPLE_ESCAPES[e],
+    )
+    .replace(/%([0-9a-fA-F]{2})/g, (_m, h: string) => safeChar(parseInt(h, 16)));
+}
+
 /**
- * Podoby textu modelu, které se skenují: surový text, text s rozbalenými escapy \uXXXX / \xXX a všechny řetězce (i klíče)
- * dekódovaného JSON (celá odpověď nebo jeden ```json blok). Tajemství zapsané escapem tak neprojde do run.json ani na kartu.
+ * Podoby textu, které se skenují: surový text, text po opakovaném rozbalení všech escapů a %XX (i vnořených, i mimo
+ * JSON, i v duplicitních klíčích) a všechny řetězce i klíče dekódovaného JSON (celá odpověď nebo jeden ```json blok).
+ * Tajemství zapsané escapem nebo %XX tak neprojde na disk, do karty, panelu ani na stdout.
  */
-export function scanVariants(text: string): string[] {
-  const out = [text];
-  const unescaped = text
-    .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_m, h: string) => safeChar(parseInt(h, 16)))
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => safeChar(parseInt(h, 16)))
-    .replace(/\\x([0-9a-fA-F]{2})/g, (_m, h: string) => safeChar(parseInt(h, 16)))
-    .replace(/\\\//g, "/");
-  if (unescaped !== text) out.push(unescaped);
+export function scanVariants(text: string, where = "text"): string[] {
+  const out = new Set<string>([text]);
+  let cur = text;
+  let stable = false;
+  for (let i = 0; i < MAX_UNESCAPE_PASSES; i++) {
+    const next = unescapeOnce(cur);
+    if (next === cur) {
+      stable = true;
+      break;
+    }
+    out.add(next);
+    cur = next;
+  }
+  // Víc vnořených escapů, než se rozbalí: obsah nejde ověřit → STOP (fail-closed).
+  if (!stable && unescapeOnce(cur) !== cur) throw new SecretStop(where, ["příliš vnořené escapy"]);
   const strings: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") strings.push(v);
@@ -712,7 +733,8 @@ async function callModel(
   }
   rec.duration_ms = r.duration_ms;
   try {
-    assertClean(`výstup modelu (${step})`, [...scanVariants(String(r.text ?? "")), ...scanVariants(String(r.error ?? ""))]);
+    const where = `výstup modelu (${step})`;
+    assertClean(where, [...scanVariants(String(r.text ?? ""), where), ...scanVariants(String(r.error ?? ""), where)]);
   } catch (e) {
     rec.result = "secret-scan";
     ctx.save();
@@ -786,7 +808,8 @@ export async function runKonzilium(inputFile: string, deps: KonziliumDeps): Prom
   const snaps = assertKonziliumFamilies(deps.creator, deps.checker);
   // Popis adaptérů jde do run.json, karty i panelu: zkontroluje se dřív, než se cokoli zapíše.
   try {
-    assertClean("popis adaptérů", [snaps.creator.name, snaps.creator.model, snaps.checker.name, snaps.checker.model]);
+    const where = "popis adaptérů";
+    assertClean(where, [snaps.creator.name, snaps.creator.model, snaps.checker.name, snaps.checker.model].flatMap((s) => scanVariants(s, where)));
   } catch (e) {
     if (e instanceof SecretStop) return { status: "STOP", reason: e.message, calls: 0 };
     throw e;
@@ -852,7 +875,7 @@ async function runLocked(
   };
   try {
     // 1) Vstup: cesta, celý soubor a každé pole zvlášť. Nic z něj neodejde k modelu, dokud není čisté.
-    assertClean("vstup (cesta a soubor)", [inputFile, ...scanVariants(raw)]);
+    assertClean("vstup (cesta a soubor)", [...scanVariants(inputFile, "vstup (cesta)"), ...scanVariants(raw, "vstup (soubor)")]);
     let input: KonziliumInput;
     try {
       input = parseInput(raw);

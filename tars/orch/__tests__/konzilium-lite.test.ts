@@ -452,6 +452,29 @@ describe("Konzilium Lite — secret-scan (STOP)", () => {
     noSecretOnDisk();
   });
 
+  it.each([
+    ["chybová hláška s prefixem, \\n a unicode escapem", { ok: false, text: "", error: `exit 1: {"msg":"x\\n${ESCAPED}"}` }],
+    ["duplicitní klíč JSON", { text: `{"verdict":"PASS","findings":[{"severity":"info","file":null,"line":null,"text":"x ${ESCAPED}"}],"findings":[]}` }],
+    ["dvojitý escape", { text: `{"verdict":"PASS","findings":[{"severity":"info","file":null,"line":null,"text":"x \\${ESCAPED}"}]}` }],
+    ["procentové kódování", { text: `{"verdict":"PASS","findings":[{"severity":"info","file":null,"line":null,"text":"x %67${SECRET.slice(1)}"}]}` }],
+    ["příliš vnořené escapy", { text: `x ${"\\".repeat(64)}u0067${SECRET.slice(1)}` }],
+  ])("zakódované tajemství ve výstupu GPT (%s) → STOP, nic z něj na disku ani ve výsledku", async (_n, reply) => {
+    const { notion, panel, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [reply as Reply]);
+    const r = await runKonzilium(inputFile({ ...INPUT, title: `enc ${_n}` }), deps);
+    expect(r.status).toBe("STOP");
+    expect(JSON.stringify(r)).not.toContain(SECRET.slice(1));
+    expect(notion.pages).toHaveLength(0);
+    expect(panel.rows).toHaveLength(0);
+    expect(readRun(r.run_id!).calls[1].result).toBe("secret-scan");
+    noSecretOnDisk();
+  });
+
+  it("běžný text s escapy (uvozovky, nové řádky, procenta, cesty) STOP nevyvolá", async () => {
+    const normal = { ...PROPOSAL, recommended: { ...PROPOSAL.recommended, summary: 'Sleva 20 % a "rychlý" start\nna 2 řádky, C:\\data\\x' } };
+    const { deps } = setup([{ text: JSON.stringify(normal) }], [{ text: PASS }]);
+    expect((await runKonzilium(inputFile(), deps)).status).toBe("WAITING_OWNER");
+  });
+
   it("tajemství v popisu adaptéru → STOP dřív, než vznikne run.json", async () => {
     const { creator, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: PASS }]);
     (deps.checker as Fake).model = SECRET;
