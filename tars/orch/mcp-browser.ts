@@ -188,6 +188,8 @@ export class McpBrowser {
         noBuiltinTools: true,
         mcpConfig: cfg,
         settings: browserSettings(this.gate, statePath, path.basename(shotsDir)),
+        // The same runs dir as for Chrome and the MCP server: the SessionStart hook of this claude -p looks for the lock there.
+        env: this.runsDir ? { TARS_RUNS_DIR: this.runsDir } : undefined,
       });
     } catch (e) {
       failure = e;

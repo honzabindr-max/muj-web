@@ -19,6 +19,8 @@ export interface RunOpts {
   noBuiltinTools?: boolean;
   /** claude only: inline --settings JSON replacing ORCH_CLAUDE_SETTINGS (e.g. adds a PreToolUse hook). */
   settings?: string;
+  /** claude only: extra environment of the `claude -p` process (e.g. TARS_RUNS_DIR for its hooks). */
+  env?: Record<string, string>;
   /** codex only: JSON Schema for `codex exec --output-schema` (structured verdict). Other adapters ignore it. */
   outputSchema?: JsonSchema;
 }
@@ -137,6 +139,7 @@ export class ClaudeCli implements TextAdapter {
       prompt,
       opts.cwd,
       opts.timeoutMs ?? 20 * 60_000,
+      opts.env,
     );
     let text = "";
     let isError = r.code !== 0;

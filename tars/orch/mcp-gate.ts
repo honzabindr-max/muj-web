@@ -66,6 +66,12 @@ export function gateMcpCall(toolName: string, input: Record<string, unknown> = {
   if (state.calls >= MAX_TOOL_CALLS) return `překročen limit ${MAX_TOOL_CALLS} volání nástrojů prohlížeče`;
   if (!(BROWSER_MCP_TOOLS as readonly string[]).includes(tool)) return `nástroj ${tool} není pro prohlížeč TARS povolen`;
   if (!filenameAllowed(input.filename, filesDir)) return `soubor smí být jen ve složce ${filesDir ?? "(neurčena)"}/ tohoto běhu: ${String(input.filename).slice(0, 80)}`;
+  if (tool === "browser_snapshot") {
+    // Every new snapshot replaces the judged refs (observeResponse); a shortened one (depth, a sub-tree target, ...) would
+    // drop the text that made a forbidden element forbidden and re-allow it. Only the full snapshot is allowed.
+    const extra = Object.keys(input).find((k) => k !== "filename");
+    if (extra) return `browser_snapshot smí mít jen parametr filename, ne „${extra.slice(0, 40)}“ (zkrácený snapshot by přepsal hodnocení prvků)`;
+  }
   if (tool === "browser_navigate") {
     const url = String(input.url ?? "");
     if (url !== "about:blank" && !hostAllowed(url)) return `host není povolen: ${url}`;
