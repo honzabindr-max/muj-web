@@ -34,14 +34,14 @@ REASONS = {
     "inplace": "Úprava souboru na místě (sed -i / perl -i) vyvolá ruční schvalování. Soubor uprav nástrojem Edit.",
 }
 
-WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout", "find"}
+WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout"}
 SHELLS = {"sh", "bash", "zsh", "dash"}
 OK_TARGETS = {"/dev/null", "/dev/stderr", "/dev/stdout"}
 META = set(" \t\n;&|<>()")
 ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 FD_DUP_RE = re.compile(r"(?:\d+-?|-)(?=[\s;&|<>()]|$)")
 SHELL_C_RE = re.compile(r"^-[a-zA-Z]*c[a-zA-Z]*$|^--command$")
-SED_I_RE = re.compile(r"^-[nEsurz]*i")
+SED_I_RE = re.compile(r"^-[nEsurzl]*i")
 PERL_I_RE = re.compile(r"^-[0-9adflnpsStTuUwWxX]*i")
 
 
@@ -148,6 +148,9 @@ class Parser:
                 elif s.startswith("$(", i):
                     i = self.parse(i + 2, ")")
                     cur.append("x")
+                elif s.startswith('$"', i):
+                    i += 1
+                    continue
                 elif s.startswith("$'", i):
                     j = i + 2
                     while j < n and s[j] != "'":
@@ -198,12 +201,14 @@ class Parser:
                     i += 1
                 continue
             if c == "&":
+                if s.startswith("&>", i):
+                    endword()
+                    i = self.redirect(i + 1)
+                    continue
                 endseg()
                 if s.startswith("&&", i):
                     self.add("chain")
                     i += 2
-                elif s.startswith("&>", i):
-                    i = self.redirect(i + 1)
                 else:
                     i += 1
                 continue
@@ -342,26 +347,55 @@ class Parser:
         n = len(words)
         while idx < n and ENV_RE.match(words[idx]):
             idx += 1
+        while idx < n and words[idx] == "!":
+            idx += 1
         if idx >= n:
             return
-        if os.path.basename(words[idx]) in WRAPPERS:
-            # wrapper (env -u X, sudo -u u, xargs -I {}, find -exec ...): hodnoty přepínačů neznáme,
-            # proto zkusíme každé další slovo jako začátek vnořeného příkazu
+        first = os.path.basename(words[idx])
+        if first == "find":
             for k in range(idx + 1, n):
+                if words[k] in ("-exec", "-execdir", "-ok", "-okdir") and k + 1 < n:
+                    self.apply(words[k + 1:])
+            return
+        if first == "command" and idx + 1 < n and words[idx + 1] in ("-v", "-V"):
+            return
+        if first in WRAPPERS:
+            # wrapper (env -u X, sudo -u u, xargs -I {}, nice -n 5 ...): hodnoty přepínačů neznáme.
+            # Vnořený příkaz je první slovo, které není přepínač, přiřazení ani číslo; slovo hned za
+            # přepínačem může být jeho hodnota, proto se zkusí i další.
+            k = idx + 1
+            after_opt = False
+            while k < n:
+                w = words[k]
+                if w.startswith("-"):
+                    after_opt = True
+                    k += 1
+                    continue
+                if ENV_RE.match(w) or re.match(r"^[0-9.]+[smhd]?$", w):
+                    k += 1
+                    continue
                 self.apply(words[k:])
+                if not after_opt:
+                    break
+                after_opt = False
+                k += 1
             return
         self.apply(words[idx:])
 
     def apply(self, ws):
         cmd = os.path.basename(ws[0])
         rest = ws[1:]
+        if "--" in rest:
+            opts = rest[:rest.index("--")]
+        else:
+            opts = rest
         if cmd == "tee":
             self.add("tee")
         elif cmd == "sed":
-            if any(SED_I_RE.match(a) or a.startswith("--in-place") for a in rest):
+            if any(SED_I_RE.match(a) or a.startswith("--in-place") for a in opts):
                 self.add("inplace")
         elif cmd == "perl":
-            if any(PERL_I_RE.match(a) for a in rest):
+            if any(PERL_I_RE.match(a) for a in opts):
                 self.add("inplace")
         elif cmd in SHELLS:
             for k, a in enumerate(rest):
@@ -369,6 +403,8 @@ class Parser:
                     self.sub(rest[k + 1])
                     break
         elif cmd == "eval":
+            while rest and rest[0].startswith("-"):
+                rest = rest[1:]
             self.sub(" ".join(rest))
 
     def sub(self, payload):

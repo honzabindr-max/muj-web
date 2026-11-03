@@ -70,6 +70,12 @@ const DENY: Array<[string, string, RegExp]> = [
   ["vnořené zpětné apostrofy", "echo `echo \\`tee f\\``", /tee/],
   ["eval s ANSI-C escape", "eval $'echo x \\x3e f'", /Přesměrování/],
   ["vnořené eval", "eval \"eval \\\"eval 'echo x > f'\\\"\"", /Přesměrování/],
+  ["locale quoting $\"tee\"", '$"tee" f', /tee/],
+  ["sed -li", "sed -li '' s/a/b/ f", /sed -i/],
+  ["eval -- payload", "eval -- 'tee f'", /tee/],
+  ["negace ! před tee", "echo $(! tee f)", /tee/],
+  ["timeout 5 tee", "timeout 5 tee f", /tee/],
+  ["nice -n 5 sed -i", "nice -n 5 sed -i s/a/b/ f", /sed -i/],
 ];
 
 const ALLOW: Array<[string, string]> = [
@@ -103,6 +109,12 @@ const ALLOW: Array<[string, string]> = [
   ["prázdný příkaz", "   "],
   ["pozadí přes &", "sleep 5 &"],
   ["2>& 1 s mezerou", "echo x 2>& 1"],
+  ["&>/dev/null uprostřed příkazu", "grep &>/dev/null tee file"],
+  ["find -name tee", "find . -name tee"],
+  ["find -exec grep tee", "find . -name '*.py' -exec grep -l tee {} +"],
+  ["env -u FOO grep tee", "env -u FOO grep tee file"],
+  ["command -v tee", "command -v tee"],
+  ["sed -- -input.txt", "sed -n 1p -- -input.txt"],
   ["komentář se středníkem", "git status # ; comment"],
   ["komentář s $(tee f)", "git status # $(tee f)"],
   ["komentář s >", "cat f 2>/dev/null # > log"],
