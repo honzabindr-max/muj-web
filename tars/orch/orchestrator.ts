@@ -9,6 +9,7 @@ import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { isUncertainOutcome } from "./notion";
+import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
@@ -33,6 +34,8 @@ export interface OrchestratorDeps {
   capsulePath: string;
   /** Notion control panel (TARS — Zakázky). Optional; failures never stop an order. */
   panel?: { sink: PanelSink; index: PanelIndex };
+  /** Plán B push na iPhone: komentář se zmínkou vlastníka na řádku zakázky při přechodu do WAITING_OWNER. Optional; failures never stop an order. */
+  ownerPing?: OwnerPing;
   /** Canonical source loader (karta §2a bod 2). Without it, sources are UNKNOWN. */
   sources?: SourceLoader;
   mission?: string;
@@ -86,6 +89,8 @@ export function assertFamilies(depts: Partial<Record<string, DepartmentRunner>>)
 export class Orchestrator {
   private now: () => Date;
   private panelQueue: Promise<void> = Promise.resolve();
+  /** Přechody, na které už v právě běžícím ticku odešel pokus o komentář (jen během ticku). */
+  private tickPingKeys: Set<string> | undefined;
   private ctx: DeptContext;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
@@ -145,12 +150,71 @@ export class Orchestrator {
         const id = await panel.sink.upsert(row, existing);
         panel.index.set(o.id, id);
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+        await this.pingOwner(o, id);
       } catch (e) {
         // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
         if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
+  }
+
+  /**
+   * Plán B upozornění: jeden komentář se zmínkou vlastníka na jeden přechod do WAITING_OWNER. Idempotence je ve stavu
+   * zakázky: `meta.owner_ping` drží číslo přechodu, na který komentář odešel (nebo jeho výsledek je nejasný a nesmí se
+   * opakovat naslepo). Chyba 403 (chybí „Insert comments“), chybějící token ani jiná chyba zakázku nezastaví a nezapíše
+   * značku, takže další zápis řádku nebo běžný tick (`retryOwnerPings`, nejvýš jednou za tick) to zkusí znovu. Nikdy nevyhazuje chybu.
+   */
+  private async pingOwner(o: Order, pageId: string): Promise<void> {
+    const ping = this.d.ownerPing;
+    if (!ping || o.state !== "WAITING_OWNER") return;
+    try {
+      const n = waitingOwnerTransitions(o);
+      const current = this.d.store.load(o.id);
+      if (current.state !== "WAITING_OWNER" || waitingOwnerTransitions(current) !== n || current.meta.owner_ping === String(n)) return;
+      // V jednom ticku se na jeden přechod posílá nejvýš jednou (zápis řádku a opakování po selhání se nesčítají).
+      const key = `${o.id}:${n}`;
+      if (this.tickPingKeys?.has(key)) return;
+      this.tickPingKeys?.add(key);
+      const title = current.brief?.title ?? `Nová zakázka ${current.id}`;
+      const t0 = Date.now();
+      const r = await ping.send(pageId, title);
+      const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
+      if (r.outcome === "sent" || r.outcome === "uncertain") {
+        this.d.store.withStateLock(() => {
+          const fresh = this.d.store.load(o.id);
+          if (fresh.state !== "WAITING_OWNER" || waitingOwnerTransitions(fresh) !== n) return;
+          this.d.store.save({ ...fresh, meta: { ...fresh.meta, owner_ping: String(n) } });
+        }, this.d.stateLockWaitMs);
+      }
+      if (r.outcome === "sent") this.log({ ...base, kind: "info", result: "upozornění na iPhone: komentář se zmínkou odeslán" });
+      else if (r.outcome === "uncertain") this.log({ ...base, kind: "error", result: r.detail ?? "upozornění na iPhone: výsledek nejasný" });
+      else if (r.outcome === "failed") this.logOnce({ order: o.id, kind: "error", role: "transport", result: r.detail ?? "upozornění na iPhone selhalo" }); // opakuje se každý tick, hláška se nezdvojuje
+      else this.logOnce({ order: o.id, kind: "info", role: "transport", result: r.detail ?? `upozornění na iPhone: ${r.outcome}` });
+    } catch (e) {
+      this.log({ order: o.id, kind: "error", role: "transport", result: "upozornění na iPhone selhalo", reason: (e as Error).message.slice(0, 300) });
+    }
+  }
+
+  /**
+   * Běžný tick zkusí znovu upozornění u zakázek ve WAITING_OWNER, kterým komentář neodešel (chybělo oprávnění, stránka
+   * nebyla sdílena, jiné odmítnutí). Značku `meta.owner_ping` má jen odeslaný nebo nejasný (`uncertain`) pokus, takže
+   * nejasný výsledek se naslepo neopakuje. Nejvýš jeden pokus na zakázku a přechod za tick; běží ve frontě panelu.
+   */
+  private retryOwnerPings(): Promise<void> {
+    const panel = this.d.panel;
+    if (!panel || !this.d.ownerPing) return Promise.resolve();
+    this.panelQueue = this.panelQueue.then(async () => {
+      try {
+        for (const w of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
+          const pageId = panel.index.get(w.id);
+          if (pageId) await this.pingOwner(w, pageId);
+        }
+      } catch (e) {
+        this.log({ order: "-", kind: "error", role: "transport", result: "opakování upozornění na iPhone selhalo", reason: (e as Error).message.slice(0, 300) });
+      }
+    });
+    return this.panelQueue;
   }
 
   private async loadSources(keys: string[]): Promise<LoadedSource[]> {
@@ -230,8 +294,10 @@ export class Orchestrator {
     this.log({ order: "-", kind: "guard", result: g.alarm ? "ALARM" : "OK", reason: g.summary });
     if (g.alarm) return { status: "guard_alarm", summary: g.summary };
     if (!this.d.store.acquireLock()) return { status: "locked" };
+    this.tickPingKeys = new Set();
     try {
       await this.pollOwnerDecisions();
+      await this.retryOwnerPings();
       const orders = this.d.store.listOrders();
       let order = orders.find((o) => isActionable(o.state));
       if (!order) {
@@ -256,6 +322,7 @@ export class Orchestrator {
       return { status: "advanced", order: order.id, state: order.state };
     } finally {
       await this.flushPanel();
+      this.tickPingKeys = undefined;
       this.d.store.releaseLock();
     }
   }

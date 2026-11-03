@@ -128,9 +128,21 @@ export class NotionRestError extends Error {
     public readonly code: string,
     /** Notion answered 503 but the write was committed (`additional_data.committed_resource_id`). */
     public readonly committedId?: string,
+    /** Known classification of the answer derived from its text; the text itself is never kept. */
+    public readonly hint?: NotionErrorHint,
   ) {
     super(`notion REST ${status} ${code}`);
   }
+}
+
+/** `read_user_information`: Notion could not resolve a mentioned user because the integration lacks „Read user information“. */
+export type NotionErrorHint = "read_user_information";
+
+/** Maps the answer's message to a known hint. Only the verdict leaves this function, never the message. */
+function hintFromMessage(message: unknown): NotionErrorHint | undefined {
+  if (typeof message !== "string") return undefined;
+  if (/could not find user/i.test(message) && /read user information/i.test(message)) return "read_user_information";
+  return undefined;
 }
 
 const COMMITTED_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
@@ -180,16 +192,18 @@ export class NotionRestApi {
     if (!res.ok) {
       let code = "error";
       let committedId: string | undefined;
+      let hint: NotionErrorHint | undefined;
       try {
-        const j = (await res.json()) as { code?: unknown; additional_data?: { committed_resource_id?: unknown } };
+        const j = (await res.json()) as { code?: unknown; message?: unknown; additional_data?: { committed_resource_id?: unknown } };
         if (typeof j.code === "string" && KNOWN_ERROR_CODES.has(j.code)) code = j.code;
+        hint = hintFromMessage(j.message);
         const c = j.additional_data?.committed_resource_id;
         if (typeof c === "string" && COMMITTED_ID_RE.test(c)) committedId = c.replace(/-/g, "");
       } catch {
         /* body is not JSON */
       }
       if (res.status === 401 || res.status === 429) this.pausedStatus = res.status;
-      throw new NotionRestError(res.status, code, committedId);
+      throw new NotionRestError(res.status, code, committedId, hint);
     }
     try {
       return (await res.json()) as T;
