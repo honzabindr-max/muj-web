@@ -107,6 +107,15 @@
             "command": "bash \"${CLAUDE_PROJECT_DIR}/tars/guard/bash-preflight.sh\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*[Nn]otion.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PROJECT_DIR}/tars/guard/notion-owner-decision.py\""
+          }
+        ]
       }
     ],
     "Stop": [
