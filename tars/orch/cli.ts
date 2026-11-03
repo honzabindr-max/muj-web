@@ -99,6 +99,7 @@ function build(): Orchestrator {
       vizual: new VizualDepartment(makeBrowser(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
     }),
     notion,
+    cardAdapter: sonnet, // data vizuální karty rozhodnutí (card-data.ts)
     sources: new SourceLoader(notion, repoRoot, path.join(runsDir, "sources-cache")),
     guard: () => runGuardWithI8(guardScript, path.join(here, "guard/i8.sh"), repoRoot, runsDir),
     draftParentId,

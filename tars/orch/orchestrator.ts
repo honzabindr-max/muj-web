@@ -8,7 +8,8 @@ import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcom
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
-import { isUncertainOutcome } from "./notion";
+import { buildCardData, cardDataSection } from "./card-data";
+import { isUncertainOutcome, NotionRestError } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
@@ -36,6 +37,8 @@ export interface OrchestratorDeps {
   panel?: { sink: PanelSink; index: PanelIndex };
   /** Plán B push na iPhone: komentář se zmínkou vlastníka na řádku zakázky při přechodu do WAITING_OWNER. Optional; failures never stop an order. */
   ownerPing?: OwnerPing;
+  /** Claude adaptér (sonnet) pro data vizuální karty. Bez něj se do karty vloží záložní objekt z briefu. */
+  cardAdapter?: TextAdapter;
   /** Canonical source loader (karta §2a bod 2). Without it, sources are UNKNOWN. */
   sources?: SourceLoader;
   mission?: string;
@@ -509,7 +512,18 @@ export class Orchestrator {
         const ownerNeeded = reasons.length > 0;
         if (ownerNeeded && !o.owner_card_url) {
           try {
-            const card = await this.d.notion.createPage(this.d.draftParentId, `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`, ownerCard(o, reasons, dept!));
+            const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
+            const text = ownerCard(o, reasons, dept!);
+            const dataSection = await this.cardDataSection(o);
+            let card;
+            try {
+              card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text + dataSection);
+            } catch (e) {
+              // Čisté odmítnutí (REST 4xx, nic se nezapsalo) kvůli sekci s daty karty: stránka vznikne bez ní.
+              if (!dataSection || !(e instanceof NotionRestError) || e.status < 400 || e.status >= 500 || e.status === 408 || e.status === 429) throw e;
+              this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
+              card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
+            }
             o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
             this.d.store.save(o);
           } catch (e) {
@@ -520,6 +534,36 @@ export class Orchestrator {
       }
       default:
         return order;
+    }
+  }
+
+  /** Sekce „Data karty“ (markdown) pro KARTA stránku. Nikdy nevyhodí výjimku: při jakékoli chybě vrátí "" nebo záložní data. */
+  private async cardDataSection(o: Order): Promise<string> {
+    try {
+      let draft = "";
+      try {
+        if (o.draft_file) draft = this.d.store.readFile(o.id, o.draft_file);
+      } catch {
+        /* draft nejde přečíst → záložní objekt */
+      }
+      const data = await buildCardData(o, draft, o.delivered_url, {
+        adapter: this.d.cardAdapter,
+        cwd: this.d.store.orderDir(o.id),
+        onFallback: (reason) => this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: záložní objekt", reason }),
+      });
+      return cardDataSection(data);
+    } catch (e) {
+      this.safeLog({ order: o.id, kind: "error", role: "orchestrator", result: "card-data: sekce vynechána", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+      return "";
+    }
+  }
+
+  /** Diagnostický log karty: jeho selhání (plný disk, zámek …) nesmí shodit doručení zakázky. */
+  private safeLog(e: Omit<LogEntry, "ts">): void {
+    try {
+      this.log(e);
+    } catch {
+      /* log je jen diagnostika */
     }
   }
 
