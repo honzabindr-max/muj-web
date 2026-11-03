@@ -69,8 +69,9 @@ export function gateMcpCall(toolName: string, input: Record<string, unknown> = {
   if (tool === "browser_snapshot") {
     // Every new snapshot replaces the judged refs (observeResponse); a shortened one (depth, a sub-tree target, ...) would
     // drop the text that made a forbidden element forbidden and re-allow it. Only the full snapshot is allowed.
-    const extra = Object.keys(input).find((k) => k !== "filename");
-    if (extra) return `browser_snapshot smí mít jen parametr filename, ne „${extra.slice(0, 40)}“ (zkrácený snapshot by přepsal hodnocení prvků)`;
+    // Whitelist of keys: an empty key ("") is falsy, so the check is on the key list, never on a found key.
+    const keys = Object.keys(input);
+    if (keys.some((k) => k !== "filename")) return `browser_snapshot smí mít jen parametr filename, ne „${keys.filter((k) => k !== "filename").join(", ").slice(0, 40)}“ (zkrácený snapshot by přepsal hodnocení prvků)`;
   }
   if (tool === "browser_navigate") {
     const url = String(input.url ?? "");

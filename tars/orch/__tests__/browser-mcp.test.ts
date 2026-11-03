@@ -362,6 +362,11 @@ describe("mcp-gate: ladder rules before and after every Playwright tool call", (
     expect(gateMcpCall(t("browser_snapshot"), { depth: 1 }, st)).toMatch(/smí mít jen parametr filename, ne „depth“/);
     expect(gateMcpCall(t("browser_snapshot"), { depth: 1, filename: "shots-r0/a.md" }, st, "shots-r0")).toMatch(/depth/);
     expect(gateMcpCall(t("browser_snapshot"), { target: "e2" }, st)).toMatch(/smí mít jen parametr filename/);
+    // an empty key is falsy: {"":null,"depth":1} got through the first version of the check (MCP's schema drops the "" key, depth stays)
+    expect(gateMcpCall(t("browser_snapshot"), { "": null, depth: 1 }, st)).toMatch(/smí mít jen parametr filename/);
+    expect(gateMcpCall(t("browser_snapshot"), { "": null }, st)).toMatch(/smí mít jen parametr filename/);
+    expect(gateMcpCall(t("browser_snapshot"), JSON.parse('{"":null,"depth":1,"neznamy":true}') as Record<string, unknown>, st)).toMatch(/smí mít jen parametr filename/);
+    expect(gateMcpCall(t("browser_snapshot"), { unknownKey: "x" }, st)).toMatch(/unknownKey/);
     expect(gateMcpCall(t("browser_snapshot"), {}, st)).toBeUndefined();
     expect(gateMcpCall(t("browser_snapshot"), { filename: "shots-r0/a.md" }, st, "shots-r0")).toBeUndefined();
     // the refs stay judged by the full snapshot because the shortened one never gets through the gate
