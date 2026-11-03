@@ -34,18 +34,27 @@ REASONS = {
     "inplace": "Úprava souboru na místě (sed -i / perl -i) vyvolá ruční schvalování. Soubor uprav nástrojem Edit.",
 }
 
-WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout"}
+WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout", "find"}
 SHELLS = {"sh", "bash", "zsh", "dash"}
 OK_TARGETS = {"/dev/null", "/dev/stderr", "/dev/stdout"}
 META = set(" \t\n;&|<>()")
 ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-FD_DUP_RE = re.compile(r"\d+-?|-")
+FD_DUP_RE = re.compile(r"(?:\d+-?|-)(?=[\s;&|<>()]|$)")
+SHELL_C_RE = re.compile(r"^-[a-zA-Z]*c[a-zA-Z]*$|^--command$")
 SED_I_RE = re.compile(r"^-[nEsurz]*i")
 PERL_I_RE = re.compile(r"^-[0-9adflnpsStTuUwWxX]*i")
 
 
 class Unsure(Exception):
     pass
+
+
+def ansi_c(raw):
+    """Obsah $'...' (ANSI-C quoting) -> text; při chybě vrátí původní text."""
+    try:
+        return raw.encode("latin-1", "backslashreplace").decode("unicode_escape")
+    except Exception:
+        return raw
 
 
 def log(event, detail=""):
@@ -95,6 +104,14 @@ class Parser:
         while i < n:
             c = s[i]
             if c == "\\":
+                if closer == "`" and s.startswith("\\`", i):
+                    i = self.parse(i + 2, "\\`")
+                    cur.append("x")
+                    inword = True
+                    continue
+                if closer == "\\`" and s.startswith("\\`", i):
+                    endseg()
+                    return i + 2
                 if i + 1 >= n:
                     i += 1
                     continue
@@ -131,10 +148,22 @@ class Parser:
                 elif s.startswith("$(", i):
                     i = self.parse(i + 2, ")")
                     cur.append("x")
+                elif s.startswith("$'", i):
+                    j = i + 2
+                    while j < n and s[j] != "'":
+                        j += 2 if s[j] == "\\" else 1
+                    if j >= n:
+                        raise Unsure("nedovřená $'")
+                    cur.append(ansi_c(s[i + 2:j]))
+                    i = j + 1
                 else:
                     cur.append(c)
                     i += 1
                 inword = True
+                continue
+            if c == "#" and not inword:
+                j = s.find("\n", i)
+                i = n if j < 0 else j
                 continue
             if c in " \t":
                 endword()
@@ -236,6 +265,12 @@ class Parser:
         s = self.s
         depth = 2
         while i < len(s):
+            if s.startswith("$(", i) and not s.startswith("$((", i):
+                i = self.parse(i + 2, ")")
+                continue
+            if s[i] == "`":
+                i = self.parse(i + 1, "`")
+                continue
             if s[i] == "(":
                 depth += 1
             elif s[i] == ")":
@@ -255,7 +290,10 @@ class Parser:
         if j < n and s[j] == "|":
             j += 1
         if j < n and s[j] == "&":
-            m = FD_DUP_RE.match(s, j + 1)
+            k = j + 1
+            while k < n and s[k] in " \t":
+                k += 1
+            m = FD_DUP_RE.match(s, k)
             if m:
                 return m.end()
             j += 1
@@ -302,24 +340,21 @@ class Parser:
     def check(self, words):
         idx = 0
         n = len(words)
-        while idx < n:
-            w = words[idx]
-            if ENV_RE.match(w):
-                idx += 1
-                continue
-            b = os.path.basename(w)
-            if b in WRAPPERS:
-                idx += 1
-                while idx < n and (words[idx].startswith("-") or ENV_RE.match(words[idx])):
-                    idx += 1
-                if b == "timeout" and idx < n and re.match(r"^[0-9.]+[smhd]?$", words[idx]):
-                    idx += 1
-                continue
-            break
-        else:
+        while idx < n and ENV_RE.match(words[idx]):
+            idx += 1
+        if idx >= n:
             return
-        cmd = os.path.basename(words[idx])
-        rest = words[idx + 1:]
+        if os.path.basename(words[idx]) in WRAPPERS:
+            # wrapper (env -u X, sudo -u u, xargs -I {}, find -exec ...): hodnoty přepínačů neznáme,
+            # proto zkusíme každé další slovo jako začátek vnořeného příkazu
+            for k in range(idx + 1, n):
+                self.apply(words[k:])
+            return
+        self.apply(words[idx:])
+
+    def apply(self, ws):
+        cmd = os.path.basename(ws[0])
+        rest = ws[1:]
         if cmd == "tee":
             self.add("tee")
         elif cmd == "sed":
@@ -330,14 +365,14 @@ class Parser:
                 self.add("inplace")
         elif cmd in SHELLS:
             for k, a in enumerate(rest):
-                if re.fullmatch(r"-[a-zA-Z]*c", a) and k + 1 < len(rest):
+                if SHELL_C_RE.match(a) and k + 1 < len(rest):
                     self.sub(rest[k + 1])
                     break
         elif cmd == "eval":
             self.sub(" ".join(rest))
 
     def sub(self, payload):
-        if self.level >= 3:
+        if self.level >= 10:
             return
         p = Parser(payload, self.level + 1)
         try:

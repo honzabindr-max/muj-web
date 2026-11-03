@@ -57,6 +57,19 @@ const DENY: Array<[string, string, RegExp]> = [
   ["sh -c se zápisem do souboru", "sh -c 'echo x > f'", /Přesměrování/],
   ["zápis do souboru uvnitř $(...)", "echo $(echo x > f)", /Přesměrování/],
   ["heredoc s nedovřenou uvozovkou v těle neprojde", "cat <<EOF\nit's", /Heredoc/],
+  ["bash -ce (sdružené přepínače)", "bash -ce 'echo x > f'", /Přesměrování/],
+  ["bash --command", "bash --command 'echo x > f'", /Přesměrování/],
+  ["env -u s hodnotou přepínače", "env -u FOO sed -i s/a/b/ f", /sed -i/],
+  ["sudo -u s hodnotou přepínače", "sudo -u root tee f", /tee/],
+  ["xargs -I {}", "xargs -I {} tee f", /tee/],
+  ["find -exec sed -i", "find . -type f -exec sed -i s/a/b/ {} \\;", /sed -i/],
+  ["příkaz v aritmetice", "echo $(( $(echo 1 > f) + 1 ))", /Přesměrování/],
+  [">&1foo je soubor, ne dup fd", "echo x >&1foo", /Přesměrování/],
+  [">&'f' je soubor", "echo x >&'f'", /Přesměrování/],
+  ["ANSI-C $'tee'", "$'tee' f", /tee/],
+  ["vnořené zpětné apostrofy", "echo `echo \\`tee f\\``", /tee/],
+  ["eval s ANSI-C escape", "eval $'echo x \\x3e f'", /Přesměrování/],
+  ["vnořené eval", "eval \"eval \\\"eval 'echo x > f'\\\"\"", /Přesměrování/],
 ];
 
 const ALLOW: Array<[string, string]> = [
@@ -89,6 +102,11 @@ const ALLOW: Array<[string, string]> = [
   ["nedovřená uvozovka (parser si není jistý)", 'echo "abc'],
   ["prázdný příkaz", "   "],
   ["pozadí přes &", "sleep 5 &"],
+  ["2>& 1 s mezerou", "echo x 2>& 1"],
+  ["komentář se středníkem", "git status # ; comment"],
+  ["komentář s $(tee f)", "git status # $(tee f)"],
+  ["komentář s >", "cat f 2>/dev/null # > log"],
+  ["# uprostřed slova není komentář, ale ani řetězení", "gh pr view 5 --json title#x"],
   ["allowlist: review-launch.sh", "tars/orch/review-launch.sh /Users/janbindr/Projects/muj-web-guard /tmp/prompt.md /tmp/out.txt"],
 ];
 
