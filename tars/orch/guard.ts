@@ -19,10 +19,12 @@ export function parseGuardOutput(out: string): GuardResult {
 }
 
 /** TARS-GUARD + I8 (browser automation only in the TARS-agent profile). Any I8 ALARM = alarm. */
-export function runGuardWithI8(script: string, i8Script: string, cwd: string): GuardResult {
-  const g = runGuard(script, cwd);
+export function runGuardWithI8(script: string, i8Script: string, cwd: string, runsDir?: string): GuardResult {
+  // The guards must judge "is an order running" by the same runs/ dir (lock) as the orchestrator.
+  const env = runsDir ? { ...process.env, TARS_RUNS_DIR: runsDir } : process.env;
+  const g = runGuard(script, cwd, env);
   if (!fs.existsSync(i8Script)) return { alarm: true, summary: `I8 script missing: ${i8Script}` };
-  const r = spawnSync("bash", [i8Script], { cwd, encoding: "utf8", timeout: 30_000 });
+  const r = spawnSync("bash", [i8Script], { cwd, encoding: "utf8", timeout: 30_000, env });
   return combineI8(g, `${r.stdout ?? ""}`);
 }
 
@@ -33,7 +35,7 @@ export function combineI8(g: GuardResult, i8Out: string): GuardResult {
   return { alarm: g.alarm, summary: `${g.summary} | I8 OK` };
 }
 
-export function runGuard(script: string, cwd: string): GuardResult {
+export function runGuard(script: string, cwd: string, env: NodeJS.ProcessEnv = process.env): GuardResult {
   if (!fs.existsSync(script))
     return { alarm: true, summary: `TARS-GUARD script missing: ${script}` };
   const r = spawnSync("bash", [script], {
@@ -41,6 +43,7 @@ export function runGuard(script: string, cwd: string): GuardResult {
     encoding: "utf8",
     timeout: 120_000,
     input: "{}",
+    env,
   });
   return parseGuardOutput(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
 }

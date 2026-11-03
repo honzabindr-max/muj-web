@@ -13,6 +13,14 @@ export interface RunOpts {
   timeoutMs?: number;
   /** claude only: exact tool allowlist (e.g. Notion MCP). Empty = no tools. */
   allowedTools?: string[];
+  /** claude only: run with exactly this MCP config file (--mcp-config + --strict-mcp-config, no other servers). */
+  mcpConfig?: string;
+  /** claude only: no built-in tools at all (--tools ""), only MCP tools remain; --allowedTools alone does not remove them. */
+  noBuiltinTools?: boolean;
+  /** claude only: inline --settings JSON replacing ORCH_CLAUDE_SETTINGS (e.g. adds a PreToolUse hook). */
+  settings?: string;
+  /** claude only: extra environment of the `claude -p` process (e.g. TARS_RUNS_DIR for its hooks). */
+  env?: Record<string, string>;
   /** codex only: JSON Schema for `codex exec --output-schema` (structured verdict). Other adapters ignore it. */
   outputSchema?: JsonSchema;
 }
@@ -119,7 +127,9 @@ export class ClaudeCli implements TextAdapter {
     this.name = `claude -p --model ${model}`;
   }
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
-    const args = ["-p", "--model", this.model, "--output-format", "json", "--settings", ORCH_CLAUDE_SETTINGS];
+    const args = ["-p", "--model", this.model, "--output-format", "json", "--settings", opts.settings ?? ORCH_CLAUDE_SETTINGS];
+    if (opts.mcpConfig) args.push("--mcp-config", opts.mcpConfig, "--strict-mcp-config");
+    if (opts.noBuiltinTools) args.push("--tools", "");
     if (opts.allowedTools?.length) args.push("--allowedTools", opts.allowedTools.join(","));
     // Always, also for calls without an allowlist (supervisor, checkers): TARS never runs SQL/rows queries on Notion.
     args.push("--disallowedTools", NOTION_QUERY_TOOLS_DENIED);
@@ -129,6 +139,7 @@ export class ClaudeCli implements TextAdapter {
       prompt,
       opts.cwd,
       opts.timeoutMs ?? 20 * 60_000,
+      opts.env,
     );
     let text = "";
     let isError = r.code !== 0;

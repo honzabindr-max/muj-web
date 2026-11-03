@@ -62,6 +62,8 @@ plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`
 ```
 npx tsx tars/orch/cli.ts tick
 npx tsx tars/orch/cli.ts status
+npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP)
+npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP
 npx tsx tars/orch/cli.ts owner <order-id> GO
 npx vitest run tars
 tars/orch/launchd/install.sh
@@ -71,8 +73,8 @@ tars/orch/launchd/install.sh
 
 - Cards: `.claude/agents/**/*.md` (TARS-ORCH-001 §2a, DR-029 krok 2): Claude roles are Claude Code subagents, GPT roles (`gpt/`, no `name`) run through codex only; see `.claude/agents/README.md`. No valid card → `PLANNED → UNKNOWN`, the specialist never runs.
 - Every card names a checker of the other model family, including the supervisor (GPT checks the brief) and the gate (Claude checks the gate verdict form).
-- Rungs (§2b): 1 CLI/API, 2 MCP, 3 browser (variant B: real Chrome with the TARS-agent profile, debugging port on 127.0.0.1 only for the job, Playwright over CDP — `cdp.ts`, `browser.ts`), 4 desktop (`desktop.ts`, interface only in v0).
-- TARS-GUARD I8 (`guard/i8.sh`): debugging port only in the TARS-agent profile, only on 127.0.0.1, only during an order; no Google account in the profile. The orchestrator runs it with the hook; `guard/tars-guard.proposed.sh` is the hook with I8 wired in (owner installs).
+- Rungs (§2b): 1 CLI/API, 2 MCP, 3 browser (variant B, DR-029 krok 6: real Chrome with the TARS-agent profile, debugging port on 127.0.0.1 only for the job, driven by Playwright MCP `@playwright/mcp@0.0.84 --cdp-endpoint` through `claude -p --strict-mcp-config` — `mcp-browser.ts`; Chrome and MCP are started only by `guard/tars-browser.sh`, every MCP tool call passes the `mcp-gate.ts` hook), 4 desktop (`desktop.ts`, interface only in v0).
+- TARS-GUARD I8 (`guard/i8.sh`): debugging port only in the TARS-agent profile, only on 127.0.0.1, only during an order; no Google account in the profile; Playwright MCP never with `--extension`, a foreign `--user-data-dir` or a non-loopback `--cdp-endpoint`. The orchestrator runs it with the hook; `guard/tars-guard.proposed.sh` is the hook with I8 wired in (owner installs).
 - AI Chain gets the MEZI VÁMI sentinel (`.claude/agents/invariant-sentinel.md`, frontmatter stripped) through `runs/<order-id>/prompts/` (run.sh reads prompts from its cwd); run.sh is not edited.
 
 ## One-time owner step: TARS-agent browser profile
@@ -83,7 +85,7 @@ The orchestrator never logs in. The owner creates and logs in the profile once:
 mkdir -p "$HOME/Library/Application Support/TARS-agent/chrome-profile" && open -na "Google Chrome" --args --user-data-dir="$HOME/Library/Application Support/TARS-agent/chrome-profile" https://claude.ai/login https://chatgpt.com/auth/login https://www.notion.so/login
 ```
 
-Log in to Claude, ChatGPT and Notion only (no e-mail, bank, GitHub admin, no Chrome sync). Quit that Chrome window with Cmd+Q. Then:
+Log in to Claude, ChatGPT and Notion only (no e-mail, bank, GitHub admin, no Chrome sync). Quit that Chrome window with Cmd+Q. The first run downloads the pinned MCP package (`npx -y @playwright/mcp@0.0.84`; no browser download, it only attaches to Chrome). Then:
 
 ```
 cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts browser-check
