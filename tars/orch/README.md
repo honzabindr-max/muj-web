@@ -77,8 +77,10 @@ navrhne jednu verzi + nejvýš 1 alternativu, GPT (`codex exec --output-schema`,
 pluginů, apps, hooků, shellu a webu; model z config.toml přes `-m`) ji oponuje (zákazník, obor,
 bezpečnost, první princip). Normálně 2 volání, s jednou opravou nejvýš 4. Výstupy, kartu (card-data v1) a řádek panelu
 (WAITING_OWNER) zapisuje jen skript, přes Notion REST (bez tokenu se nic nespustí). Rodina modelu je z konfigurace adaptéru.
-Secret-scan všech vstupů i výstupů, nález nebo chyba scanu = STOP. GPT na limitu = PENDING, neověřitelný posudek = PAUSED.
-Záznam běhu: `runs/konzilium/<run-id>/run.json` (+ výstupy se sha256). Exit: 0 WAITING_OWNER, 1 FAILED, 2 STOP, 3 PENDING/PAUSED.
+Secret-scan všech vstupů i výstupů (i po rozbalení escapů, %XX a &#…;), nález nebo chyba scanu = STOP; zakódovaný obsah
+(\ooo, \xXX, \uXXXX, %XX, &#…;) ve vstupních polích nebo v dekódované odpovědi modelu = STOP. GPT na limitu = PENDING,
+neověřitelný posudek = PAUSED. Záznam běhu: `runs/konzilium/<run-id>/run.json` + kanonický JSON každé odpovědi (surový
+výstup a chybová hláška modelu se neukládají, jen jejich sha256). Exit: 0 WAITING_OWNER, 1 FAILED, 2 STOP, 3 PENDING/PAUSED.
 
 Vstup (JSON, jiné klíče se odmítnou):
 

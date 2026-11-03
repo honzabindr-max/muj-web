@@ -202,10 +202,14 @@ describe("Konzilium Lite — šťastná cesta", () => {
       ["navrh", "claude"],
       ["oponentura", "gpt"],
     ]);
-    for (const c of run.calls) {
+    // Uložen je jen kanonický JSON (se sha256), u surového výstupu jen jeho sha256.
+    const raws = [JSON.stringify(PROPOSAL), PASS];
+    run.calls.forEach((c, i) => {
       const body = fs.readFileSync(path.join(runsDir, "konzilium", r.run_id!, c.output_file!), "utf8");
-      expect(sha256(body)).toBe(c.output_sha256);
-    }
+      expect(sha256(body)).toBe(c.canonical_sha256);
+      expect(JSON.parse(body)).toEqual(JSON.parse(raws[i]));
+      expect(c.output_sha256).toBe(sha256(raws[i]));
+    });
     expect(fs.existsSync(path.join(runsDir, "konzilium", ".lock"))).toBe(false);
   });
 
@@ -467,6 +471,57 @@ describe("Konzilium Lite — secret-scan (STOP)", () => {
     expect(panel.rows).toHaveLength(0);
     expect(readRun(r.run_id!).calls[1].result).toBe("secret-scan");
     noSecretOnDisk();
+  });
+
+  it.each([
+    ["unicode escape + %XX v hesle URL (chybová hláška)", { ok: false, text: "", error: `exit 1: {"msg":"\\u0070ostgres://review_user:a%40bcd123@db.invalid/review"}` }],
+    ["osmičkový escape (chybová hláška)", { ok: false, text: "", error: `exit 1: x \\147${SECRET.slice(1)}` }],
+    ["HTML entita", { ok: false, text: "", error: `exit 1: x &#103;${SECRET.slice(1)}` }],
+  ])("zakódovaný údaj v chybové hlášce (%s) → STOP, hláška se nikam neuloží", async (_n, reply) => {
+    const { deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [reply as Reply]);
+    const r = await runKonzilium(inputFile({ ...INPUT, title: `err ${_n}` }), deps);
+    expect(r.status).toBe("STOP");
+    expect(JSON.stringify(r)).not.toMatch(/bcd123|hp_A1b2/);
+    expect(fs.readFileSync(path.join(runsDir, "konzilium", r.run_id!, "run.json"), "utf8")).not.toMatch(/bcd123|hp_A1b2/);
+  });
+
+  it("chybová hláška modelu se nikdy neuloží ani nevypíše (ani bez tajemství), jen bezpečný popis a sha256", async () => {
+    const { deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ ok: false, text: "", error: "exit 7: interní detail XYZ-123" }]);
+    const r = await runKonzilium(inputFile(), deps);
+    expect(r.status).toBe("PAUSED");
+    expect(r.reason).toContain("exit 7");
+    expect(JSON.stringify(r)).not.toContain("XYZ-123");
+    const run = readRun(r.run_id!);
+    expect(JSON.stringify(run)).not.toContain("XYZ-123");
+    expect(run.calls[1].error_sha256).toBe(sha256("exit 7: interní detail XYZ-123"));
+  });
+
+  it("zakódovaný obsah v dekódovaném JSON (\\u, %XX, &#) nebo v duplicitním klíči → STOP / nic se neuloží", async () => {
+    for (const [i, text] of [
+      JSON.stringify({ verdict: "PASS", findings: [{ severity: "info", file: null, line: null, text: "heslo a%40bcd123" }] }),
+      JSON.stringify({ verdict: "PASS", findings: [{ severity: "info", file: null, line: null, text: "x \\147abc" }] }),
+      JSON.stringify({ verdict: "PASS", findings: [{ severity: "info", file: null, line: null, text: "x &#103;abc" }] }),
+    ].entries()) {
+      const { notion, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text }]);
+      const r = await runKonzilium(inputFile({ ...INPUT, title: `dec ${i}` }), deps);
+      expect(r.status).toBe("STOP");
+      expect(notion.pages).toHaveLength(0);
+    }
+    // Duplicitní klíč: přepsaná hodnota se nikam neuloží (ukládá se jen kanonický JSON).
+    const dup = `{"verdict":"PASS","findings":[{"severity":"info","file":null,"line":null,"text":"skryté-ABC-987"}],"findings":[]}`;
+    const d = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: dup }]);
+    const r = await runKonzilium(inputFile({ ...INPUT, title: "dup" }), d.deps);
+    expect(r.status).toBe("WAITING_OWNER");
+    const dir2 = path.join(runsDir, "konzilium", r.run_id!);
+    for (const f of fs.readdirSync(dir2)) expect(fs.readFileSync(path.join(dir2, f), "utf8")).not.toContain("skryté-ABC-987");
+    expect(d.notion.pages[0].markdown).not.toContain("skryté-ABC-987");
+  });
+
+  it("zakódovaný obsah ve vstupních polích → STOP", async () => {
+    const { creator, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ text: PASS }]);
+    const r = await runKonzilium(inputFile({ ...INPUT, context: "odkaz https://x.invalid/?q=a%40b" }), deps);
+    expect(r.status).toBe("STOP");
+    expect(creator.prompts).toHaveLength(0);
   });
 
   it("běžný text s escapy (uvozovky, nové řádky, procenta, cesty) STOP nevyvolá", async () => {

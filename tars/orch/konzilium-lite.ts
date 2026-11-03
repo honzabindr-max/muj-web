@@ -174,51 +174,87 @@ export function assertClean(where: string, texts: readonly string[], scan: (t: s
   if (kinds.size) throw new SecretStop(where, [...kinds]);
 }
 
-// Jeden průchod rozbalení escapů (JSON/JS: \uXXXX, \u{…}, \xXX, \n \t \" \\ …) a procentového kódování (%XX).
-const ESCAPE_RE = /\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|["'\\/bfnrtv0])/g;
-const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "0": "\0" };
+// Ochrana proti zakódovaným tajemstvím má dvě vrstvy:
+//  1) Co se ukládá nebo zobrazuje (soubory běhu, run.json, karta, panel, stdout), nesmí obsahovat kódování, které by
+//     tajemství skrylo před vzorovým scanem: \ooo, \xXX, \uXXXX, \u{…}, %XX, &#…; (ENCODING_MARKER → STOP). Výstup
+//     modelu se proto ukládá jen jako kanonický JSON (JSON.stringify dekódovaného objektu, bez escapů a bez přepsaných
+//     duplicitních klíčů), surový text a chybová hláška modelu se neukládají ani nevypisují (jen sha256).
+//  2) Surový text i chybová hláška se navíc skenují i po rozbalení escapů a %XX — každým dekodérem zvlášť i kombinovaně,
+//     opakovaně až do ustálení; co se neustálí, je STOP.
+const ESCAPE_RE = /\\(u\{[0-9a-fA-F]{1,6}\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|["'\\/bfnrtv])/g;
+const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', "'": "'", "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 const MAX_UNESCAPE_PASSES = 4;
+export const ENCODING_MARKER = /\\[0-7]|\\x[0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|\\u\{[0-9A-Fa-f]|%[0-9A-Fa-f]{2}|&#x?[0-9A-Fa-f]+;?/;
 
-function unescapeOnce(s: string): string {
-  return s
-    .replace(ESCAPE_RE, (_m, e: string) =>
-      e[0] === "u" ? safeChar(parseInt(e.startsWith("u{") ? e.slice(2, -1) : e.slice(1), 16)) : e[0] === "x" ? safeChar(parseInt(e.slice(1), 16)) : SIMPLE_ESCAPES[e],
-    )
-    .replace(/%([0-9a-fA-F]{2})/g, (_m, h: string) => safeChar(parseInt(h, 16)));
+const unescapeEscapes = (s: string): string =>
+  s.replace(ESCAPE_RE, (_m, e: string) => {
+    if (e[0] === "u") return safeChar(parseInt(e.startsWith("u{") ? e.slice(2, -1) : e.slice(1), 16));
+    if (e[0] === "x") return safeChar(parseInt(e.slice(1), 16));
+    if (/^[0-7]/.test(e)) return safeChar(parseInt(e, 8));
+    return SIMPLE_ESCAPES[e];
+  });
+const unescapePercent = (s: string): string => s.replace(/%([0-9a-fA-F]{2})/g, (_m, h: string) => safeChar(parseInt(h, 16)));
+const unescapeEntities = (s: string): string =>
+  s.replace(/&#(x[0-9a-fA-F]+|[0-9]+);?/g, (_m, n: string) => safeChar(n[0] === "x" ? parseInt(n.slice(1), 16) : parseInt(n, 10)));
+const DECODERS: Array<(s: string) => string> = [
+  unescapeEscapes,
+  unescapePercent,
+  unescapeEntities,
+  (s) => unescapeEntities(unescapePercent(unescapeEscapes(s))),
+];
+
+/** Všechny řetězce a klíče JSON hodnoty. */
+export function jsonStrings(v: unknown): string[] {
+  const out: string[] = [];
+  const walk = (x: unknown): void => {
+    if (typeof x === "string") out.push(x);
+    else if (Array.isArray(x)) x.forEach(walk);
+    else if (isObj(x))
+      for (const [k, y] of Object.entries(x)) {
+        out.push(k);
+        walk(y);
+      }
+  };
+  walk(v);
+  return out;
 }
 
 /**
- * Podoby textu, které se skenují: surový text, text po opakovaném rozbalení všech escapů a %XX (i vnořených, i mimo
- * JSON, i v duplicitních klíčích) a všechny řetězce i klíče dekódovaného JSON (celá odpověď nebo jeden ```json blok).
- * Tajemství zapsané escapem nebo %XX tak neprojde na disk, do karty, panelu ani na stdout.
+ * Podoby textu, které se skenují: surový text, mezipodoby každého dekodéru (escapy, %XX, &#…;) zvlášť i kombinovaně
+ * až do ustálení a všechny řetězce i klíče dekódovaného JSON. Neustálí-li se dekódování do MAX_UNESCAPE_PASSES = STOP.
  */
 export function scanVariants(text: string, where = "text"): string[] {
   const out = new Set<string>([text]);
-  let cur = text;
-  let stable = false;
-  for (let i = 0; i < MAX_UNESCAPE_PASSES; i++) {
-    const next = unescapeOnce(cur);
-    if (next === cur) {
-      stable = true;
-      break;
-    }
-    out.add(next);
-    cur = next;
-  }
-  // Víc vnořených escapů, než se rozbalí: obsah nejde ověřit → STOP (fail-closed).
-  if (!stable && unescapeOnce(cur) !== cur) throw new SecretStop(where, ["příliš vnořené escapy"]);
-  const strings: string[] = [];
-  const walk = (v: unknown): void => {
-    if (typeof v === "string") strings.push(v);
-    else if (Array.isArray(v)) v.forEach(walk);
-    else if (isObj(v))
-      for (const [k, x] of Object.entries(v)) {
-        strings.push(k);
-        walk(x);
+  for (const decode of DECODERS) {
+    let cur = text;
+    let stable = false;
+    for (let i = 0; i < MAX_UNESCAPE_PASSES; i++) {
+      const next = decode(cur);
+      if (next === cur) {
+        stable = true;
+        break;
       }
-  };
-  walk(readWholeJson(text));
-  return [...out, ...strings];
+      out.add(next);
+      cur = next;
+    }
+    if (!stable && decode(cur) !== cur) throw new SecretStop(where, ["příliš vnořené escapy"]);
+  }
+  return [...out, ...jsonStrings(readWholeJson(text))];
+}
+
+/** Text, který se uloží nebo zobrazí, nesmí obsahovat kódování skrývající znaky (fail-closed: STOP). */
+export function assertNoEncoding(where: string, texts: readonly string[]): void {
+  if (texts.some((t) => ENCODING_MARKER.test(t))) throw new SecretStop(where, ["zakódovaný obsah (escape, %XX nebo &#…;)"]);
+}
+
+/** Bezpečný popis chyby procesu modelu (text chyby se nikdy neukládá ani nevypisuje). */
+export function safeErrorLabel(error: string | undefined): string {
+  if (!error) return "chyba";
+  if (/^timeout$/.test(error)) return "timeout";
+  const exit = /^exit (-?\d+|null)\b/.exec(error);
+  if (exit) return `exit ${exit[1]}`;
+  if (/^výjimka adaptéru/.test(error)) return "výjimka adaptéru";
+  return "chyba procesu";
 }
 
 function safeChar(code: number): string {
@@ -434,8 +470,13 @@ export interface CallRecord {
   adapter: string;
   model: string;
   prompt_sha256: string;
+  /** Kanonický JSON odpovědi (jediná uložená podoba výstupu). */
   output_file?: string;
+  /** sha256 surového výstupu modelu, jak ho vrátil proces (surový text se neukládá). */
   output_sha256?: string;
+  canonical_sha256?: string;
+  /** sha256 chybové hlášky procesu (hláška se neukládá). */
+  error_sha256?: string;
   duration_ms: number;
   result: string;
 }
@@ -732,23 +773,36 @@ async function callModel(
     fs.rmSync(cwd, { recursive: true, force: true });
   }
   rec.duration_ms = r.duration_ms;
+  const text = String(r.text ?? "");
+  const error = String(r.error ?? "");
+  const where = `výstup modelu (${step})`;
+  const json = readWholeJson(text);
+  // Uloží se jen kanonický JSON dekódované odpovědi (bez escapů a bez přepsaných duplicitních klíčů), nikdy surový text.
+  const canonical = r.ok && json !== undefined ? `${JSON.stringify(json, null, 2)}\n` : undefined;
   try {
-    const where = `výstup modelu (${step})`;
-    assertClean(where, [...scanVariants(String(r.text ?? ""), where), ...scanVariants(String(r.error ?? ""), where)]);
+    assertClean(where, [...scanVariants(text, where), ...scanVariants(error, where)]);
+    if (json !== undefined) assertNoEncoding(where, jsonStrings(json));
+    if (canonical !== undefined) {
+      assertClean(where, [canonical]);
+      assertNoEncoding(where, [canonical]);
+    }
   } catch (e) {
     rec.result = "secret-scan";
     ctx.save();
     throw e;
   }
-  if (r.ok) {
-    const file = `${n}-${step}.txt`;
-    ctx.writeOnce(file, r.text);
+  if (text) rec.output_sha256 = sha256(text);
+  if (error) rec.error_sha256 = sha256(error);
+  if (canonical !== undefined) {
+    const file = `${n}-${step}.json`;
+    ctx.writeOnce(file, canonical);
     rec.output_file = file;
-    rec.output_sha256 = sha256(r.text);
+    rec.canonical_sha256 = sha256(canonical);
   }
   rec.result = r.ok ? "ok" : r.limit ? "limit" : "chyba";
   ctx.save();
-  return r;
+  // Text chyby modelu se dál nepředává (do run.json.reason ani na stdout), jen bezpečný popis.
+  return { ...r, error: r.error === undefined ? undefined : safeErrorLabel(r.error) };
 }
 
 type Outcome = { status: KonziliumStatus; reason: string };
@@ -884,6 +938,7 @@ async function runLocked(
       throw e;
     }
     assertClean("vstup (pole)", inputStrings(input));
+    assertNoEncoding("vstup (pole)", inputStrings(input));
 
     // 2) Návrh Clauda (volání 1).
     let proposal = await revise(ctx, deps, snaps.creator, "navrh", buildCreatorPrompt(input), input);
