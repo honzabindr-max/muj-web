@@ -14,6 +14,7 @@ import { runGuardWithI8 } from "./guard";
 import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE } from "./notion";
 import { readNotionToken } from "./notion-token";
 import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
+import { OwnerPing, ownerUserIdFromEnv } from "./owner-ping";
 import { HybridPanelSink, McpPanelSink, PanelIndex, RestPanelSink } from "./panel";
 import { SourceLoader } from "./sources";
 import { ownerEventFor } from "./state-machine";
@@ -104,6 +105,7 @@ function build(): Orchestrator {
     repoRoot,
     capsulePath: path.join(repoRoot, "missions/mezi-vami/capsule.md"),
     panel: process.env.TARS_PANEL === "0" ? undefined : { sink: panelSink, index: new PanelIndex(runsDir) },
+    ownerPing: new OwnerPing(stack.rest, { userId: ownerUserIdFromEnv() }), // bez tokenu (stack.rest) jen zaloguje
   });
 }
 
