@@ -1,0 +1,7 @@
+# Allowlist pro tars/guard/bash-preflight.sh (DR-036, P04).
+# Jeden regex na řádek, kontroluje se re.fullmatch na CELÝ příkaz (po ořezání mezer).
+# Řádky začínající # a prázdné se ignorují. Povolené znaky v argumentech jsou záměrně
+# omezené (bez ; & | < > $ ` ( ) uvozovek), aby se přes allowlist nedalo propašovat řetězení.
+
+# Codex review: tars/orch/review-launch.sh <worktree> <prompt-file> <out-file>
+^(bash |sh )?(\./|[A-Za-z0-9_./~-]*/)?tars/orch/review-launch\.sh [A-Za-z0-9_./~-]+ [A-Za-z0-9_./~-]+ [A-Za-z0-9_./~-]+$

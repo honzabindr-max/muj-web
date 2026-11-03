@@ -98,6 +98,15 @@
             "command": ".claude/hooks/block-redundant-reads.py"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/tars/guard/bash-preflight.sh\""
+          }
+        ]
       }
     ],
     "Stop": [
