@@ -65,8 +65,28 @@ npx tsx tars/orch/cli.ts status
 npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP)
 npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP
 npx tsx tars/orch/cli.ts owner <order-id> GO
+npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
 npx vitest run tars
 tars/orch/launchd/install.sh
+```
+
+## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
+
+Jen před podstatným rozhodnutím (`kind`: nabidka | ux | znacka | cena | architektura | bezpecnost). Claude (Opus, bez nástrojů)
+navrhne jednu verzi + nejvýš 1 alternativu, GPT (`codex exec --output-schema`, read-only, izolovaně: `CODEX_ISOLATION_ARGS` = bez config.toml a jeho MCP,
+pluginů, apps, hooků, shellu a webu; model z config.toml přes `-m`) ji oponuje (zákazník, obor,
+bezpečnost, první princip). Normálně 2 volání, s jednou opravou nejvýš 4. Výstupy, kartu (card-data v1) a řádek panelu
+(WAITING_OWNER) zapisuje jen skript, přes Notion REST (bez tokenu se nic nespustí). Rodina modelu je z konfigurace adaptéru.
+Secret-scan všech vstupů i výstupů (i po rozbalení escapů, %XX a &#…;), nález nebo chyba scanu = STOP; zakódovaný obsah
+(\ooo, \xXX, \uXXXX, %XX, &#…;) ve vstupních polích nebo v dekódované odpovědi modelu = STOP. GPT na limitu = PENDING,
+neověřitelný posudek = PAUSED. Záznam běhu: `runs/konzilium/<run-id>/run.json` + kanonický JSON každé odpovědi (surový
+výstup a chybová hláška modelu se neukládají, jen jejich sha256). Exit: 0 WAITING_OWNER, 1 FAILED, 2 STOP, 3 PENDING/PAUSED.
+
+Vstup (JSON, jiné klíče se odmítnou):
+
+```
+{"title": "…", "kind": "cena", "question": "Co vlastník rozhoduje?", "context": "důkazový balíček",
+ "criteria": ["…"], "first_principles": ["max 2 otázky"], "sources": ["volitelné"], "draft_url": "volitelný odkaz na Notion"}
 ```
 
 ## Specialist cards and adapter ladder

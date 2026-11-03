@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT
+// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | konzilium <vstup.json>
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,7 +11,8 @@ import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import { McpBrowser } from "./mcp-browser";
 import { runGuardWithI8 } from "./guard";
-import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE } from "./notion";
+import { codexConfigModel, exitCodeFor, runKonzilium } from "./konzilium-lite";
+import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE, RestNotion } from "./notion";
 import { readNotionToken } from "./notion-token";
 import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
 import { OwnerPing, ownerUserIdFromEnv } from "./owner-ping";
@@ -25,6 +26,8 @@ const repoRoot = path.resolve(here, "../..");
 const runsDir = process.env.TARS_RUNS_DIR ?? path.join(repoRoot, "runs");
 /** DRAFT pages + owner cards go under the MEZI VÁMI project page (sibling of HANDOFF). */
 const draftParentId = process.env.TARS_DRAFT_PARENT ?? "3cf0ae49f50781c7a42cf5ea8fe8aae7";
+/** Karty Konzilia Lite (výchozí: stejné místo jako karty orchestrátoru). */
+const konziliumParentId = process.env.TARS_KONZILIUM_PARENT ?? draftParentId;
 const guardScript = process.env.TARS_GUARD ?? path.join(repoRoot, ".claude/hooks/tars-guard.sh");
 const aiChain = process.env.TARS_AI_CHAIN ?? path.join(os.homedir(), "Projects/ai-chain/run.sh");
 
@@ -181,6 +184,31 @@ async function main() {
       process.exitCode = last?.kind === "error" ? 1 : 0;
       return;
     }
+    case "konzilium": {
+      // Konzilium Lite (konzilium-lite.ts): Claude navrhne, GPT oponuje, kartu a řádek panelu zapíše jen skript přes REST.
+      const [file] = args;
+      if (!file) throw new Error("usage: konzilium <vstupní soubor.json>");
+      const token = readNotionToken();
+      if (!token) {
+        // Bez tokenu by kartu přenášel model (claude -p): Konzilium Lite to nedovolí a nic nespustí.
+        console.log("Konzilium Lite zapisuje jen přes Notion REST; token chybí, nic nespuštěno.");
+        process.exitCode = 1;
+        return;
+      }
+      const api = new NotionRestApi(token);
+      const r = await runKonzilium(path.resolve(file), {
+        creator: new ClaudeCli("opus"),
+        // Izolovaný codex nečte config.toml, model z něj se proto předá přes -m.
+        checker: new CodexCli(codexConfigModel(path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "config.toml")) ?? "codex-default"),
+        runsDir,
+        notion: new RestNotion(api),
+        panel: new RestPanelSink(api),
+        cardParentId: konziliumParentId,
+      });
+      console.log(JSON.stringify(r));
+      process.exitCode = exitCodeFor(r.status);
+      return;
+    }
     case "owner": {
       const [id, decision] = args;
       const ev = ownerEventFor(decision);
@@ -192,7 +220,7 @@ async function main() {
       return;
     }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id>");
+      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id> | konzilium <vstup.json>");
       process.exitCode = 1;
   }
 }
