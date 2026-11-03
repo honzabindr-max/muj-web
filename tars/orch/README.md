@@ -46,6 +46,16 @@ because they run inside this repo and would otherwise trigger a GPT review per c
 plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`.
 
 - State: `runs/<order-id>/state.json` (atomic write). Episodic log: `runs/log.jsonl`. Both are gitignored.
+- One owner of the state (DR-039, etapa 2): every state carries a monotonic `version`; `Store.save` writes only over
+  the version it read (compare-and-set under the short `runs/.state.lock`). Older output — a late worker after
+  `abort`, a second process that read earlier — is refused and logged („zastaralý zápis stavu odmítnut“), the newer
+  state stays and the step stops.
+- Tick lock `runs/.lock` is a lease: token, fence (monotonic, `runs/.fence`), PID, process start time (`ps -o lstart`),
+  heartbeat. It is taken over only when the holder provably does not run (PID gone, or another start time), never by
+  age; anything uncertain = HOLD (tick ends `locked`). Only the holder's own token releases it. Saves under the lease
+  are fenced (lock still ours, stored fence not newer); a tick that lost the lease stops before the next step.
+- `cli.ts tick` requires an explicit `TARS_DEPARTMENTS` (e.g. `copy`; all = `copy,dev,vizual`); without it, or with
+  an unknown name, it refuses to run (N3). The launchd plist sets `copy`.
 - `WAITING_OWNER` when the output is a PR into main, or the order touches a Sponsor-reserved decision
   (LOCK, price, brand, payments, legal, CTE). A GO/REJECT card is created in Notion.
 - WIP limit 1: no new order starts while a card waits for the owner.

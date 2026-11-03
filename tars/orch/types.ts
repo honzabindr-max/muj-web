@@ -57,6 +57,10 @@ export interface StateTransitionRecord {
 
 export interface Order {
   id: string;
+  /** Monotonic state version (DR-039, etapa 2): Store.save writes only over exactly this version (CAS) and stores +1. */
+  version?: number;
+  /** Fence token of the tick lease under which the state was saved last; a save with an older fence is refused. */
+  fence?: number;
   mission: string;
   state: OrderState;
   created_at: string;

@@ -14,7 +14,7 @@ import { runGuardWithI8 } from "./guard";
 import { codexConfigModel, exitCodeFor, runKonzilium } from "./konzilium-lite";
 import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE, RestNotion } from "./notion";
 import { readNotionToken } from "./notion-token";
-import { onlyEnabled, Orchestrator, SecretScanningAdapter } from "./orchestrator";
+import { onlyEnabled, Orchestrator, SecretScanningAdapter, tickScopeError } from "./orchestrator";
 import { OwnerPing, ownerUserIdFromEnv } from "./owner-ping";
 import { HybridPanelSink, McpPanelSink, PanelIndex, RestPanelSink } from "./panel";
 import { SourceLoader } from "./sources";
@@ -34,7 +34,7 @@ const aiChain = process.env.TARS_AI_CHAIN ?? path.join(os.homedir(), "Projects/a
 const cardsDir = path.resolve(here, "../../.claude/agents");
 const browserStatusFile = path.join(runsDir, "browser-status.json");
 const BROWSER_STATUS_TTL_MS = 6 * 60 * 60 * 1000;
-/** Run scope: TARS_DEPARTMENTS=copy wires only the copy department (comma list; empty = all). */
+/** Run scope: TARS_DEPARTMENTS=copy wires only the copy department (comma list). `tick` refuses an empty scope (N3); other commands: empty = all. */
 const enabledDepartments = (process.env.TARS_DEPARTMENTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 /** Rung 3 readiness is cached by `browser-check` / start of tick (login check is async). */
@@ -118,8 +118,15 @@ async function main() {
   const store = new Store(runsDir);
   switch (cmd) {
     case "tick": {
+      // N3 (DR-039): no explicit scope → no tick (nothing is started, no Chrome, no lock).
+      const scopeError = tickScopeError(process.env.TARS_DEPARTMENTS);
+      if (scopeError) {
+        console.error(`tars-orch: ${scopeError}`);
+        process.exitCode = 1;
+        return;
+      }
       // Rung 3 login check opens Chrome — only when the vizual department is in scope.
-      if (!enabledDepartments.length || enabledDepartments.includes("vizual")) await refreshBrowserStatus();
+      if (enabledDepartments.includes("vizual")) await refreshBrowserStatus();
       const r = await build().tick();
       console.log(JSON.stringify(r));
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;

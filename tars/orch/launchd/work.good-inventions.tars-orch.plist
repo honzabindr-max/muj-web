@@ -15,7 +15,8 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <!-- Run 2 scope: copy only (vizual via variant B not yet proven live). Remove to enable all departments. -->
+    <!-- Run 2 scope: copy only (vizual via variant B not yet proven live). Required: tick refuses to run without it (N3).
+         All departments = copy,dev,vizual. -->
     <key>TARS_DEPARTMENTS</key>
     <string>copy</string>
   </dict>
