@@ -35,6 +35,7 @@ import { assertKonziliumFamilies } from "../konzilium-lite";
 import { hostAllowed } from "../ladder";
 import {
   buildTask,
+  checkStep,
   playwrightMcpConfig,
   UiUnknownError,
   type BrowserStep,
@@ -1784,5 +1785,245 @@ describe("Codex review kolo 2, nález 4: brána nepustí klik, který spustí da
     );
     // outside the exact mode (e.g. vizuál) ordinary clicks stay allowed
     expect(gateMcpCall(C, { ref: "e13" }, state())).toBeUndefined();
+  });
+});
+
+describe("smoke 4. 11.: anglické popisky a otevřený popover intenzity (fixture ze živého běhu)", () => {
+  // Snapshot page-2026-11-04T14-27-36-716Z.yml of the live smoke after login (sidebar and user name anonymized):
+  // the picker "Vybrat model ChatGPT" open over the composer, label "Medium", slider in the middle (2 of 3).
+  const FIXTURE = fs.readFileSync(
+    path.join(__dirname, "fixtures", "chatgpt-smoke-20261104-picker-en.yml"),
+    "utf8",
+  );
+  /** The same picker after End on the slider: the top step "High". */
+  const AT_TOP = FIXTURE.replace(
+    /Medium, 2 z\(e\) 3\./,
+    "High, 3 z(e) 3.",
+  ).replace(/Medium/g, "High");
+  const MENU_AT = AT_TOP.indexOf('\n  - menu "Vybrat model ChatGPT"');
+  /** The picker closed (Escape): no menu, the picker button no longer expanded. */
+  const CLOSED = `${AT_TOP.slice(0, MENU_AT)}\n`.replace(
+    'button "Vybrat model ChatGPT" [expanded] [ref=e766]',
+    'button "Vybrat model ChatGPT" [ref=e766]',
+  );
+  /** The open picker as a top-level element (after the conversation, like the portal of the live page). */
+  const MENU = AT_TOP.slice(MENU_AT + 1)
+    .split("\n")
+    .map((l) => l.slice(2))
+    .join("\n");
+  const PROMPT = "Posuď zadání.\n\nKód: abc";
+  const sha = typedTextSha(PROMPT);
+  /** The composer holding `paragraphs` (and the send button that ChatGPT shows once the field has text). */
+  const typed = (paragraphs: string[]) =>
+    CLOSED.replace(
+      "                    - paragraph: Zeptat se ChatGPT",
+      paragraphs
+        .map((p) => `                    - paragraph${p ? `: ${p}` : ""}`)
+        .join("\n"),
+    ).replace(
+      'button "Zahájit hlasovou konverzaci" [ref=e787]',
+      'button "Odeslat výzvu" [ref=e900]',
+    );
+  const resp = (yaml: string) =>
+    `### Page\n- Page URL: https://chatgpt.com/\n### Snapshot\n\`\`\`yaml\n${yaml}\n\`\`\``;
+  const T = "mcp__playwright__browser_type";
+  const C = "mcp__playwright__browser_click";
+  const K = "mcp__playwright__browser_press_key";
+
+  it("detectModel čte model z označené položky a intenzitu s polohou posuvníku: Medium (2/3) = neshoda, High (3/3) = shoda, Max = Work", () => {
+    expect(detectModel(FIXTURE)).toEqual({
+      model: "GPT-6",
+      intensity: "Medium",
+      level: 2,
+      levels: 3,
+    });
+    expect(detectModel(AT_TOP)).toEqual({
+      model: "GPT-6",
+      intensity: "High",
+      level: 3,
+      levels: 3,
+    });
+    // the checked radio decides, not the first model of the list
+    const sol = AT_TOP.replace(
+      "menuitemradio [checked]:",
+      "menuitemradio:",
+    ).replace(
+      /(- menuitemradio):\n(\s+- generic: GPT-5\.6 Sol)/,
+      "$1 [checked]:\n$2",
+    );
+    expect(detectModel(sol).model).toBe("GPT-5.6 Sol");
+    // Czech labels work the same way
+    expect(detectModel(AT_TOP.replace(/High/g, "Vysoká")).intensity).toBe(
+      "Vysoká",
+    );
+    // the closed picker shows no model: nothing is guessed
+    expect(detectModel(CLOSED).model).toBeUndefined();
+  });
+
+  it("brána: popover zavřen klávesou, posuvník na High, pak pole prázdné (nápověda není text), jedno ověřené odeslání; jiný text v poli nikdy neprojde", () => {
+    const st = emptyState();
+    observeResponse(resp(FIXTURE), st);
+    expect(st.overlay).toBe(true);
+    // the placeholder "Zeptat se ChatGPT" is not content: the empty field reads as empty
+    expect(st.refs.e758.content).toBe("");
+    // with the picker open the prompt is not typed
+    expect(
+      gateMcpCall(T, { ref: "e758", text: PROMPT }, st, undefined, sha),
+    ).toMatch(/otevřené menu nebo popover/);
+    // the slider and its menu item may be clicked, the model item too; Work never
+    for (const ref of ["e825", "e836", "e816", "e766"])
+      expect(gateMcpCall(C, { ref }, st, undefined, sha), ref).toBeUndefined();
+    expect(gateMcpCall(C, { ref: "e696" }, st, undefined, sha)).toMatch(
+      /kliká jen/,
+    );
+    // keys: only the allowed ones, only in the exact mode
+    for (const key of ["End", "ArrowRight", "Escape"])
+      expect(gateMcpCall(K, { key }, st, undefined, sha), key).toBeUndefined();
+    for (const key of ["Enter", "Control+Enter", "a", ""])
+      expect(gateMcpCall(K, { key }, st, undefined, sha), key).toMatch(
+        /není povolena/,
+      );
+    expect(gateMcpCall(K, { key: "Escape" }, st)).toMatch(
+      /není pro prohlížeč TARS povolen/,
+    );
+    expect(gateMcpCall(K, { key: "Escape" }, st, undefined, sha, true)).toMatch(
+      /není pro prohlížeč TARS povolen/,
+    );
+    countCall(K, { key: "End" }, st);
+    observeResponse(resp(AT_TOP), st);
+    // Escape closes the picker; the field is visible, empty and gets the focus (click)
+    countCall(K, { key: "Escape" }, st);
+    observeResponse(resp(CLOSED), st);
+    expect(st.overlay).toBe(false);
+    expect(st.refs.e758.content).toBe("");
+    expect(gateMcpCall(C, { ref: "e758" }, st, undefined, sha)).toBeUndefined();
+    countCall(C, { ref: "e758" }, st);
+    // unchanged procedure: clear, snapshot, type, snapshot, compare sha256, one send
+    expect(
+      gateMcpCall(T, { ref: "e758", text: "" }, st, undefined, sha),
+    ).toBeUndefined();
+    countCall(T, { ref: "e758", text: "" }, st);
+    observeResponse(resp(CLOSED), st);
+    expect(
+      gateMcpCall(T, { ref: "e758", text: PROMPT }, st, undefined, sha),
+    ).toBeUndefined();
+    countCall(T, { ref: "e758", text: PROMPT }, st);
+    // another text left in the field next to the prompt: no send
+    observeResponse(resp(typed(["A rozepsáno", ...PROMPT.split("\n")])), st);
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+      /neodpovídá zadanému textu/,
+    );
+    // a key after typing makes the content unknown until the next snapshot
+    countCall(K, { key: "End" }, st);
+    observeResponse(resp(typed(PROMPT.split("\n"))), st);
+    countCall(K, { key: "End" }, st);
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+      /neodpovídá zadanému textu/,
+    );
+    // the field holds exactly the prompt → the one send
+    observeResponse(resp(typed(PROMPT.split("\n"))), st);
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toBeUndefined();
+    countCall(C, { ref: "e900" }, st);
+    expect(st.submits).toBe(1);
+    // after the send: no key, no typing, no second send
+    expect(gateMcpCall(K, { key: "Escape" }, st, undefined, sha)).toMatch(
+      /po odeslání/,
+    );
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+      /po odeslání/,
+    );
+    // a field with another text than its placeholder is not empty
+    const other = emptyState();
+    observeResponse(resp(typed(["Jiný text"])), other);
+    expect(other.refs.e758.content).toBe("Jiný text");
+  });
+
+  it("plán: výběr intenzity česky i anglicky (nejvyšší stupeň, nikdy Max), čtení s otevřeným výběrem, zavření popoverů před vyplněním", () => {
+    const steps = chatGptSteps("prompt", MARKER);
+    expect(steps.map((s) => s.kind)).toEqual([
+      "goto",
+      "wait",
+      "choose",
+      "choose",
+      "choose",
+      "open",
+      "read",
+      "close_popups",
+      "fill",
+      "wait_text",
+      "open",
+      "read",
+    ]);
+    steps.forEach((s) => expect(() => checkStep(s)).not.toThrow());
+    const intensity = steps[4] as Extract<BrowserStep, { kind: "choose" }>;
+    expect(intensity.what).toMatch(
+      /Nízká \/ Střední \/ Vysoká nebo Low \/ Medium \/ High/,
+    );
+    expect(intensity.fallback).toMatch(/„High“/);
+    expect(intensity.fallback).toMatch(/nejvyšší stupeň/);
+    expect(intensity.fallback).toMatch(/nikdy „Max“/);
+    const task = buildTask(steps, "shots");
+    expect(task).toMatch(/browser_press_key s klávesou "Escape"/);
+    expect(task).toMatch(/Klikni do pole/);
+    expect(task).toMatch(/Vyčisti ho: browser_type do pole s text ""/);
+  });
+
+  it("checker: před odesláním i po odpovědi otevřený výběr s GPT-6 · High (3/3) → shoda; Medium před odesláním nebo Max → WAITING_REVIEW", async () => {
+    const answered =
+      (menu: string): Script =>
+      (steps) =>
+        [
+          "- main:",
+          "  - article:",
+          `    - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
+          "  - article:",
+          '    - heading "ChatGPT řekl:" [level=6]',
+          `    - paragraph: '${PASS_JSON}'`,
+          `    - paragraph: ${markerOf(sentPrompt(steps))}`,
+          menu,
+        ].join("\n");
+    const ok = new FakeBrowser(answered(MENU));
+    ok.before = AT_TOP;
+    const c = checker(ok);
+    expect(
+      await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
+    ).toMatchObject({ ok: true, text: PASS_JSON });
+    expect(c.model).toBe("GPT-6 · High");
+    expect(c.lastRecord).toMatchObject({
+      status: "ANSWER",
+      model_matches: true,
+    });
+
+    const mid = new FakeBrowser(answered(MENU));
+    mid.before = FIXTURE; // Medium, 2 of 3
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const r = await checker(mid).run("x", {
+      cwd: d,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+    expect(r.error).toMatch(
+      /před odesláním neodpovídá.*GPT-6 · Medium \(stupeň 2\/3\)/,
+    );
+
+    // the top step with another label than High/Vysoká is a mismatch
+    const odd = new FakeBrowser(
+      answered(MENU.replace(/High, 3 z\(e\) 3\./, "Medium, 3 z(e) 3.")),
+    );
+    odd.before = AT_TOP;
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    expect(
+      (await checker(odd).run("x", { cwd: d2, outputSchema: REVIEW_SCHEMA }))
+        .error,
+    ).toMatch(/neodpovídá požadovanému/);
+
+    const max = MENU.replace(/High, 3 z\(e\) 3\./, "Max, 4 z(e) 4.");
+    const work = new FakeBrowser(answered(max));
+    work.before = AT_TOP;
+    const d3 = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    expect(
+      (await checker(work).run("x", { cwd: d3, outputSchema: REVIEW_SCHEMA }))
+        .error,
+    ).toMatch(/běží v režimu Work místo Chat/);
   });
 });

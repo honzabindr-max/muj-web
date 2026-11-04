@@ -33,8 +33,14 @@ export const CHATGPT_MODE = "Chat";
 export const CHATGPT_FORBIDDEN_MODE = "Work";
 export const CHATGPT_MODEL = "GPT-6";
 export const CHATGPT_MODEL_FALLBACK = "GPT-5.6 Sol";
-/** Intensity slider in Chat: Nízká / Střední / Vysoká; Vysoká is the top for both Chat models. */
+/**
+ * Intensity slider in Chat: Nízká / Střední / Vysoká (English UI: Low / Medium / High); the top step (Vysoká = High)
+ * is the target for both Chat models. A top step with another label is a mismatch; Max exists only in Work.
+ */
 export const CHATGPT_INTENSITY = "Vysoká";
+export const CHATGPT_INTENSITY_EN = "High";
+/** The picker in the composer that holds the intensity slider and (behind "Medium ›" / "Vysoká ›") the model list. */
+export const CHATGPT_PICKER = "Vybrat model ChatGPT";
 /** Models the check accepts (both exist only in Chat). */
 export const CHAT_MODELS: readonly string[] = [
   CHATGPT_MODEL,
@@ -294,19 +300,23 @@ export function chatGptSteps(
     },
     {
       kind: "choose",
-      what: "model",
+      what: `model (výběr „${CHATGPT_PICKER}“ v poli pro zadání; seznam modelů otevře položka s intenzitou, např. „Medium ›“ nebo „Vysoká ›“)`,
       prefer: CHATGPT_MODEL,
       fallback: `„${CHATGPT_MODEL_FALLBACK}“; nikdy nepřepínej do režimu „${CHATGPT_FORBIDDEN_MODE}“`,
     },
     {
       kind: "choose",
-      what: "intenzita přemýšlení (posuvník Nízká / Střední / Vysoká)",
+      what: `intenzita přemýšlení (posuvník „Výkon“ ve výběru „${CHATGPT_PICKER}“; popisky Nízká / Střední / Vysoká nebo Low / Medium / High)`,
       prefer: CHATGPT_INTENSITY,
-      fallback: "nejvyšší stupeň posuvníku",
+      fallback: `„${CHATGPT_INTENSITY_EN}“; vždy nejvyšší stupeň posuvníku: klikni na „Výkon“ a stiskni klávesu End (browser_press_key), popř. šipku vpravo až na konec; nikdy „Max“`,
     },
     // Codex review kolo 2, nález 1: the page before the send is read in the same run; the answer counts only when this
-    // read AND the read after the answer show Chat + an allowed model + Vysoká.
+    // read AND the read after the answer show Chat + an allowed model + Vysoká/High. Smoke 4. 11.: model and intensity
+    // are visible only in the open picker, so it is open for the read.
+    { kind: "open", text: CHATGPT_PICKER },
     { kind: "read" },
+    // Smoke 4. 11.: the open picker stayed over the composer; every popover is closed before the field is filled.
+    { kind: "close_popups" },
     {
       kind: "fill",
       selector: 'div[contenteditable="true"]#prompt-textarea, textarea',
@@ -315,6 +325,7 @@ export function chatGptSteps(
       exact: true,
     },
     { kind: "wait_text", text: marker, ms: timeoutMs },
+    { kind: "open", text: CHATGPT_PICKER },
     { kind: "read" },
   ];
 }
@@ -611,27 +622,89 @@ export function verdictFromAnswer(
  * read whole and only a known name word may follow, so "GPT-6" is never "GPT-6.1 Sol" or "GPT-5.6 Sol" and an
  * intensity word ("GPT-6 Vysoká") is never part of the model name.
  */
-export function detectModel(page: string): {
-  model?: string;
-  intensity?: string;
-} {
+export function detectModel(page: string): ShownModel {
+  const picked = pickerModel(page);
+  if (picked) return picked;
   const head = page.slice(0, 30_000);
-  const m =
-    /(?<![\p{L}\d])((?:Chat)?GPT[- ]?\d+(?:\.\d+)*(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini)(?![\p{L}\d]))?)(?![\p{L}\d.]*\d)/u.exec(
-      head,
-    );
+  const m = MODEL_NAME_RE.exec(head);
   if (!m) return {};
   const near = head.slice(m.index, m.index + 300);
-  const i =
-    /(?<![\p{L}\d])(Max\.?|Maximální|Maximum|Heavy|Extended|Vysoká|High|Střední|Medium|Standard|Light|Nízká|Low)(?=[\s"'\]):,·]|$)/u.exec(
-      near.slice(m[1].length),
-    );
+  const i = INTENSITY_WORD_RE.exec(near.slice(m[1].length));
   return { model: m[1], intensity: i?.[1] };
+}
+
+export interface ShownModel {
+  model?: string;
+  intensity?: string;
+  /** Step of the intensity slider and the number of steps, when the page says them ("Medium, 2 z(e) 3."). */
+  level?: number;
+  levels?: number;
+}
+
+const MODEL_NAME_RE =
+  /(?<![\p{L}\d])((?:Chat)?GPT[- ]?\d+(?:\.\d+)*(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini)(?![\p{L}\d]))?)(?![\p{L}\d.]*\d)/u;
+const INTENSITY_WORD_RE =
+  /(?<![\p{L}\d])(Max\.?|Maximální|Maximum|Heavy|Extended|Vysoká|High|Střední|Medium|Standard|Light|Nízká|Low)(?=[\s"'\]):,·]|$)/u;
+/** The slider's live status in the picker: "Medium, 2 z(e) 3." (cs) / "High, 3 of 3." (en). */
+const SLIDER_STATUS_RE =
+  /^\s*-\s*status(?:\s*\[[^\]\n]*\])*:\s*['"]?([^,'"\n]+),\s*(\d+)\s*(?:z\(e\)|ze|z|of|\/)\s*(\d+)\.?['"]?\s*$/iu;
+const CHECKED_RE = /\[(?:checked|selected)(?:=true)?\]/;
+
+/**
+ * Model and intensity from the open picker (smoke 4. 11., ChatGPT with Czech or English labels): the picker is a
+ * `menu` element of the snapshot; the model is its checked radio (`- menuitemradio [checked]: - generic: GPT-6`, never
+ * merely the first model name in the list), the intensity is the label of the slider status ("Medium, 2 z(e) 3.")
+ * with its step. Only snapshot structure counts (element lines of a `menu` subtree), never text inside a value.
+ * undefined = no such picker on the page (the caller falls back to the header button).
+ */
+function pickerModel(page: string): ShownModel | undefined {
+  const lines = page.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (roleOf(lines[i]) !== "menu") continue;
+    const ind = indentOf(lines[i]);
+    let end = i + 1;
+    while (end < lines.length && (!lines[end].trim() || indentOf(lines[end]) > ind))
+      end++;
+    const out: ShownModel = {};
+    for (let j = i + 1; j < end; j++) {
+      const l = lines[j];
+      const st = SLIDER_STATUS_RE.exec(l);
+      if (st && out.intensity === undefined) {
+        out.intensity = st[1].trim();
+        out.level = Number(st[2]);
+        out.levels = Number(st[3]);
+        continue;
+      }
+      const role = roleOf(l);
+      if (
+        out.model === undefined &&
+        (role === "menuitemradio" || role === "radio" || role === "option") &&
+        CHECKED_RE.test(l)
+      ) {
+        // own accessible name, else the text of its subtree
+        let text = /"([^"\n]+)"/.exec(l)?.[1] ?? snapshotValue(l).replace(/^\[[^\]]*\]\s*:?/, "");
+        for (let k = j + 1; !text.trim() && k < end && indentOf(lines[k]) > indentOf(l); k++)
+          text = snapshotValue(lines[k]);
+        const m = MODEL_NAME_RE.exec(text);
+        if (m) out.model = m[1];
+      }
+    }
+    if (out.model !== undefined || out.intensity !== undefined) {
+      // the intensity label without a status line (older picker): the first intensity word of the menu
+      if (out.intensity === undefined)
+        for (let j = i + 1; j < end && out.intensity === undefined; j++) {
+          const w = INTENSITY_WORD_RE.exec(snapshotValue(lines[j]));
+          if (w && w.index === 0) out.intensity = w[1];
+        }
+      return out;
+    }
+  }
+  return undefined;
 }
 
 /** Intensity "Vysoká" (High) as the page shows it. */
 export const isHighIntensity = (intensity?: string): boolean =>
-  intensity === "Vysoká" || intensity === "High";
+  intensity === CHATGPT_INTENSITY || intensity === CHATGPT_INTENSITY_EN;
 
 /** A selected "Work" in the mode switch (snapshot state), not the mere label (the switch always shows both modes). */
 const WORK_SELECTED_RE =
@@ -1056,17 +1129,26 @@ export class ChatGptWebChecker implements TextAdapter {
 }
 
 /** Model and intensity as text ("GPT-6 · Vysoká"); "neověřeno …" when the page does not show them. */
-function shownModel(seen: { model?: string; intensity?: string }): string {
+function shownModel(seen: ShownModel): string {
+  // the slider step only when it is not the top (a top step "High" reads as before: "GPT-6 · High")
+  const step =
+    seen.levels !== undefined && seen.level !== seen.levels
+      ? ` (stupeň ${seen.level}/${seen.levels})`
+      : "";
   return seen.model
-    ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
-    : "neověřeno (stránka model neukazuje)";
+    ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}${step}` : ""}`
+    : `neověřeno (stránka model neukazuje${seen.intensity ? `; intenzita ${seen.intensity}${step}` : ""})`;
 }
 
-/** An allowed Chat model at intensity Vysoká. */
-const modelOk = (seen: { model?: string; intensity?: string }): boolean =>
+/**
+ * An allowed Chat model at intensity Vysoká / High; when the page shows the slider step, it must be the top one
+ * (a top step with another label, e.g. Medium of a two-step slider, is a mismatch).
+ */
+const modelOk = (seen: ShownModel): boolean =>
   seen.model !== undefined &&
   CHAT_MODELS.includes(seen.model) &&
-  isHighIntensity(seen.intensity);
+  isHighIntensity(seen.intensity) &&
+  (seen.levels === undefined || seen.level === seen.levels);
 
 /** A stored "answered" attempt is used only when it holds an answer and both models of its run were valid. */
 function storedAnswerValid(

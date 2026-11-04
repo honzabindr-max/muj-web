@@ -28,6 +28,7 @@ import {
 import { runGuardWithI8 } from "../guard";
 import {
   BROWSER_ALLOWED_TOOLS,
+  EXACT_ALLOWED_TOOLS,
   BROWSER_CHECK_DIR,
   BROWSER_SMOKE_DIR,
   browserSettings,
@@ -1564,6 +1565,20 @@ describe("McpBrowser", () => {
       denied.browser.run(exact, denied.shots, (s) => seen2.push(s)),
     ).rejects.toThrow(/právě jednou/);
     expect(seen2).toEqual([{ submitted: false, url: undefined }]);
+    // only the exact run gets browser_press_key (its keys are limited by the gate); read-only runs never do
+    expect(denied.seen[0].opts.allowedTools).toEqual(EXACT_ALLOWED_TOOLS);
+    expect(EXACT_ALLOWED_TOOLS).toContain("mcp__playwright__browser_press_key");
+    // smoke 4. 11.: the driver's own reason is kept next to "odesláno: 0" (it was lost before)
+    const stopped = rig(
+      () => ({
+        text: "FINAL_URL: https://chatgpt.com/\nRESULT: UNKNOWN intenzita",
+      }),
+      false,
+      { submits: 0 },
+    );
+    await expect(stopped.browser.run(exact, stopped.shots)).rejects.toThrow(
+      /odesláno: 0; ovladač: intenzita/,
+    );
     // the hooks never ran (no state file): nothing was sent
     const none = rig(() => OK(), false, null);
     const seen3: unknown[] = [];
