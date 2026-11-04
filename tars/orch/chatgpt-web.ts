@@ -312,7 +312,8 @@ export function chatGptSteps(
     },
     // Codex review kolo 2, nález 1: the page before the send is read in the same run; the answer counts only when this
     // read AND the read after the answer show Chat + an allowed model + Vysoká/High. Smoke 4. 11.: model and intensity
-    // are visible only in the open picker, so it is open for the read.
+    // are visible only in the open picker, so it is open for the read. PR #101 kolo 1: open + read are mandatory and
+    // checked in code (detectModel reads only the open picker; a closed one = WAITING_REVIEW).
     { kind: "open", text: CHATGPT_PICKER },
     { kind: "read" },
     // Smoke 4. 11.: the open picker stayed over the composer; every popover is closed before the field is filled.
@@ -618,20 +619,28 @@ export function verdictFromAnswer(
 }
 
 /**
- * Model and intensity as the page shows them (model picker in the header comes first in the snapshot). The version is
- * read whole and only a known name word may follow, so "GPT-6" is never "GPT-6.1 Sol" or "GPT-5.6 Sol" and an
- * intensity word ("GPT-6 Vysoká") is never part of the model name.
+ * Model and intensity as the open picker shows them, and ONLY from it (Codex review PR #101 kolo 1, nález high): the
+ * model is the checked `menuitemradio` of the open `menu "Vybrat model ChatGPT"`, the intensity is the label and step
+ * of its slider status. No text of the page counts (a chat titled "GPT-6 High" in the history, the prompt or the
+ * answer never decides). The version is read whole and only a known name word may follow, so "GPT-6" is never
+ * "GPT-6.1 Sol" or "GPT-5.6 Sol". {} = the picker is not open or not readable (see controlVerified).
  */
 export function detectModel(page: string): ShownModel {
-  const picked = pickerModel(page);
-  if (picked) return picked;
-  const head = page.slice(0, 30_000);
-  const m = MODEL_NAME_RE.exec(head);
-  if (!m) return {};
-  const near = head.slice(m.index, m.index + 300);
-  const i = INTENSITY_WORD_RE.exec(near.slice(m[1].length));
-  return { model: m[1], intensity: i?.[1] };
+  return pickerModel(page) ?? {};
 }
+
+/**
+ * true when the state was read from the control: the open picker showed exactly one checked model and the slider
+ * status (label + step). Anything else is an unverified UI state → WAITING_REVIEW, never a match.
+ */
+export const controlVerified = (seen: ShownModel): boolean =>
+  seen.model !== undefined &&
+  seen.intensity !== undefined &&
+  seen.level !== undefined &&
+  seen.levels !== undefined;
+
+/** Reason of WAITING_REVIEW when the open picker was not read (closed, missing or ambiguous). */
+export const CONTROL_UNVERIFIED = "stav modelu neověřen z ovládacího prvku";
 
 export interface ShownModel {
   model?: string;
@@ -643,63 +652,69 @@ export interface ShownModel {
 
 const MODEL_NAME_RE =
   /(?<![\p{L}\d])((?:Chat)?GPT[- ]?\d+(?:\.\d+)*(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini)(?![\p{L}\d]))?)(?![\p{L}\d.]*\d)/u;
-const INTENSITY_WORD_RE =
-  /(?<![\p{L}\d])(Max\.?|Maximální|Maximum|Heavy|Extended|Vysoká|High|Střední|Medium|Standard|Light|Nízká|Low)(?=[\s"'\]):,·]|$)/u;
 /** The slider's live status in the picker: "Medium, 2 z(e) 3." (cs) / "High, 3 of 3." (en). */
 const SLIDER_STATUS_RE =
   /^\s*-\s*status(?:\s*\[[^\]\n]*\])*:\s*['"]?([^,'"\n]+),\s*(\d+)\s*(?:z\(e\)|ze|z|of|\/)\s*(\d+)\.?['"]?\s*$/iu;
-const CHECKED_RE = /\[(?:checked|selected)(?:=true)?\]/;
+/** A checked radio of the model list: `- menuitemradio [checked]:` (also `[checked=true]`), never by text. */
+const CHECKED_RADIO_RE =
+  /^\s*-\s*'?menuitemradio(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*?\s*\[checked(?:=true)?\]/i;
+/** The line of the open picker: `- menu "Vybrat model ChatGPT" [ref=…]:` (role menu, exactly this accessible name). */
+const PICKER_MENU_RE = new RegExp(
+  `^\\s*-\\s*'?menu\\s+"${CHATGPT_PICKER}"(?:\\s*\\[[^\\]\\n]*\\])*:?'?\\s*$`,
+);
 
 /**
- * Model and intensity from the open picker (smoke 4. 11., ChatGPT with Czech or English labels): the picker is a
- * `menu` element of the snapshot; the model is its checked radio (`- menuitemradio [checked]: - generic: GPT-6`, never
- * merely the first model name in the list), the intensity is the label of the slider status ("Medium, 2 z(e) 3.")
- * with its step. Only snapshot structure counts (element lines of a `menu` subtree), never text inside a value.
- * undefined = no such picker on the page (the caller falls back to the header button).
+ * Model and intensity from the open picker, and only from it (smoke 4. 11.; Codex review PR #101 kolo 1): exactly one
+ * element `menu "Vybrat model ChatGPT"`, and only its own subtree (by indentation) is parsed, so nothing of the chat
+ * history, the prompt or the answer can be taken for it. In that subtree the model is the text of the one checked
+ * `menuitemradio` (`- menuitemradio [checked]: - generic: GPT-6`: its own name, else the first text below it), the
+ * intensity is the label of the slider `status` line ("Medium, 2 z(e) 3.") with its step. Two pickers, two checked
+ * radios or two status lines are ambiguous. undefined = no open picker, or it is ambiguous.
  */
 function pickerModel(page: string): ShownModel | undefined {
   const lines = page.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (roleOf(lines[i]) !== "menu") continue;
-    const ind = indentOf(lines[i]);
-    let end = i + 1;
-    while (end < lines.length && (!lines[end].trim() || indentOf(lines[end]) > ind))
-      end++;
-    const out: ShownModel = {};
-    for (let j = i + 1; j < end; j++) {
-      const l = lines[j];
-      const st = SLIDER_STATUS_RE.exec(l);
-      if (st && out.intensity === undefined) {
-        out.intensity = st[1].trim();
-        out.level = Number(st[2]);
-        out.levels = Number(st[3]);
-        continue;
-      }
-      const role = roleOf(l);
-      if (
-        out.model === undefined &&
-        (role === "menuitemradio" || role === "radio" || role === "option") &&
-        CHECKED_RE.test(l)
-      ) {
-        // own accessible name, else the text of its subtree
-        let text = /"([^"\n]+)"/.exec(l)?.[1] ?? snapshotValue(l).replace(/^\[[^\]]*\]\s*:?/, "");
-        for (let k = j + 1; !text.trim() && k < end && indentOf(lines[k]) > indentOf(l); k++)
-          text = snapshotValue(lines[k]);
-        const m = MODEL_NAME_RE.exec(text);
-        if (m) out.model = m[1];
-      }
+  const menus = lines
+    .map((l, i) => (PICKER_MENU_RE.test(l) ? i : -1))
+    .filter((i) => i >= 0);
+  if (menus.length !== 1) return undefined;
+  const i = menus[0];
+  const ind = indentOf(lines[i]);
+  let end = i + 1;
+  while (
+    end < lines.length &&
+    (!lines[end].trim() || indentOf(lines[end]) > ind)
+  )
+    end++;
+  const statuses: RegExpExecArray[] = [];
+  const models: (string | undefined)[] = [];
+  for (let j = i + 1; j < end; j++) {
+    const l = lines[j];
+    const st = SLIDER_STATUS_RE.exec(l);
+    if (st) {
+      statuses.push(st);
+      continue;
     }
-    if (out.model !== undefined || out.intensity !== undefined) {
-      // the intensity label without a status line (older picker): the first intensity word of the menu
-      if (out.intensity === undefined)
-        for (let j = i + 1; j < end && out.intensity === undefined; j++) {
-          const w = INTENSITY_WORD_RE.exec(snapshotValue(lines[j]));
-          if (w && w.index === 0) out.intensity = w[1];
-        }
-      return out;
-    }
+    if (!CHECKED_RADIO_RE.test(l)) continue;
+    let text =
+      /"([^"\n]+)"/.exec(l)?.[1] ??
+      snapshotValue(l).replace(/^\[[^\]]*\]\s*:?/, "");
+    for (
+      let k = j + 1;
+      !text.trim() && k < end && indentOf(lines[k]) > indentOf(l);
+      k++
+    )
+      text = snapshotValue(lines[k]);
+    models.push(MODEL_NAME_RE.exec(text)?.[1]);
   }
-  return undefined;
+  if (statuses.length > 1 || models.length > 1) return undefined;
+  const out: ShownModel = {};
+  if (models[0] !== undefined) out.model = models[0];
+  if (statuses[0]) {
+    out.intensity = statuses[0][1].trim();
+    out.level = Number(statuses[0][2]);
+    out.levels = Number(statuses[0][3]);
+  }
+  return out;
 }
 
 /** Intensity "Vysoká" (High) as the page shows it. */
@@ -1062,12 +1077,24 @@ export class ChatGptWebChecker implements TextAdapter {
       );
     // Codex review kolo 1, nález 1 + kolo 2, nález 1: only the requested Chat model at intensity Vysoká counts, shown
     // by THIS run before the send and after the answer (the same model both times). Anything else = burned, waits.
+    // Codex review PR #101 kolo 1: model and intensity count only from the open picker (both reads); a closed or
+    // unreadable picker is an unverified UI state, never a match and never a fallback to the page text.
+    if (!controlVerified(seen))
+      return waiting(
+        `${CONTROL_UNVERIFIED} (po odpovědi: výběr „${CHATGPT_PICKER}“ není otevřený nebo čitelný)`,
+        actual,
+      );
+    const seenBefore = before === undefined ? {} : detectModel(before);
+    if (!controlVerified(seenBefore))
+      return waiting(
+        `${CONTROL_UNVERIFIED} (před odesláním: výběr „${CHATGPT_PICKER}“ ${before === undefined ? "nepřečten" : "není otevřený nebo čitelný"})`,
+        actual,
+      );
     if (!modelOk(seen))
       return waiting(
         `model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka po odpovědi: ${actual})`,
         actual,
       );
-    const seenBefore = before === undefined ? {} : detectModel(before);
     if (
       before === undefined ||
       ranInWork(before, seenBefore) ||
@@ -1137,7 +1164,7 @@ function shownModel(seen: ShownModel): string {
       : "";
   return seen.model
     ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}${step}` : ""}`
-    : `neověřeno (stránka model neukazuje${seen.intensity ? `; intenzita ${seen.intensity}${step}` : ""})`;
+    : `neověřeno (výběr modelu není otevřený nebo neukazuje označený model${seen.intensity ? `; intenzita ${seen.intensity}${step}` : ""})`;
 }
 
 /**
@@ -1149,7 +1176,6 @@ const modelOk = (seen: ShownModel): boolean =>
   CHAT_MODELS.includes(seen.model) &&
   isHighIntensity(seen.intensity) &&
   (seen.levels === undefined || seen.level === seen.levels);
-
 /** A stored "answered" attempt is used only when it holds an answer and both models of its run were valid. */
 function storedAnswerValid(
   e: SentEntry,

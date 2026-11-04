@@ -229,7 +229,7 @@ TEXT>>>
       case "close_popups":
         return `${n}. Zavři každý otevřený popover nebo menu: browser_press_key s klávesou "Escape", pak browser_snapshot; opakuj, dokud snapshot neukazuje žádné otevřené menu (nejvýš ${UI_MAX_ATTEMPTS}×).`;
       case "open":
-        return `${n}. browser_snapshot. Když výběr „${s.text}“ není otevřený, otevři ho jedním kliknutím (browser_click). Nic v něm neměň a nezavírej ho.`;
+        return `${n}. Povinný krok: browser_snapshot. Když výběr „${s.text}“ není otevřený, otevři ho jedním kliknutím (browser_click) a udělej browser_snapshot. Snapshot musí ukazovat otevřené menu „${s.text}“ s označeným modelem a stavem posuvníku. Nic v něm neměň a nezavírej ho. Když ho nejde otevřít, skonči s RESULT: UNKNOWN vyber-modelu-neotevren (kód stav bez otevřeného výběru nepřijme).`;
       case "read":
         return `${n}. browser_snapshot s filename "${rel}/reads/read-${pad(n)}.md"${s.selector ? ` (cíl: ${s.selector})` : ""}. Obsah souboru nevypisuj.`;
     }

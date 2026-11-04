@@ -252,6 +252,14 @@ export function gateMcpCall(
       return "dvojklik na odesílací prvek se nepovoluje";
     if (noType && (tool === "browser_type" || ref.submit))
       return "tento běh jen čte: nic se nepíše ani neodesílá";
+    // Codex review PR #101 kolo 1 (known risk): an open menu, listbox or dialog may cover the composer, so in exact mode
+    // nothing is typed into the field (not even clearing it) and nothing is sent while the last snapshot shows one.
+    if (
+      typeSha &&
+      (tool === "browser_type" || (tool === "browser_click" && ref.submit)) &&
+      state.overlay === true
+    )
+      return `podle posledního snapshotu je otevřené menu nebo popover (může překrývat pole): ${tool === "browser_type" ? "nic se nepíše ani nečistí" : "nic se neodesílá"}; zavři ho (browser_press_key Escape) a udělej browser_snapshot`;
     if (typeSha && tool === "browser_type") {
       if (input.slowly === true)
         return "pomalé psaní (slowly) se nepovoluje: nepřepíše rozepsaný text v poli";
@@ -262,9 +270,6 @@ export function gateMcpCall(
           return "vkládaný text se liší od zadaného (sha256); vlož ho přesně beze změny";
         if (ref.content === undefined || ref.content.trim() !== "")
           return 'pole není podle posledního snapshotu prázdné: vyčisti ho (browser_type s textem ""), udělej browser_snapshot a teprve pak piš';
-        // (content is known only from a snapshot, and every readable snapshot also sets `overlay`)
-        if (state.overlay === true)
-          return "podle posledního snapshotu je otevřené menu nebo popover (může překrývat pole): zavři ho (browser_press_key Escape), udělej browser_snapshot a teprve pak piš";
       }
     }
     if (typeSha && tool === "browser_click" && ref.submit) {
