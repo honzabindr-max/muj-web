@@ -78,10 +78,11 @@ export interface WebCheckRecord {
  * Anything else (timeout, mismatch, crash, any doubt) makes the attempt "burned" for good: its chat is never opened
  * again and its answer is never accepted, not even by a later read. A provably unsent attempt is removed.
  * After a crash between "answered" and storing the result, the next run finishes from the stored answer without a send.
- * A new attempt (new chat, new nonce) starts only in a later run, at most MAX_ATTEMPTS_PER_DAY per prompt and day.
+ * Codex review kolo 3, nález 1: a burned attempt is never followed by an automatic one. While the last attempt of the
+ * dir is burned, nothing is sent; the order stays in WAITING_REVIEW with the reason. A new attempt (new chat, new
+ * nonce, one send) needs an explicit grant from `cli.ts gpt-retry` (RETRY_FILE).
  */
 export const SENT_JOURNAL = "gptweb-sent.json";
-export const MAX_ATTEMPTS_PER_DAY = 2;
 export interface SentEntry {
   prompt_sha256: string;
   nonce: string;
@@ -118,12 +119,113 @@ export function readJournal(dir: string): SentEntry[] | undefined {
 
 /** Durable write: temp file, fsync, rename, fsync of the dir (a crash leaves the old or the new journal, never half). */
 export function writeJournal(dir: string, entries: SentEntry[]): void {
+  writeDurableJson(dir, SENT_JOURNAL, { v: 1, entries });
+}
+
+/**
+ * Explicit retry grants (Codex review kolo 3, nález 1): after a burned attempt (timeout, mismatch, crash, any doubt)
+ * nothing is sent again automatically, not on the next tick and not on the next day. A new attempt (new chat, new
+ * nonce, at most one send) needs one unused grant, written only by `npx tsx tars/orch/cli.ts gpt-retry <id> <kdo>
+ * <proč>` (Fable or the owner). The run that sends marks the grant used BEFORE it writes its attempt, so one grant is
+ * never more than one send. One file per order dir, next to the journal.
+ */
+export const RETRY_FILE = "gptweb-retry.json";
+export const RETRY_BY = ["fable", "vlastnik"] as const;
+export type RetryBy = (typeof RETRY_BY)[number];
+export interface RetryGrant {
+  by: RetryBy;
+  at: string;
+  /** Why the retry is wanted (redacted, max. 300 characters). */
+  why: string;
+  /** Set by the run that uses the grant, before its send. */
+  used_at?: string;
+  nonce?: string;
+}
+
+/** The grants of a dir; [] when there is none, undefined when the file exists but cannot be read (then nothing is sent). */
+export function readRetries(dir: string): RetryGrant[] | undefined {
+  const f = path.join(dir, RETRY_FILE);
+  if (!fs.existsSync(f)) return [];
+  try {
+    const j = JSON.parse(fs.readFileSync(f, "utf8")) as {
+      v?: unknown;
+      grants?: unknown;
+    };
+    if (j.v !== 1 || !Array.isArray(j.grants)) return undefined;
+    return j.grants as RetryGrant[];
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeRetries(dir: string, grants: RetryGrant[]): void {
+  writeDurableJson(dir, RETRY_FILE, { v: 1, grants });
+}
+
+/** The burned attempt that blocks every further send in this dir: the last attempt of the journal, when it is burned. */
+export function blockingAttempt(entries: SentEntry[]): SentEntry | undefined {
+  const last = entries.at(-1);
+  return last?.state === "burned" ? last : undefined;
+}
+
+/** The command that allows one new attempt (shown in the reason of the waiting order). */
+export const retryCommand = (id: string) =>
+  `npx tsx tars/orch/cli.ts gpt-retry ${id} fable|vlastnik <proč>`;
+
+export type GrantResult =
+  | { ok: true; grant: RetryGrant; burned: SentEntry }
+  | { ok: false; reason: string };
+
+/**
+ * Writes one retry grant into `dir` (the order dir). Only when the last attempt there is burned and no unused grant
+ * waits (one command = at most one new send). Never sends anything itself.
+ */
+export function grantRetry(
+  dir: string,
+  by: string,
+  why: string,
+  now: () => Date = () => new Date(),
+): GrantResult {
+  if (!(RETRY_BY as readonly string[]).includes(by))
+    return {
+      ok: false,
+      reason: `kdo musí být jedno z: ${RETRY_BY.join(", ")}`,
+    };
+  const reason = redactSecrets(why.trim()).slice(0, 300);
+  if (!reason) return { ok: false, reason: "chybí důvod (proč)" };
+  const entries = readJournal(dir);
+  if (!entries) return { ok: false, reason: "deník pokusů nejde přečíst" };
+  const burned = blockingAttempt(entries);
+  if (!burned)
+    return {
+      ok: false,
+      reason:
+        "poslední pokus o kontrolu GPT není spálený; nový pokus není potřeba",
+    };
+  const grants = readRetries(dir);
+  if (!grants)
+    return { ok: false, reason: "soubor povolení opakování nejde přečíst" };
+  if (grants.some((g) => !g.used_at))
+    return {
+      ok: false,
+      reason: "jedno povolení nového pokusu už čeká na použití",
+    };
+  const grant: RetryGrant = {
+    by: by as RetryBy,
+    at: now().toISOString(),
+    why: reason,
+  };
+  writeRetries(dir, [...grants, grant]);
+  return { ok: true, grant, burned };
+}
+
+function writeDurableJson(dir: string, name: string, data: unknown): void {
   fs.mkdirSync(dir, { recursive: true });
-  const f = path.join(dir, SENT_JOURNAL);
+  const f = path.join(dir, name);
   const tmp = `${f}.${process.pid}.tmp`;
   const fd = fs.openSync(tmp, "w");
   try {
-    fs.writeSync(fd, `${JSON.stringify({ v: 1, entries }, null, 2)}\n`);
+    fs.writeSync(fd, `${JSON.stringify(data, null, 2)}\n`);
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
@@ -750,19 +852,28 @@ export class ChatGptWebChecker implements TextAdapter {
         return waiting("deník pokusů nejde zapsat; nic neodesláno");
       if (stale.some((e) => e.prompt_sha256 === promptSha))
         return waiting(
-          "předchozí pokus o tuto kontrolu nebyl dokončen v běhu, který ho odeslal; je spálený, nový pokus (nový chat) až v dalším běhu",
+          `předchozí pokus o tuto kontrolu nebyl dokončen v běhu, který ho odeslal; je spálený a znovu se automaticky neposílá. Nový pokus jen příkazem: ${retryCommand(path.basename(jdir))}`,
         );
     }
 
-    // 3) At most MAX_ATTEMPTS_PER_DAY attempts (new chats) per prompt and day.
-    const day = now().toISOString().slice(0, 10);
-    const attempts = entries.filter(
-      (e) => e.prompt_sha256 === promptSha && String(e.at).slice(0, 10) === day,
-    ).length;
-    if (attempts >= MAX_ATTEMPTS_PER_DAY)
-      return waiting(
-        `vyčerpány ${MAX_ATTEMPTS_PER_DAY} pokusy o tuto kontrolu za den (${day}); čeká na další den nebo nové kolo`,
-      );
+    // 3) Codex review kolo 3, nález 1: after a burned attempt nothing is sent again without an explicit grant
+    //    (cli.ts gpt-retry). No automatic retry on the next tick, no daily reset.
+    const blocking = blockingAttempt(entries);
+    let grants: RetryGrant[] = [];
+    let grantIdx = -1;
+    if (blocking) {
+      const g = readRetries(jdir);
+      if (!g)
+        return waiting(
+          "soubor povolení opakování nejde přečíst; nový prompt se neposílá",
+        );
+      grants = g;
+      grantIdx = grants.findIndex((x) => !x.used_at);
+      if (grantIdx < 0)
+        return waiting(
+          `pokus o kontrolu v GPT je spálený (${blocking.reason ?? "bez důvodu"}); znovu se automaticky neposílá. Nový pokus jen příkazem: ${retryCommand(path.basename(jdir))}`,
+        );
+    }
 
     // 4) A new attempt: new chat, new nonce, one send.
     const fresh = (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
@@ -776,6 +887,23 @@ export class ChatGptWebChecker implements TextAdapter {
       return waiting(
         "prompt už obsahuje koncovou značku (nelze bezpečně číst odpověď)",
       );
+    // The grant is used up BEFORE the attempt is written: one grant is never more than one send (also after a crash).
+    if (grantIdx >= 0) {
+      try {
+        writeRetries(
+          jdir,
+          grants.map((g, i) =>
+            i === grantIdx
+              ? { ...g, used_at: now().toISOString(), nonce: fresh }
+              : g,
+          ),
+        );
+      } catch {
+        return waiting(
+          "povolení opakování nejde označit jako použité; nic neodesláno",
+        );
+      }
+    }
     // Write-ahead: the attempt is durable BEFORE the send, so a crash during the run burns it (never read again).
     if (
       !save([

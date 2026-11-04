@@ -116,8 +116,9 @@ startu, nebo živý, ale zaseknutý držitel = HOLD. TARS ho sám nikdy neodstra
 ```
 npx tsx tars/orch/cli.ts tick
 npx tsx tars/orch/cli.ts status
-npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP)
-npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP
+npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP), dir runs/shots-browser-check
+npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP, dir runs/shots-browser-smoke
+npx tsx tars/orch/cli.ts gpt-retry <id> fable|vlastnik <proč>   # one new GPT check attempt after a burned one (never automatic)
 npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
 npx vitest run tars
 tars/orch/launchd/install.sh

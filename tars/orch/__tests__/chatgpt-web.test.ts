@@ -20,14 +20,16 @@ import {
   chatGptSteps,
   detectModel,
   END_WORD,
+  grantRetry,
   markerEndsAnswer,
-  MAX_ATTEMPTS_PER_DAY,
   readJournal,
+  readRetries,
   verdictFromAnswer,
   writeJournal,
   type WebBrowser,
 } from "../chatgpt-web";
 import { CopyDepartment, VizualDepartment } from "../departments";
+import { retryDir, runGptRetry } from "../gpt-retry";
 import { NotImplementedDesktop } from "../desktop";
 import { assertKonziliumFamilies } from "../konzilium-lite";
 import { hostAllowed } from "../ladder";
@@ -877,13 +879,14 @@ describe("rodiny: kontroly mimo kód = GPT v prohlížeči, kód = Codex", () =>
       checker_family: "gpt",
     });
     const cli = fs.readFileSync(path.join(__dirname, "..", "cli.ts"), "utf8");
+    // whitespace-tolerant: cli.ts is formatted by prettier (arguments may wrap)
     expect(cli).toMatch(/briefChecker: gptWeb\b/);
-    expect(cli).toMatch(/copy: new CopyDepartment\(opus, gptWeb\b/);
+    expect(cli).toMatch(/copy: new CopyDepartment\(\s*opus,\s*gptWeb\b/);
     expect(cli).toMatch(
-      /vizual: new VizualDepartment\(makeBrowser\(\), gptWeb\b/,
+      /vizual: new VizualDepartment\(\s*makeBrowser\(\),\s*gptWeb\b/,
     );
     expect(cli).toMatch(
-      /dev: new DevDepartment\(new AiChain\(aiChain\), codex\b/,
+      /dev: new DevDepartment\(\s*new AiChain\(aiChain\),\s*codex\b/,
     );
     expect(cli).toMatch(/checker: makeGptWeb\(\)/); // Konzilium Lite oponent
   });
@@ -1038,6 +1041,10 @@ describe("WAITING_REVIEW (orchestrátor, fake prohlížeč)", () => {
     expect(notion.pages).toHaveLength(0); // nothing delivered
     expect(isActionable(o.state)).toBe(true);
     fail = false;
+    // Codex review kolo 3, nález 1: the burned attempt is retried only after an explicit gpt-retry
+    expect(await orch.tick()).toMatchObject({ status: "waiting_review" });
+    expect(cb.calls).toHaveLength(1);
+    expect(runGptRetry(store, o.id, "vlastnik", "timeout").ok).toBe(true);
     expect(await orch.tick()).toMatchObject({
       status: "advanced",
       state: "DONE",
@@ -1181,7 +1188,7 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
   const nonceOf = (steps: BrowserStep[]) =>
     /Kód: (\S+)\s*$/.exec(sentPrompt(steps))![1];
 
-  it("nález 1: PASS vytvořený při Střední → pokus spálen; po přepnutí voliče na Vysokou se stará odpověď nikdy nepřijme, nový pokus jde do nového chatu s novým nonce; nejvýš 2 pokusy za den", async () => {
+  it("nález 1: PASS vytvořený při Střední → pokus spálen; bez gpt-retry se nic znovu neposílá; po gpt-retry se stará odpověď nikdy nepřijme, nový pokus jde do nového chatu s novým nonce; jedno povolení = jedno odeslání", async () => {
     let first = "";
     const b = new FakeBrowser((steps) => {
       if (!first) {
@@ -1201,6 +1208,14 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
         reason: expect.stringMatching(/neodpovídá/),
       }),
     ]);
+    // Codex review kolo 3, nález 1: without gpt-retry no second send
+    const blocked = await c.run("Posuď.", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(blocked.error).toMatch(/znovu se automaticky neposílá/);
+    expect(b.calls).toHaveLength(1);
+    expect(grantRetry(dir, "fable", "model byl na Střední").ok).toBe(true);
     const r2 = await c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
     expect(r2).toMatchObject({ ok: false, waitReview: true }); // the old PASS is never accepted
     expect(sendsOf(b)).toHaveLength(2);
@@ -1210,10 +1225,9 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     }); // a new chat, never the old one
     expect(nonceOf(b.calls[1])).not.toBe(nonceOf(b.calls[0]));
     expect(readJournal(dir)!.map((e) => e.state)).toEqual(["burned", "burned"]);
-    // MAX_ATTEMPTS_PER_DAY reached: no third attempt today
+    // the grant is used up: no third attempt without a new gpt-retry
     const r3 = await c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
-    expect(MAX_ATTEMPTS_PER_DAY).toBe(2);
-    expect(r3.error).toMatch(/vyčerpány 2 pokusy/);
+    expect(r3.error).toMatch(/gpt-retry/);
     expect(b.calls).toHaveLength(2);
   });
 
@@ -1293,7 +1307,7 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     expect(sendsOf(b3)).toHaveLength(1);
   });
 
-  it("nález 3: pád mezi odesláním a odpovědí („sending“/„sent“ v deníku) → pokus spálen, chat se neotevře; nový pokus až v dalším běhu", async () => {
+  it("nález 3: pád mezi odesláním a odpovědí („sending“/„sent“ v deníku) → pokus spálen, chat se neotevře; nový pokus jen po gpt-retry", async () => {
     const b = new FakeBrowser(answering(PASS_JSON));
     expect(
       await checker(b).run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
@@ -1319,6 +1333,14 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
       expect(readJournal(d), state).toEqual([
         expect.objectContaining({ state: "burned", nonce: "crashed" }),
       ]);
+      // Codex review kolo 3, nález 1: the next run sends nothing without gpt-retry
+      const again = await c.run("Posuď.", {
+        cwd: d,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(again.error, state).toMatch(/gpt-retry/);
+      expect(bb.calls, state).toHaveLength(0);
+      expect(grantRetry(d, "vlastnik", "pád během kontroly").ok).toBe(true);
       const r2 = await c.run("Posuď.", { cwd: d, outputSchema: REVIEW_SCHEMA });
       expect(r2, state).toMatchObject({ ok: true, text: PASS_JSON });
       expect(sendsOf(bb)).toHaveLength(1);
@@ -1365,7 +1387,7 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     expect(fills(b)).toBe(3);
   });
 
-  it("orchestrátor: timeout kontroly copy po odeslání → pokus spálen; další tick = nový chat a nový nonce → DONE", async () => {
+  it("orchestrátor: timeout kontroly copy po odeslání → pokus spálen; další ticky nic neposílají; gpt-retry → právě jedno nové odeslání (nový chat, nový nonce) → DONE", async () => {
     let fail = true;
     const cb = new FakeBrowser((steps) =>
       fail
@@ -1381,6 +1403,29 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
       "burned",
     ]);
     fail = false;
+    // Codex review kolo 3, nález 1: further ticks never send again on their own (no automatic retry)
+    for (let i = 0; i < 3; i++) await orch.tick();
+    expect(cb.calls).toHaveLength(1);
+    expect(fills(cb)).toBe(1);
+    expect(store.load(o.id).state).toBe("WAITING_REVIEW");
+    // only the explicit command allows one new attempt; it logs who, when and why
+    const g = runGptRetry(
+      store,
+      o.id,
+      "fable",
+      "timeout kontroly copy, artefakt beze změny",
+    );
+    expect(g.ok).toBe(true);
+    const logLine = store
+      .readLog(200)
+      .filter((e) => e.event === "gpt-retry")
+      .at(-1)!;
+    expect(logLine).toMatchObject({ order: o.id, kind: "info" });
+    expect(logLine.result).toMatch(
+      /kdo=fable, kdy=\d{4}-\d\d-\d\dT.*proč=timeout kontroly copy/,
+    );
+    // a second grant before the first is used is refused (one command = at most one send)
+    expect(runGptRetry(store, o.id, "vlastnik", "ještě jednou").ok).toBe(false);
     expect(await orch.tick()).toMatchObject({
       status: "advanced",
       state: "DONE",
@@ -1393,6 +1438,98 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
       "burned",
       "answered",
     ]);
+  });
+});
+
+describe("Codex review kolo 3, nález 1: po spáleném pokusu jen výslovný gpt-retry", () => {
+  it("timeout po potvrzeném odeslání → žádné druhé odeslání ani další den; gpt-retry → právě jedno nové odeslání", async () => {
+    let t = new Date("2026-11-04T10:00:00Z");
+    let n = 0;
+    let fail = true;
+    const b = new FakeBrowser((steps) =>
+      fail
+        ? new UiUnknownError("krok selhal: timeout", [])
+        : page(sentPrompt(steps), PASS_JSON),
+    );
+    const c = new ChatGptWebChecker(b, {
+      now: () => t,
+      nonce: () => `n${n++}`,
+    });
+    const run = () =>
+      c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect((await run()).error).toMatch(/časovém limitu/);
+    fail = false;
+    for (const day of ["2026-11-04T11:00:00Z", "2026-11-05T10:00:00Z"]) {
+      t = new Date(day); // also the next day: no reset
+      const r = await run();
+      expect(r).toMatchObject({ ok: false, waitReview: true });
+      expect(r.error).toMatch(
+        /spálený .*odpověď ChatGPT nedorazila.*gpt-retry .*fable\|vlastnik/,
+      );
+    }
+    expect(fills(b)).toBe(1);
+    // refusals: wrong who, no reason
+    expect(grantRetry(dir, "codex", "x")).toMatchObject({ ok: false });
+    expect(grantRetry(dir, "fable", "  ")).toMatchObject({ ok: false });
+    expect(readRetries(dir)).toEqual([]);
+    const g = grantRetry(dir, "vlastnik", "zkusit znovu", () => t);
+    expect(g).toMatchObject({
+      ok: true,
+      grant: { by: "vlastnik", why: "zkusit znovu", at: t.toISOString() },
+    });
+    expect(grantRetry(dir, "fable", "druhé")).toMatchObject({ ok: false }); // one unused grant at a time
+    expect(await run()).toMatchObject({ ok: true, text: PASS_JSON });
+    expect(fills(b)).toBe(2);
+    expect(readRetries(dir)).toEqual([
+      expect.objectContaining({
+        by: "vlastnik",
+        nonce: "n1",
+        used_at: t.toISOString(),
+      }),
+    ]);
+    // answered: the result is reused, nothing is sent, no retry is needed or allowed
+    expect(await run()).toMatchObject({ ok: true, text: PASS_JSON });
+    expect(fills(b)).toBe(2);
+    expect(grantRetry(dir, "fable", "x")).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/není spálený/),
+    });
+  });
+
+  it("povolení se spotřebuje před odesláním: i neúspěšný nový pokus potřebuje další gpt-retry", async () => {
+    const b = new FakeBrowser(
+      () => new UiUnknownError("krok selhal: timeout", []),
+    );
+    const c = checker(b);
+    const run = () => c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    await run();
+    expect(grantRetry(dir, "fable", "znovu").ok).toBe(true);
+    await run();
+    await run();
+    await run();
+    expect(fills(b)).toBe(2);
+    expect(readJournal(dir)!.map((e) => e.state)).toEqual(["burned", "burned"]);
+  });
+
+  it("retryDir: jen id zakázky ve WAITING_REVIEW nebo běhu Konzilia, nikdy cesta", () => {
+    const runs = fs.mkdtempSync(path.join(os.tmpdir(), "tars-runs-"));
+    fs.mkdirSync(path.join(runs, "wo-1"));
+    fs.writeFileSync(
+      path.join(runs, "wo-1", "state.json"),
+      JSON.stringify({ state: "WAITING_REVIEW" }),
+    );
+    fs.mkdirSync(path.join(runs, "wo-2"));
+    fs.writeFileSync(
+      path.join(runs, "wo-2", "state.json"),
+      JSON.stringify({ state: "DONE" }),
+    );
+    fs.mkdirSync(path.join(runs, "konzilium", "konz-1"), { recursive: true });
+    expect(retryDir(runs, "wo-1")).toEqual({ dir: path.join(runs, "wo-1") });
+    expect(retryDir(runs, "konz-1")).toEqual({
+      dir: path.join(runs, "konzilium", "konz-1"),
+    });
+    for (const bad of ["wo-2", "wo-3", "konz-2", "../wo-1", "wo-1/..", "x"])
+      expect(retryDir(runs, bad), bad).toHaveProperty("error");
   });
 });
 

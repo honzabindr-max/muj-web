@@ -28,6 +28,8 @@ import {
 import { runGuardWithI8 } from "../guard";
 import {
   BROWSER_ALLOWED_TOOLS,
+  BROWSER_CHECK_DIR,
+  BROWSER_SMOKE_DIR,
   browserSettings,
   BrowserLaunchError,
   buildTask,
@@ -35,6 +37,7 @@ import {
   McpBrowser,
   playwrightMcpConfig,
   RuleViolation,
+  SHOTS_DIR_RE,
   UiUnknownError,
 } from "../mcp-browser";
 
@@ -151,6 +154,22 @@ describe("tars-browser.sh mcp: identity gate (fail-closed)", () => {
       expect(b.status, bad).toBe(1);
       expect(b.stderr, bad).toMatch(/TARS-BROWSER FAIL výstupní složka MCP/);
     }
+  });
+
+  it("Codex review kolo 3, nález 2: browser-check (a preflight vizual) i browser-smoke používají složku shots-*, kterou wrapper přijme", () => {
+    const e = setup();
+    for (const name of [BROWSER_CHECK_DIR, BROWSER_SMOKE_DIR]) {
+      expect(name).toMatch(SHOTS_DIR_RE);
+      const out = path.join(e.root, "runs", name);
+      fs.mkdirSync(out, { recursive: true });
+      const r = dry(e, GOOD, { TARS_MCP_OUTPUT_DIR: out });
+      expect(r.status, name).toBe(0);
+      expect(r.stdout, name).toContain(`--output-dir ${out}`);
+    }
+    // the old name runs/browser-check is refused by the wrapper (that is why it is not used any more)
+    const old = path.join(e.root, "runs", "browser-check");
+    fs.mkdirSync(old, { recursive: true });
+    expect(dry(e, GOOD, { TARS_MCP_OUTPUT_DIR: old }).status).toBe(1);
   });
 
   const bad: Array<[string, string]> = [
@@ -1743,6 +1762,49 @@ describe("McpBrowser", () => {
     await expect(check("https://accounts.example.com/x")).rejects.toThrow(
       RuleViolation,
     ); // redirect off the allowlist
+  });
+
+  it("Codex review kolo 3, nález 2: browser-check s funkčním (fake) profilem projde ve složce runs/shots-browser-check; jiná složka selže dřív, než se spustí Chrome", async () => {
+    const r = rig((opts) => {
+      fs.writeFileSync(
+        path.join(opts.cwd, BROWSER_CHECK_DIR, "reads", "read-03.md"),
+        "How can I help you today?",
+      );
+      return OK("https://claude.ai/new");
+    });
+    fs.mkdirSync(path.join(r.dir, "Default"), { recursive: true }); // profileDir = r.dir
+    const runs = path.join(r.dir, "runs");
+    expect(
+      await r.browser.loginCheck(
+        "https://claude.ai/new",
+        path.join(runs, BROWSER_CHECK_DIR),
+      ),
+    ).toEqual({ ok: true, reasons: [] });
+    const env = JSON.parse(fs.readFileSync(r.seen[0].opts.mcpConfig!, "utf8"))
+      .mcpServers.playwright.env;
+    expect(env.TARS_MCP_OUTPUT_DIR).toBe(path.join(runs, BROWSER_CHECK_DIR));
+    expect(r.calls()).toEqual(["start", "stop"]);
+    // without a shots dir from the caller: a temporary shots-login-* dir (also accepted by the wrapper)
+    const r2 = rig(() => OK("https://claude.ai/new"));
+    fs.mkdirSync(path.join(r2.dir, "Default"), { recursive: true });
+    await r2.browser.loginCheck("https://claude.ai/new").catch(() => undefined);
+    expect(
+      path.basename(
+        JSON.parse(fs.readFileSync(r2.seen[0].opts.mcpConfig!, "utf8"))
+          .mcpServers.playwright.env.TARS_MCP_OUTPUT_DIR,
+      ),
+    ).toMatch(/^shots-login-/);
+    // the old name: refused before Chrome starts, with the reason
+    const r3 = rig(() => OK("https://claude.ai/new"));
+    fs.mkdirSync(path.join(r3.dir, "Default"), { recursive: true });
+    await expect(
+      r3.browser.loginCheck(
+        "https://claude.ai/new",
+        path.join(r3.dir, "runs", "browser-check"),
+      ),
+    ).rejects.toThrow(BrowserLaunchError);
+    expect(r3.calls()).toEqual([]);
+    expect(r3.seen).toHaveLength(0);
   });
 
   it("buildTask: numbered plan, typed text in a quoted block, attempts and bot rules", () => {
