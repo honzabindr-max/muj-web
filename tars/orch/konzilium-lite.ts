@@ -13,7 +13,7 @@
 //    bez klíčů navíc), štítky kontrol na kartě píše kód,
 //  - secret-scan všech vstupů (cesta, celý soubor, každé pole, každý prompt, popis adaptérů) i výstupů (text i chybová
 //    hláška modelu, karta, řádek panelu); nález NEBO chyba scanu = STOP, nic se neodešle ani nezapíše,
-//  - GPT na limitu = PENDING, jinak nedostupný nebo nečitelný či neověřitelný posudek = PAUSED; Claude GPT nikdy nenahradí,
+//  - GPT na limitu nebo GPT v prohlížeči nedostupný (waitReview, P16 v2) = PENDING, jinak nedostupný nebo nečitelný či neověřitelný posudek = PAUSED; Claude GPT nikdy nenahradí,
 //  - Notion jen přes REST (žádný model v cestě zápisu); karta podle card-data.ts (v1), řádek panelu WAITING_OWNER.
 //    Rozhodnutí je vždy na vlastníkovi.
 import crypto from "node:crypto";
@@ -825,7 +825,9 @@ async function review(
     timeoutMs: deps.timeoutMs,
   });
   if (!r.ok)
-    return r.limit
+    return r.waitReview
+      ? { status: "PENDING", reason: `čeká na kontrolu GPT v prohlížeči (${r.error ?? "neproběhla"}) — Konzilium počká, nic není ověřené (Claude GPT nenahrazuje)` }
+      : r.limit
       ? { status: "PENDING", reason: "GPT je na limitu — Konzilium počká, nic není ověřené (Claude GPT nenahrazuje)" }
       : { status: "PAUSED", reason: `GPT nedostupný (${r.error ?? "chyba"}) — nic není ověřené (Claude GPT nenahrazuje)` };
   // Verdikt jen z výstupu kontrolora a jen přesně podle schématu; cokoli jiného není PASS.

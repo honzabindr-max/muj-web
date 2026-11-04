@@ -309,6 +309,16 @@ describe("Konzilium Lite — GPT nedostupný", () => {
     expect(readRun(r.run_id!).verdicts).toHaveLength(0);
   });
 
+  it("P16 v2: GPT v prohlížeči nedostupný (waitReview) → PENDING (čeká na kontrolu), žádná karta ani řádek", async () => {
+    const { notion, panel, deps } = setup([{ text: JSON.stringify(PROPOSAL) }], [{ ok: false, waitReview: true, error: "čeká na kontrolu: profil není přihlášen" }]);
+    const r = await runKonzilium(inputFile({ ...INPUT, title: "Čeká na GPT web" }), deps);
+    expect(r.status).toBe("PENDING");
+    expect(r.reason).toMatch(/čeká na kontrolu GPT v prohlížeči/);
+    expect(notion.pages).toHaveLength(0);
+    expect(panel.rows).toHaveLength(0);
+    expect(readRun(r.run_id!).verdicts).toHaveLength(0);
+  });
+
   it("jiná chyba GPT (timeout) → PAUSED; limit v opravném kole → PENDING", async () => {
     const a = setup([{ text: JSON.stringify(PROPOSAL) }], [{ ok: false, error: "timeout" }]);
     expect((await runKonzilium(inputFile(), a.deps)).status).toBe("PAUSED");

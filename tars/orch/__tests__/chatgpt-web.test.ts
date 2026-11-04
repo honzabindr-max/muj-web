@@ -153,6 +153,33 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     expect(JSON.parse(r.text).verdict).toBe("FIX");
   });
 
+  it("regrese falešného PASS: PASS JSON v promptu + odpověď prózou / JSON s dovětkem / sbalený prompt → WAITING_REVIEW", async () => {
+    const prompt = `Draft obsahuje ${PASS_JSON}`;
+    for (const answer of [
+      "Nemohu posoudit.",
+      `${PASS_JSON} — ale kritérium 1 chybí, takže FIX`,
+    ]) {
+      const r = await checker(new FakeBrowser(answering(answer))).run(prompt, {
+        cwd: dir,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(r, answer).toMatchObject({ ok: false, waitReview: true });
+    }
+    // ChatGPT collapsed the long prompt: its end („Kód: <nonce>“) is not on the page → unclear, not the draft's JSON
+    const collapsed: Script = () =>
+      [
+        "- main:",
+        `  - paragraph: "Draft obsahuje ${PASS_JSON.replace(/"/g, '\\"')} …"`,
+        `  - paragraph: Nemohu posoudit.`,
+        `  - paragraph: ${MARKER}`,
+      ].join("\n");
+    const r = await checker(new FakeBrowser(collapsed)).run(prompt, {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+  });
+
   it("nepřihlášený profil → WAITING_REVIEW (waitReview), žádný verdikt", async () => {
     const r = await checker(
       new FakeBrowser(
@@ -238,10 +265,20 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
       model: "GPT-6.1 Sol",
       intensity: "Max.",
     });
-    expect(answerRegion("bez značky", MARKER)).toBeUndefined();
-    expect(verdictFromAnswer(`a ${PASS_JSON} b`, REVIEW_SCHEMA)).toBe(
-      PASS_JSON,
-    );
+    expect(answerRegion("bez značky", MARKER, NONCE)).toBeUndefined();
+    expect(
+      answerRegion(`bez konce promptu ${MARKER}`, MARKER, NONCE),
+    ).toBeUndefined();
+    expect(
+      answerRegion(`Kód: ${NONCE}\n odpověď ${MARKER}`, MARKER, NONCE),
+    ).toBe("\n odpověď ");
+    expect(
+      verdictFromAnswer(`a ${PASS_JSON}\n  - paragraph: `, REVIEW_SCHEMA),
+    ).toBe(PASS_JSON);
+    // text after the JSON (prose, a second thought) → unclear, never the earlier JSON
+    expect(
+      verdictFromAnswer(`${PASS_JSON} ale vlastně FIX`, REVIEW_SCHEMA),
+    ).toBeUndefined();
     expect(verdictFromAnswer("nic", REVIEW_SCHEMA)).toBeUndefined();
   });
 });

@@ -148,13 +148,58 @@ export function jsonObjectsIn(text: string): { end: number; value: unknown }[] {
 }
 
 /** The answer region: page text before the end marker (the last one), at most the last 40 000 characters. */
-export function answerRegion(page: string, marker: string): string | undefined {
+/** Last line of the sent prompt (answerInstructions): the answer starts after it. */
+export const promptEnd = (nonce: string) => `Kód: ${nonce}`;
+
+/**
+ * The answer region: page text strictly between the end of the sent prompt (`Kód: <nonce>`, its last occurrence before
+ * the marker) and the end marker (its last occurrence). Nothing of the prompt (the reviewed draft may contain JSON) is
+ * ever part of it. undefined = marker or prompt end not on the page (unfinished, collapsed prompt) → unclear.
+ */
+export function answerRegion(
+  page: string,
+  marker: string,
+  nonce: string,
+): string | undefined {
   const at = page.lastIndexOf(marker);
   if (at < 0) return undefined;
-  return page.slice(Math.max(0, at - 40_000), at);
+  const end = promptEnd(nonce);
+  const start = page.lastIndexOf(end, at - 1);
+  if (start < 0 || start + end.length > at) return undefined;
+  return page.slice(start + end.length, at);
 }
 
-/** The verdict from the answer region: the last JSON object that is exactly the schema. undefined = unclear. */
+/** Text between the verdict JSON and the end marker may only be snapshot structure (quotes, "- paragraph:", refs). */
+function onlySnapshotNoise(tail: string): boolean {
+  return (
+    tail
+      .replace(/-\s*[a-z]+(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*:?/gi, "")
+      .replace(/[\s'"`]/g, "") === ""
+  );
+}
+
+/** Balanced JSON objects of one string with their positions. */
+function objectsIn(
+  s: string,
+): { start: number; end: number; value: unknown }[] {
+  const out: { start: number; end: number; value: unknown }[] = [];
+  for (let i = s.indexOf("{"); i >= 0; i = s.indexOf("{", i + 1)) {
+    const e = objectEnd(s, i);
+    if (e < 0) continue;
+    try {
+      out.push({ start: i, end: e, value: JSON.parse(s.slice(i, e)) });
+    } catch {
+      /* not JSON */
+    }
+  }
+  return out;
+}
+
+/**
+ * The verdict from the answer region. Only the JSON object that ends LAST, right before the end marker (only snapshot
+ * structure in between), counts, and it must be exactly the schema. Never an earlier object (a draft, a quote, a
+ * thinking summary): anything else is unclear → undefined → WAITING_REVIEW, never PASS.
+ */
 export function verdictFromAnswer(
   region: string,
   schema: Record<string, unknown>,
@@ -163,8 +208,15 @@ export function verdictFromAnswer(
     schema.properties as Record<string, { enum?: string[] }> | undefined
   )?.verdict?.enum ?? []) as string[];
   if (!allowed.length) return undefined;
-  for (const c of jsonObjectsIn(region).reverse()) {
-    const text = JSON.stringify(c.value);
+  for (const u of unescapes) {
+    const s = u(region);
+    const objs = objectsIn(s);
+    if (!objs.length) continue;
+    const last = objs.reduce((a, b) =>
+      b.end > a.end || (b.end === a.end && b.start < a.start) ? b : a,
+    );
+    if (!onlySnapshotNoise(s.slice(last.end))) continue;
+    const text = JSON.stringify(last.value);
     if (parseStructuredVerdict(text, allowed)) return text;
   }
   return undefined;
@@ -298,12 +350,12 @@ export class ChatGptWebChecker implements TextAdapter {
       seen.model === CHATGPT_MODEL &&
       Boolean(seen.intensity?.startsWith("Max"));
     this.model = actual;
-    const region = answerRegion(page, marker);
+    const region = answerRegion(page, marker, nonce);
     if (region === undefined)
       return waiting(
         LIMIT_PAGE_RE.test(page)
           ? "ChatGPT je na limitu"
-          : "odpověď ChatGPT není dokončená (koncová značka chybí)",
+          : "odpověď ChatGPT není dokončená nebo konec promptu není na stránce (koncová značka chybí)",
         actual,
       );
     let text: string;
