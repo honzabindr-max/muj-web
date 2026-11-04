@@ -5,19 +5,62 @@ import fs from "node:fs";
 import type { AdapterResult, TextAdapter } from "./adapters";
 import { artifactHash, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
-import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
-import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
+import {
+  briefMarkdown,
+  type DepartmentRunner,
+  type DeptContext,
+  type StepOutcome,
+} from "./departments";
+import {
+  adapterPreflight,
+  type LadderEnv,
+  type PreflightResult,
+} from "./ladder";
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { buildCardData, cardDataSection } from "./card-data";
-import { isUncertainOutcome, NotionRestError } from "./notion";
+import {
+  EffectJournal,
+  effectSurelyAbsent,
+  effectTag,
+  lookupNotionMarker,
+  operationId,
+  titleWithMarker,
+  type EffectLookup,
+} from "./effects";
+import { isUncertainOutcome, NotionRestError, pageIdFromUrl } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
-import { panelRow, type PanelIndex, type PanelSink } from "./panel";
-import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
+import {
+  panelRow,
+  PanelRowUnclear,
+  type PanelIndex,
+  type PanelSink,
+} from "./panel";
+import {
+  missingSources,
+  sourcesBlock,
+  type LoadedSource,
+  type SourceLoader,
+} from "./sources";
 import { scanSecrets } from "./secret-scan";
-import { isActionable, ownerEventFor, transition, TransitionError, type OrderEvent } from "./state-machine";
+import {
+  isActionable,
+  ownerEventFor,
+  transition,
+  TransitionError,
+  type OrderEvent,
+} from "./state-machine";
 import type { Store } from "./store";
-import { acceptableCheckNotes, BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
+import {
+  acceptableCheckNotes,
+  BriefError,
+  buildBriefCheckPrompt,
+  buildSupervisorPrompt,
+  HANDOFF_PAGE_ID,
+  parseBrief,
+  reservedDecisionHits,
+  type DeptAvailability,
+} from "./supervisor";
 import { callChecker } from "./departments";
 import type { Department, LogEntry, Order } from "./types";
 
@@ -59,6 +102,26 @@ export type TickResult =
   | { status: "waiting_review"; order: string; reason?: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
+/** Etapa 3: outcome of one journaled external write (`runEffect`). */
+type EffectRun =
+  | { kind: "done"; url: string; content_hash?: string; recovered: boolean }
+  | { kind: "hold"; op: string; reason: string }
+  | { kind: "failed"; error: unknown }
+  | { kind: "stale" };
+
+/** A delivery that returned ok:false; carries the outcome for `bad()` and whether it certainly wrote nothing. */
+class DeliverFailure extends Error {
+  constructor(
+    public readonly outcome: StepOutcome,
+    public readonly effect_absent: boolean,
+  ) {
+    super(outcome.error ?? "deliver failed");
+  }
+}
+
+/** Review kolo 1: the order's row may exist (create of unclear outcome) and cannot be looked up: no write at all. */
+class PanelRowHold extends Error {}
+
 /** Wraps any adapter: output containing a secret is dropped, never stored (§6). */
 export class SecretScanningAdapter implements TextAdapter {
   constructor(private inner: TextAdapter) {}
@@ -74,19 +137,31 @@ export class SecretScanningAdapter implements TextAdapter {
   get supportsOutputSchema() {
     return this.inner.supportsOutputSchema;
   }
-  async run(prompt: string, opts: Parameters<TextAdapter["run"]>[1]): Promise<AdapterResult> {
+  async run(
+    prompt: string,
+    opts: Parameters<TextAdapter["run"]>[1],
+  ): Promise<AdapterResult> {
     const r = await this.inner.run(prompt, opts);
     const s = scanSecrets(r.text);
     if (s.clean) return r;
-    return { ...r, ok: false, text: "", error: `secret-scan: ${s.kinds.join(",")}` };
+    return {
+      ...r,
+      ok: false,
+      text: "",
+      error: `secret-scan: ${s.kinds.join(",")}`,
+    };
   }
 }
 
-export function assertFamilies(depts: Partial<Record<string, DepartmentRunner>>): void {
+export function assertFamilies(
+  depts: Partial<Record<string, DepartmentRunner>>,
+): void {
   for (const [k, d] of Object.entries(depts)) {
     if (!d) continue;
     if (d.creatorFamily === d.checkerFamily) {
-      throw new Error(`department ${k}: creator and checker are both ${d.creatorFamily} (tvůrce ≠ kontrolor)`);
+      throw new Error(
+        `department ${k}: creator and checker are both ${d.creatorFamily} (tvůrce ≠ kontrolor)`,
+      );
     }
   }
 }
@@ -97,11 +172,22 @@ export class Orchestrator {
   /** Přechody, na které už v právě běžícím ticku odešel pokus o komentář (jen během ticku). */
   private tickPingKeys: Set<string> | undefined;
   private ctx: DeptContext;
+  /** Etapa 3: durable PREPARED / receipt of every external write (runs/<id>/effects/). */
+  private effects: EffectJournal;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
-    if (d.briefChecker.family === d.supervisor.family) throw new Error("brief checker must be another model family than the supervisor");
+    if (d.briefChecker.family === d.supervisor.family)
+      throw new Error(
+        "brief checker must be another model family than the supervisor",
+      );
     this.now = d.now ?? (() => new Date());
-    this.ctx = { store: d.store, notion: d.notion, draftParentId: d.draftParentId, repoRoot: d.repoRoot };
+    this.ctx = {
+      store: d.store,
+      notion: d.notion,
+      draftParentId: d.draftParentId,
+      repoRoot: d.repoRoot,
+    };
+    this.effects = new EffectJournal(d.store.runsDir, () => this.iso());
   }
 
   private iso() {
@@ -126,7 +212,11 @@ export class Orchestrator {
     return this.d.store.load(id);
   }
 
-  private apply(order: Order, ev: OrderEvent, extra: Partial<LogEntry> = {}): Order {
+  private apply(
+    order: Order,
+    ev: OrderEvent,
+    extra: Partial<LogEntry> = {},
+  ): Order {
     const next = transition(order, ev, this.iso());
     if (!this.persist(next)) return this.current(order.id);
     this.syncPanel(next);
@@ -146,36 +236,255 @@ export class Orchestrator {
   /**
    * Rewrites the order's panel row from state.json. Serialized; errors are logged, never thrown.
    * Every sync writes the full current row, so a missed update is caught up by the next one.
+   *
+   * Review kolo 1:
+   * - Creating the row is a journaled effect (`<order>/panel-row/r0`: PREPARED → create → receipt). A row without a known
+   *   page id is ALWAYS looked up by „ID zakázky“ first (`resolvePanelRow`), so a crash between the create and
+   *   `panel.index.set` never yields a second row. Without a lookup, an earlier create of unclear outcome is a HOLD.
+   * - `fresh` (catch-up, panel-sync) writes the state current when the write starts, not the one seen when it was queued.
+   *   After the write the version is compared again: if state.json moved on meanwhile (e.g. the owner's REJECT from the
+   *   CLI), the row may hold an older state, so the dirty mark stays and the next tick rewrites the newer one.
    */
-  private syncPanel(o: Order): void {
+  private syncPanel(snapshot: Order, opts: { fresh?: boolean } = {}): void {
     const panel = this.d.panel;
     if (!panel) return;
-    const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
-    const row = panelRow(o, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
     this.panelQueue = this.panelQueue.then(async () => {
       const t0 = Date.now();
+      let o = snapshot;
+      if (opts.fresh) {
+        try {
+          o = this.d.store.load(snapshot.id);
+        } catch {
+          /* the order is gone locally: the snapshot is all we have */
+        }
+      }
+      const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
+      const row = panelRow(
+        o,
+        dept?.creatorModel() ?? "—",
+        dept?.checkerModel() ?? "—",
+      );
+      const op = operationId(o.id, "panel-row", 0);
       let creating = false;
       try {
-        let existing = panel.index.get(o.id);
-        if (!existing && panel.index.isUncertain(o.id)) {
-          // An earlier create may have been saved without us seeing the answer: look the row up by order id (REST filter,
-          // never SQL/rows) before creating again. If the lookup fails we do not create; the next sync tries again.
-          if (!panel.sink.findRowByOrderId) throw new Error("výsledek dřívějšího vytvoření řádku je nejasný, čekám na REST kvůli dohledání");
-          existing = await panel.sink.findRowByOrderId(o.id);
-          if (existing) panel.index.set(o.id, existing);
-          else panel.index.clearUncertain(o.id);
+        const existing =
+          panel.index.get(o.id) ?? (await this.resolvePanelRow(o.id, op));
+        if (!existing) {
+          this.effects.prepare(op); // durable BEFORE the create: a crash after it is found by the lookup above
+          creating = true;
         }
-        creating = !existing;
+        // Review kolo 2: send order of this write; a late answer of an older or concurrent write never clears dirty.
+        const seq = panel.index.beginWrite(o.id);
         const id = await panel.sink.upsert(row, existing);
+        if (creating)
+          this.effects.done(op, { url: `https://www.notion.so/${id}` });
         panel.index.set(o.id, id);
-        this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+        if (this.panelRowStale(o)) {
+          panel.index.markDirty(o.id);
+          this.log({
+            order: o.id,
+            kind: "info",
+            role: "transport",
+            result: `panel ${o.state} (stav se mezitím změnil, dorovnám v příštím ticku)`,
+            duration_ms: Date.now() - t0,
+          });
+        } else if (!panel.index.clearDirty(o.id, seq)) {
+          this.log({
+            order: o.id,
+            kind: "info",
+            role: "transport",
+            result: `panel ${o.state} (řádek byl označen k dorovnání až po odeslání tohoto zápisu, značka zůstává)`,
+            duration_ms: Date.now() - t0,
+          });
+        } else {
+          this.log({
+            order: o.id,
+            kind: "info",
+            role: "transport",
+            result: `panel ${o.state}`,
+            duration_ms: Date.now() - t0,
+          });
+        }
         await this.pingOwner(o, id);
       } catch (e) {
-        // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
-        if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
-        this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
+        if (e instanceof PanelRowHold) {
+          // Nothing to catch up: any create could duplicate the row. Logged once; the next transition logs again.
+          try {
+            panel.index.clearDirty(o.id);
+          } catch {
+            /* ignore */
+          }
+          this.logOnce({
+            order: o.id,
+            kind: "error",
+            role: "transport",
+            result: `EFFECT_UNKNOWN / HOLD: ${op}`,
+            reason: e.message.slice(0, 300),
+          });
+          return;
+        }
+        try {
+          if (creating) {
+            // Clean refusal → certainly no row; anything else may have created one: stays PREPARED, looked up first next time.
+            if (isUncertainOutcome(e))
+              this.effects.note(op, (e as Error).message ?? String(e));
+            else this.effects.absent(op, (e as Error).message ?? String(e));
+          }
+          // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
+          if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e))
+            panel.index.markUncertain(o.id);
+          // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
+          // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
+          // exist, so the operation stays PREPARED and every later sync of this order is a HOLD (`resolvePanelRow`).
+          if (
+            !creating ||
+            !isUncertainOutcome(e) ||
+            panel.sink.findRowByOrderId
+          )
+            panel.index.markDirty(o.id);
+          else panel.index.clearDirty(o.id);
+        } catch {
+          /* the index or the journal is unwritable: the next transition still rewrites the row */
+        }
+        this.log({
+          order: o.id,
+          kind: "error",
+          role: "transport",
+          result: "panel sync failed",
+          reason: (e as Error).message.slice(0, 300),
+          duration_ms: Date.now() - t0,
+        });
       }
     });
+  }
+
+  /** True when state.json holds a newer version than the one the row was written from (or the order is gone: false). */
+  private panelRowStale(written: Order): boolean {
+    try {
+      return (
+        (this.d.store.load(written.id).version ?? 0) !== (written.version ?? 0)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Review kolo 1: the page id of an order's row when the index does not know it. Never answers „no row“ unless that is
+   * certain: a receipt in the journal is reused; otherwise the row is looked up by „ID zakázky“ (the sink's chain, review kolo 2: REST query, then the MCP lookup when REST cannot answer; an error
+   * throws, so nothing is created). Without a lookup, a create of unclear outcome (PREPARED / UNKNOWN in the journal, or
+   * the old uncertain mark) throws `PanelRowHold`: never a second create without a lookup.
+   */
+  private async resolvePanelRow(
+    orderId: string,
+    op: string,
+  ): Promise<string | undefined> {
+    const panel = this.d.panel!;
+    const prev = this.effects.get(op);
+    if (prev?.state === "EFFECT_DONE" && prev.receipt) {
+      const id = pageIdFromUrl(prev.receipt.url);
+      if (id) {
+        panel.index.set(orderId, id);
+        return id;
+      }
+    }
+    if (panel.sink.findRowByOrderId) {
+      // Review kolo 3: nothing of unclear outcome was ever sent for this row (no PREPARED / UNKNOWN, no uncertain mark):
+      // only the consistent query is asked; when it cannot answer, the row is created. Otherwise a lookup that cannot
+      // prove absence (`PanelRowUnclear`: REST unavailable and the lagging MCP search found nothing) is a HOLD.
+      const newRow =
+        (!prev || prev.state === "EFFECT_ABSENT") &&
+        !panel.index.isUncertain(orderId);
+      let found: string | undefined;
+      try {
+        found = await panel.sink.findRowByOrderId(orderId, {
+          consistentOnly: newRow,
+        });
+      } catch (e) {
+        if (!(e instanceof PanelRowUnclear)) throw e;
+        if (newRow) return undefined; // nothing sent before: create it
+        if (prev?.state === "PREPARED") this.effects.unknown(op, e.message);
+        throw new PanelRowHold(
+          `řádek panelu nejasný, ruční kontrola: ${e.message} (${op})`,
+        );
+      }
+      if (found) {
+        if (prev && prev.state !== "EFFECT_DONE")
+          this.effects.done(
+            op,
+            { url: `https://www.notion.so/${found}` },
+            { recovered: true },
+          );
+        panel.index.set(orderId, found);
+        if (prev)
+          this.log({
+            order: orderId,
+            kind: "info",
+            role: "transport",
+            result: `panel: řádek nalezen podle ID zakázky, druhý se nevytváří (${op})`,
+          });
+        return found;
+      }
+      if (prev && prev.state !== "EFFECT_ABSENT")
+        this.effects.absent(op, "dohledání podle ID zakázky: řádek neexistuje");
+      if (panel.index.isUncertain(orderId)) panel.index.clearUncertain(orderId);
+      return undefined;
+    }
+    if (
+      prev?.state === "PREPARED" ||
+      prev?.state === "EFFECT_UNKNOWN" ||
+      panel.index.isUncertain(orderId)
+    ) {
+      if (prev?.state === "PREPARED")
+        this.effects.unknown(
+          op,
+          "vytvoření řádku má nejasný výsledek a nejde dohledat (sink bez dohledání)",
+        );
+      throw new PanelRowHold(
+        `dřívější vytvoření řádku má nejasný výsledek a nejde dohledat podle ID zakázky, nové vytvoření zakázáno (${op})`,
+      );
+    }
+    return undefined;
+  }
+
+  /**
+   * Etapa 3: rows whose last write failed („dirty“) are rewritten from the current state.json at the start of a tick.
+   * Idempotent by order id: the row's page id comes from the index (or the lookup by „ID zakázky“ after an uncertain
+   * create), so catching up never adds a second row. A failure leaves the mark for the next tick.
+   */
+  private catchUpPanel(): Promise<void> {
+    const panel = this.d.panel;
+    if (!panel) return Promise.resolve();
+    let dirty: string[];
+    try {
+      dirty = panel.index.dirtyOrders();
+    } catch (e) {
+      this.log({
+        order: "-",
+        kind: "error",
+        role: "transport",
+        result: "panel: seznam nedorovnaných řádků nečitelný",
+        reason: (e as Error).message.slice(0, 300),
+      });
+      return Promise.resolve();
+    }
+    for (const id of dirty) {
+      let o: Order;
+      try {
+        o = this.d.store.load(id);
+      } catch {
+        panel.index.clearDirty(id); // the order no longer exists locally: nothing to project
+        continue;
+      }
+      this.log({
+        order: id,
+        kind: "info",
+        role: "transport",
+        result: "panel: dorovnávám řádek po chybě zápisu",
+      });
+      this.syncPanel(o, { fresh: true }); // review kolo 1: the state current at the write, re-checked after it
+    }
+    return this.flushPanel();
   }
 
   /**
@@ -190,28 +499,109 @@ export class Orchestrator {
     try {
       const n = waitingOwnerTransitions(o);
       const current = this.d.store.load(o.id);
-      if (current.state !== "WAITING_OWNER" || waitingOwnerTransitions(current) !== n || current.meta.owner_ping === String(n)) return;
+      if (
+        current.state !== "WAITING_OWNER" ||
+        waitingOwnerTransitions(current) !== n ||
+        current.meta.owner_ping === String(n)
+      )
+        return;
       // V jednom ticku se na jeden přechod posílá nejvýš jednou (zápis řádku a opakování po selhání se nesčítají).
       const key = `${o.id}:${n}`;
       if (this.tickPingKeys?.has(key)) return;
       this.tickPingKeys?.add(key);
       const title = current.brief?.title ?? `Nová zakázka ${current.id}`;
-      const t0 = Date.now();
-      const r = await ping.send(pageId, title);
-      const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
-      if (r.outcome === "sent" || r.outcome === "uncertain") {
+      const markPinged = () =>
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(o.id);
-          if (fresh.state !== "WAITING_OWNER" || waitingOwnerTransitions(fresh) !== n) return;
-          this.d.store.save({ ...fresh, meta: { ...fresh.meta, owner_ping: String(n) } });
+          if (
+            fresh.state !== "WAITING_OWNER" ||
+            waitingOwnerTransitions(fresh) !== n
+          )
+            return;
+          this.d.store.save({
+            ...fresh,
+            meta: { ...fresh.meta, owner_ping: String(n) },
+          });
         }, this.d.stateLockWaitMs);
+      // Etapa 3: the comment is journaled like every external write. An attempt without a receipt (the process died
+      // while sending) is never repeated: a comment cannot be looked up by marker, so its outcome stays unknown.
+      const op = operationId(o.id, "owner-ping", n);
+      const prev = this.effects.get(op);
+      if (prev && prev.state !== "EFFECT_ABSENT") {
+        if (prev.state === "PREPARED") {
+          this.effects.unknown(
+            op,
+            "komentář odeslán bez potvrzení (pád během odesílání), neopakuje se",
+          );
+          this.log({
+            order: o.id,
+            kind: "error",
+            role: "transport",
+            result: `EFFECT_UNKNOWN: ${op}`,
+            reason:
+              "upozornění na iPhone: výsledek dřívějšího pokusu neznámý, neopakuje se",
+          });
+        }
+        markPinged();
+        return;
       }
-      if (r.outcome === "sent") this.log({ ...base, kind: "info", result: "upozornění na iPhone: komentář se zmínkou odeslán" });
-      else if (r.outcome === "uncertain") this.log({ ...base, kind: "error", result: r.detail ?? "upozornění na iPhone: výsledek nejasný" });
-      else if (r.outcome === "failed") this.logOnce({ order: o.id, kind: "error", role: "transport", result: r.detail ?? "upozornění na iPhone selhalo" }); // opakuje se každý tick, hláška se nezdvojuje
-      else this.logOnce({ order: o.id, kind: "info", role: "transport", result: r.detail ?? `upozornění na iPhone: ${r.outcome}` });
+      this.effects.prepare(op);
+      const t0 = Date.now();
+      const r = await ping.send(pageId, title);
+      const base = {
+        order: o.id,
+        role: "transport" as const,
+        duration_ms: Date.now() - t0,
+      };
+      // Review kolo 1: EFFECT_ABSENT (resent by a later tick) only for outcomes that certainly wrote nothing; any other
+      // outcome — „uncertain“ or one this code does not know — is EFFECT_UNKNOWN and the comment is never sent again.
+      const absent =
+        r.outcome === "no_token" ||
+        r.outcome === "no_permission" ||
+        r.outcome === "secret" ||
+        r.outcome === "failed";
+      if (r.outcome === "sent")
+        this.effects.done(op, { url: `https://www.notion.so/${pageId}` });
+      else if (absent) this.effects.absent(op, r.detail ?? r.outcome);
+      else this.effects.unknown(op, r.detail ?? "výsledek nejasný");
+      if (!absent) markPinged();
+      if (r.outcome === "sent")
+        this.log({
+          ...base,
+          kind: "info",
+          result: "upozornění na iPhone: komentář se zmínkou odeslán",
+        });
+      else if (!absent)
+        this.log({
+          ...base,
+          kind: "error",
+          result: `EFFECT_UNKNOWN: ${op}`,
+          reason:
+            r.detail ?? "upozornění na iPhone: výsledek nejasný, neopakuje se",
+        });
+      else if (r.outcome === "failed")
+        this.logOnce({
+          order: o.id,
+          kind: "error",
+          role: "transport",
+          result: r.detail ?? "upozornění na iPhone selhalo",
+        });
+      // opakuje se každý tick, hláška se nezdvojuje
+      else
+        this.logOnce({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result: r.detail ?? `upozornění na iPhone: ${r.outcome}`,
+        });
     } catch (e) {
-      this.log({ order: o.id, kind: "error", role: "transport", result: "upozornění na iPhone selhalo", reason: (e as Error).message.slice(0, 300) });
+      this.log({
+        order: o.id,
+        kind: "error",
+        role: "transport",
+        result: "upozornění na iPhone selhalo",
+        reason: (e as Error).message.slice(0, 300),
+      });
     }
   }
 
@@ -225,12 +615,20 @@ export class Orchestrator {
     if (!panel || !this.d.ownerPing) return Promise.resolve();
     this.panelQueue = this.panelQueue.then(async () => {
       try {
-        for (const w of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
+        for (const w of this.d.store
+          .listOrders()
+          .filter((x) => x.state === "WAITING_OWNER")) {
           const pageId = panel.index.get(w.id);
           if (pageId) await this.pingOwner(w, pageId);
         }
       } catch (e) {
-        this.log({ order: "-", kind: "error", role: "transport", result: "opakování upozornění na iPhone selhalo", reason: (e as Error).message.slice(0, 300) });
+        this.log({
+          order: "-",
+          kind: "error",
+          role: "transport",
+          result: "opakování upozornění na iPhone selhalo",
+          reason: (e as Error).message.slice(0, 300),
+        });
       }
     });
     return this.panelQueue;
@@ -238,21 +636,41 @@ export class Orchestrator {
 
   private async loadSources(keys: string[]): Promise<LoadedSource[]> {
     if (this.d.sources) return this.d.sources.loadAll(keys);
-    return keys.map((key) => ({ key, title: key, ok: false, reason: "zavaděč zdrojů není nakonfigurován" }));
+    return keys.map((key) => ({
+      key,
+      title: key,
+      ok: false,
+      reason: "zavaděč zdrojů není nakonfigurován",
+    }));
   }
 
   /** Writes the creator card's sources to runs/<id>/sources/ (+ status) for the departments. */
   private async stageSources(o: Order): Promise<void> {
-    const keys = this.d.cards.creatorFor(o.brief!.department).card?.sources ?? [];
+    const keys =
+      this.d.cards.creatorFor(o.brief!.department).card?.sources ?? [];
     const loaded = await this.loadSources(keys);
-    for (const s of loaded) if (s.ok) this.d.store.writeFile(o.id, `sources/${s.key}.md`, s.text!);
-    this.d.store.writeFile(o.id, "sources.json", JSON.stringify(loaded.map(({ key, title, ok, reason }) => ({ key, title, ok, reason })), null, 2));
+    for (const s of loaded)
+      if (s.ok) this.d.store.writeFile(o.id, `sources/${s.key}.md`, s.text!);
+    this.d.store.writeFile(
+      o.id,
+      "sources.json",
+      JSON.stringify(
+        loaded.map(({ key, title, ok, reason }) => ({
+          key,
+          title,
+          ok,
+          reason,
+        })),
+        null,
+        2,
+      ),
+    );
   }
 
   /** Waits for pending panel writes (end of tick, tests). */
   /** Rewrites the panel row of one order from its state.json (idempotent, no transition). */
   resyncPanel(id: string): Promise<void> {
-    this.syncPanel(this.d.store.load(id));
+    this.syncPanel(this.d.store.load(id), { fresh: true });
     return this.flushPanel();
   }
 
@@ -276,7 +694,12 @@ export class Orchestrator {
     };
     this.d.store.save(order);
     this.syncPanel(order);
-    this.log({ order: id, kind: "info", role: "orchestrator", result: "order created" });
+    this.log({
+      order: id,
+      kind: "info",
+      role: "orchestrator",
+      result: "order created",
+    });
     return order;
   }
 
@@ -284,25 +707,49 @@ export class Orchestrator {
    * §2a + §2b gate for a department: creator card valid, card matches the runner
    * (families, card role), checker of another family, adapter rules of the card's rung met.
    */
-  preflight(dept: Department): PreflightResult & { maxFix?: number; cardRole?: string } {
+  preflight(
+    dept: Department,
+  ): PreflightResult & { maxFix?: number; cardRole?: string } {
     const runner = this.d.departments[dept];
-    if (!runner) return { ok: false, reasons: [`oddělení ${dept} není v tomto běhu zapojeno`] };
+    if (!runner)
+      return {
+        ok: false,
+        reasons: [`oddělení ${dept} není v tomto běhu zapojeno`],
+      };
     const c = this.d.cards.creatorFor(dept);
     if (!c.ok || !c.card) return { ok: false, reasons: c.problems };
     const reasons: string[] = [];
-    if (c.card.role !== runner.cardRole) reasons.push(`karta ${c.card.role} ≠ runner ${runner.cardRole}`);
-    if (c.card.family !== runner.creatorFamily) reasons.push(`karta říká tvůrce ${c.card.family}, runner ${runner.creatorFamily}`);
-    if (c.card.checker_family !== runner.checkerFamily) reasons.push(`karta říká kontrolor ${c.card.checker_family}, runner ${runner.checkerFamily}`);
-    if (runner.creatorFamily === runner.checkerFamily) reasons.push("tvůrce ≠ kontrolor porušeno");
+    if (c.card.role !== runner.cardRole)
+      reasons.push(`karta ${c.card.role} ≠ runner ${runner.cardRole}`);
+    if (c.card.family !== runner.creatorFamily)
+      reasons.push(
+        `karta říká tvůrce ${c.card.family}, runner ${runner.creatorFamily}`,
+      );
+    if (c.card.checker_family !== runner.checkerFamily)
+      reasons.push(
+        `karta říká kontrolor ${c.card.checker_family}, runner ${runner.checkerFamily}`,
+      );
+    if (runner.creatorFamily === runner.checkerFamily)
+      reasons.push("tvůrce ≠ kontrolor porušeno");
     const ladder = adapterPreflight(c.card, this.d.ladder);
     reasons.push(...ladder.reasons);
-    return { ok: reasons.length === 0, reasons, maxFix: c.card.max_fix_rounds, cardRole: c.card.role };
+    return {
+      ok: reasons.length === 0,
+      reasons,
+      maxFix: c.card.max_fix_rounds,
+      cardRole: c.card.role,
+    };
   }
 
   availability(): DeptAvailability[] {
     return (["copy", "dev", "vizual"] as const).map((d) => {
       const p = this.preflight(d);
-      return { department: d, card: p.cardRole ?? "—", available: p.ok, reasons: p.reasons };
+      return {
+        department: d,
+        card: p.cardRole ?? "—",
+        available: p.ok,
+        reasons: p.reasons,
+      };
     });
   }
 
@@ -310,11 +757,17 @@ export class Orchestrator {
     const sc = this.d.cards.check("supervizor");
     if (!sc.ok) return { status: "no_supervisor_card", problems: sc.problems };
     const g = this.d.guard();
-    this.log({ order: "-", kind: "guard", result: g.alarm ? "ALARM" : "OK", reason: g.summary });
+    this.log({
+      order: "-",
+      kind: "guard",
+      result: g.alarm ? "ALARM" : "OK",
+      reason: g.summary,
+    });
     if (g.alarm) return { status: "guard_alarm", summary: g.summary };
     if (!this.d.store.acquireLock()) return { status: "locked" };
     this.tickPingKeys = new Set();
     try {
+      await this.catchUpPanel();
       await this.pollOwnerDecisions();
       await this.retryOwnerPings();
       const orders = this.d.store.listOrders();
@@ -327,25 +780,53 @@ export class Orchestrator {
       }
       if (order.state === "PAUSED") {
         if (order.resume_after && new Date(order.resume_after) > this.now())
-          return { status: "paused", order: order.id, resume_after: order.resume_after };
+          return {
+            status: "paused",
+            order: order.id,
+            resume_after: order.resume_after,
+          };
         order = this.apply(order, { type: "resume" }, { role: "orchestrator" });
       }
       // P16 v2: a waiting review is retried at most once per tick, on exactly the artifact that waits.
       if (order.state === "WAITING_REVIEW") order = this.retryReview(order);
       const max = this.d.maxStepsPerTick ?? 20;
-      for (let i = 0; i < max && isActionable(order.state) && order.state !== "PAUSED" && order.state !== "WAITING_REVIEW"; i++) {
+      for (
+        let i = 0;
+        i < max &&
+        isActionable(order.state) &&
+        order.state !== "PAUSED" &&
+        order.state !== "WAITING_REVIEW";
+        i++
+      ) {
         // DR-039, etapa 2: the next step (model call, delivery) starts only while the tick lease is still ours.
         if (!this.d.store.holdsLease()) {
-          this.log({ order: order.id, kind: "error", role: "orchestrator", result: "tick lock už nedrží tento běh, krok nespuštěn" });
+          this.log({
+            order: order.id,
+            kind: "error",
+            role: "orchestrator",
+            result: "tick lock už nedrží tento běh, krok nespuštěn",
+          });
           return { status: "locked" };
         }
         // Re-check guard before anything leaves the machine.
-        if (order.state === "DELIVERED" && this.d.guard().alarm) return { status: "guard_alarm", summary: "ALARM before delivery" };
+        if (order.state === "DELIVERED" && this.d.guard().alarm)
+          return { status: "guard_alarm", summary: "ALARM before delivery" };
         order = await this.step(order);
       }
-      if (order.state === "PAUSED") return { status: "paused", order: order.id, resume_after: order.resume_after! };
-      if (order.state === "WAITING_OWNER") return { status: "waiting_owner", order: order.id };
-      if (order.state === "WAITING_REVIEW") return { status: "waiting_review", order: order.id, reason: order.review_reason };
+      if (order.state === "PAUSED")
+        return {
+          status: "paused",
+          order: order.id,
+          resume_after: order.resume_after!,
+        };
+      if (order.state === "WAITING_OWNER")
+        return { status: "waiting_owner", order: order.id };
+      if (order.state === "WAITING_REVIEW")
+        return {
+          status: "waiting_review",
+          order: order.id,
+          reason: order.review_reason,
+        };
       return { status: "advanced", order: order.id, state: order.state };
     } finally {
       await this.flushPanel();
@@ -369,10 +850,18 @@ export class Orchestrator {
   private async readNotionDecisions(): Promise<void> {
     const panel = this.d.panel;
     if (!panel) return;
-    const waitingOrders = this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER");
+    const waitingOrders = this.d.store
+      .listOrders()
+      .filter((x) => x.state === "WAITING_OWNER");
     if (!panel.sink.readOwnerDecision) {
       // Only the REST API may deliver the owner's decision; the claude -p fallback never does.
-      for (const w of waitingOrders) this.logOnce({ order: w.id, kind: "info", role: "transport", result: "rozhodnutí vlastníka z Notionu čeká na token (Notion REST)" });
+      for (const w of waitingOrders)
+        this.logOnce({
+          order: w.id,
+          kind: "info",
+          role: "transport",
+          result: "rozhodnutí vlastníka z Notionu čeká na token (Notion REST)",
+        });
       return;
     }
     for (const waiting of waitingOrders) {
@@ -394,7 +883,13 @@ export class Orchestrator {
           this.acceptOwner(fresh, ev, `Notion ${value}`);
         }, this.d.stateLockWaitMs);
       } catch (e) {
-        this.log({ order: waiting.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
+        this.log({
+          order: waiting.id,
+          kind: "error",
+          role: "transport",
+          result: "owner decision read failed",
+          reason: (e as Error).message.slice(0, 300),
+        });
       }
     }
   }
@@ -405,8 +900,16 @@ export class Orchestrator {
    * `meta.approved_hash` and `meta.artifact_hash === meta.approved_hash`; then it is recorded in `meta.owner_go`
    * and the order STAYS in WAITING_OWNER until `verifyApprovals` reads the target back. A stale GO is logged, nothing else.
    */
-  private acceptOwner(o: Order, ev: Extract<OrderEvent, { type: "owner" }>, source: string): Order {
-    if (ev.decision === "REJECT") return this.apply(o, ev, { role: "orchestrator", result: `owner REJECT (${source})` });
+  private acceptOwner(
+    o: Order,
+    ev: Extract<OrderEvent, { type: "owner" }>,
+    source: string,
+  ): Order {
+    if (ev.decision === "REJECT")
+      return this.apply(o, ev, {
+        role: "orchestrator",
+        result: `owner REJECT (${source})`,
+      });
     if (o.meta.owner_go) return o; // already recorded, waits for the read-back
     const why = !o.meta.approved_hash
       ? "chybí approved_hash (karta bez otisku artefaktu)"
@@ -414,14 +917,33 @@ export class Orchestrator {
         ? "artifact_hash ≠ approved_hash (GO patří k jinému obsahu)"
         : undefined;
     if (why) {
-      this.logOnce({ order: o.id, kind: "info", role: "orchestrator", result: `GO nepřijato (${source}): ${why}` });
+      this.logOnce({
+        order: o.id,
+        kind: "info",
+        role: "orchestrator",
+        result: `GO nepřijato (${source}): ${why}`,
+      });
       return o;
     }
     const at = this.iso();
-    const next: Order = { ...o, updated_at: at, meta: { ...o.meta, owner_go: at, owner_go_source: source, ...(ev.option ? { owner_option: ev.option } : {}) } };
+    const next: Order = {
+      ...o,
+      updated_at: at,
+      meta: {
+        ...o.meta,
+        owner_go: at,
+        owner_go_source: source,
+        ...(ev.option ? { owner_option: ev.option } : {}),
+      },
+    };
     if (!this.persist(next)) return this.current(o.id);
     this.syncPanel(next);
-    this.log({ order: o.id, kind: "info", role: "orchestrator", result: `owner GO (${source}) přijato, čeká na read-back` });
+    this.log({
+      order: o.id,
+      kind: "info",
+      role: "orchestrator",
+      result: `owner GO (${source}) přijato, čeká na read-back`,
+    });
     return next;
   }
 
@@ -442,26 +964,49 @@ export class Orchestrator {
    * hash found, so the same GO can never be accepted again for that content.
    */
   async verifyApprovals(): Promise<void> {
-    for (const w of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER" && x.meta.owner_go)) {
+    for (const w of this.d.store
+      .listOrders()
+      .filter((x) => x.state === "WAITING_OWNER" && x.meta.owner_go)) {
       try {
         if (!w.delivered_url) {
-          this.logOnce({ order: w.id, kind: "info", role: "orchestrator", result: "čeká na read-back", reason: "chybí delivered_url" });
+          this.logOnce({
+            order: w.id,
+            kind: "info",
+            role: "orchestrator",
+            result: "čeká na read-back",
+            reason: "chybí delivered_url",
+          });
           continue;
         }
         let hash: string;
         try {
           hash = artifactHash(await this.readArtifact(w));
         } catch (e) {
-          this.logOnce({ order: w.id, kind: "info", role: "transport", result: "čeká na read-back", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+          this.logOnce({
+            order: w.id,
+            kind: "info",
+            role: "transport",
+            result: "čeká na read-back",
+            reason: String((e as Error)?.message ?? e).slice(0, 200),
+          });
           continue;
         }
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(w.id);
-          if (fresh.state !== "WAITING_OWNER" || fresh.meta.owner_go !== w.meta.owner_go || fresh.delivered_url !== w.delivered_url) return;
+          if (
+            fresh.state !== "WAITING_OWNER" ||
+            fresh.meta.owner_go !== w.meta.owner_go ||
+            fresh.delivered_url !== w.delivered_url
+          )
+            return;
           const matched = hash === fresh.meta.approved_hash;
           const meta: Record<string, string> = {
             ...fresh.meta,
-            readback: JSON.stringify({ url: fresh.delivered_url, hash, verified_at: this.iso() }),
+            readback: JSON.stringify({
+              url: fresh.delivered_url,
+              hash,
+              verified_at: this.iso(),
+            }),
             artifact_hash: matched ? fresh.meta.approved_hash! : hash,
           };
           if (!matched) {
@@ -470,29 +1015,216 @@ export class Orchestrator {
             const held: Order = { ...fresh, updated_at: this.iso(), meta };
             if (!this.persist(held)) return;
             this.syncPanel(held);
-            this.log({ order: w.id, kind: "error", role: "orchestrator", result: "obsah se po vydání karty změnil, GO zrušeno", reason: `hash ${hash.slice(0, 12)} ≠ ${String(fresh.meta.approved_hash).slice(0, 12)}` });
+            this.log({
+              order: w.id,
+              kind: "error",
+              role: "orchestrator",
+              result: "obsah se po vydání karty změnil, GO zrušeno",
+              reason: `hash ${hash.slice(0, 12)} ≠ ${String(fresh.meta.approved_hash).slice(0, 12)}`,
+            });
             return;
           }
           const verified: Order = { ...fresh, meta };
           const blocker = goBlocker(verified);
           if (blocker) {
             if (!this.persist(verified)) return;
-            this.logOnce({ order: w.id, kind: "info", role: "orchestrator", result: "čeká na read-back", reason: blocker });
+            this.logOnce({
+              order: w.id,
+              kind: "info",
+              role: "orchestrator",
+              result: "čeká na read-back",
+              reason: blocker,
+            });
             return;
           }
-          const option = fresh.meta.owner_option === "A" || fresh.meta.owner_option === "B" ? fresh.meta.owner_option : undefined;
-          this.apply(verified, { type: "owner", decision: "GO", option }, { role: "orchestrator", result: `owner GO (${fresh.meta.owner_go_source ?? "?"}) + read-back OK` });
+          const option =
+            fresh.meta.owner_option === "A" || fresh.meta.owner_option === "B"
+              ? fresh.meta.owner_option
+              : undefined;
+          this.apply(
+            verified,
+            { type: "owner", decision: "GO", option },
+            {
+              role: "orchestrator",
+              result: `owner GO (${fresh.meta.owner_go_source ?? "?"}) + read-back OK`,
+            },
+          );
         }, this.d.stateLockWaitMs);
       } catch (e) {
-        this.log({ order: w.id, kind: "error", role: "orchestrator", result: "read-back selhal", reason: (e as Error).message.slice(0, 300) });
+        this.log({
+          order: w.id,
+          kind: "error",
+          role: "orchestrator",
+          result: "read-back selhal",
+          reason: (e as Error).message.slice(0, 300),
+        });
       }
     }
   }
 
   /** Writes an info line unless the same one is already among the latest log entries (the log is read by the supervisor). */
   private logOnce(e: Omit<LogEntry, "ts">): void {
-    if (this.d.store.readLog(40).some((x) => x.order === e.order && x.result === e.result)) return;
+    if (
+      this.d.store
+        .readLog(40)
+        .some((x) => x.order === e.order && x.result === e.result)
+    )
+      return;
     this.log(e);
+  }
+
+  /**
+   * Etapa 3: one external write under the effect journal. Order of events: a receipt already in the journal is reused
+   * (the crash hit after the write and its receipt, before state.json); PREPARED without a receipt → `lookup` by marker
+   * first: found once → receipt recovered, certainly absent → a new attempt with the same operation_id, anything else →
+   * EFFECT_UNKNOWN (hold, no write). Then durable PREPARED, the write (`call`), the receipt (EFFECT_DONE). A failed write
+   * stays PREPARED (looked up before any retry) unless it certainly wrote nothing (EFFECT_ABSENT).
+   */
+  private async runEffect(
+    o: Order,
+    step: string,
+    lookup: (op: string) => Promise<EffectLookup>,
+    call: (op: string) => Promise<{ url: string; content_hash?: string }>,
+    opts: { content_hash?: string } = {},
+  ): Promise<EffectRun> {
+    const op = operationId(o.id, step, o.fix_rounds);
+    const prev = this.effects.get(op);
+    if (prev?.state === "EFFECT_DONE" && prev.receipt) {
+      this.log({
+        order: o.id,
+        kind: "info",
+        role: "orchestrator",
+        result: `obnova účinku ${op}: receipt z journalu, nový zápis se nespouští`,
+        reason: prev.receipt.url,
+      });
+      return {
+        kind: "done",
+        url: prev.receipt.url,
+        content_hash: prev.content_hash,
+        recovered: true,
+      };
+    }
+    if (prev?.state === "EFFECT_UNKNOWN" || prev?.state === "EFFECT_DONE")
+      return {
+        kind: "hold",
+        op,
+        reason: prev.reason ?? "výsledek dřívějšího zápisu je neznámý",
+      };
+    if (prev?.state === "PREPARED") {
+      this.log({
+        order: o.id,
+        kind: "info",
+        role: "orchestrator",
+        result: `obnova účinku ${op}: PREPARED bez receiptu, dohledávám podle značky`,
+      });
+      let l: EffectLookup;
+      try {
+        l = await lookup(op);
+      } catch (e) {
+        l = {
+          status: "uncertain",
+          reason: `dohledání selhalo: ${String((e as Error)?.message ?? e).slice(0, 200)}`,
+        };
+      }
+      if (l.status === "found") {
+        this.effects.done(op, { url: l.url }, { recovered: true });
+        this.log({
+          order: o.id,
+          kind: "info",
+          role: "orchestrator",
+          result: `obnova účinku ${op}: nalezen právě jednou, receipt doplněn`,
+          reason: l.url,
+        });
+        return {
+          kind: "done",
+          url: l.url,
+          content_hash: prev.content_hash,
+          recovered: true,
+        };
+      }
+      if (l.status === "uncertain") {
+        this.effects.unknown(op, l.reason);
+        return { kind: "hold", op, reason: l.reason };
+      }
+      this.log({
+        order: o.id,
+        kind: "info",
+        role: "orchestrator",
+        result: `obnova účinku ${op}: s jistotou neproběhl, nový pokus se stejným operation_id`,
+      });
+    }
+    // Etapa 2: a tick that lost its lease starts no external write.
+    if (this.d.store.fence !== undefined && !this.d.store.holdsLease()) {
+      this.log({
+        order: o.id,
+        kind: "error",
+        role: "orchestrator",
+        result: `zápis ${op} nespuštěn: tick lock už nedrží tento běh`,
+      });
+      return { kind: "stale" };
+    }
+    this.effects.prepare(op, { content_hash: opts.content_hash });
+    let res: { url: string; content_hash?: string };
+    try {
+      res = await call(op);
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (
+        (e instanceof DeliverFailure && e.effect_absent) ||
+        (!(e instanceof DeliverFailure) && effectSurelyAbsent(e))
+      )
+        this.effects.absent(op, msg);
+      else this.effects.note(op, msg);
+      return { kind: "failed", error: e };
+    }
+    const content_hash = res.content_hash ?? opts.content_hash;
+    this.effects.done(op, { url: res.url }, { content_hash });
+    return { kind: "done", url: res.url, content_hash, recovered: false };
+  }
+
+  /** Etapa 3: the outcome of an external write cannot be established → UNKNOWN with the reason (log + panel), no write. */
+  private hold(o: Order, op: string, reason: string): Order {
+    this.log({
+      order: o.id,
+      kind: "error",
+      role: "orchestrator",
+      result: `EFFECT_UNKNOWN / HOLD: ${op}`,
+      reason,
+    });
+    return this.apply(
+      o,
+      { type: "unknown", reason: `EFFECT_UNKNOWN (${op}): ${reason}` },
+      { role: "orchestrator", result: "EFFECT_UNKNOWN / HOLD" },
+    );
+  }
+
+  /** §2b UNKNOWN card, best effort and journaled: written at most once per order and round, never retried. */
+  private unknownCard(order: Order, error: string | undefined): void {
+    const op = operationId(order.id, "unknown-card", order.fix_rounds);
+    try {
+      if (this.effects.get(op)) return;
+      this.effects.prepare(op);
+    } catch {
+      return; // without a durable PREPARED there is no write
+    }
+    const title = titleWithMarker(
+      `KARTA UNKNOWN — ${order.brief?.title ?? order.id} (${order.id})`,
+      op,
+    );
+    void this.d.notion
+      .createPage(
+        this.d.draftParentId,
+        title,
+        `## Co\nAdaptér prohlížeče selhal po 2 pokusech.\n\n## Důkaz\n- ${error}\n- screenshoty: runs/${order.id}/shots-*\n\n## Rozhodnutí\nZkontroluj UI a zakázku zopakuj nebo zahoď.`,
+      )
+      .then(
+        (p) => this.effects.done(op, { url: p.url }),
+        (e) =>
+          effectSurelyAbsent(e)
+            ? this.effects.absent(op, String((e as Error)?.message ?? e))
+            : this.effects.note(op, String((e as Error)?.message ?? e)),
+      )
+      .catch(() => undefined);
   }
 
   /**
@@ -524,52 +1256,104 @@ export class Orchestrator {
   }
 
   /** Common handling of a model step outcome: review unavailable → WAITING_REVIEW, limit → PAUSED, error → FAILED. */
-  private bad(order: Order, r: StepOutcome, role: LogEntry["role"]): Order | undefined {
+  private bad(
+    order: Order,
+    r: StepOutcome,
+    role: LogEntry["role"],
+  ): Order | undefined {
     if (r.ok) return undefined;
     if (r.waiting_review && role === "checker" && order.state === "CHECKING") return this.waitForReview(order, r.error ?? "kontrola neproběhla", role, r.model);
     if (r.ui_unknown) {
       // §2b: UI failure after 2 attempts → UNKNOWN + owner card, never blind retry.
-      void this.d.notion
-        .createPage(this.d.draftParentId, `KARTA UNKNOWN — ${order.brief?.title ?? order.id} (${order.id})`, `## Co\nAdaptér prohlížeče selhal po 2 pokusech.\n\n## Důkaz\n- ${r.error}\n- screenshoty: runs/${order.id}/shots-*\n\n## Rozhodnutí\nZkontroluj UI a zakázku zopakuj nebo zahoď.`)
-        .catch(() => undefined);
-      return this.apply(order, { type: "unknown", reason: `${role}: ${r.error}` }, { role, model: r.model });
+      this.unknownCard(order, r.error);
+      return this.apply(
+        order,
+        { type: "unknown", reason: `${role}: ${r.error}` },
+        { role, model: r.model },
+      );
     }
     if (r.limit) {
-      const resume = new Date(this.now().getTime() + (this.d.pauseMinutes ?? 60) * 60_000).toISOString();
-      return this.apply(order, { type: "limit", resume_after: resume }, { role, model: r.model, reason: r.error });
+      const resume = new Date(
+        this.now().getTime() + (this.d.pauseMinutes ?? 60) * 60_000,
+      ).toISOString();
+      return this.apply(
+        order,
+        { type: "limit", resume_after: resume },
+        { role, model: r.model, reason: r.error },
+      );
     }
-    this.log({ order: order.id, kind: "error", role, model: r.model, reason: r.error, duration_ms: r.duration_ms });
-    return this.apply(order, { type: "fail", reason: `${role}: ${r.error ?? "unknown error"}` }, { role, model: r.model });
+    this.log({
+      order: order.id,
+      kind: "error",
+      role,
+      model: r.model,
+      reason: r.error,
+      duration_ms: r.duration_ms,
+    });
+    return this.apply(
+      order,
+      { type: "fail", reason: `${role}: ${r.error ?? "unknown error"}` },
+      { role, model: r.model },
+    );
   }
 
   async step(order: Order): Promise<Order> {
-    const dept = order.brief ? this.d.departments[order.brief.department] : undefined;
+    const dept = order.brief
+      ? this.d.departments[order.brief.department]
+      : undefined;
     switch (order.state) {
       case "NEW": {
-        const capsule = fs.existsSync(this.d.capsulePath) ? fs.readFileSync(this.d.capsulePath, "utf8") : "(kufřík chybí)";
+        const capsule = fs.existsSync(this.d.capsulePath)
+          ? fs.readFileSync(this.d.capsulePath, "utf8")
+          : "(kufřík chybí)";
         const open = this.d.store
           .listOrders()
           .filter((o) => o.id !== order.id && o.brief)
           .map((o) => `${o.id} [${o.state}] ${o.brief!.title}`);
         const avail = this.availability();
-        this.d.store.writeFile(order.id, "availability.json", JSON.stringify(avail, null, 2));
+        this.d.store.writeFile(
+          order.id,
+          "availability.json",
+          JSON.stringify(avail, null, 2),
+        );
         let handoff = "";
         if (this.d.notion.fetchPage) {
           try {
             handoff = await this.d.notion.fetchPage(HANDOFF_PAGE_ID);
             this.d.store.writeFile(order.id, "handoff-snapshot.md", handoff);
           } catch (e) {
-            return this.bad(order, { ok: false, error: `HANDOFF fetch: ${(e as Error).message}`, limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
+            return this.bad(
+              order,
+              {
+                ok: false,
+                error: `HANDOFF fetch: ${(e as Error).message}`,
+                limit: Boolean((e as { limit?: boolean }).limit),
+              },
+              "transport",
+            )!;
           }
         }
         const card = this.d.cards.text("supervizor");
         // §2a bod 2: supervisor reads its own sources + required sources of every available department.
         const requiredByDept: Record<string, string[]> = {};
-        for (const a of avail.filter((x) => x.available)) requiredByDept[a.department] = this.d.cards.creatorFor(a.department as Department).card?.sources ?? [];
+        for (const a of avail.filter((x) => x.available))
+          requiredByDept[a.department] =
+            this.d.cards.creatorFor(a.department as Department).card?.sources ??
+            [];
         const supKeys = this.d.cards.check("supervizor").card?.sources ?? [];
-        const allKeys = [...new Set([...supKeys, ...Object.values(requiredByDept).flat()])].filter((k) => k !== "handoff" && k !== "capsule");
+        const allKeys = [
+          ...new Set([...supKeys, ...Object.values(requiredByDept).flat()]),
+        ].filter((k) => k !== "handoff" && k !== "capsule");
         const loaded: LoadedSource[] = await this.loadSources(allKeys);
-        this.d.store.writeFile(order.id, "sources-status.json", JSON.stringify(loaded.map(({ key, ok, reason }) => ({ key, ok, reason })), null, 2));
+        this.d.store.writeFile(
+          order.id,
+          "sources-status.json",
+          JSON.stringify(
+            loaded.map(({ key, ok, reason }) => ({ key, ok, reason })),
+            null,
+            2,
+          ),
+        );
         const supSources = sourcesBlock(loaded);
         let lastErr = "";
         let issues: string[] = [];
@@ -600,15 +1384,30 @@ export class Orchestrator {
             }
           }
           // Deterministic: every required source of the creator card must be referenced (else FIX).
-          const required = requiredByDept[brief.department] ?? this.d.cards.creatorFor(brief.department).card?.sources ?? [];
+          const required =
+            requiredByDept[brief.department] ??
+            this.d.cards.creatorFor(brief.department).card?.sources ??
+            [];
           const missing = missingSources(required, brief.sources);
           if (missing.length) {
-            issues = missing.map((k) => `zadání neuvádí povinný zdroj karty: ${k}`);
+            issues = missing.map(
+              (k) => `zadání neuvádí povinný zdroj karty: ${k}`,
+            );
             lastErr = `brief check FIX (deterministic): ${issues.join("; ")}`;
-            this.log({ order: order.id, kind: "call", role: "checker", model: "deterministic", family: "none", result: "FIX", reason: issues.join(" | ") });
+            this.log({
+              order: order.id,
+              kind: "call",
+              role: "checker",
+              model: "deterministic",
+              family: "none",
+              result: "FIX",
+              reason: issues.join(" | "),
+            });
             continue;
           }
-          const deptSources = sourcesBlock(loaded.filter((l) => required.includes(l.key)));
+          const deptSources = sourcesBlock(
+            loaded.filter((l) => required.includes(l.key)),
+          );
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
           const { r: c, v, findings: cFindings } = await callChecker(this.d.briefChecker, buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources, Boolean(this.d.briefChecker.supportsOutputSchema)), this.d.store.orderDir(order.id));
           this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
@@ -626,7 +1425,10 @@ export class Orchestrator {
             return this.apply({ ...order, meta, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: supMs, result: `${brief.department}: ${brief.title}` });
           }
           // DR-031 b. 2: poslední pokus s FIX jen medium/low/info = známá rizika, zadání se přijme s výhradami.
-          const notes = attempt === 1 && this.d.briefChecker.supportsOutputSchema ? acceptableCheckNotes(v?.verdict, cFindings) : undefined;
+          const notes =
+            attempt === 1 && this.d.briefChecker.supportsOutputSchema
+              ? acceptableCheckNotes(v?.verdict, cFindings)
+              : undefined;
           if (notes) {
             const accepted = { ...brief, check_notes: notes };
             this.d.store.writeFile(order.id, "brief.md", briefMarkdown(accepted));
@@ -636,57 +1438,196 @@ export class Orchestrator {
           lastErr = `brief check ${v?.verdict ?? "unparseable"}: ${issues.join("; ")}`;
           if (pending) order = { ...order, meta };
         }
-        return this.apply(order, { type: "unknown", reason: `supervisor brief invalid: ${lastErr}` }, { role: "supervisor" });
+        return this.apply(
+          order,
+          { type: "unknown", reason: `supervisor brief invalid: ${lastErr}` },
+          { role: "supervisor" },
+        );
       }
       case "PLANNED": {
         // Never start a specialist without a card or with unmet §2b adapter rules.
         const p = this.preflight(order.brief!.department);
         const o = { ...order, max_fix_rounds: p.maxFix, card_role: p.cardRole };
         if (p.ok) await this.stageSources(o);
-        return this.apply(o, { type: "start", preflight: { ok: p.ok, reasons: p.reasons } }, { role: "orchestrator", result: p.ok ? dept?.name : "preflight FAIL", reason: p.reasons.join("; ") || undefined });
+        return this.apply(
+          o,
+          { type: "start", preflight: { ok: p.ok, reasons: p.reasons } },
+          {
+            role: "orchestrator",
+            result: p.ok ? dept?.name : "preflight FAIL",
+            reason: p.reasons.join("; ") || undefined,
+          },
+        );
       }
       case "DOING": {
         const r = await dept!.create(order, this.ctx);
-        this.log({ order: order.id, kind: "call", role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
+        this.log({
+          order: order.id,
+          kind: "call",
+          role: "creator",
+          model: r.model,
+          family: dept!.creatorFamily,
+          duration_ms: r.duration_ms,
+          result: r.ok ? "ok" : "error",
+          reason: r.error,
+        });
         const b = this.bad(order, r, "creator");
         if (b) return b;
-        return this.apply({ ...order, draft_file: r.draft_file, meta: { ...order.meta, ...(r.meta ?? {}) } }, { type: "created" }, { role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms });
+        return this.apply(
+          {
+            ...order,
+            draft_file: r.draft_file,
+            meta: { ...order.meta, ...(r.meta ?? {}) },
+          },
+          { type: "created" },
+          {
+            role: "creator",
+            model: r.model,
+            family: dept!.creatorFamily,
+            duration_ms: r.duration_ms,
+          },
+        );
       }
       case "CHECKING": {
         const r = await dept!.check(order, this.ctx);
-        this.log({ order: order.id, kind: "call", role: "checker", model: r.model, family: r.deterministic ? "none" : dept!.checkerFamily, duration_ms: r.duration_ms, result: r.verdict ?? (r.ok ? "ok" : "error"), reason: r.error ?? r.issues?.join(" | ").slice(0, 500) });
+        this.log({
+          order: order.id,
+          kind: "call",
+          role: "checker",
+          model: r.model,
+          family: r.deterministic ? "none" : dept!.checkerFamily,
+          duration_ms: r.duration_ms,
+          result: r.verdict ?? (r.ok ? "ok" : "error"),
+          reason: r.error ?? r.issues?.join(" | ").slice(0, 500),
+        });
         const b = this.bad(order, r, "checker");
         if (b) return b;
-        return this.apply(order, { type: "verdict", verdict: r.verdict!, issues: r.issues }, { role: "checker", model: r.model, family: r.deterministic ? "none" : dept!.checkerFamily, duration_ms: r.duration_ms, result: r.verdict });
+        return this.apply(
+          order,
+          { type: "verdict", verdict: r.verdict!, issues: r.issues },
+          {
+            role: "checker",
+            model: r.model,
+            family: r.deterministic ? "none" : dept!.checkerFamily,
+            duration_ms: r.duration_ms,
+            result: r.verdict,
+          },
+        );
       }
       case "FIXING": {
         const r = await dept!.revise(order, this.ctx);
-        this.log({ order: order.id, kind: "call", role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
+        this.log({
+          order: order.id,
+          kind: "call",
+          role: "creator",
+          model: r.model,
+          family: dept!.creatorFamily,
+          duration_ms: r.duration_ms,
+          result: r.ok ? "ok" : "error",
+          reason: r.error,
+        });
         const b = this.bad(order, r, "creator");
         if (b) return b;
-        return this.apply({ ...order, draft_file: r.draft_file ?? order.draft_file, meta: { ...order.meta, ...((r as { meta?: Record<string, string> }).meta ?? {}) } }, { type: "revised" }, { role: "creator", model: r.model, family: dept!.creatorFamily, duration_ms: r.duration_ms });
+        return this.apply(
+          {
+            ...order,
+            draft_file: r.draft_file ?? order.draft_file,
+            meta: {
+              ...order.meta,
+              ...((r as { meta?: Record<string, string> }).meta ?? {}),
+            },
+          },
+          { type: "revised" },
+          {
+            role: "creator",
+            model: r.model,
+            family: dept!.creatorFamily,
+            duration_ms: r.duration_ms,
+          },
+        );
       }
       case "DELIVERED": {
         let o = order;
         if (!o.delivered_url) {
-          let r;
-          try {
-            r = await dept!.deliver(o, this.ctx);
-          } catch (e) {
-            r = { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit), model: "deliver" };
+          // Etapa 3: the delivery is journaled (PREPARED → write → receipt); after a crash it is looked up by its marker.
+          const del = o;
+          const run = await this.runEffect(
+            del,
+            "deliver",
+            (op) =>
+              dept!.findEffect
+                ? dept!.findEffect(del, this.ctx, op)
+                : Promise.resolve({
+                    status: "uncertain" as const,
+                    reason: `oddělení ${dept!.name} neumí dohledat doručení podle značky`,
+                  }),
+            async (op) => {
+              let r: Awaited<ReturnType<DepartmentRunner["deliver"]>>;
+              let absent = false;
+              try {
+                r = await dept!.deliver(del, this.ctx, effectTag(op));
+              } catch (e) {
+                absent = effectSurelyAbsent(e);
+                r = {
+                  ok: false,
+                  error: (e as Error).message,
+                  limit: Boolean((e as { limit?: boolean }).limit),
+                  model: "deliver",
+                };
+              }
+              this.log({
+                order: del.id,
+                kind: "call",
+                role: "transport",
+                model: r.model,
+                duration_ms: r.duration_ms,
+                result: r.ok ? r.url : "error",
+                reason: r.error,
+              });
+              if (r.ok && !r.url)
+                r = { ...r, ok: false, error: "doručení bez URL" };
+              if (!r.ok)
+                throw new DeliverFailure(r, absent || Boolean(r.effect_absent));
+              // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
+              return {
+                url: r.url!,
+                content_hash:
+                  r.content !== undefined ? artifactHash(r.content) : undefined,
+              };
+            },
+          );
+          if (run.kind === "stale") return this.current(o.id);
+          if (run.kind === "hold") return this.hold(o, run.op, run.reason);
+          if (run.kind === "failed") {
+            const e = run.error;
+            const r: StepOutcome =
+              e instanceof DeliverFailure
+                ? e.outcome
+                : {
+                    ok: false,
+                    error: String((e as Error)?.message ?? e),
+                    limit: Boolean((e as { limit?: boolean }).limit),
+                    model: "deliver",
+                  };
+            return this.bad(o, r, "transport")!;
           }
-          this.log({ order: o.id, kind: "call", role: "transport", model: r.model, duration_ms: r.duration_ms, result: r.ok ? r.url : "error", reason: r.error });
-          const b = this.bad(o, r, "transport");
-          if (b) return b;
-          // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
-          const sent = r.content !== undefined ? artifactHash(r.content) : undefined;
-          o = { ...o, delivered_url: r.url, meta: sent ? { ...o.meta, delivered_hash: sent } : o.meta };
+          o = {
+            ...o,
+            delivered_url: run.url,
+            meta: run.content_hash
+              ? { ...o.meta, delivered_hash: run.content_hash }
+              : o.meta,
+          };
           if (!this.persist(o)) return this.current(o.id);
         }
         const reasons = [
-          ...(dept!.alwaysOwner ? ["výstup je PR do main — merge dělá vlastník (DR-022)"] : []),
+          ...(dept!.alwaysOwner
+            ? ["výstup je PR do main — merge dělá vlastník (DR-022)"]
+            : []),
           ...o.brief!.owner_decisions,
-          ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map((k) => `zadání se dotýká: ${k}`),
+          ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map(
+            (k) => `zadání se dotýká: ${k}`,
+          ),
         ];
         const ownerNeeded = reasons.length > 0;
         if (ownerNeeded && !o.owner_card_url) {
@@ -698,32 +1639,107 @@ export class Orchestrator {
           try {
             seen = artifactHash(await this.readArtifact(o));
           } catch (e) {
-            this.logOnce({ order: o.id, kind: "info", role: "transport", result: "karta nevydána: read-back DRAFTu selhal", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+            this.logOnce({
+              order: o.id,
+              kind: "info",
+              role: "transport",
+              result: "karta nevydána: read-back DRAFTu selhal",
+              reason: String((e as Error)?.message ?? e).slice(0, 200),
+            });
             return this.current(o.id); // etapa 2: the stored state (it may have moved on during the read)
           }
-          o = { ...o, meta: { ...o.meta, approved_hash: seen, artifact_hash: seen } };
-          try {
-            const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
-            const text = ownerCard(o, reasons, dept!);
-            const dataSection = await this.cardDataSection(o);
-            let card;
-            try {
-              card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text + dataSection);
-            } catch (e) {
-              // Čisté odmítnutí (REST 4xx, nic se nezapsalo) kvůli sekci s daty karty: stránka vznikne bez ní.
-              if (!dataSection || !(e instanceof NotionRestError) || e.status < 400 || e.status >= 500 || e.status === 408 || e.status === 429) throw e;
-              this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
-              card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
-            }
-            // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
-            // Etapa 2: a refused save (newer state on disk) stops here, nothing follows from an outdated order.
-            o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
-            if (!this.persist(o)) return this.current(o.id);
-          } catch (e) {
-            return this.bad(o, { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
+          o = {
+            ...o,
+            meta: { ...o.meta, approved_hash: seen, artifact_hash: seen },
+          };
+          const cardOrder = o;
+          const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
+          // Etapa 3: the card is journaled like the delivery; the marker sits in the page title (the body, which the
+          // read-back hash covers, and the panel row stay unchanged). The PREPARED record keeps the hash the card shows.
+          const run = await this.runEffect(
+            cardOrder,
+            "owner-card",
+            (op) => lookupNotionMarker(this.d.notion, this.d.draftParentId, op),
+            async (op) => {
+              const title = titleWithMarker(cardTitle, op);
+              const text = ownerCard(cardOrder, reasons, dept!);
+              const dataSection = await this.cardDataSection(cardOrder);
+              let card;
+              try {
+                card = await this.d.notion.createPage(
+                  this.d.draftParentId,
+                  title,
+                  text + dataSection,
+                );
+              } catch (e) {
+                // Čisté odmítnutí (REST 4xx, nic se nezapsalo) kvůli sekci s daty karty: stránka vznikne bez ní.
+                if (
+                  !dataSection ||
+                  !(e instanceof NotionRestError) ||
+                  e.status < 400 ||
+                  e.status >= 500 ||
+                  e.status === 408 ||
+                  e.status === 429
+                )
+                  throw e;
+                this.safeLog({
+                  order: cardOrder.id,
+                  kind: "info",
+                  role: "orchestrator",
+                  result: "card-data: Notion zápis odmítnut, karta bez dat",
+                  reason: `notion REST ${e.status} ${e.code}`,
+                });
+                card = await this.d.notion.createPage(
+                  this.d.draftParentId,
+                  title,
+                  text,
+                );
+              }
+              return { url: card.url };
+            },
+            { content_hash: seen },
+          );
+          if (run.kind === "stale") return this.current(o.id);
+          if (run.kind === "hold") return this.hold(o, run.op, run.reason);
+          if (run.kind === "failed") {
+            const e = run.error;
+            return this.bad(
+              o,
+              {
+                ok: false,
+                error: String((e as Error)?.message ?? e),
+                limit: Boolean((e as { limit?: boolean }).limit),
+              },
+              "transport",
+            )!;
           }
+          // A recovered card shows the hash recorded when it was prepared; GO is bound to that one. If the DRAFT changed
+          // since, artifact_hash ≠ approved_hash and the GO on that card is refused (acceptOwner), never silently accepted.
+          const approved = run.recovered ? (run.content_hash ?? seen) : seen;
+          if (approved !== seen)
+            this.log({
+              order: o.id,
+              kind: "error",
+              role: "orchestrator",
+              result:
+                "obnovená karta ukazuje jiný otisk než aktuální DRAFT, GO nebude přijato",
+              reason: `${approved.slice(0, 12)} ≠ ${seen.slice(0, 12)}`,
+            });
+          // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
+          // Etapa 2: a refused save (newer state on disk) stops here, nothing follows from an outdated order.
+          o = {
+            ...o,
+            owner_card_url: run.url,
+            owner_reasons: reasons,
+            meta: { ...o.meta, approved_hash: approved, artifact_hash: seen },
+          };
+          if (!this.persist(o)) return this.current(o.id);
         }
-        return this.apply(o, { type: "delivered", owner_needed: ownerNeeded }, { role: "orchestrator", result: o.delivered_url });
+        return this.apply(
+          o,
+          { type: "delivered", owner_needed: ownerNeeded },
+          { role: "orchestrator", result: o.delivered_url },
+        );
       }
       default:
         return order;
@@ -742,11 +1758,24 @@ export class Orchestrator {
       const data = await buildCardData(o, draft, o.delivered_url, {
         adapter: this.d.cardAdapter,
         cwd: this.d.store.orderDir(o.id),
-        onFallback: (reason) => this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: záložní objekt", reason }),
+        onFallback: (reason) =>
+          this.safeLog({
+            order: o.id,
+            kind: "info",
+            role: "orchestrator",
+            result: "card-data: záložní objekt",
+            reason,
+          }),
       });
       return cardDataSection(data);
     } catch (e) {
-      this.safeLog({ order: o.id, kind: "error", role: "orchestrator", result: "card-data: sekce vynechána", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+      this.safeLog({
+        order: o.id,
+        kind: "error",
+        role: "orchestrator",
+        result: "card-data: sekce vynechána",
+        reason: String((e as Error)?.message ?? e).slice(0, 200),
+      });
       return "";
     }
   }
@@ -764,8 +1793,15 @@ export class Orchestrator {
   abort(id: string, reason: string): Order {
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
-      const counted = { ...o, manual_interventions: o.manual_interventions + 1 };
-      return this.apply(counted, { type: "fail", reason: `manual abort: ${reason}` }, { role: "orchestrator", result: "manual abort" });
+      const counted = {
+        ...o,
+        manual_interventions: o.manual_interventions + 1,
+      };
+      return this.apply(
+        counted,
+        { type: "fail", reason: `manual abort: ${reason}` },
+        { role: "orchestrator", result: "manual abort" },
+      );
     }, this.d.stateLockWaitMs);
   }
 
@@ -777,8 +1813,13 @@ export class Orchestrator {
   owner(id: string, decision: "GO" | "REJECT", option?: "A" | "B"): Order {
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
-      if (o.state !== "WAITING_OWNER") throw new TransitionError(`illegal transition: ${o.state} --owner-->`);
-      return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`);
+      if (o.state !== "WAITING_OWNER")
+        throw new TransitionError(`illegal transition: ${o.state} --owner-->`);
+      return this.acceptOwner(
+        o,
+        { type: "owner", decision, option },
+        `owner ${decision}${option ? ` ${option}` : ""}`,
+      );
     }, this.d.stateLockWaitMs);
   }
 }
@@ -791,27 +1832,47 @@ const KNOWN_DEPARTMENTS: readonly Department[] = ["copy", "dev", "vizual"];
  * Returns the Czech reason to refuse, or undefined when the scope is valid.
  */
 export function tickScopeError(raw: string | undefined): string | undefined {
-  const list = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!list.length) return "tick odmítnut: chybí TARS_DEPARTMENTS. Rozsah běhu musí být výslovný, např. TARS_DEPARTMENTS=copy (launchd plist ho nastavuje); všechna oddělení = TARS_DEPARTMENTS=copy,dev,vizual.";
-  const unknown = list.filter((d) => !KNOWN_DEPARTMENTS.includes(d as Department));
-  if (unknown.length) return `tick odmítnut: neznámé oddělení v TARS_DEPARTMENTS: ${unknown.join(", ")} (povolené: ${KNOWN_DEPARTMENTS.join(", ")}).`;
+  const list = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!list.length)
+    return "tick odmítnut: chybí TARS_DEPARTMENTS. Rozsah běhu musí být výslovný, např. TARS_DEPARTMENTS=copy (launchd plist ho nastavuje); všechna oddělení = TARS_DEPARTMENTS=copy,dev,vizual.";
+  const unknown = list.filter(
+    (d) => !KNOWN_DEPARTMENTS.includes(d as Department),
+  );
+  if (unknown.length)
+    return `tick odmítnut: neznámé oddělení v TARS_DEPARTMENTS: ${unknown.join(", ")} (povolené: ${KNOWN_DEPARTMENTS.join(", ")}).`;
   return undefined;
 }
 
 /** Keeps only the listed departments (empty list = all). Unwired ones show as unavailable to the supervisor. */
-export function onlyEnabled<T>(enabled: string[], all: Partial<Record<Department, T>>): Partial<Record<Department, T>> {
+export function onlyEnabled<T>(
+  enabled: string[],
+  all: Partial<Record<Department, T>>,
+): Partial<Record<Department, T>> {
   if (!enabled.length) return all;
-  return Object.fromEntries(Object.entries(all).filter(([k]) => enabled.includes(k))) as Partial<Record<Department, T>>;
+  return Object.fromEntries(
+    Object.entries(all).filter(([k]) => enabled.includes(k)),
+  ) as Partial<Record<Department, T>>;
 }
 
-export function ownerCard(o: Order, reasons: string[], dept: DepartmentRunner): string {
+export function ownerCard(
+  o: Order,
+  reasons: string[],
+  dept: DepartmentRunner,
+): string {
   return [
     `## Co`,
     `${o.brief!.title} — milník ${o.brief!.milestone}, oddělení ${dept.name}.`,
     "",
     `## Důkaz`,
     `- Výstup (DRAFT): ${o.delivered_url}`,
-    ...(o.meta.approved_hash ? [`- Otisk výstupu (sha256): \`${o.meta.approved_hash.slice(0, 16)}\` — GO platí jen pro tento obsah.`] : []),
+    ...(o.meta.approved_hash
+      ? [
+          `- Otisk výstupu (sha256): \`${o.meta.approved_hash.slice(0, 16)}\` — GO platí jen pro tento obsah.`,
+        ]
+      : []),
     `- Tvůrce: ${dept.creatorModel()} · Kontrolor: ${dept.checkerModel()} · kol oprav: ${o.fix_rounds}`,
     `- Stav běhu: runs/${o.id}/state.json, záznam runs/log.jsonl (lokálně u orchestrátoru)`,
     "",

@@ -40,6 +40,7 @@ import {
 import { OwnerPing, ownerUserIdFromEnv } from "./owner-ping";
 import {
   HybridPanelSink,
+  McpPanelLookup,
   McpPanelSink,
   PanelIndex,
   RestPanelSink,
@@ -175,8 +176,11 @@ function build(): Orchestrator {
   const notion = stack.notion;
   const mcpSink = new McpPanelSink(runsDir);
   const panelSink = stack.rest
-    ? new HybridPanelSink(new RestPanelSink(stack.rest), mcpSink, (m) =>
-        logNotionMode(store, m),
+    ? new HybridPanelSink(
+        new RestPanelSink(stack.rest),
+        mcpSink,
+        (m) => logNotionMode(store, m),
+        new McpPanelLookup(runsDir),
       )
     : mcpSink;
   return new Orchestrator({
@@ -224,7 +228,7 @@ function build(): Orchestrator {
     panel:
       process.env.TARS_PANEL === "0"
         ? undefined
-        : { sink: panelSink, index: new PanelIndex(runsDir) },
+        : { sink: panelSink, index: new PanelIndex(runsDir, store) }, // review kolo 3: index under the state lock
     ownerPing: new OwnerPing(stack.rest, { userId: ownerUserIdFromEnv() }), // bez tokenu (stack.rest) jen zaloguje
   });
 }

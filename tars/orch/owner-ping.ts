@@ -2,7 +2,7 @@
 // v „TARS — Zakázky“ komentář se zmínkou vlastníka. Notion pošle push u @zmínky, kterou napsal někdo jiný než vlastník.
 // Jediné volání je `POST /v1/comments` (žádné SQL ani rows dotazy). Token se bere z klienta NotionRestApi (Klíčenka),
 // bez něj se nic neposílá. Text komentáře projde secret-scanem. Integrace musí mít zapnuté „Insert comments“.
-import { assertNoSecret, NotionRestError, SecretLeakError, type NotionRestApi } from "./notion";
+import { assertNoSecret, isUncertainOutcome, NotionRestError, SecretLeakError, type NotionRestApi } from "./notion";
 import type { Order } from "./types";
 
 /** Notion user ID vlastníka (Jan Bindr). Přepíše se proměnnou prostředí TARS_OWNER_NOTION_USER_ID. */
@@ -85,15 +85,17 @@ export class OwnerPing {
       await this.api.request("POST", "/v1/comments", buildCommentBody(pageId, this.userId, title));
       return { outcome: "sent" };
     } catch (e) {
-      if (!(e instanceof NotionRestError)) return { outcome: "failed", detail: "Upozornění na iPhone: neočekávaná chyba" };
+      // Review kolo 1: everything except a clean refusal (REST 4xx other than 408) may have saved the comment — a network
+      // error, 5xx, an HTTP 200 whose body cannot be decoded, any non-REST error. That is „uncertain“ (never resent),
+      // never „failed“ (which the journal records as EFFECT_ABSENT and the next tick resends: a duplicate push).
+      if (e instanceof NotionRestError && e.committedId) return { outcome: "sent" };
+      if (isUncertainOutcome(e)) return { outcome: "uncertain", detail: `Upozornění na iPhone: výsledek nejasný (${e instanceof NotionRestError ? e.message : "neočekávaná chyba"}), neopakuje se` };
+      if (!(e instanceof NotionRestError)) return { outcome: "uncertain", detail: "Upozornění na iPhone: výsledek nejasný, neopakuje se" };
       if (e.status === 403) return { outcome: "no_permission", detail: NO_COMMENT_PERMISSION_MESSAGE };
       // 404: buď Notion nenašel zmíněného uživatele (integraci chybí „Read user information“), nebo integrace nevidí stránku zakázky.
       // Do hlášky jde jen tento rozbor, nikdy tělo odpovědi.
       if (e.status === 404) return { outcome: "failed", detail: e.hint === "read_user_information" ? NO_USER_READ_PERMISSION_MESSAGE : PAGE_NOT_VISIBLE_MESSAGE };
-      // 503 s `committed_resource_id`: Notion komentář uložil, druhý se nesmí poslat.
-      if (e.committedId) return { outcome: "sent" };
-      // Síť a 5xx: komentář mohl vzniknout, naslepo se neopakuje (duplicitní push je horší než chybějící).
-      if (e.status === 0 || e.status >= 500) return { outcome: "uncertain", detail: `Upozornění na iPhone: výsledek nejasný (${e.message}), neopakuje se` };
+      // Zbývá čisté odmítnutí 4xx (mimo 408): nic se neuložilo, další tick smí poslat znovu.
       return { outcome: "failed", detail: `Upozornění na iPhone: Notion odmítl komentář (${e.message})` };
     }
   }
