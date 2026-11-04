@@ -131,6 +131,28 @@ describe("tars-browser.sh mcp: identity gate (fail-closed)", () => {
       expect(r.stdout).not.toContain(forbidden);
   });
 
+  it("Codex review kolo 2, nález 5: TARS_MCP_OUTPUT_DIR → --output-dir jen pro existující absolutní složku shots-* (jinak FAIL)", () => {
+    const e = setup();
+    const shots = path.join(e.root, "runs", "o", "shots-gptweb-1");
+    fs.mkdirSync(shots, { recursive: true });
+    const r = dry(e, GOOD, { TARS_MCP_OUTPUT_DIR: shots });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe(
+      `EXEC npx -y @playwright/mcp@0.0.84 --cdp-endpoint http://127.0.0.1:9333 --no-webmcp --output-dir ${shots}\n`,
+    );
+    const other = path.join(e.root, "runs", "o", "jinde");
+    fs.mkdirSync(other, { recursive: true });
+    for (const bad of [
+      other,
+      "shots-relativni",
+      path.join(e.root, "runs", "o", "shots-chybi"),
+    ]) {
+      const b = dry(e, GOOD, { TARS_MCP_OUTPUT_DIR: bad });
+      expect(b.status, bad).toBe(1);
+      expect(b.stderr, bad).toMatch(/TARS-BROWSER FAIL výstupní složka MCP/);
+    }
+  });
+
   const bad: Array<[string, string]> = [
     [
       "owner's regular Chrome profile on the port",
@@ -1461,8 +1483,17 @@ describe("McpBrowser", () => {
     expect(opts.allowedTools).toEqual(BROWSER_ALLOWED_TOOLS);
     expect(opts.noBuiltinTools).toBe(true);
     expect(JSON.parse(fs.readFileSync(opts.mcpConfig!, "utf8"))).toEqual(
-      playwrightMcpConfig(path.join(r.dir, "fake-browser.sh"), "/repo/runs"),
+      playwrightMcpConfig(
+        path.join(r.dir, "fake-browser.sh"),
+        "/repo/runs",
+        path.resolve(r.shots),
+      ),
     );
+    // Codex review kolo 2, nález 5: automatic MCP output files land in the shots dir of this run
+    expect(
+      JSON.parse(fs.readFileSync(opts.mcpConfig!, "utf8")).mcpServers.playwright
+        .env.TARS_MCP_OUTPUT_DIR,
+    ).toBe(path.resolve(r.shots));
     const sp = statePathOf(opts);
     // a plan without a fill step is read-only: the gate denies typing and sending (TARS_GATE_NO_TYPE)
     expect(opts.settings).toBe(

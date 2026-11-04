@@ -35,6 +35,45 @@ export const MAX_TOOL_CALLS = 80;
 /** Clicks on labels like these count as sending (a second one is denied); typing after the first send is denied. */
 export const SUBMIT_LABEL_RE =
   /\b(send|submit|odeslat|odeslání|odešli|generate|vygenerovat)\b/i;
+/**
+ * Elements that start another generation of an existing answer (Codex review kolo 2, nález 4): never clicked, in any
+ * run (also read-only), because the gate would not count them as a send.
+ */
+export const GENERATION_ACTION_RE =
+  /\b(regenerate|re-generate|retry|try again|znovu vygenerovat|vygenerovat znovu|zkusit znovu|zkuste to znovu|opakovat|continue generating|pokračovat v generování)\b/i;
+/**
+ * Exact mode (typeSha, the ChatGPT check): besides the one verified send, only these clicks are allowed, judged by the
+ * element's own role and accessible name: mode, model and intensity pickers and their options, and a new chat.
+ * Everything else (Upravit/Edit, Pokračovat/Continue, Regenerate, Work, …) is denied.
+ */
+const CLICK_ROLES = new Set([
+  "button",
+  "menuitem",
+  "menuitemradio",
+  "radio",
+  "option",
+  "tab",
+  "link",
+  "slider",
+  "switch",
+  "combobox",
+]);
+export const CHAT_CLICK_NAME_RE =
+  /^(?:Chat|GPT-6|GPT-5\.6 Sol|Vysoká|High|Nový chat|New chat|Nová konverzace|[^\n]*\b(?:model[a-zěščřžýáíéůú]*|intenzit[a-zěščřžýáíéůú]*|přemýšlení|reasoning|effort)\b[^\n]*)$/i;
+/** true when an element (role + own accessible name) may be clicked in exact mode without being the send. */
+export function chatClickAllowed(
+  role: string | undefined,
+  name: string | undefined,
+): boolean {
+  if (!role || !CLICK_ROLES.has(role) || !name) return false;
+  if (
+    /\bwork\b/i.test(name) ||
+    GENERATION_ACTION_RE.test(name) ||
+    SUBMIT_LABEL_RE.test(name)
+  )
+    return false;
+  return CHAT_CLICK_NAME_RE.test(name.trim());
+}
 
 export interface RefInfo {
   /** role + accessible name (truncated, for messages). */
@@ -43,6 +82,11 @@ export interface RefInfo {
   ok: boolean;
   /** true when the label looks like sending. */
   submit: boolean;
+  /** Role and own accessible name of the element (the click allowlist of exact mode judges only these). */
+  role?: string;
+  name?: string;
+  /** true when the element or its subtree looks like starting another generation (regenerate, retry, …). */
+  regen?: boolean;
   /**
    * Text the element holds as the last snapshot shows it (its own text value and the text values of its subtree, one
    * per line, decoded from the YAML quoting). undefined = unknown (no snapshot since the last action on it).
@@ -102,6 +146,8 @@ const isClearText = (text: unknown): boolean =>
  * `slowly` (pressSequentially appends to what is already there) and `submit` on browser_type are denied; the field must
  * be empty in the last snapshot before the prompt is typed (clearing = browser_type with ""), and the send click is
  * allowed only when a snapshot after typing shows the field holding exactly the prompt (sha256).
+ * Exact mode also limits clicks (Codex review kolo 2, nález 4): only the verified send and chatClickAllowed (mode,
+ * model, intensity, new chat). A click that starts another generation (GENERATION_ACTION_RE) is denied in every run.
  * `noType`: the plan types nothing (read-only run, e.g. reading an already sent ChatGPT answer): no browser_type and no
  * click on a send-like element.
  */
@@ -148,6 +194,15 @@ export function gateMcpCall(
     if (!ref)
       return `cíl „${target.slice(0, 40)}“ není ref z posledního snapshotu stránky (použij ref, např. e5)`;
     if (!ref.ok) return `zakázaná akce: "${ref.label.slice(0, 80)}"`;
+    if (ref.regen || GENERATION_ACTION_RE.test(ref.label))
+      return `zakázaná akce (další generování odpovědi): "${ref.label.slice(0, 80)}"`;
+    if (
+      typeSha &&
+      tool === "browser_click" &&
+      !ref.submit &&
+      !chatClickAllowed(ref.role, ref.name)
+    )
+      return `v tomto běhu se kliká jen na výběr režimu, modelu, intenzity a nový chat, ne na "${ref.label.slice(0, 80)}"`;
     if (typeof input.element === "string" && !actionAllowed(input.element))
       return `zakázaná akce: "${input.element.slice(0, 80)}"`;
     if (state.submits >= 1 && (tool === "browser_type" || ref.submit))
@@ -305,6 +360,9 @@ export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
       label: own.slice(0, 120),
       ok: actionAllowed(all),
       submit: SUBMIT_LABEL_RE.test(all),
+      role: e.role,
+      name: e.name,
+      regen: GENERATION_ACTION_RE.test(all),
       content: texts.join("\n"),
     };
     const prev = Object.hasOwn(refs, e.ref) ? refs[e.ref] : undefined;
@@ -314,7 +372,8 @@ export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
           label: `${prev.label} | ${info.label}`.slice(0, 240),
           ok: prev.ok && info.ok,
           submit: prev.submit || info.submit,
-          content: undefined,
+          regen: prev.regen || info.regen,
+          content: undefined, // role/name ambiguous too: exact mode denies the click
         }
       : info;
   }

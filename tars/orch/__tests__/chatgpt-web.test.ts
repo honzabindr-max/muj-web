@@ -21,9 +21,10 @@ import {
   detectModel,
   END_WORD,
   markerEndsAnswer,
+  MAX_ATTEMPTS_PER_DAY,
   readJournal,
-  SENT_JOURNAL,
   verdictFromAnswer,
+  writeJournal,
   type WebBrowser,
 } from "../chatgpt-web";
 import { CopyDepartment, VizualDepartment } from "../departments";
@@ -32,6 +33,7 @@ import { assertKonziliumFamilies } from "../konzilium-lite";
 import { hostAllowed } from "../ladder";
 import {
   buildTask,
+  playwrightMcpConfig,
   UiUnknownError,
   type BrowserStep,
   type SentReport,
@@ -59,6 +61,12 @@ const PASS_JSON = '{"verdict":"PASS","findings":[]}';
 const FIX_JSON =
   '{"verdict":"FIX","findings":[{"severity":"medium","file":null,"line":null,"text":"zkrátit úvod"}]}';
 
+/** The end marker of the attempt that sent `prompt` (its nonce is the last word of the prompt); MARKER otherwise. */
+const markerOf = (prompt: string) => {
+  const m = /Kód: (\S+)\s*$/.exec(prompt);
+  return m ? `${END_WORD}${m[1]}` : MARKER;
+};
+
 /** Page snapshot as ChatGPT would show it: model picker, the sent prompt, the answer, the end marker. */
 function page(
   prompt: string,
@@ -71,7 +79,7 @@ function page(
     "- main:",
     `  - paragraph: ${JSON.stringify(prompt)}`,
     `  - paragraph: '${answer}'`,
-    `  - paragraph: ${MARKER}`,
+    `  - paragraph: ${markerOf(prompt)}`,
   ].join("\n");
 }
 
@@ -81,6 +89,8 @@ let lastFilled = "";
 const CHAT = "https://chatgpt.com/c/abc-123";
 class FakeBrowser implements WebBrowser {
   calls: BrowserStep[][] = [];
+  /** The page of the read BEFORE the send (default: the same page as after the answer). */
+  before?: string;
   /** `sent`: what the gate would report about sending; default: a fill step was sent, unless the run failed before it. */
   constructor(
     public script: Script,
@@ -107,8 +117,13 @@ class FakeBrowser implements WebBrowser {
       },
     );
     if (out instanceof Error) throw out;
+    // one read before the send (default: the same page, i.e. the same model) and one after the answer
+    const reads = steps.filter((s) => s.kind === "read").length;
     return {
-      rawReads: [out],
+      rawReads: [
+        ...Array<string>(Math.max(0, reads - 1)).fill(this.before ?? out),
+        out,
+      ],
       screenshots: [],
       finalUrl: CHAT,
     };
@@ -132,8 +147,13 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
 });
 
-const checker = (b: WebBrowser) =>
-  new ChatGptWebChecker(b, { nonce: () => NONCE });
+/** First attempt: NONCE; every later attempt of the same checker gets a new nonce (like random bytes). */
+const checker = (b: WebBrowser) => {
+  let n = 0;
+  return new ChatGptWebChecker(b, {
+    nonce: () => (n++ === 0 ? NONCE : `${NONCE}x${n}`),
+  });
+};
 
 describe("ChatGptWebChecker (fake prohlížeč)", () => {
   it("úspěšná kontrola PASS: jeden běh, jedno odeslání přesně zadaného promptu, skutečný model ze stránky, záznam check-*.md", async () => {
@@ -264,7 +284,7 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     const unfinished: Script = (steps) =>
       page(sentPrompt(steps), PASS_JSON).replace(MARKER, "…");
     const r2 = await checker(new FakeBrowser(unfinished)).run("x", {
-      cwd: dir,
+      cwd: fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-")), // a new order dir (attempts are per dir)
       outputSchema: REVIEW_SCHEMA,
     });
     expect(r2).toMatchObject({ ok: false, waitReview: true });
@@ -595,7 +615,8 @@ describe("P16 v3: režim Chat (paušál), nikdy Work", () => {
       'tab "Work" [selected] [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]',
     ]) {
       const c = checker(new FakeBrowser(answering(PASS_JSON, model)));
-      const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-")); // attempts are per order dir
+      const r = await c.run("x", { cwd: d, outputSchema: REVIEW_SCHEMA });
       expect(r, model).toMatchObject({ ok: false, waitReview: true, text: "" });
       expect(r.error, model).toMatch(/běží v režimu Work místo Chat/);
       expect(c.lastRecord, model).toMatchObject({
@@ -1154,97 +1175,197 @@ describe("Codex review kolo 1: odpověď přesně podle schématu, značka = kon
   });
 });
 
-describe("Codex review kolo 1, nález 5: prompt se odešle nejvýš jednou (deník odeslání)", () => {
-  it("timeout po odeslání → deník „sent“ s URL chatu; další běh nic neodesílá, jen otevře uložený chat a přečte odpověď", async () => {
-    let timeout = true;
-    const b = new FakeBrowser((steps) =>
-      timeout
-        ? new UiUnknownError("krok selhal: timeout", [])
-        : page(sentPrompt(steps), PASS_JSON),
-    );
-    const r1 = await checker(b).run("Posuď.", {
+describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nový chat = nový nonce = jedno odeslání", () => {
+  const sendsOf = (b: FakeBrowser) =>
+    b.calls.filter((c) => c.some((s) => s.kind === "fill"));
+  const nonceOf = (steps: BrowserStep[]) =>
+    /Kód: (\S+)\s*$/.exec(sentPrompt(steps))![1];
+
+  it("nález 1: PASS vytvořený při Střední → pokus spálen; po přepnutí voliče na Vysokou se stará odpověď nikdy nepřijme, nový pokus jde do nového chatu s novým nonce; nejvýš 2 pokusy za den", async () => {
+    let first = "";
+    const b = new FakeBrowser((steps) => {
+      if (!first) {
+        first = sentPrompt(steps);
+        return page(first, PASS_JSON, 'button "GPT-6 Střední" [ref=e3]');
+      }
+      // the second run sees the OLD chat with its PASS, the picker now shows Vysoká (no new answer was generated)
+      return page(first, PASS_JSON, 'button "GPT-6 Vysoká" [ref=e3]');
+    });
+    const c = checker(b);
+    const r1 = await c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r1).toMatchObject({ ok: false, waitReview: true });
+    expect(readJournal(dir)).toEqual([
+      expect.objectContaining({
+        state: "burned",
+        nonce: NONCE,
+        reason: expect.stringMatching(/neodpovídá/),
+      }),
+    ]);
+    const r2 = await c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r2).toMatchObject({ ok: false, waitReview: true }); // the old PASS is never accepted
+    expect(sendsOf(b)).toHaveLength(2);
+    expect(b.calls[1][0]).toEqual({
+      kind: "goto",
+      url: "https://chatgpt.com/",
+    }); // a new chat, never the old one
+    expect(nonceOf(b.calls[1])).not.toBe(nonceOf(b.calls[0]));
+    expect(readJournal(dir)!.map((e) => e.state)).toEqual(["burned", "burned"]);
+    // MAX_ATTEMPTS_PER_DAY reached: no third attempt today
+    const r3 = await c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(MAX_ATTEMPTS_PER_DAY).toBe(2);
+    expect(r3.error).toMatch(/vyčerpány 2 pokusy/);
+    expect(b.calls).toHaveLength(2);
+  });
+
+  it("nález 1: model před odesláním jiný než po odpovědi (Střední → Vysoká) nebo čtení před odesláním chybí → spáleno, nikdy PASS", async () => {
+    const b = new FakeBrowser(answering(PASS_JSON));
+    b.before = `${BANNER.replace("Vysoká", "Střední")}\n- main:`;
+    const r = await checker(b).run("x", {
       cwd: dir,
       outputSchema: REVIEW_SCHEMA,
     });
-    expect(r1).toMatchObject({ ok: false, waitReview: true });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+    expect(r.error).toMatch(/před odesláním neodpovídá/);
     expect(readJournal(dir)).toEqual([
-      expect.objectContaining({ state: "sent", chat_url: CHAT, nonce: NONCE }),
+      expect.objectContaining({ state: "burned" }),
     ]);
-    timeout = false;
-    // a new checker instance with another nonce: the stored nonce of the sent prompt is used
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const b2 = new FakeBrowser(answering(PASS_JSON));
+    b2.before = `- banner:\n  - tab "Work" [selected] [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]`;
+    expect(
+      (await checker(b2).run("x", { cwd: d, outputSchema: REVIEW_SCHEMA }))
+        .error,
+    ).toMatch(/před odesláním/);
+    // the plan reads the page before the send, in the same run
+    const steps = chatGptSteps("p", MARKER);
+    const fillAt = steps.findIndex((s) => s.kind === "fill");
+    expect(steps.slice(0, fillAt).some((s) => s.kind === "read")).toBe(true);
+    expect(steps.at(-1)).toEqual({ kind: "read" });
+  });
+
+  it("nález 3: pád po „answered“ před uložením výsledku → další běh dokončí z deníku bez nového odeslání", async () => {
+    const b = new FakeBrowser(answering(PASS_JSON));
+    expect(
+      await checker(b).run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
+    ).toMatchObject({ ok: true, text: PASS_JSON });
+    expect(readJournal(dir)).toEqual([
+      expect.objectContaining({
+        state: "answered",
+        answer: PASS_JSON,
+        model_before: "GPT-6 · Vysoká",
+        model_after: "GPT-6 · Vysoká",
+        chat_url: CHAT,
+      }),
+    ]);
+    // the caller crashed before storing the result: a new process (new checker) repeats the check
     const c2 = new ChatGptWebChecker(b, { nonce: () => "jiny" });
     const r2 = await c2.run("Posuď.", {
       cwd: dir,
       outputSchema: REVIEW_SCHEMA,
     });
     expect(r2).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(b.calls).toHaveLength(2);
-    expect(fills(b)).toBe(1); // sent exactly once
-    expect(b.calls[1]).toEqual([
-      { kind: "goto", url: CHAT },
-      { kind: "wait", ms: 4000 },
-      { kind: "wait_text", text: MARKER, ms: expect.any(Number) },
-      { kind: "read" },
-    ]);
+    expect(b.calls).toHaveLength(1); // no browser run, no second send
     expect(c2.lastRecord).toMatchObject({
       status: "ANSWER",
       submits: 0,
       chat_url: CHAT,
     });
-    expect(readJournal(dir)).toEqual([
-      expect.objectContaining({ state: "answered" }),
+    // an "answered" entry without a valid stored answer/model of its run is never used (a new attempt instead)
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const sha = readJournal(dir)![0].prompt_sha256;
+    writeJournal(d, [
+      {
+        prompt_sha256: sha,
+        nonce: "old",
+        at: new Date().toISOString(),
+        state: "answered",
+        answer: PASS_JSON,
+        model_before: "GPT-6 · Střední",
+        model_after: "GPT-6 · Vysoká",
+      },
     ]);
+    const b3 = new FakeBrowser(answering(FIX_JSON));
+    const r3 = await checker(b3).run("Posuď.", {
+      cwd: d,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(JSON.parse(r3.text).verdict).toBe("FIX");
+    expect(sendsOf(b3)).toHaveLength(1);
   });
 
-  it("odesláno bez URL chatu nebo s neznámým odesláním → další běh nic neotevře ani neodešle (WAITING_REVIEW s důvodem)", async () => {
-    const cases: SentReport[] = [
-      { submitted: true, url: "https://chatgpt.com/" },
+  it("nález 3: pád mezi odesláním a odpovědí („sending“/„sent“ v deníku) → pokus spálen, chat se neotevře; nový pokus až v dalším běhu", async () => {
+    const b = new FakeBrowser(answering(PASS_JSON));
+    expect(
+      await checker(b).run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
+    ).toMatchObject({ ok: true });
+    const sha = readJournal(dir)![0].prompt_sha256;
+    for (const state of ["sending", "sent"] as const) {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+      writeJournal(d, [
+        {
+          prompt_sha256: sha,
+          nonce: "crashed",
+          at: new Date().toISOString(),
+          state,
+          chat_url: CHAT,
+        },
+      ]);
+      const bb = new FakeBrowser(answering(PASS_JSON));
+      const c = checker(bb);
+      const r = await c.run("Posuď.", { cwd: d, outputSchema: REVIEW_SCHEMA });
+      expect(r, state).toMatchObject({ ok: false, waitReview: true });
+      expect(r.error).toMatch(/nebyl dokončen/);
+      expect(bb.calls, state).toHaveLength(0); // the old chat is never opened
+      expect(readJournal(d), state).toEqual([
+        expect.objectContaining({ state: "burned", nonce: "crashed" }),
+      ]);
+      const r2 = await c.run("Posuď.", { cwd: d, outputSchema: REVIEW_SCHEMA });
+      expect(r2, state).toMatchObject({ ok: true, text: PASS_JSON });
+      expect(sendsOf(bb)).toHaveLength(1);
+      expect(bb.calls[0][0]).toEqual({
+        kind: "goto",
+        url: "https://chatgpt.com/",
+      });
+    }
+  });
+
+  it("timeout nebo neznámé odeslání → spáleno; prokazatelně neodesláno (nepřihlášeno) → záznam se smaže a nepočítá se", async () => {
+    for (const sent of [
+      { submitted: true, url: CHAT },
       { submitted: "unknown" },
-    ];
-    for (const sent of cases) {
+    ] as SentReport[]) {
       const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
       const b = new FakeBrowser(
         () => new UiUnknownError("krok selhal: timeout", []),
         () => sent,
       );
-      await checker(b).run("x", { cwd: d, outputSchema: REVIEW_SCHEMA });
       const r = await checker(b).run("x", {
         cwd: d,
         outputSchema: REVIEW_SCHEMA,
       });
-      expect(r, JSON.stringify(sent)).toMatchObject({
-        ok: false,
-        waitReview: true,
-      });
-      expect(r.error).toMatch(/URL chatu chybí/);
-      expect(b.calls).toHaveLength(1);
-      // another prompt from the same dir is not sent either (no new round)
-      const r3 = await checker(b).run("jiný prompt", {
-        cwd: d,
-        outputSchema: REVIEW_SCHEMA,
-      });
-      expect(r3.error).toMatch(/jiný už odeslaný prompt/);
-      expect(b.calls).toHaveLength(1);
+      expect(r).toMatchObject({ ok: false, waitReview: true });
+      expect(readJournal(d), JSON.stringify(sent)).toEqual([
+        expect.objectContaining({ state: "burned" }),
+      ]);
     }
-  });
-
-  it("prokazatelně neodesláno (nepřihlášeno) → záznam se smaže a další běh smí odeslat", async () => {
     let fail = true;
     const b = new FakeBrowser((steps) =>
       fail
         ? new UiUnknownError("krok selhal: nepřihlášeno", [])
         : page(sentPrompt(steps), PASS_JSON),
     );
-    await checker(b).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    const c = checker(b);
+    await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
     expect(readJournal(dir)).toEqual([]);
     fail = false;
     expect(
-      await checker(b).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
-    ).toMatchObject({ ok: true });
-    expect(fills(b)).toBe(2);
+      await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
+    ).toMatchObject({ ok: true }); // unsent attempts do not count
+    expect(fills(b)).toBe(3);
   });
 
-  it("orchestrátor: timeout kontroly copy po odeslání → další tick prompt znovu neodešle, přečte uložený chat → DONE", async () => {
+  it("orchestrátor: timeout kontroly copy po odeslání → pokus spálen; další tick = nový chat a nový nonce → DONE", async () => {
     let fail = true;
     const cb = new FakeBrowser((steps) =>
       fail
@@ -1254,22 +1375,110 @@ describe("Codex review kolo 1, nález 5: prompt se odešle nejvýš jednou (den�
     const { store, orch } = setup({ copyBrowser: cb });
     expect(await orch.tick()).toMatchObject({ status: "waiting_review" });
     const [o] = store.listOrders();
-    expect(fs.existsSync(path.join(store.orderDir(o.id), SENT_JOURNAL))).toBe(
-      true,
-    );
+    // the brief check (answered) and the copy check (burned) share the order dir
+    expect(readJournal(store.orderDir(o.id))!.map((e) => e.state)).toEqual([
+      "answered",
+      "burned",
+    ]);
     fail = false;
     expect(await orch.tick()).toMatchObject({
       status: "advanced",
       state: "DONE",
     });
     expect(cb.calls).toHaveLength(2);
-    expect(fills(cb)).toBe(1);
-    expect(cb.calls[1].some((s) => s.kind === "fill")).toBe(false);
+    expect(fills(cb)).toBe(2);
+    expect(nonceOf(cb.calls[1])).not.toBe(nonceOf(cb.calls[0]));
+    expect(readJournal(store.orderDir(o.id))!.map((e) => e.state)).toEqual([
+      "answered",
+      "burned",
+      "answered",
+    ]);
   });
 });
 
-describe("Codex review kolo 1, nález 6: tajemství z odpovědi se nikdy nezapíše", () => {
-  it("platný FIX JSON s tokenem ve findings.text → odmítnutí (secret-scan), záznam i snapshot jen redigované", async () => {
+describe("Codex review kolo 2, nález 2: oblast odpovědi = celá poslední zpráva asistenta (podle role)", () => {
+  const turn =
+    (answer: string[]): Script =>
+    (steps) =>
+      [
+        BANNER,
+        "- main:",
+        "  - article:",
+        `    - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
+        "  - article:",
+        '    - heading "ChatGPT řekl:" [level=6]',
+        ...answer.map((l) => l.replace("MARKER", markerOf(sentPrompt(steps)))),
+        '    - button "Kopírovat" [ref=e20]',
+        "- contentinfo:",
+        "  - paragraph: ChatGPT může dělat chyby.",
+      ].join("\n");
+
+  it("PASS JSON a značka v blockquote, pak mimo citaci oprava na FIX ve stejné zprávě → WAITING_REVIEW", async () => {
+    const r = await checker(
+      new FakeBrowser(
+        turn([
+          "    - blockquote:",
+          `      - paragraph: '${PASS_JSON}'`,
+          "      - paragraph: MARKER",
+          "    - paragraph: Oprava, správně je FIX s blokujícím nálezem.",
+        ]),
+      ),
+    ).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+    expect(r.error).toMatch(/za koncovou značkou/);
+    // directly: the less indented line after the blockquote is still the same message
+    const p = `  - article:\n    - blockquote:\n      - paragraph: ${MARKER}\n    - paragraph: Ale FIX.\n- contentinfo:`;
+    expect(markerEndsAnswer(p, MARKER)).toBe(false);
+  });
+
+  it("citace (blockquote) s JSON a značkou a nic dalšího → neplatný formát; čistý jeden řádek JSON + značka → projde", async () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const quoted = await checker(
+      new FakeBrowser(
+        turn([
+          "    - blockquote:",
+          `      - paragraph: '${PASS_JSON}'`,
+          "      - paragraph: MARKER",
+        ]),
+      ),
+    ).run("x", { cwd: d, outputSchema: REVIEW_SCHEMA });
+    expect(quoted).toMatchObject({ ok: false, waitReview: true });
+    expect(quoted.error).toMatch(/nejasný výsledek/);
+    const ok = await checker(
+      new FakeBrowser(
+        turn([`    - paragraph: '${PASS_JSON}'`, "    - paragraph: MARKER"]),
+      ),
+    ).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(ok).toMatchObject({ ok: true, text: PASS_JSON });
+    // prose anywhere in the message (also before the JSON, in a deeper block) → unclear
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const prose = await checker(
+      new FakeBrowser(
+        turn([
+          "    - list:",
+          "      - listitem: jen ukázka",
+          `    - paragraph: '${PASS_JSON}'`,
+          "    - paragraph: MARKER",
+        ]),
+      ),
+    ).run("x", { cwd: d2, outputSchema: REVIEW_SCHEMA });
+    expect(prose).toMatchObject({ ok: false, waitReview: true });
+  });
+});
+
+describe("Codex review kolo 2, nález 5: tajemství → žádný soubor běhu s hodnotou (PNG, automatické snapshoty)", () => {
+  const walk = (d: string): string[] =>
+    fs.existsSync(d)
+      ? fs
+          .readdirSync(d, { withFileTypes: true })
+          .flatMap((e) =>
+            e.isDirectory()
+              ? walk(path.join(d, e.name))
+              : [path.join(d, e.name)],
+          )
+      : [];
+
+  it("platný FIX s tokenem: automatický snapshot (.playwright-mcp v output-dir i vedle), PNG a čtení se smažou, zůstane jen redigovaný záznam", async () => {
     const leaky = JSON.stringify({
       verdict: "FIX",
       findings: [
@@ -1277,14 +1486,30 @@ describe("Codex review kolo 1, nález 6: tajemství z odpovědi se nikdy nezapí
       ],
     });
     const b = new FakeBrowser((steps) => page(sentPrompt(steps), leaky));
-    // the browser writes the page snapshot into the shots dir (as the MCP server does)
     const orig = b.run.bind(b);
     b.run = async (steps, shots, onSent) => {
       const out = await orig(steps, shots, onSent);
+      // what the MCP server writes by itself: automatic snapshots (output dir = shots), screenshots, the reads
       fs.mkdirSync(path.join(shots!, "reads"), { recursive: true });
       fs.writeFileSync(
-        path.join(shots!, "reads", "read-08.md"),
-        out.rawReads[0],
+        path.join(shots!, "reads", "read-09.md"),
+        out.rawReads.at(-1)!,
+      );
+      fs.writeFileSync(
+        path.join(shots!, "page-2026-11-04T10-00-00.yml"),
+        out.rawReads.at(-1)!,
+      );
+      fs.writeFileSync(
+        path.join(shots!, "step-09-read.png"),
+        Buffer.concat([
+          Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          Buffer.from(TOKEN),
+        ]),
+      );
+      fs.mkdirSync(path.join(dir, ".playwright-mcp"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".playwright-mcp", "page-1.yml"),
+        out.rawReads.at(-1)!,
       );
       return out;
     };
@@ -1293,32 +1518,134 @@ describe("Codex review kolo 1, nález 6: tajemství z odpovědi se nikdy nezapí
     expect(r).toMatchObject({ ok: false, text: "" });
     expect(r.waitReview).toBeUndefined();
     expect(r.error).toMatch(/secret-scan: github_token/);
-    expect(JSON.stringify(c.lastRecord)).not.toContain(TOKEN);
-    const walk = (d: string): string[] =>
-      fs
-        .readdirSync(d, { withFileTypes: true })
-        .flatMap((e) =>
-          e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)],
-        );
     const files = walk(dir);
-    expect(files.some((f) => /check-gptweb-.*\.md$/.test(f))).toBe(true);
-    expect(files.some((f) => f.endsWith("read-08.md"))).toBe(true);
+    expect(files.filter((f) => /check-gptweb-.*\.md$/.test(f))).toHaveLength(1);
+    expect(
+      files.filter(
+        (f) =>
+          /\.(png|yml)$/.test(f) || f.includes(`${path.sep}reads${path.sep}`),
+      ),
+    ).toEqual([]);
     for (const f of files)
-      expect(fs.readFileSync(f, "utf8"), f).not.toContain(TOKEN);
+      expect(fs.readFileSync(f).includes(TOKEN), f).toBe(false);
+    expect(readJournal(dir)).toEqual([
+      expect.objectContaining({
+        state: "burned",
+        reason: expect.stringMatching(/secret-scan/),
+      }),
+    ]);
+    expect(JSON.stringify(readJournal(dir))).not.toContain(TOKEN);
   });
 
-  it("tajemství v důvodu čekání (chybová hláška ovladače) → zapíše se jen redigovaně a odmítne", async () => {
-    const c = checker(
-      new FakeBrowser(() => new Error(`chrome spadl ${TOKEN}`)),
-    );
-    const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+  it("tajemství v důvodu čekání (chybová hláška ovladače) → zapíše se jen redigovaně a odmítne, soubory běhu smazány", async () => {
+    const b = new FakeBrowser(() => new Error(`chrome spadl ${TOKEN}`));
+    const orig = b.run.bind(b);
+    b.run = async (steps, shots, onSent) => {
+      fs.mkdirSync(shots!, { recursive: true });
+      fs.writeFileSync(
+        path.join(shots!, "step-01-goto.png"),
+        Buffer.from(`PNG ${TOKEN}`),
+      );
+      return orig(steps, shots, onSent);
+    };
+    const r = await checker(b).run("x", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/secret-scan/);
-    const recs = fs
-      .readdirSync(dir)
-      .filter((n) => n.startsWith("check-gptweb-"));
-    expect(recs.length).toBeGreaterThan(0);
-    for (const f of recs)
-      expect(fs.readFileSync(path.join(dir, f), "utf8")).not.toContain(TOKEN);
+    const files = walk(dir);
+    expect(files.some((f) => /check-gptweb-/.test(f))).toBe(true);
+    for (const f of files)
+      expect(fs.readFileSync(f).includes(TOKEN), f).toBe(false);
+  });
+
+  it("McpBrowser dá Playwright MCP --output-dir = složka shots běhu (automatické snapshoty nejdou do sdíleného .playwright-mcp)", () => {
+    expect(
+      playwrightMcpConfig("/s.sh", "/repo/runs", "/repo/runs/o/shots-x"),
+    ).toEqual({
+      mcpServers: {
+        playwright: {
+          command: "bash",
+          args: ["/s.sh", "mcp"],
+          env: {
+            TARS_RUNS_DIR: "/repo/runs",
+            TARS_MCP_OUTPUT_DIR: "/repo/runs/o/shots-x",
+          },
+        },
+      },
+    });
+    const sh = fs.readFileSync(
+      path.join(__dirname, "..", "guard", "tars-browser.sh"),
+      "utf8",
+    );
+    expect(sh).toMatch(/args\+=\(--output-dir "\$out"\)/);
+  });
+});
+
+describe("Codex review kolo 2, nález 4: brána nepustí klik, který spustí další generování", () => {
+  const C = "mcp__playwright__browser_click";
+  const sha = typedTextSha("prompt");
+  const snap = [
+    "### Page",
+    "- Page URL: https://chatgpt.com/c/abc-123",
+    "### Snapshot",
+    "```yaml",
+    '- button "Výběr modelu: GPT-6" [ref=e1]',
+    '- menuitem "GPT-6" [ref=e2]',
+    '- menuitem "GPT-5.6 Sol" [ref=e3]',
+    '- radio "Vysoká" [ref=e4]',
+    '- radio "Střední" [ref=e5]',
+    '- tab "Chat" [ref=e6]',
+    '- tab "Work" [ref=e7]',
+    '- link "Nový chat" [ref=e8]',
+    '- button "Regenerate" [ref=e10]',
+    '- button "Retry" [ref=e11]',
+    '- button "Znovu vygenerovat" [ref=e12]',
+    '- button "Upravit zprávu" [ref=e13]',
+    '- button "Pokračovat" [ref=e14]',
+    '- button "Kopírovat" [ref=e15]',
+    "- button [ref=e16]:",
+    "  - img",
+    "  - generic: Zkusit znovu",
+    '- textbox "Ask" [ref=e20]',
+    '- button "Send prompt" [ref=e21]',
+    "```",
+  ].join("\n");
+  const state = () => {
+    const st = emptyState();
+    observeResponse(snap, st);
+    return st;
+  };
+
+  it("po timeoutu v uloženém chatu: Regenerate / Retry / Znovu vygenerovat / Zkusit znovu se nepustí v žádném běhu (i jen čtecím)", () => {
+    for (const ref of ["e10", "e11", "e12", "e16"]) {
+      expect(
+        gateMcpCall(C, { ref }, state(), undefined, undefined, true),
+        ref,
+      ).toMatch(/další generování/);
+      expect(gateMcpCall(C, { ref }, state()), ref).toMatch(/další generování/);
+      expect(gateMcpCall(C, { ref }, state(), undefined, sha), ref).toMatch(
+        /další generování/,
+      );
+    }
+  });
+
+  it("kontrola GPT (přesný režim): kliká se jen na režim, model, intenzitu a nový chat; Upravit, Pokračovat, Work, Kopírovat a ostatní se odmítnou", () => {
+    for (const ref of ["e1", "e2", "e3", "e4", "e6", "e8"])
+      expect(
+        gateMcpCall(C, { ref }, state(), undefined, sha),
+        ref,
+      ).toBeUndefined();
+    for (const ref of ["e5", "e7", "e13", "e14", "e15"])
+      expect(gateMcpCall(C, { ref }, state(), undefined, sha), ref).toMatch(
+        /kliká jen na výběr režimu, modelu, intenzity a nový chat/,
+      );
+    // the one send stays allowed only after the verified content (unchanged rule)
+    expect(gateMcpCall(C, { ref: "e21" }, state(), undefined, sha)).toMatch(
+      /neodpovídá zadanému textu/,
+    );
+    // outside the exact mode (e.g. vizuál) ordinary clicks stay allowed
+    expect(gateMcpCall(C, { ref: "e13" }, state())).toBeUndefined();
   });
 });

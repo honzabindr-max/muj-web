@@ -71,20 +71,33 @@ export interface WebCheckRecord {
 }
 
 /**
- * Journal of sent prompts (Codex review kolo 1, nález 5), one durable file per order dir. A prompt is written as
- * "sending" BEFORE it is sent, "sent" (with the chat URL) when the gate saw the send, "answered" when its answer was
- * read. While an entry is not answered, no new prompt is sent from this dir: the next run only opens the saved chat
- * and reads; without a chat URL the check waits (WAITING_REVIEW) until a new round.
+ * Journal of attempts (Codex review kolo 2, nálezy 1, 3, 4: one attempt = one new chat = one nonce = one send), one
+ * durable file per order dir. An attempt is written as "sending" BEFORE the send and "sent" when the gate saw it. Its
+ * answer is accepted only in the same browser run that sent it, and only when that run showed Chat + an allowed model +
+ * Vysoká before the send and after the answer; then the attempt is "answered" with the answer and both models stored.
+ * Anything else (timeout, mismatch, crash, any doubt) makes the attempt "burned" for good: its chat is never opened
+ * again and its answer is never accepted, not even by a later read. A provably unsent attempt is removed.
+ * After a crash between "answered" and storing the result, the next run finishes from the stored answer without a send.
+ * A new attempt (new chat, new nonce) starts only in a later run, at most MAX_ATTEMPTS_PER_DAY per prompt and day.
  */
 export const SENT_JOURNAL = "gptweb-sent.json";
+export const MAX_ATTEMPTS_PER_DAY = 2;
 export interface SentEntry {
   prompt_sha256: string;
   nonce: string;
   at: string;
-  state: "sending" | "sent" | "answered";
+  state: "sending" | "sent" | "answered" | "burned";
   chat_url?: string;
+  /** Why the attempt is burned (redacted, never a value). */
+  reason?: string;
+  /** answered: the validated answer and the models the same run showed before the send and after the answer. */
+  answer?: string;
+  model_before?: string;
+  model_after?: string;
 }
-/** Only a real ChatGPT conversation URL is ever opened again. */
+const isFinal = (e: SentEntry) =>
+  e.state === "answered" || e.state === "burned";
+/** Only a real ChatGPT conversation URL is recorded (diagnostics; a chat is never opened again). */
 export const CHAT_URL_RE = /^https:\/\/chatgpt\.com\/c\/[A-Za-z0-9-]+\/?$/;
 
 /** The journal of a dir; [] when there is none, undefined when it exists but cannot be read (then nothing is sent). */
@@ -128,27 +141,14 @@ export function writeJournal(dir: string, entries: SentEntry[]): void {
   }
 }
 
-/** Steps that only read the answer of an already sent prompt: open its chat, wait for the marker, read. No fill. */
-export function chatGptReadSteps(
-  chatUrl: string,
-  marker: string,
-  timeoutMs = CHATGPT_ANSWER_TIMEOUT_MS,
-): BrowserStep[] {
-  return [
-    { kind: "goto", url: chatUrl },
-    { kind: "wait", ms: 4000 },
-    { kind: "wait_text", text: marker, ms: timeoutMs },
-    { kind: "read" },
-  ];
-}
-
 const TEXT_FILE_RE = /\.(md|ya?ml|json|txt|log)$/i;
 
 /**
- * Redacts every secret in the text files of a dir (recursively), in place; returns the kinds found (never values).
- * The MCP server writes the page snapshot itself; this runs right after every browser run (Codex review kolo 1, nález 6).
+ * Kinds of secrets (never values) in the text files of the given dirs, recursively (Codex review kolo 2, nález 5):
+ * the whole shots dir of the run (the MCP server writes its automatic snapshots there, --output-dir) and the legacy
+ * `.playwright-mcp/` next to it. Images cannot be scanned; a hit anywhere purges them all (purgeRunFiles).
  */
-export function redactSecretFiles(dir: string): string[] {
+export function scanRunFiles(dirs: string[]): string[] {
   const kinds = new Set<string>();
   const walk = (d: string) => {
     let names: fs.Dirent[];
@@ -160,20 +160,22 @@ export function redactSecretFiles(dir: string): string[] {
     for (const n of names) {
       const p = path.join(d, n.name);
       if (n.isDirectory()) walk(p);
-      else if (n.isFile() && TEXT_FILE_RE.test(n.name)) {
-        const t = fs.readFileSync(p, "utf8");
-        const sc = scanSecrets(t);
-        if (sc.clean) continue;
-        sc.kinds.forEach((k) => kinds.add(k));
-        fs.writeFileSync(p, redactSecrets(t));
-      }
+      else if (n.isFile() && TEXT_FILE_RE.test(n.name))
+        scanSecrets(fs.readFileSync(p, "utf8")).kinds.forEach((k) =>
+          kinds.add(k),
+        );
     }
   };
-  walk(dir);
+  dirs.forEach(walk);
   return [...kinds];
 }
 
-/** Steps of one check: open ChatGPT, mode Chat (never Work), the model, intensity, one exact submit, wait, read. */
+/** A secret was seen: every file of the run (PNG, snapshots, reads) is deleted; only the redacted record stays. */
+export function purgeRunFiles(dirs: string[]): void {
+  for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+}
+
+/** Steps of one check: open a new ChatGPT chat, mode Chat (never Work), model, intensity, read, one exact submit, wait, read. */
 export function chatGptSteps(
   prompt: string,
   marker: string,
@@ -200,6 +202,9 @@ export function chatGptSteps(
       prefer: CHATGPT_INTENSITY,
       fallback: "nejvyšší stupeň posuvníku",
     },
+    // Codex review kolo 2, nález 1: the page before the send is read in the same run; the answer counts only when this
+    // read AND the read after the answer show Chat + an allowed model + Vysoká.
+    { kind: "read" },
     {
       kind: "fill",
       selector: 'div[contenteditable="true"]#prompt-textarea, textarea',
@@ -268,26 +273,80 @@ export function jsonObjectsIn(text: string): { end: number; value: unknown }[] {
   return out.sort((a, b) => a.end - b.end);
 }
 
-/** The answer region: page text before the end marker (the last one), at most the last 40 000 characters. */
 /** Last line of the sent prompt (answerInstructions): the answer starts after it. */
 export const promptEnd = (nonce: string) => `Kód: ${nonce}`;
 
+const indentOf = (l: string) => l.length - l.trimStart().length;
+/** Role of a snapshot element line (`  - article [ref=e5]:` → article), also of a quoted key (`- 'button "a: b"'`). */
+const roleOf = (l: string): string | undefined =>
+  /^\s*-\s*'?([a-z]+)/i.exec(l)?.[1]?.toLowerCase();
+
 /**
- * The answer region: page text strictly between the end of the sent prompt (`Kód: <nonce>`, its last occurrence before
- * the marker) and the end marker (its last occurrence). Nothing of the prompt (the reviewed draft may contain JSON) is
- * ever part of it. undefined = marker or prompt end not on the page (unfinished, collapsed prompt) → unclear.
+ * Where the end marker sits in the snapshot tree (Codex review kolo 2, nález 2): the line of its last occurrence, the
+ * column, and the assistant message it belongs to by ROLE: its nearest `article` ancestor (ChatGPT renders each turn
+ * as an article). `end` = first line after that article (or the end of the page when there is no article ancestor).
+ */
+function markerMessage(page: string, marker: string) {
+  const at = page.lastIndexOf(marker);
+  if (at < 0) return undefined;
+  const lines = page.split("\n");
+  const starts: number[] = [];
+  let pos = 0;
+  for (const l of lines) {
+    starts.push(pos);
+    pos += l.length + 1;
+  }
+  let mIdx = lines.length - 1;
+  while (mIdx > 0 && starts[mIdx] > at) mIdx--;
+  let min = indentOf(lines[mIdx]);
+  let article = -1;
+  for (let i = mIdx - 1; i >= 0 && min > 0; i--) {
+    if (!lines[i].trim()) continue;
+    const ind = indentOf(lines[i]);
+    if (ind >= min) continue;
+    min = ind;
+    if (roleOf(lines[i]) === "article") {
+      article = i;
+      break;
+    }
+  }
+  let end = lines.length;
+  if (article >= 0) {
+    const ai = indentOf(lines[article]);
+    for (let j = mIdx + 1; j < lines.length; j++)
+      if (lines[j].trim() && indentOf(lines[j]) <= ai) {
+        end = j;
+        break;
+      }
+  }
+  return { lines, starts, at, mIdx, col: at - starts[mIdx], article, end };
+}
+
+/**
+ * The answer region: the whole text of the assistant message that holds the end marker, up to the marker (Codex review
+ * kolo 2, nález 2: by role, the `article` of the turn, not by indentation). The sent prompt (`Kód: <nonce>`, its last
+ * occurrence before the marker) must end before that message and no other turn may lie between them. Without an
+ * article ancestor: the page text strictly between the prompt end and the marker. Nothing of the prompt (the reviewed
+ * draft may contain JSON) is ever part of it. undefined = marker or prompt end not on the page, or not in that order.
  */
 export function answerRegion(
   page: string,
   marker: string,
   nonce: string,
 ): string | undefined {
-  const at = page.lastIndexOf(marker);
-  if (at < 0) return undefined;
+  const m = markerMessage(page, marker);
+  if (!m) return undefined;
   const end = promptEnd(nonce);
-  const start = page.lastIndexOf(end, at - 1);
-  if (start < 0 || start + end.length > at) return undefined;
-  return page.slice(start + end.length, at);
+  const start = page.lastIndexOf(end, m.at - 1);
+  if (start < 0 || start + end.length > m.at) return undefined;
+  if (m.article < 0) return page.slice(start + end.length, m.at);
+  const msgStart = m.starts[m.article];
+  if (start + end.length > msgStart) return undefined; // the prompt end lies inside the answer's own message
+  // no other turn between the prompt and the answer
+  const between = page.slice(start + end.length, msgStart).split("\n");
+  if (between.some((l) => roleOf(l) === "article" || ASSISTANT_HEADING.test(l)))
+    return undefined;
+  return page.slice(m.starts[m.article + 1] ?? m.at, m.at);
 }
 
 /**
@@ -354,34 +413,27 @@ const ASSISTANT_HEADING =
   /^\s*-\s*heading\s+"ChatGPT(?:\s+(?:řekl|said))?:?"(?:\s*\[[^\]\n]*\])*:?\s*$/i;
 
 /**
- * true when the end marker is the real end of the last assistant message (Codex review kolo 1, nález 3): on its line
- * only a closing quote may follow; the following lines of the same block (indented at least as deep as the marker's
- * line) hold no text, only snapshot structure or text-less buttons; and no further assistant message follows anywhere.
- * Anything else (e.g. a correction to FIX after the marker) = the answer did not end with the marker → unclear.
+ * true when the end marker is the real end of the last assistant message (Codex review kolo 1, nález 3; kolo 2,
+ * nález 2): on its line only a closing quote may follow; every following line of the same message (by role: the rest
+ * of its `article`, whatever the indentation, so leaving a blockquote does not end the check; without an article: the
+ * rest of the page) holds no text, only snapshot structure or text-less buttons; and no further turn (article or
+ * assistant heading) follows anywhere. Anything else (e.g. a correction to FIX after the marker) → unclear.
  */
 export function markerEndsAnswer(page: string, marker: string): boolean {
-  const at = page.lastIndexOf(marker);
-  if (at < 0) return false;
-  const lineStart = page.lastIndexOf("\n", at) + 1;
-  const nl = page.indexOf("\n", at);
-  if (
-    !/^\s*['"]?\s*$/.test(
-      page.slice(at + marker.length, nl < 0 ? undefined : nl),
-    )
-  )
+  const m = markerMessage(page, marker);
+  if (!m) return false;
+  if (!/^\s*['"]?\s*$/.test(m.lines[m.mIdx].slice(m.col + marker.length)))
     return false;
-  if (nl < 0) return true;
-  const indent = (l: string) => l.length - l.trimStart().length;
-  const mi = indent(page.slice(lineStart, at));
-  let inBlock = true;
-  for (const l of page.slice(nl + 1).split("\n")) {
-    if (ASSISTANT_HEADING.test(l)) return false;
-    if (!l.trim()) continue;
-    if (indent(l) < mi) inBlock = false;
-    if (!inBlock || SNAPSHOT_ONLY_LINE.test(l) || UI_BUTTON_LINE.test(l))
+  for (let j = m.mIdx + 1; j < m.end; j++) {
+    const l = m.lines[j];
+    if (ASSISTANT_HEADING.test(l) || roleOf(l) === "article") return false;
+    if (!l.trim() || SNAPSHOT_ONLY_LINE.test(l) || UI_BUTTON_LINE.test(l))
       continue;
     return false;
   }
+  for (let j = m.end; j < m.lines.length; j++)
+    if (ASSISTANT_HEADING.test(m.lines[j]) || roleOf(m.lines[j]) === "article")
+      return false;
   return true;
 }
 
@@ -419,6 +471,8 @@ export function verdictFromAnswer(
   )?.verdict?.enum ?? []) as string[];
   if (!allowed.length) return undefined;
   const lines = region.split("\n");
+  // Codex review kolo 2, nález 2: the message is exactly one JSON line and the marker; a quotation is never an answer.
+  if (lines.some((l) => roleOf(l) === "blockquote")) return undefined;
   while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1]))
     lines.pop();
   if (!lines.length) return undefined;
@@ -542,8 +596,11 @@ export class ChatGptWebChecker implements TextAdapter {
     const now = this.o.now ?? (() => new Date());
     const stamp = now().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
     const shots = path.join(opts.cwd, `shots-gptweb-${stamp}`);
+    // Every file of this browser run: the shots dir (the MCP server writes its automatic snapshots there, --output-dir)
+    // and, defensively, the legacy `.playwright-mcp/` in the MCP workspace (Codex review kolo 2, nález 5).
+    const runDirs = [shots, path.join(opts.cwd, ".playwright-mcp")];
     const jdir = opts.journalDir ?? opts.cwd;
-    // The prompt as the reviewer gets it, without the per-send nonce: the key of the journal of sent prompts.
+    // The prompt as the reviewer gets it, without the per-attempt nonce: the key of the journal of attempts.
     const promptSha = createHash("sha256")
       .update(`${prompt}\n${JSON.stringify(opts.outputSchema ?? null)}`)
       .digest("hex");
@@ -576,13 +633,47 @@ export class ChatGptWebChecker implements TextAdapter {
       }
       return sc.kinds;
     };
-    /** A secret in the answer, the page or the record: rejected (like SecretScanningAdapter), the value never stored. */
+    let entries: SentEntry[] = [];
+    let nonce = "";
+    const save = (next: SentEntry[]): boolean => {
+      try {
+        writeJournal(jdir, next);
+        entries = next;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const isMine = (e: SentEntry) =>
+      nonce !== "" && e.nonce === nonce && e.prompt_sha256 === promptSha;
+    /** The attempt of this run is burned for good (no-op when it was provably not sent and removed). */
+    const burn = (reason: string) => {
+      if (!entries.some((e) => isMine(e) && !isFinal(e))) return;
+      save(
+        entries.map((e) =>
+          isMine(e) && !isFinal(e)
+            ? {
+                ...e,
+                state: "burned" as const,
+                reason: redactSecrets(reason).slice(0, 300),
+                ...(chatUrl ? { chat_url: chatUrl } : {}),
+              }
+            : e,
+        ),
+      );
+    };
+    /**
+     * A secret in the answer, the page, a file or the record: rejected (like SecretScanningAdapter), the attempt burned,
+     * every file of the run deleted (PNG and snapshots cannot be redacted reliably); only the redacted record stays.
+     */
     const rejected = (kinds: string[], actual: string): AdapterResult => {
+      burn(`secret-scan: ${kinds.join(",")}`);
+      purgeRunFiles(runDirs);
       record({
         status: "WAITING_REVIEW",
         actual_model: actual,
         model_matches: false,
-        reason: `secret-scan: ${kinds.join(",")} (hodnota skryta, odpověď se nepoužije)`,
+        reason: `secret-scan: ${kinds.join(",")} (hodnota skryta, odpověď se nepoužije, soubory běhu smazány)`,
       });
       return {
         ok: false,
@@ -593,6 +684,7 @@ export class ChatGptWebChecker implements TextAdapter {
       };
     };
     const waiting = (reason: string, actual = "neověřeno"): AdapterResult => {
+      burn(reason);
       const kinds = record({
         status: "WAITING_REVIEW",
         actual_model: actual,
@@ -609,76 +701,111 @@ export class ChatGptWebChecker implements TextAdapter {
         duration_ms: Date.now() - t0,
       };
     };
-    // Codex review kolo 1, nález 5: a prompt is sent at most once per order dir. An entry that is not answered yet
-    // means: never send again; open its chat and only read, or wait when there is no chat URL.
     const journal = readJournal(jdir);
     if (!journal)
-      return waiting(
-        "deník odeslaných promptů nejde přečíst; nový prompt se neposílá",
+      return waiting("deník pokusů nejde přečíst; nový prompt se neposílá");
+    entries = journal;
+
+    // 1) A crash after "answered" and before the caller stored the result: finish from the stored answer, no send.
+    const done = [...journal]
+      .reverse()
+      .find(
+        (e) =>
+          e.prompt_sha256 === promptSha &&
+          e.state === "answered" &&
+          storedAnswerValid(e, opts.outputSchema),
       );
-    const open = journal.find((e) => e.state !== "answered");
-    if (open && open.prompt_sha256 !== promptSha)
-      return waiting(
-        `v této zakázce čeká odpověď na jiný už odeslaný prompt (sha256 ${String(open.prompt_sha256).slice(0, 12)}…); nový prompt se bez nového kola neposílá`,
+    if (done) {
+      chatUrl = done.chat_url;
+      this.model = done.model_after!;
+      const kinds = record({
+        status: "ANSWER",
+        actual_model: done.model_after!,
+        model_matches: true,
+        answer: done.answer,
+      });
+      if (kinds.length) return rejected(kinds, done.model_after!);
+      return {
+        ok: true,
+        text: done.answer!,
+        limit: false,
+        duration_ms: Date.now() - t0,
+      };
+    }
+
+    // 2) An attempt left unfinished by an earlier run (crash): burned, its chat is never opened, its answer never taken.
+    const stale = journal.filter((e) => !isFinal(e));
+    if (stale.length) {
+      const burned = journal.map((e) =>
+        isFinal(e)
+          ? e
+          : {
+              ...e,
+              state: "burned" as const,
+              reason:
+                "pokus nedokončen v běhu, který ho odeslal (pád nebo přerušení); odpověď se nikdy nepřijme",
+            },
       );
-    if (open && !(open.chat_url && CHAT_URL_RE.test(open.chat_url)))
+      if (!save(burned))
+        return waiting("deník pokusů nejde zapsat; nic neodesláno");
+      if (stale.some((e) => e.prompt_sha256 === promptSha))
+        return waiting(
+          "předchozí pokus o tuto kontrolu nebyl dokončen v běhu, který ho odeslal; je spálený, nový pokus (nový chat) až v dalším běhu",
+        );
+    }
+
+    // 3) At most MAX_ATTEMPTS_PER_DAY attempts (new chats) per prompt and day.
+    const day = now().toISOString().slice(0, 10);
+    const attempts = entries.filter(
+      (e) => e.prompt_sha256 === promptSha && String(e.at).slice(0, 10) === day,
+    ).length;
+    if (attempts >= MAX_ATTEMPTS_PER_DAY)
       return waiting(
-        "prompt už byl odeslán (nebo odeslání nejde vyloučit), ale URL chatu chybí; odpověď nejde přečíst a nový prompt se bez nového kola neposílá",
+        `vyčerpány ${MAX_ATTEMPTS_PER_DAY} pokusy o tuto kontrolu za den (${day}); čeká na další den nebo nové kolo`,
       );
-    const nonce =
-      open?.nonce ?? (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
-    const marker = `${END_WORD}${nonce}`;
+
+    // 4) A new attempt: new chat, new nonce, one send.
+    const fresh = (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
+    // Every attempt of this prompt has its own nonce (a reused one could match a marker of an earlier attempt).
+    if (entries.some((e) => e.prompt_sha256 === promptSha && e.nonce === fresh))
+      return waiting(
+        "nový kód pokusu (nonce) se shoduje s už použitým; nic neodesláno",
+      );
+    const marker = `${END_WORD}${fresh}`;
     if (prompt.includes(marker))
       return waiting(
         "prompt už obsahuje koncovou značku (nelze bezpečně číst odpověď)",
       );
-    let entries = journal;
-    const save = (next: SentEntry[]): boolean => {
-      try {
-        writeJournal(jdir, next);
-        entries = next;
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    const isMine = (e: SentEntry) =>
-      e.prompt_sha256 === promptSha && e.state !== "answered";
-    let steps: BrowserStep[];
-    if (open) {
-      chatUrl = open.chat_url;
-      steps = chatGptReadSteps(open.chat_url!, marker, this.o.timeoutMs);
-    } else {
-      // Write-ahead: the entry is durable BEFORE the send, so a crash during the run can never lead to a second send.
-      if (
-        !save([
-          ...journal,
-          {
-            prompt_sha256: promptSha,
-            nonce,
-            at: now().toISOString(),
-            state: "sending",
-          },
-        ])
-      )
-        return waiting("deník odeslaných promptů nejde zapsat; nic neodesláno");
-      steps = chatGptSteps(
-        prompt + answerInstructions(nonce, opts.outputSchema),
-        marker,
-        this.o.timeoutMs,
-      );
-    }
+    // Write-ahead: the attempt is durable BEFORE the send, so a crash during the run burns it (never read again).
+    if (
+      !save([
+        ...entries,
+        {
+          prompt_sha256: promptSha,
+          nonce: fresh,
+          at: now().toISOString(),
+          state: "sending",
+        },
+      ])
+    )
+      return waiting("deník pokusů nejde zapsat; nic neodesláno");
+    nonce = fresh;
+    const steps = chatGptSteps(
+      prompt + answerInstructions(nonce, opts.outputSchema),
+      marker,
+      this.o.timeoutMs,
+    );
     let report: SentReport | undefined;
-    /** Records what the gate saw about sending (a read-only run never sends). */
+    /** Records what the gate saw about sending. */
     const settle = () => {
-      const mine = open ? undefined : entries.find(isMine);
+      const mine = entries.find((e) => isMine(e) && !isFinal(e));
       if (!mine) return;
-      const others = entries.filter((e) => !isMine(e));
+      const others = entries.filter((e) => e !== mine);
       if (report?.submitted === false) {
-        save(others); // provably not sent: a later run may send it
+        save(others); // provably not sent: the attempt does not count, a later run may send
         return;
       }
-      if (report?.submitted !== true) return; // unknown: stays "sending" (never sent again, waits)
+      if (report?.submitted !== true) return; // unknown: stays "sending" and is burned below
       submits = 1;
       chatUrl =
         report.url && CHAT_URL_RE.test(report.url) ? report.url : undefined;
@@ -687,39 +814,37 @@ export class ChatGptWebChecker implements TextAdapter {
         { ...mine, state: "sent", ...(chatUrl ? { chat_url: chatUrl } : {}) },
       ]);
     };
-    let page: string;
+    let reads: string[];
     try {
       const r = await this.browser.run(steps, shots, (sent) => {
         report = sent;
       });
-      page = r.rawReads.at(-1) ?? "";
+      reads = r.rawReads;
     } catch (e) {
       settle();
-      const kinds = redactSecretFiles(shots);
+      const kinds = scanRunFiles(runDirs);
       if (kinds.length) return rejected(kinds, "neověřeno");
       return waiting(waitReason(e));
     }
     settle();
-    // Codex review kolo 1, nález 6: a secret anywhere on the page (snapshot) = rejected; the files are redacted.
-    const fileKinds = redactSecretFiles(shots);
-    const pageScan = scanSecrets(page);
+    const before = reads.length >= 2 ? reads[0] : undefined;
+    const page = reads.at(-1) ?? "";
+    // Codex review kolo 1, nález 6 + kolo 2, nález 5: a secret anywhere on the page or in any file of the run = rejected.
+    const fileKinds = scanRunFiles(runDirs);
+    const pageScan = scanSecrets(reads.join("\n"));
     if (fileKinds.length || !pageScan.clean)
       return rejected(
         [...new Set([...fileKinds, ...pageScan.kinds])],
         "neověřeno",
       );
+    if (report?.submitted !== true)
+      return waiting("odeslání promptu nejde potvrdit; pokus je spálený");
     const seen = detectModel(page);
-    const actual = seen.model
-      ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
-      : "neověřeno (stránka model neukazuje)";
+    const actual = shownModel(seen);
     this.model = actual;
     // P16 v3: Work is never a valid place for a check; the answer is not used, the order waits (never pretended).
     if (ranInWork(page, seen))
       return waiting("běží v režimu Work místo Chat", actual);
-    const matches =
-      seen.model !== undefined &&
-      CHAT_MODELS.includes(seen.model) &&
-      isHighIntensity(seen.intensity);
     const region = answerRegion(page, marker, nonce);
     if (region === undefined)
       return waiting(
@@ -734,11 +859,22 @@ export class ChatGptWebChecker implements TextAdapter {
         "za koncovou značkou následuje další obsah odpovědi (značka není konec odpovědi)",
         actual,
       );
-    // Codex review kolo 1, nález 1: only the requested Chat model at intensity Vysoká counts; another or unverified
-    // model/intensity = the answer is not used, the order waits (never PASS).
-    if (!matches)
+    // Codex review kolo 1, nález 1 + kolo 2, nález 1: only the requested Chat model at intensity Vysoká counts, shown
+    // by THIS run before the send and after the answer (the same model both times). Anything else = burned, waits.
+    if (!modelOk(seen))
       return waiting(
-        `model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka: ${actual})`,
+        `model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka po odpovědi: ${actual})`,
+        actual,
+      );
+    const seenBefore = before === undefined ? {} : detectModel(before);
+    if (
+      before === undefined ||
+      ranInWork(before, seenBefore) ||
+      !modelOk(seenBefore) ||
+      seenBefore.model !== seen.model
+    )
+      return waiting(
+        `model nebo intenzita před odesláním neodpovídá požadovanému ${this.requestedModel} nebo modelu po odpovědi (před odesláním: ${before === undefined ? "nepřečteno" : shownModel(seenBefore)}, po odpovědi: ${actual})`,
         actual,
       );
     let text: string;
@@ -759,17 +895,69 @@ export class ChatGptWebChecker implements TextAdapter {
     const kinds = record({
       status: "ANSWER",
       actual_model: actual,
-      model_matches: matches,
+      model_matches: true,
       answer: text,
     });
     if (kinds.length) return rejected(kinds, actual);
+    // The attempt must still be open on disk (no other run burned it meanwhile); then it is answered for good.
+    const disk = readJournal(jdir);
+    const still = disk?.find((e) => isMine(e));
+    if (!disk || !still || isFinal(still)) {
+      if (disk) entries = disk;
+      return waiting(
+        "pokus byl mezitím v deníku uzavřen jiným během; odpověď se nepřijme",
+        actual,
+      );
+    }
     save(
-      entries.map((e) =>
-        isMine(e) ? { ...e, state: "answered" as const } : e,
+      disk.map((e) =>
+        isMine(e)
+          ? {
+              ...e,
+              state: "answered" as const,
+              answer: text,
+              model_before: shownModel(seenBefore),
+              model_after: actual,
+              ...(chatUrl ? { chat_url: chatUrl } : {}),
+            }
+          : e,
       ),
     );
     return { ok: true, text, limit: false, duration_ms: Date.now() - t0 };
   }
+}
+
+/** Model and intensity as text ("GPT-6 · Vysoká"); "neověřeno …" when the page does not show them. */
+function shownModel(seen: { model?: string; intensity?: string }): string {
+  return seen.model
+    ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
+    : "neověřeno (stránka model neukazuje)";
+}
+
+/** An allowed Chat model at intensity Vysoká. */
+const modelOk = (seen: { model?: string; intensity?: string }): boolean =>
+  seen.model !== undefined &&
+  CHAT_MODELS.includes(seen.model) &&
+  isHighIntensity(seen.intensity);
+
+/** A stored "answered" attempt is used only when it holds an answer and both models of its run were valid. */
+function storedAnswerValid(
+  e: SentEntry,
+  schema?: Record<string, unknown>,
+): boolean {
+  if (typeof e.answer !== "string" || !e.answer.trim()) return false;
+  const parse = (s?: string) => {
+    const m = /^(.+?) · (.+)$/.exec(s ?? "");
+    return m ? { model: m[1], intensity: m[2] } : {};
+  };
+  const b = parse(e.model_before);
+  const a = parse(e.model_after);
+  if (!modelOk(b) || !modelOk(a) || b.model !== a.model) return false;
+  if (!schema) return true;
+  const allowed = ((
+    schema.properties as Record<string, { enum?: string[] }> | undefined
+  )?.verdict?.enum ?? []) as string[];
+  return parseStructuredVerdict(e.answer, allowed) !== undefined;
 }
 
 export function recordMarkdown(r: WebCheckRecord): string {

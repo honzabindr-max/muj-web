@@ -570,6 +570,53 @@ describe("Konzilium Lite — GPT nedostupný", () => {
     expect(checker.prompts[2]).toBe(checker.prompts[1]);
   });
 
+  it("Codex review kolo 2, nález 6: pokračování kontroly kola 1 vrátí FIX, oprava Clauda na limitu → „čeká oprava kola 1“; další příkaz pokračuje opravou, kontrolu kola 1 neopakuje", async () => {
+    const { creator, checker, notion, deps } = setup(
+      [
+        { text: JSON.stringify(PROPOSAL) },
+        { ok: false, limit: true, error: "Claude limit" },
+        { text: JSON.stringify(PROPOSAL) },
+      ],
+      [
+        { ok: false, waitReview: true, error: "čeká na kontrolu: timeout" },
+        { text: FIX },
+        { text: FIX_MEDIUM },
+      ],
+    );
+    const file = inputFile({ ...INPUT, title: "Čeká oprava" });
+    const r1 = await runKonzilium(file, deps);
+    const pending1 = readRun(r1.run_id!).pending_review;
+    // resumed review 1 → FIX; Claude's revision hits its limit
+    const r2 = await runKonzilium(file, deps);
+    expect(r2).toMatchObject({ status: "PENDING", run_id: r1.run_id });
+    const pending2 = readRun(r1.run_id!).pending_review;
+    expect(checker.prompts).toHaveLength(2);
+    // next command: the revision, then review 2; review 1 is NOT sent again
+    const r3 = await runKonzilium(file, deps);
+    expect(checker.prompts[2]).not.toBe(checker.prompts[0]); // not review 1 again
+    expect(pending1).toMatchObject({ round: 1, stage: "kontrola" });
+    expect(r2.reason).toMatch(/čeká oprava kola 1/);
+    const proposalA = readRun(r1.run_id!).calls.find(
+      (c) => c.step === "navrh",
+    )!.output_file;
+    expect(pending2).toEqual({
+      round: 1,
+      proposal_file: proposalA,
+      stage: "oprava",
+    });
+    expect(r3).toMatchObject({
+      status: "WAITING_OWNER",
+      run_id: r1.run_id,
+      verdict: "FIX",
+    });
+    expect(checker.prompts).toHaveLength(3);
+    expect(checker.prompts[2]).not.toBe(checker.prompts[1]); // review 2 (with the findings), not review 1 again
+    expect(creator.prompts).toHaveLength(3); // proposal A, revision (limit), revision
+    expect(creator.prompts[2]).toBe(creator.prompts[1]); // the same revision of A
+    expect(readRun(r1.run_id!).verdicts.map((v) => v.round)).toEqual([1, 2]);
+    expect(notion.pages).toHaveLength(1);
+  });
+
   it("jiná chyba GPT (timeout) → PAUSED; limit v opravném kole → PENDING", async () => {
     const a = setup(
       [{ text: JSON.stringify(PROPOSAL) }],

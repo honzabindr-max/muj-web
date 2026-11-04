@@ -749,7 +749,16 @@ export interface KonziliumRun {
    * proposal that waits. A repeated command with the same input continues with the review of exactly this proposal
    * (Codex review kolo 1, nález 7), never a new proposal.
    */
-  pending_review?: { round: 1 | 2; proposal_file: string };
+  /**
+   * `stage` (Codex review kolo 2, nález 6): "kontrola" = the review of round `round` waits; "oprava" = the review of
+   * round `round` is done (its verdict is stored) and Claude's revision after it waits (e.g. Claude limit). A repeated
+   * command continues with exactly that step and never repeats a finished review. Missing = "kontrola" (older runs).
+   */
+  pending_review?: {
+    round: 1 | 2;
+    proposal_file: string;
+    stage?: "kontrola" | "oprava";
+  };
 }
 
 export interface KonziliumResult {
@@ -1422,16 +1431,24 @@ async function runLocked(
     assertNoEncoding("vstup (pole)", inputStrings(input));
 
     // A review that cannot happen now (PENDING) keeps the proposal it is about; the next command reviews exactly it.
+    // The last creator call that produced a proposal (a call that hit a limit has no output file).
     const lastCreatorFile = () =>
-      [...ctx.run.calls].reverse().find((c) => c.role === "creator")
-        ?.output_file;
+      [...ctx.run.calls]
+        .reverse()
+        .find((c) => c.role === "creator" && c.output_file)?.output_file;
     const held = (o: Outcome, round: 1 | 2): KonziliumResult => {
       const file = lastCreatorFile();
       if (o.status === "PENDING" && file)
-        ctx.run.pending_review = { round, proposal_file: file };
+        ctx.run.pending_review = {
+          round,
+          proposal_file: file,
+          stage: "kontrola",
+        };
       return finish(o.status, o.reason);
     };
     const resume = ctx.run.pending_review;
+    // Codex review kolo 2, nález 6: the review of round 1 is done when the revision after it (or review 2) waits.
+    const review1Done = resume?.round === 2 || resume?.stage === "oprava";
 
     // 2) Návrh Clauda (volání 1), nebo čekající návrh A při pokračování.
     let proposal: Proposal | Outcome;
@@ -1464,8 +1481,8 @@ async function runLocked(
 
     // 3) Oponentura GPT (volání 2); při pokračování v opravném kole se přeskočí (verdikt kola 1 je uložen).
     let verdict: StructuredVerdict<KonziliumVerdict> | Outcome;
-    if (resume?.round === 2) {
-      const first = ctx.run.verdicts.find((v) => v.round === 1);
+    if (review1Done) {
+      const first = [...ctx.run.verdicts].reverse().find((v) => v.round === 1);
       if (!first)
         return finish("FAILED", "čekající ověření nemá uložený verdikt kola 1");
       verdict = {
@@ -1496,7 +1513,20 @@ async function runLocked(
           buildRevisionPrompt(input, proposal, verdict.findings),
           input,
         );
-        if (isOutcome(revised)) return finish(revised.status, revised.reason);
+        if (isOutcome(revised)) {
+          // Codex review kolo 2, nález 6: waiting for the revision is "čeká oprava kola 1" with proposal A, so the next
+          // command continues with the revision and never repeats the finished review of round 1.
+          const fileA = resume?.proposal_file ?? lastCreatorFile();
+          if (revised.status === "PENDING" && fileA) {
+            ctx.run.pending_review = {
+              round: 1,
+              proposal_file: fileA,
+              stage: "oprava",
+            };
+            return finish("PENDING", `čeká oprava kola 1: ${revised.reason}`);
+          }
+          return finish(revised.status, revised.reason);
+        }
       }
       proposal = revised;
       const v2 = await review(

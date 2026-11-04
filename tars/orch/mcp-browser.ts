@@ -107,13 +107,23 @@ export function asData(text: string): string {
 }
 
 /** The one MCP server of the browser run: the guarded wrapper, never a bare `npx @playwright/mcp`. */
-export function playwrightMcpConfig(script = BROWSER_SCRIPT, runsDir?: string) {
+export function playwrightMcpConfig(
+  script = BROWSER_SCRIPT,
+  runsDir?: string,
+  outputDir?: string,
+) {
+  // outputDir = the shots dir of this run: every file the MCP server writes by itself (automatic snapshots) lands there,
+  // where the caller can redact or delete it (Codex review kolo 2, nález 5).
+  const env = {
+    ...(runsDir ? { TARS_RUNS_DIR: runsDir } : {}),
+    ...(outputDir ? { TARS_MCP_OUTPUT_DIR: outputDir } : {}),
+  };
   return {
     mcpServers: {
       [MCP_SERVER]: {
         command: "bash",
         args: [script, "mcp"],
-        ...(runsDir ? { env: { TARS_RUNS_DIR: runsDir } } : {}),
+        ...(Object.keys(env).length ? { env } : {}),
       },
     },
   };
@@ -311,7 +321,11 @@ export class McpBrowser {
     const cfg = path.join(shotsDir, "playwright.mcp.json");
     fs.writeFileSync(
       cfg,
-      JSON.stringify(playwrightMcpConfig(this.script, this.runsDir), null, 2),
+      JSON.stringify(
+        playwrightMcpConfig(this.script, this.runsDir, path.resolve(shotsDir)),
+        null,
+        2,
+      ),
     );
     const waitMs = steps.reduce(
       (a, s) => a + (s.kind === "wait" || s.kind === "wait_text" ? s.ms : 0),
