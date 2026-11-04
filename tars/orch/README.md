@@ -61,8 +61,10 @@ Kontrola kódu (oddělení dev) zůstává Codex. Tvůrce copy je kvůli tomu Cl
 Nepřihlášený profil, selhání prohlížeče, limit, timeout nebo odpověď mimo schéma = `waitReview`: zakázka přejde do
 `WAITING_REVIEW` se stejným artefaktem (`review_hash` = sha256 zadání v `meta.pending_brief`, nebo draftu). Další tick
 to zkusí znovu nejvýš jednou; změněný artefakt = `UNKNOWN`. Bez skutečné odpovědi nikdy PASS.
-Živý neškodný test: `npx tsx tars/orch/cli.ts gpt-smoke` (prompt „Odpověz jen slovem OK.“). Profil TARS-agent musí
-být přihlášený do ChatGPT (běžný účet); přihlašuje se jen vlastník.
+Živý neškodný test: `npx tsx tars/orch/cli.ts gpt-smoke` (prompt `GPT_SMOKE_PROMPT` „Kontrola spojení TARS. Napiš
+slovo OK.“; dřívější „Odpověz jen slovem OK.“ vylučoval koncovou značku). Profil TARS-agent musí být přihlášený do
+ChatGPT (běžný účet); přihlašuje se jen vlastník. Výběr „Vybrat model ChatGPT“ ovladač otevírá nejvýš 3× (vždy nový
+snapshot a ref, Escape pro jiný popover); stav se pořád počítá jen z otevřeného výběru ve čtení.
 
 - State: `runs/<order-id>/state.json` (atomic write). Episodic log: `runs/log.jsonl`. Both are gitignored.
 - One owner of the state (DR-039, etapa 2): every state carries a monotonic `version`; `Store.save` writes only over

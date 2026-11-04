@@ -15,8 +15,12 @@ import {
 import { artifactHash } from "../approval";
 import { CardRegistry } from "../cards";
 import {
+  answerInstructions,
   answerRegion,
   CHATGPT_MODEL,
+  CHATGPT_PICKER,
+  GPT_SMOKE_PROMPT,
+  smokeSaidOk,
   ChatGptWebChecker,
   chatGptSteps,
   detectModel,
@@ -38,12 +42,15 @@ import { hostAllowed } from "../ladder";
 import {
   buildTask,
   checkStep,
+  PICKER_NOT_OPEN,
+  PICKER_OPEN_ATTEMPTS,
   playwrightMcpConfig,
   UiUnknownError,
   type BrowserStep,
   type SentReport,
 } from "../mcp-browser";
 import {
+  chatClickAllowed,
   countCall,
   emptyState,
   gateMcpCall,
@@ -2264,5 +2271,240 @@ describe("smoke 4. 11.: anglické popisky a otevřený popover intenzity (fixtur
       expect(task).toMatch(/Povinný krok: browser_snapshot/);
       expect(task).toMatch(/RESULT: UNKNOWN vyber-modelu-neotevren/);
     });
+  });
+});
+
+describe("smoke 4. 11., pokus 2: výběr modelu se neotevřel (fixture ze živého běhu) + opakované otevření", () => {
+  // Snapshot page-2026-11-04T20-33-50-199Z.yml of the second live smoke (sidebar, user name and suggestion anonymized):
+  // mode Chat pressed, the picker "Vybrat model ChatGPT" closed with "High". In that run both browser_click calls on
+  // e766 (and on e695 "Chat") ended "Timeout 5000ms … waiting for element to be visible, enabled and stable".
+  const S2 = fs.readFileSync(
+    path.join(
+      __dirname,
+      "fixtures",
+      "chatgpt-smoke2-20261104-picker-closed.yml",
+    ),
+    "utf8",
+  );
+  /** The open picker of the first live smoke (High, 3 of 3), as the snapshot after a successful opening shows it. */
+  const OPEN = fs
+    .readFileSync(
+      path.join(__dirname, "fixtures", "chatgpt-smoke-20261104-picker-en.yml"),
+      "utf8",
+    )
+    .replace(/Medium, 2 z\(e\) 3\./, "High, 3 z(e) 3.")
+    .replace(/Medium/g, "High");
+  const resp = (yaml: string) =>
+    `### Page\n- Page URL: https://chatgpt.com/\n### Snapshot\n\`\`\`yaml\n${yaml}\n\`\`\``;
+  const C = "mcp__playwright__browser_click";
+  const K = "mcp__playwright__browser_press_key";
+  const S = "mcp__playwright__browser_snapshot";
+  const sha = typedTextSha("prompt");
+
+  it("fixture: zavřený výběr nedává žádný stav (kód ho nepřijme); brána klik na výběr i na Chat povoluje (příčina nebyla brána)", () => {
+    expect(detectModel(S2)).toEqual({});
+    const refs = parseSnapshotRefs(S2);
+    expect(refs.e766).toMatchObject({
+      role: "button",
+      name: CHATGPT_PICKER,
+      ok: true,
+      submit: false,
+    });
+    expect(chatClickAllowed(refs.e766.role, refs.e766.name)).toBe(true);
+    expect(refs.e695).toMatchObject({ role: "button", name: "Chat" });
+    const st = emptyState();
+    observeResponse(resp(S2), st);
+    expect(st.overlay).toBe(false);
+    expect(
+      gateMcpCall(
+        C,
+        { target: "e766", element: CHATGPT_PICKER },
+        st,
+        undefined,
+        sha,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("opakovaný pokus: klik s timeoutem → nový snapshot → nový klik → otevřený výběr (GPT-6 · High 3/3); Escape pak výběr zavře", () => {
+    const st = emptyState();
+    const call = (tool: string, input: Record<string, unknown>) => {
+      const why = gateMcpCall(tool, input, st, undefined, sha);
+      if (!why) countCall(tool, input, st);
+      return why;
+    };
+    // pokus 1: snapshot (closed) → click allowed; the click times out, so no response is observed
+    expect(call(S, {})).toBeUndefined();
+    observeResponse(resp(S2), st);
+    expect(
+      call(C, { target: "e766", element: CHATGPT_PICKER }),
+    ).toBeUndefined();
+    // pokus 2: a fresh snapshot (still closed) → the click is allowed again
+    expect(call(S, {})).toBeUndefined();
+    observeResponse(resp(S2), st);
+    expect(
+      call(C, { target: "e766", element: CHATGPT_PICKER }),
+    ).toBeUndefined();
+    // the snapshot after the click shows the open picker: state readable only now
+    expect(call(S, {})).toBeUndefined();
+    observeResponse(resp(OPEN), st);
+    expect(st.overlay).toBe(true);
+    expect(detectModel(OPEN)).toEqual({
+      model: "GPT-6",
+      intensity: "High",
+      level: 3,
+      levels: 3,
+    });
+    // Escape (allowed in exact mode) and a snapshot: the picker is closed again
+    expect(call(K, { key: "Escape" })).toBeUndefined();
+    observeResponse(resp(S2), st);
+    expect(st.overlay).toBe(false);
+    // a ref missing in the last snapshot is never clicked (the driver must take the ref from a fresh snapshot)
+    observeResponse(resp(OPEN.replace(/\[ref=e766\]/g, "[ref=e999]")), st);
+    expect(call(C, { target: "e766" })).toMatch(
+      /není ref z posledního snapshotu/,
+    );
+    expect(st.calls).toBe(6); // 3 snapshots, 2 clicks, Escape; the denied click is not counted
+    expect(st.submits).toBe(0);
+  });
+
+  it("plán: výběr modelu i intenzity a krok open otevírají výběr nejvýš 3× s novým snapshotem a Escape; po 3 nezdarech UNKNOWN", () => {
+    expect(PICKER_OPEN_ATTEMPTS).toBe(3);
+    const steps = chatGptSteps("prompt", MARKER);
+    const chooses = steps.filter(
+      (s): s is Extract<BrowserStep, { kind: "choose" }> => s.kind === "choose",
+    );
+    expect(chooses.map((s) => s.picker)).toEqual([
+      undefined,
+      CHATGPT_PICKER,
+      CHATGPT_PICKER,
+    ]);
+    steps.forEach((s) => expect(() => checkStep(s)).not.toThrow());
+    const task = buildTask(steps, "shots");
+    const lines = task.split(/\n(?=\d+\. )/);
+    const procedure =
+      /Otevření výběru „Vybrat model ChatGPT“ \(nejvýš 3 pokusy/;
+    // steps 4 + 5 (model, intensity) and 6 + 11 (open): the retried procedure; step 3 (mode) has none
+    for (const n of [4, 5, 6, 11]) {
+      const l = lines.find((x) => x.startsWith(`${n}. `))!;
+      expect(l, `krok ${n}`).toMatch(procedure);
+      expect(l).toMatch(/browser_press_key s klávesou "Escape"/);
+      expect(l).toMatch(/ref z PRÁVĚ TOHOTO snapshotu/);
+      expect(l).toMatch(/Timeout … visible, enabled and stable/);
+      expect(l).toContain(`RESULT: UNKNOWN ${PICKER_NOT_OPEN}`);
+      expect(l).toMatch(/kód stav bez otevřeného výběru nepřijme/);
+    }
+    const mode = lines.find((x) => x.startsWith("3. "))!;
+    expect(mode).not.toMatch(/Otevření výběru/);
+    expect(mode).toMatch(/„Chat“ už vybraná \(pressed\/checked\), neklikej/);
+    expect(task).toMatch(/otevření výběru nejvýš 3×/);
+    // the send is still one exact fill and never repeated
+    expect(task).toMatch(/Odeslání textu \(submit\) nikdy neopakuj/);
+  });
+
+  it("fail-closed: výběr se neotevřel ani po opakování → nic neodesláno, WAITING_REVIEW s důvodem ovladače", async () => {
+    const b = new FakeBrowser(
+      () =>
+        new UiUnknownError(
+          `text nebyl odeslán právě jednou po ověření obsahu pole (odesláno: 0; ovladač: ${PICKER_NOT_OPEN})`,
+          [],
+        ),
+      () => ({ submitted: false }),
+    );
+    const c = checker(b);
+    const r = await c.run("Posuď zadání.", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
+    expect(r.error).toContain(PICKER_NOT_OPEN);
+    expect(c.lastRecord).toMatchObject({
+      status: "WAITING_REVIEW",
+      model_matches: false,
+    });
+    // provably not sent: the attempt does not stay in the journal as sent or burned
+    expect((readJournal(dir) ?? []).some((e) => e.state === "sent")).toBe(
+      false,
+    );
+    expect(b.calls).toHaveLength(1);
+  });
+
+  it("fail-closed: ovladač tvrdí OK, ale čtení před odesláním ukazuje jen zavřený výběr (pokus 2) → WAITING_REVIEW, nikdy odpověď", async () => {
+    const b = new FakeBrowser((steps) =>
+      [
+        S2.trimEnd(),
+        "  - article:",
+        `    - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
+        "  - article:",
+        `    - paragraph: '${PASS_JSON}'`,
+        `    - paragraph: ${markerOf(sentPrompt(steps))}`,
+        OPEN.slice(OPEN.indexOf('\n  - menu "Vybrat model ChatGPT"') + 1)
+          .split("\n")
+          .map((l) => l.slice(2))
+          .join("\n"),
+      ].join("\n"),
+    );
+    b.before = S2;
+    const c = checker(b);
+    const r = await c.run("Posuď zadání.", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
+    expect(r.error).toMatch(
+      /stav modelu neověřen z ovládacího prvku.*před odesláním/,
+    );
+  });
+});
+
+describe("smoke 4. 11., pokus 1: prompt smoke nekoliduje s koncovou značkou", () => {
+  it("text smoke nevylučuje značku (žádné „jen“, „pouze“, „only“), chce slovo OK; značka zůstává poslední pokyn i u krátké odpovědi", () => {
+    expect(GPT_SMOKE_PROMPT).not.toMatch(
+      /\b(jen|jenom|pouze|výhradně|only|nic jiného|nic víc)\b/i,
+    );
+    expect(GPT_SMOKE_PROMPT).toMatch(/\bOK\b/);
+    expect(GPT_SMOKE_PROMPT).not.toContain(END_WORD);
+    const full = GPT_SMOKE_PROMPT + answerInstructions(NONCE);
+    expect(full).toMatch(new RegExp(`Kód: ${NONCE}$`)); // the nonce is still the very last word
+    expect(markerOf(full)).toBe(MARKER);
+    expect(full).toMatch(/Značka je povinná i u velmi krátké odpovědi/);
+    expect(full).toContain(END_WORD);
+    // the schema variant keeps the same marker rule
+    expect(answerInstructions(NONCE, REVIEW_SCHEMA)).toMatch(
+      /Značka je povinná i u velmi krátké odpovědi[\s\S]*Kód: n0nce42$/,
+    );
+  });
+
+  it("said_ok: slovo OK v odpovědi; nic jiného", () => {
+    expect(smokeSaidOk("OK")).toBe(true);
+    expect(smokeSaidOk("OK.")).toBe(true);
+    expect(smokeSaidOk("Rozumím, OK")).toBe(true);
+    expect(smokeSaidOk("BOOK")).toBe(false);
+    expect(smokeSaidOk("nevím")).toBe(false);
+    expect(smokeSaidOk("")).toBe(false);
+  });
+
+  it("checker se smoke promptem: odpověď „OK“ se značkou → ok a said_ok (text je jen odpověď, ne ozvěna promptu); „OK“ bez značky → čeká, nic se nepřijme", async () => {
+    const ok = new FakeBrowser(answering("OK"));
+    const r = await checker(ok).run(GPT_SMOKE_PROMPT, { cwd: dir });
+    expect(r.ok, r.error).toBe(true);
+    expect(smokeSaidOk(r.text)).toBe(true);
+    expect(r.text).not.toMatch(/Kontrola spojení/);
+    expect(sentPrompt(ok.calls[0])).toMatch(
+      new RegExp(`^${GPT_SMOKE_PROMPT.replace(/\./g, "\\.")}`),
+    );
+
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const noMarker = new FakeBrowser((steps) =>
+      [
+        "- main:",
+        `  - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
+        "  - paragraph: OK",
+        `  - ${picker()}`,
+      ].join("\n"),
+    );
+    const r2 = await checker(noMarker).run(GPT_SMOKE_PROMPT, { cwd: d2 });
+    expect(r2).toMatchObject({ ok: false, waitReview: true });
+    expect(r2.error).toMatch(/koncová značka chybí/);
   });
 });

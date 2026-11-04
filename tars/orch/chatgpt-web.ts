@@ -311,12 +311,14 @@ export function chatGptSteps(
       what: `model (výběr „${CHATGPT_PICKER}“ v poli pro zadání; seznam modelů otevře položka s intenzitou, např. „Medium ›“ nebo „Vysoká ›“)`,
       prefer: CHATGPT_MODEL,
       fallback: `„${CHATGPT_MODEL_FALLBACK}“; nikdy nepřepínej do režimu „${CHATGPT_FORBIDDEN_MODE}“`,
+      picker: CHATGPT_PICKER,
     },
     {
       kind: "choose",
       what: `intenzita přemýšlení (posuvník „Výkon“ ve výběru „${CHATGPT_PICKER}“; popisky Nízká / Střední / Vysoká nebo Low / Medium / High)`,
       prefer: CHATGPT_INTENSITY,
       fallback: `„${CHATGPT_INTENSITY_EN}“; vždy nejvyšší stupeň posuvníku: klikni na „Výkon“ a stiskni klávesu End (browser_press_key), popř. šipku vpravo až na konec; nikdy „Max“`,
+      picker: CHATGPT_PICKER,
     },
     // Codex review kolo 2, nález 1: the page before the send is read in the same run; the answer counts only when this
     // read AND the read after the answer show Chat + an allowed model + Vysoká/High. Smoke 4. 11.: model and intensity
@@ -347,7 +349,20 @@ export function answerInstructions(
   const format = schema
     ? `Odpověz POUZE jedním JSON objektem přesně podle tohoto JSON Schema, na JEDNOM řádku, bez code bloku a bez dalšího textu:\n${JSON.stringify(schema)}`
     : "Odpověz stručně podle zadání výše.";
-  return `\n\n---\nFORMÁT ODPOVĚDI (TARS, kontrola jiné rodiny modelů)\n${format}\nPo odpovědi napiš na samostatný řádek značku, která vznikne spojením slova ${END_WORD} a kódu níže, bez mezery.\nKód: ${nonce}`;
+  // Smoke 4. 11., pokus 1: "Odpověz jen slovem OK." → the answer was only "OK", without the marker (timeout, burned).
+  // The marker is part of every answer, also of a one-word one; the code still requires it (markerEndsAnswer).
+  return `\n\n---\nFORMÁT ODPOVĚDI (TARS, kontrola jiné rodiny modelů)\n${format}\nPo odpovědi napiš na samostatný řádek značku, která vznikne spojením slova ${END_WORD} a kódu níže, bez mezery. Značka je povinná i u velmi krátké odpovědi (třeba jediného slova) a pokyn „jen“ nebo „pouze“ v zadání ji nevylučuje; bez značky se odpověď nepočítá.\nKód: ${nonce}`;
+}
+
+/**
+ * Prompt of `cli.ts gpt-smoke`. Smoke 4. 11., pokus 1: "Odpověz jen slovem OK." collided with the marker instruction
+ * (ChatGPT answered only "OK"). This text asks for the word OK without excluding anything else in the answer.
+ */
+export const GPT_SMOKE_PROMPT = "Kontrola spojení TARS. Napiš slovo OK.";
+
+/** `said_ok` of the smoke: the answer (without the marker) contains the word OK. */
+export function smokeSaidOk(text: string): boolean {
+  return /\bOK\b/.test(text);
 }
 
 const unescapes: ((s: string) => string)[] = [
