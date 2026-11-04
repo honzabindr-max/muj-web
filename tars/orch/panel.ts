@@ -191,6 +191,18 @@ export interface FindRowOptions {
   card?: string;
   /** etapa 3, review kolo 3: neptat se zpožděného hledání (MCP), REST nedostupný → `PanelRowUnclear` */
   consistentOnly?: boolean;
+  /**
+   * Opravný PR „panel“, nález 4: přečíst celý výsledek; víc než jeden odpovídající řádek (stejná zakázka, stejné kolo)
+   * = `PanelRowDuplicate`, nikdy „vezmi první“.
+   */
+  unique?: boolean;
+}
+
+/** Nález 4: konzistentní dotaz našel víc řádků stejné zakázky a kola. Žádný se nepoužije, dokud konflikt nevyřeší Fable. */
+export class PanelRowDuplicate extends Error {
+  constructor(public readonly rows: string[]) {
+    super(`dva nebo víc řádků stejného kola: ${rows.join(", ")}`);
+  }
 }
 
 export interface PanelSink {
@@ -434,6 +446,7 @@ export class RestPanelSink implements PanelSink {
       (opts.card === undefined ||
         r.properties?.["Karta rozhodnutí"]?.url === opts.card);
     let cursor: string | undefined;
+    const hits: string[] = [];
     for (let page = 0; page < FIND_MAX_PAGES; page++) {
       const j = await this.api.request<{
         results?: FoundRow[];
@@ -445,9 +458,11 @@ export class RestPanelSink implements PanelSink {
         page_size: 25,
         ...(cursor ? { start_cursor: cursor } : {}),
       });
-      const hit = (j.results ?? []).find(matches);
-      if (hit?.id) return hit.id.replace(/-/g, "");
-      if (!j.has_more) return undefined; // the whole result was read and holds no live row: it does not exist
+      for (const r of (j.results ?? []).filter(matches))
+        hits.push(r.id!.replace(/-/g, ""));
+      if (!opts.unique && hits.length) return hits[0];
+      if (opts.unique && hits.length > 1) throw new PanelRowDuplicate(hits);
+      if (!j.has_more) return hits[0]; // the whole result was read: one live row, or none (it does not exist)
       if (!j.next_cursor) break;
       cursor = j.next_cursor;
     }
@@ -934,8 +949,27 @@ export class PanelIndex {
         return { result: false };
       delete all[`${DIRTY_PREFIX}${orderId}`];
       delete all[`${DIRTY_SEQ_PREFIX}${orderId}`];
+      delete all[`${HOLD_PREFIX}${orderId}`];
       return { write: all, result: true };
     });
+  }
+  /**
+   * Opravný PR „panel“, nález 2: zápis řádku skončil HOLD (řádek nejasný). Značka dirty ZŮSTANE (nastaví se, chyběla-li)
+   * a zapamatuje se čas HOLD: `catchUpPanel` dohledá zakázku znovu až s odstupem. Smaže se jen s dirty (`clearDirty`).
+   */
+  markHold(orderId: string, atMs: number): void {
+    this.markDirty(orderId);
+    this.update((all) => ({
+      write: { ...all, [`${HOLD_PREFIX}${orderId}`]: String(atMs) },
+      result: undefined,
+    }));
+  }
+  /** Čas posledního HOLD řádku zakázky (ms), undefined = zakázka není v HOLD. */
+  heldAt(orderId: string): number | undefined {
+    const raw = this.read()[`${HOLD_PREFIX}${orderId}`];
+    if (raw === undefined) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0; // nečitelný čas = odstup uplynul, dohledá se hned
   }
   /**
    * Review kolo 2: a monotonic sequence of row writes of an order, taken right before the write is sent (send order,
@@ -999,6 +1033,7 @@ function roundOf(all: Record<string, string>, orderId: string): number {
 }
 const DIRTY_PREFIX = "dirty:";
 const DIRTY_SEQ_PREFIX = "dirtyseq:";
+const HOLD_PREFIX = "hold:";
 const SEQ_PREFIX = "writeseq:";
 const seqOf = (all: Record<string, string>, key: string): number => {
   const n = Number(all[key]);

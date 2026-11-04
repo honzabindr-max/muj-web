@@ -173,6 +173,9 @@ function orch(
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,
     stateLockWaitMs: opts.stateLockWaitMs,
+    // Opravný PR „panel“, nález 4: ochranná doba po nejasném POST má vlastní testy (reissue.test.ts, „opravný PR panel“). Tady 0, aby
+    // starší testy dohledání po chybě zápisu (hodiny stojí) ověřovaly dál totéž co dřív.
+    panelCreateGuardMs: 0,
     ownerPing: opts.ownerPing,
     panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
     sources: new SourceLoader(opts.sourcesNotion ?? notion, dir, path.join(dir, "sources-cache")),
