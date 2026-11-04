@@ -12,6 +12,7 @@ import {
   type DepartmentRunner,
   type DeptContext,
   type StepOutcome,
+  warningsOf,
 } from "./departments";
 import {
   adapterPreflight,
@@ -137,8 +138,11 @@ export interface OrchestratorDeps {
 
 /** Q4-A (§10.2): rezerva po doloženém resetu limitu. */
 export const RESET_MARGIN_MS = 60_000;
-/** Q4-B: trvalý záznam posledního doloženého varování CLI o blížícím se limitu (runs/). */
+/** Q4-B: trvalý záznam doložených varování CLI o blížícím se limitu, po zdrojích (runs/, FIX1 nález 6). */
 export const LIMIT_WARNING_FILE = "limit-warning.json";
+
+/** Blokace Q4-B jednoho zdroje (účet CLI) v runs/limit-warning.json; `until` = ISO konec blokace. */
+type WarningRecord = { until: string } & Record<string, unknown>;
 
 /** Výchozí ochranná doba po nejasném POST nového řádku (nález 4). */
 export const PANEL_CREATE_GUARD_MS = 10 * 60_000;
@@ -2278,7 +2282,8 @@ export class Orchestrator {
     meta: Record<string, string>;
   } {
     const now = this.now();
-    const text = r.limit_text ?? r.error ?? "";
+    // FIX1 nález 1: čas resetu jen z hlášky strukturované obálky CLI (limit_text), nikdy z `error` (text modelu/stdout).
+    const text = r.limit_text ?? "";
     const p = parseReset(
       text,
       r.received_at ?? now.toISOString(),
@@ -2314,69 +2319,110 @@ export class Orchestrator {
   }
 
   /**
-   * Q4-B: doložené varování CLI o blížícím se limitu se zapíše trvale do runs/limit-warning.json (jen pod lease ticku).
-   * Platí do doloženého resetu z varování + 1 min, jinak `pauseMinutes` od přijetí. Tick do té doby nezačne novou
-   * zakázku; rozpracovaná zakázka pokračuje.
+   * Q4-B: doložená varování CLI o blížícím se limitu se zapíší trvale do runs/limit-warning.json (jen pod lease ticku).
+   * Každé platí do doloženého resetu z varování + 1 min, jinak `pauseMinutes` od přijetí. FIX1 nález 6: záznam vede
+   * blokace po zdrojích (claude / codex / …). Nevypršenou blokaci zdroje nové varování jiného zdroje nepřepíše a
+   * varování téhož zdroje ji nezkrátí: platí nejpozdější `until` každého zdroje. Tick do nejpozdějšího `until` ze všech
+   * zdrojů nezačne novou zakázku; rozpracovaná zakázka pokračuje.
    */
   private noteLimitWarning(
     order: Order,
     r: StepOutcome,
     role: LogEntry["role"],
   ): void {
-    if (!r.limit_warning || r.limit) return;
+    const notes = r.limit_warnings ?? [];
+    if (!notes.length) return;
     if (!this.d.store.holdsLease()) return;
     const now = this.now();
-    const received = r.received_at ?? now.toISOString();
-    const p = parseReset(
-      r.limit_warning,
-      received,
-      this.d.resetTz ?? "Europe/Prague",
+    const sources = this.liveWarningSources(now.getTime());
+    for (const n of notes) {
+      const received = n.received_at ?? now.toISOString();
+      const p = parseReset(n.text, received, this.d.resetTz ?? "Europe/Prague");
+      const until = p.ok
+        ? new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS)
+        : new Date(
+            Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000,
+          );
+      const rec: WarningRecord = {
+        observed_at: now.toISOString(),
+        received_at: received,
+        order: order.id,
+        role,
+        model: n.model ?? r.model,
+        source: n.source,
+        until: until.toISOString(),
+        reset_source: p.ok ? p.source : "nedoloženo",
+        evidence_hash: createHash("sha256").update(n.text).digest("hex"),
+        excerpt: n.text.slice(0, 300),
+      };
+      const prev = sources[n.source];
+      if (!prev || Date.parse(prev.until) < until.getTime())
+        sources[n.source] = rec;
+      this.log({
+        order: order.id,
+        kind: "info",
+        role,
+        model: n.model ?? r.model,
+        result: `varování CLI (${n.source}) o blížícím se limitu, nová zakázka nezačne do ${sources[n.source].until}`,
+        reason: rec.excerpt as string,
+      });
+    }
+    const latest = Math.max(
+      ...Object.values(sources).map((s) => Date.parse(s.until)),
     );
-    const until = p.ok
-      ? new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS)
-      : new Date(Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000);
-    const rec = {
-      observed_at: now.toISOString(),
-      received_at: received,
-      order: order.id,
-      role,
-      model: r.model,
-      until: until.toISOString(),
-      reset_source: p.ok ? p.source : "nedoloženo",
-      evidence_hash: createHash("sha256").update(r.limit_warning).digest("hex"),
-      excerpt: r.limit_warning.slice(0, 300),
-    };
     this.d.store.writeRunsFile(
       LIMIT_WARNING_FILE,
-      JSON.stringify(redactDeep(rec), null, 2) + "\n",
+      JSON.stringify(
+        redactDeep({ v: 2, until: new Date(latest).toISOString(), sources }),
+        null,
+        2,
+      ) + "\n",
     );
-    this.log({
-      order: order.id,
-      kind: "info",
-      role,
-      model: r.model,
-      result: `varování CLI o blížícím se limitu, nová zakázka nezačne do ${rec.until}`,
-      reason: rec.excerpt,
-    });
   }
 
-  /** Q4-B: ISO `until` platného varování, jinak undefined. Nečitelný záznam platí `pauseMinutes` od jeho zápisu. */
-  private activeLimitWarning(): string | undefined {
+  /**
+   * Nevypršené blokace Q4-B po zdrojích z runs/limit-warning.json. Starý formát (jeden záznam s `until`) = zdroj
+   * "legacy". Nečitelný soubor nebo položka platí `pauseMinutes` od zápisu souboru (fail-closed, ne trvale).
+   */
+  private liveWarningSources(nowMs: number): Record<string, WarningRecord> {
     const f = this.d.store.readRunsFile(LIMIT_WARNING_FILE);
-    if (!f) return undefined;
-    let until: number;
+    if (!f) return {};
+    const fallback = f.mtimeMs + (this.d.pauseMinutes ?? 60) * 60_000;
+    const unreadable = (): WarningRecord => ({
+      until: new Date(fallback).toISOString(),
+      reset_source: "nedoloženo",
+      reason: "nečitelný záznam varování",
+    });
+    let j: unknown;
     try {
-      until = Date.parse(
-        (JSON.parse(f.text) as { until?: string }).until ?? "",
-      );
+      j = JSON.parse(f.text);
     } catch {
-      until = NaN;
+      j = undefined;
     }
-    if (!Number.isFinite(until))
-      until = f.mtimeMs + (this.d.pauseMinutes ?? 60) * 60_000;
-    return until > this.now().getTime()
-      ? new Date(until).toISOString()
-      : undefined;
+    if (!j || typeof j !== "object")
+      return fallback > nowMs ? { nečitelný: unreadable() } : {};
+    const o = j as { sources?: unknown };
+    const raw =
+      o.sources && typeof o.sources === "object"
+        ? (o.sources as Record<string, unknown>)
+        : { legacy: j };
+    const out: Record<string, WarningRecord> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const u = Date.parse(String((v as { until?: unknown })?.until ?? ""));
+      if (!Number.isFinite(u)) {
+        if (fallback > nowMs) out[k] = unreadable();
+      } else if (u > nowMs) out[k] = v as WarningRecord;
+    }
+    return out;
+  }
+
+  /** Q4-B: ISO nejpozdějšího `until` platných blokací ze všech zdrojů, jinak undefined. */
+  private activeLimitWarning(): string | undefined {
+    const live = Object.values(this.liveWarningSources(this.now().getTime()));
+    if (!live.length) return undefined;
+    return new Date(
+      Math.max(...live.map((s) => Date.parse(s.until))),
+    ).toISOString();
   }
 
   async step(order: Order): Promise<Order> {
@@ -2483,7 +2529,7 @@ export class Orchestrator {
               model: this.d.supervisor.model,
               received_at: r.received_at,
               limit_text: r.limit_text,
-              limit_warning: r.limit_warning,
+              limit_warnings: warningsOf(r, this.d.supervisor.model),
             };
             if (!r.ok) return this.bad(order, supOutcome, "supervisor")!;
             this.noteLimitWarning(order, supOutcome, "supervisor");
@@ -2569,7 +2615,7 @@ export class Orchestrator {
             model: this.d.briefChecker.model,
             received_at: c.received_at,
             limit_text: c.limit_text,
-            limit_warning: c.limit_warning,
+            limit_warnings: warningsOf(c, this.d.briefChecker.model),
           };
           if (!c.ok) return this.bad(order, chkOutcome, "checker")!;
           this.noteLimitWarning(order, chkOutcome, "checker");

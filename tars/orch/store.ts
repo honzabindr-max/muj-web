@@ -103,13 +103,47 @@ export interface PanelLease {
 /** Zámek panelu zakázky drží živý (nebo neprokazatelný) držitel, nebo náš fence už neplatí: HOLD, nic se nezapíše. */
 export class PanelLockHoldError extends Error {}
 
-/** Atomic, durable replace of a small file: unique tmp + fsync + rename + fsync of the directory. */
+/** fsync adresáře: jeho položky (nový soubor, rename, nový podadresář) přežijí výpadek napájení. */
+function fsyncDir(dir: string): void {
+  const dfd = fs.openSync(dir, "r");
+  try {
+    fs.fsyncSync(dfd);
+  } finally {
+    fs.closeSync(dfd);
+  }
+}
+
+/**
+ * FIX1 nález 5: `mkdir -p`, který nově vytvořené adresáře zapíše trvale: fsync rodiče každého nového adresáře
+ * (od nejhlubšího po první vytvořený). Existující adresář = žádný fsync navíc.
+ */
+export function mkdirDurable(dir: string): void {
+  const first = fs.mkdirSync(dir, { recursive: true });
+  if (!first) return;
+  const stop = path.resolve(first);
+  for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+    fsyncDir(path.dirname(d));
+    if (d === stop || path.dirname(d) === d) break;
+  }
+}
+
+/**
+ * Atomic, durable replace of a small file: unique tmp + full write + fsync + rename + fsync of the directory.
+ * FIX1 nález 4: `fs.writeSync` smí zapsat méně bajtů, než dostal; zapisuje se ve smyčce, dokud není zapsáno vše.
+ * Zápis, který nepostoupí, je chyba: rename neproběhne, tmp se smaže a původní soubor zůstane beze změny.
+ */
 export function writeDurable(file: string, content: string): void {
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  const buf = Buffer.from(content, "utf8");
   try {
     const fd = fs.openSync(tmp, "wx");
     try {
-      fs.writeSync(fd, content);
+      let off = 0;
+      while (off < buf.length) {
+        const n = fs.writeSync(fd, buf, off, buf.length - off);
+        if (!(n > 0)) throw new Error(`writeDurable: krátký zápis ${off}/${buf.length} B do ${path.basename(tmp)}`);
+        off += n;
+      }
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
@@ -118,12 +152,7 @@ export function writeDurable(file: string, content: string): void {
   } finally {
     fs.rmSync(tmp, { force: true });
   }
-  const dfd = fs.openSync(path.dirname(file), "r");
-  try {
-    fs.fsyncSync(dfd);
-  } finally {
-    fs.closeSync(dfd);
-  }
+  fsyncDir(path.dirname(file));
 }
 
 export class Store {
@@ -135,12 +164,13 @@ export class Store {
   private static ownStart: string | undefined;
 
   constructor(public readonly runsDir: string) {
-    fs.mkdirSync(runsDir, { recursive: true });
+    mkdirDurable(runsDir);
   }
 
+  /** Adresář zakázky; nově vytvořený se zapíše trvale i do rodičovského runs/ (FIX1 nález 5). */
   orderDir(id: string): string {
     const d = path.join(this.runsDir, id);
-    fs.mkdirSync(d, { recursive: true });
+    mkdirDurable(d);
     return d;
   }
 
@@ -221,7 +251,7 @@ export class Store {
    */
   writeFile(id: string, name: string, content: string): string {
     const p = path.join(this.orderDir(id), name);
-    fs.mkdirSync(path.dirname(p), { recursive: true });
+    mkdirDurable(path.dirname(p));
     writeDurable(p, content);
     return p;
   }

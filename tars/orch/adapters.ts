@@ -64,10 +64,16 @@ export interface AdapterResult {
   duration_ms: number;
   /** Etapa 4 PR 1: ISO okamžik konce runProcess; od něj se počítá relativní reset (§10.3). */
   received_at?: string;
-  /** Etapa 4 PR 1: surový text hlášky limitu (jen při limit), vstup pro parseReset. */
+  /**
+   * Etapa 4 PR 1: hláška limitu (jen při limit), vstup pro parseReset. FIX1 nález 1: jen ze strukturované chybové
+   * obálky CLI (claude -p JSON s `is_error: true`), nikdy z textu modelu, stdout ani přepisu promptu. Bez obálky
+   * pole chybí a reset je „nedoloženo“ (pauseMinutes).
+   */
   limit_text?: string;
   /** Etapa 4 PR 1, Q4-B: doložené varování CLI o blížícím se limitu (řádek ze stderr), jen když limit není. */
   limit_warning?: string;
+  /** FIX1 nález 6: zdroj limitu/varování (účet CLI: "claude", "codex", …); blokace Q4-B se vedou po zdrojích. */
+  limit_source?: string;
 }
 
 export interface TextAdapter {
@@ -105,13 +111,23 @@ export function looksLikeLimit(text: string): boolean {
   return LIMIT_RE.test(text) || isApiRetryRateLimit(text);
 }
 
-/** Pole limitu pro AdapterResult: hláška limitu pro parseReset, okamžik přijetí a doložené varování (Q4-B). */
-function limitFields(limit: boolean, limitText: string, cliStderr: string, receivedAt: string): Pick<AdapterResult, "limit_text" | "received_at" | "limit_warning"> {
-  const warning = limit ? undefined : limitWarning(cliStderr);
+/**
+ * Pole limitu pro AdapterResult (FIX1 nálezy 1 a 2). `envelopeError` = text strukturované chybové obálky CLI, jinak
+ * undefined (žádný doložený čas resetu). `warning` = varování už ověřené `limitWarning` nad stderr bez promptu a textu
+ * modelu, jinak undefined. Při limitu se varování nezapisuje (pauzu řídí limit).
+ */
+function limitFields(
+  limit: boolean,
+  envelopeError: string | undefined,
+  warning: string | undefined,
+  receivedAt: string,
+  source: string,
+): Pick<AdapterResult, "limit_text" | "received_at" | "limit_warning" | "limit_source"> {
   return {
     received_at: receivedAt,
-    ...(limit ? { limit_text: limitText.slice(-4000) } : {}),
-    ...(warning ? { limit_warning: warning } : {}),
+    limit_source: source,
+    ...(limit && envelopeError ? { limit_text: envelopeError.slice(-4000) } : {}),
+    ...(!limit && warning ? { limit_warning: warning } : {}),
   };
 }
 
@@ -211,10 +227,13 @@ export class ClaudeCli implements TextAdapter {
     );
     let text = "";
     let isError = r.code !== 0;
+    // FIX1 nález 1: chybová obálka CLI (`is_error: true`) je jediný zdroj času resetu; text modelu ani stderr nejsou.
+    let envelopeError: string | undefined;
     try {
       const j = JSON.parse(r.stdout) as { result?: string; is_error?: boolean };
       text = j.result ?? "";
       isError = isError || Boolean(j.is_error);
+      if (j.is_error === true && typeof j.result === "string") envelopeError = j.result;
     } catch {
       text = r.stdout;
       isError = true;
@@ -230,7 +249,9 @@ export class ClaudeCli implements TextAdapter {
           ? `exit ${r.code}: ${(text || r.stderr).slice(0, 300)}`
           : undefined,
       duration_ms: r.duration_ms,
-      ...limitFields(limit, `${text}\n${r.stderr}`, r.stderr, r.received_at),
+      // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
+      // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
+      ...limitFields(limit, envelopeError, limitWarning(r.stderr, [prompt, text]), r.received_at, "claude"),
     };
   }
 }
@@ -290,7 +311,9 @@ export class CodexCli implements TextAdapter {
           : `exit ${r.code}: ${lastErrorLine(r.stderr + r.stdout)}`
         : undefined,
       duration_ms: r.duration_ms,
-      ...limitFields(limit, `${r.stderr}\n${r.stdout}`, r.stderr, r.received_at),
+      // FIX1 nálezy 1 a 2: `codex exec` vypisuje na stderr i přepis promptu a průběh modelu (včetně výstupu příkazů),
+      // takže původ žádného řádku nejde ověřit: čas resetu je vždy „nedoloženo“ a varování Q4-B se nebere.
+      ...limitFields(limit, undefined, undefined, r.received_at, "codex"),
     };
   }
 }
@@ -339,7 +362,8 @@ export class AiChain {
       limit,
       error: failed ? (r.timedOut ? "timeout" : `exit ${r.code}`) : undefined,
       duration_ms: r.duration_ms,
-      ...limitFields(limit, `${r.stdout}\n${r.stderr}`, r.stderr, r.received_at),
+      // FIX1 nálezy 1 a 2: run.sh míchá výstupy modelů a promptů; čas resetu „nedoloženo“, varování se nebere.
+      ...limitFields(limit, undefined, undefined, r.received_at, "claude"),
     };
   }
 }

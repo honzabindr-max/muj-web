@@ -5,6 +5,7 @@
 // - Výstup zachová původní offset: { at_utc, at_local, raw_zone, source, evidence_hash }.
 // - `CET`/`CEST` platí jen při shodě se skutečným offsetem Europe/Prague v daném okamžiku.
 // - DST gap/fold bez offsetu, 12h čas bez AM/PM a výsledek dál než 7 dní (nebo v minulosti) = nedoloženo.
+// - FIX1: nerozpoznaný zbytek za časem (zóna „PST“, datum „on Nov 20“, rok, offset) = nedoloženo, nikdy tiché zahození.
 // - `system/api_retry` ze stream-json je jen doklad třídy limitu, nikdy čas resetu (jeho řádky se ignorují).
 import { createHash } from "node:crypto";
 
@@ -153,6 +154,28 @@ function hour24(hRaw: string, ampm: string | undefined, minutes: string | undefi
 
 type Attempt = { ok: true; t: number; offset: number; raw_zone: string | null; source: ResetSource; matched: string } | { ok: false; reason: string } | undefined;
 
+/** Spojky, kterými může hláška CLI za časem pokračovat (jen malá písmena: zkratka zóny jako „PT“ sem nepatří). */
+const CONNECTOR_RE = /^(?:or|to|and|if|for|when|then|please|upgrade|you|your|so|but|until)\b/;
+/** Za koncem věty/oddělovačem nesmí následovat číslo (den, rok) ani měsíc: to by bylo nezpracované datum. */
+const DATEISH_RE = new RegExp(String.raw`^\s*(?:\d|${MONTH_SRC}(?![a-z]))`, "i");
+
+/**
+ * FIX1 nález 3: zbytek za rozpoznaným časem (a zónou) musí být konec hlášky, konec věty/oddělovač nebo spojka.
+ * Cokoli jiného (neznámá zóna „PST“, datum „on Nov 20, 2026“, rok, offset, závorka) = nedoloženo.
+ */
+function tailProblem(rest: string): string | undefined {
+  const r = rest.replace(/^[ \t]+/, "");
+  if (r === "" || /^[\r\n]/.test(r)) return undefined;
+  const bad = `nerozpoznaný zbytek za časem: "${r.slice(0, 40)}"`;
+  // konec věty, oddělovač, nebo konec JSON řetězce/pole/závorky ("resetsAt":"…Z"})
+  if (/^[.;!?·•|—–"'`)\]}]/.test(r)) return DATEISH_RE.test(r.slice(1)) ? bad : undefined;
+  if (r.startsWith(",")) {
+    const a = r.slice(1).replace(/^\s+/, "");
+    return a === "" || CONNECTOR_RE.test(a) ? undefined : bad;
+  }
+  return CONNECTOR_RE.test(r) ? undefined : bad;
+}
+
 function parseTail(tail: string, prep: string | undefined, received: number, defaultTz: string): Attempt {
   const s = tail.replace(/^["'\s:=]+/, "");
   const ep = /^(\d{10}|\d{13})\b/.exec(s);
@@ -160,6 +183,8 @@ function parseTail(tail: string, prep: string | undefined, received: number, def
   if (prep?.toLowerCase() === "in" || prep?.toLowerCase() === "after" || /^in\s+\d/i.test(s)) {
     const r = REL_RE.exec(s);
     if (!r) return { ok: false, reason: "relativní čas bez čísla a jednotky" };
+    const tp = tailProblem(s.slice(r[0].length));
+    if (tp) return { ok: false, reason: tp };
     let ms = 0;
     const unit: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1000 };
     for (const p of r[1].matchAll(REL_PART_RE)) {
@@ -177,6 +202,8 @@ function parseTail(tail: string, prep: string | undefined, received: number, def
   if (iso) {
     const z = resolveZone(iso[7], defaultTz);
     if (typeof z === "string") return { ok: false, reason: z };
+    const tp = tailProblem(s.slice(iso[0].length));
+    if (tp) return { ok: false, reason: tp };
     const r = toInstant(z, +iso[1], +iso[2], +iso[3], +iso[4], +iso[5], +(iso[6] ?? 0));
     if (!r.ok) return r;
     return { ok: true, t: r.t, offset: r.offset, raw_zone: z.raw, source: "iso", matched: iso[0].trim() };
@@ -202,6 +229,8 @@ function parseTail(tail: string, prep: string | undefined, received: number, def
   const zm = CLOCK_ZONE_RE.exec(after);
   const z = resolveZone(zm?.[1], defaultTz);
   if (typeof z === "string") return { ok: false, reason: z };
+  const tp = tailProblem(after.slice(zm?.[0].length ?? 0));
+  if (tp) return { ok: false, reason: tp };
   const matched = `${md?.[0] ?? ""}${c[0]}${zm?.[0] ?? ""}`.trim();
   if (date) {
     const y = date.y ?? localDate(z, received).y;
@@ -273,13 +302,24 @@ export function parseReset(text: string, received_at: string, defaultTz: string)
 }
 
 /**
- * Q4-B: doložené varování CLI o blížícím se limitu (ne limit sám). Hledá se jen ve výstupu CLI (stderr), nikdy v textu
- * modelu, aby text odpovědi o limitech nebyl doklad. Vrací řádek varování (max 300 znaků), nebo undefined.
+ * Q4-B: doložené varování CLI o blížícím se limitu (ne limit sám). FIX1 nález 2: původ musí být ověřitelný.
+ * Platí jen řádek stderr, který hláškou CLI ZAČÍNÁ (volitelně symbol ⚠/•/! a „Warning:“/„Heads up,“), je krátký
+ * (≤ 300 znaků) a není obsažen v promptu ani v textu modelu (`exclude`). Citace uvnitř věty a přepis promptu nebo
+ * odpovědi modelu proto varováním nejsou. Adaptér smí předat jen stderr CLI, které prompt ani průběh modelu nevypisuje
+ * (claude -p); u CLI, které je vypisuje (codex exec, ai-chain), se varování nebere vůbec.
+ * Vrací řádek varování (max 300 znaků), nebo undefined.
  */
-const WARN_RE =
-  /(approaching (?:your |the )?(?:\S+ )?(?:usage |session |weekly )?limit|close to (?:your |the )?(?:\S+ )?(?:usage )?limit|(?:you'?ve |you have )?used (?:over |more than )?\d{2,3}\s?% of (?:your |the )?(?:\S+ )?(?:usage |session |weekly )?limit)/i;
+const WARN_CORE = String.raw`(?:approaching (?:your |the )?(?:\S+ )?(?:usage |session |weekly )?limit|close to (?:your |the )?(?:\S+ )?(?:usage )?limit|(?:you'?ve |you have )?used (?:over |more than )?\d{2,3}\s?% of (?:your |the )?(?:\S+ )?(?:usage |session |weekly )?limit)`;
+const WARN_LINE_RE = new RegExp(String.raw`^(?:[⚠⚡!*•·>-]\uFE0F?\s*)*(?:(?:warning|heads up|note)\s*[:,!]?\s*)?${WARN_CORE}`, "i");
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
-export function limitWarning(cliOutput: string): string | undefined {
-  for (const line of cliOutput.split("\n")) if (WARN_RE.test(line)) return line.trim().slice(0, 300);
+export function limitWarning(cliStderr: string, exclude: string[] = []): string | undefined {
+  const quoted = exclude.map((e) => e.replace(ANSI_RE, ""));
+  for (const raw of cliStderr.split("\n")) {
+    const line = raw.replace(ANSI_RE, "").trim();
+    if (!line || line.length > 300) continue;
+    if (quoted.some((e) => e.includes(line))) continue; // přepis promptu nebo textu modelu
+    if (WARN_LINE_RE.test(line)) return line;
+  }
   return undefined;
 }

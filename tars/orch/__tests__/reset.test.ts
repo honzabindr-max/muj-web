@@ -553,8 +553,11 @@ describe("Q4-B: po doloženém varování nezačínat novou zakázku", () => {
       fs.readFileSync(path.join(dir, LIMIT_WARNING_FILE), "utf8"),
     );
     expect(rec.until).toBe("2026-11-04T14:01:00.000Z");
-    expect(rec.evidence_hash).toBe(sha(warn));
-    expect(rec.reset_source).toBe("clock");
+    // FIX1 nález 6: záznam po zdrojích; mock bez limit_source → zdroj = model tvůrce
+    const [src] = Object.values(rec.sources) as Array<Record<string, string>>;
+    expect(src.until).toBe("2026-11-04T14:01:00.000Z");
+    expect(src.evidence_hash).toBe(sha(warn));
+    expect(src.reset_source).toBe("clock");
     const calls = supervisor.calls.length;
     t = t0 + 60 * 60_000;
     expect(await o.tick()).toEqual({
@@ -605,16 +608,18 @@ describe("trvalé zápisy (§0 bod 4)", () => {
     const rename = vi.spyOn(fs, "renameSync");
     const o = order();
     expect(store.save(o)).toBe(true);
-    expect(fsync).toHaveBeenCalledTimes(2); // soubor a adresář
+    // soubor, adresář zakázky a (FIX1 nález 5) rodičovský runs/, protože adresář zakázky je nový
+    expect(fsync).toHaveBeenCalledTimes(3);
     expect(rename).toHaveBeenCalledTimes(1);
     const [from, to] = rename.mock.calls[0] as [string, string];
     expect(to).toBe(path.join(dir, "wo-dur", "state.json"));
     expect(from).toMatch(/state\.json\..+\.tmp$/);
     // fsync souboru proběhl před rename (pořadí volání)
-    expect(fsync.mock.invocationCallOrder[0]).toBeLessThan(
+    // [0] = runs/ po vytvoření adresáře zakázky, [1] = soubor (před rename), [2] = adresář zakázky (po rename)
+    expect(fsync.mock.invocationCallOrder[1]).toBeLessThan(
       rename.mock.invocationCallOrder[0],
     );
-    expect(fsync.mock.invocationCallOrder[1]).toBeGreaterThan(
+    expect(fsync.mock.invocationCallOrder[2]).toBeGreaterThan(
       rename.mock.invocationCallOrder[0],
     );
     const disk = fs.readFileSync(
@@ -628,6 +633,10 @@ describe("trvalé zápisy (§0 bod 4)", () => {
         .readdirSync(path.join(dir, "wo-dur"))
         .filter((f) => f.endsWith(".tmp")),
     ).toEqual([]);
+    // druhý save do existujícího adresáře: jen soubor + adresář
+    fsync.mockClear();
+    expect(store.save(o)).toBe(true);
+    expect(fsync).toHaveBeenCalledTimes(2);
   });
 
   it("Store.save: když fsync selže, stav se nepřepíše a nezůstane tmp", () => {
@@ -648,6 +657,9 @@ describe("trvalé zápisy (§0 bod 4)", () => {
   it("Store.writeFile (výstupy modelů): fsync + rename, obsah beze změny", () => {
     const fsync = vi.spyOn(fs, "fsyncSync");
     const p = store.writeFile("wo-dur", "check-r0.md", "verdikt");
+    expect(fsync).toHaveBeenCalledTimes(3); // + rodičovský runs/ nového adresáře zakázky (FIX1 nález 5)
+    fsync.mockClear();
+    store.writeFile("wo-dur", "check-r1.md", "verdikt");
     expect(fsync).toHaveBeenCalledTimes(2);
     expect(fs.readFileSync(p, "utf8")).toBe("verdikt");
     store.writeFile("wo-dur", "check-r0.md", "přepsáno");

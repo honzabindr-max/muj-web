@@ -36,10 +36,45 @@ export interface StepOutcome {
   error?: string;
   model?: string;
   duration_ms?: number;
-  /** Etapa 4 PR 1 (§10.3): okamžik přijetí hlášky, hláška limitu a doložené varování z adaptéru. */
+  /** Etapa 4 PR 1 (§10.3): okamžik přijetí hlášky a hláška limitu (jen ze strukturované obálky CLI) z adaptéru. */
   received_at?: string;
   limit_text?: string;
-  limit_warning?: string;
+  /**
+   * Q4-B: doložená varování CLI o blížícím se limitu ze VŠECH volání adaptérů v kroku (FIX1 nález 7: i z meta-kontroly
+   * brány), každé se svým zdrojem (FIX1 nález 6).
+   */
+  limit_warnings?: LimitWarningNote[];
+}
+
+/** FIX1 nálezy 6 a 7: jedno doložené varování CLI o blížícím se limitu a jeho zdroj (účet CLI). */
+export interface LimitWarningNote {
+  source: string;
+  text: string;
+  received_at?: string;
+  model?: string;
+}
+
+/** Varování z výsledku adaptéru (prázdné, když žádné není nebo jde o limit). */
+export function warningsOf(
+  r: Pick<AdapterResult, "limit" | "limit_warning" | "limit_source" | "received_at"> | undefined,
+  model?: string,
+): LimitWarningNote[] {
+  if (!r?.limit_warning || r.limit) return [];
+  return [
+    {
+      source: r.limit_source ?? model ?? "neznámý",
+      text: r.limit_warning,
+      ...(r.received_at ? { received_at: r.received_at } : {}),
+      ...(model ? { model } : {}),
+    },
+  ];
+}
+
+/** FIX1 nález 7: k výsledku kroku přidá varování dalších volání adaptérů (bez duplicit), nic nezahodí. */
+export function carryWarnings<T extends StepOutcome>(o: T, notes: LimitWarningNote[]): T {
+  const all = [...(o.limit_warnings ?? []), ...notes];
+  const uniq = all.filter((n, i) => all.findIndex((m) => m.source === n.source && m.text === n.text) === i);
+  return uniq.length ? { ...o, limit_warnings: uniq } : o;
 }
 
 export interface CheckOutcome extends StepOutcome {
@@ -202,7 +237,7 @@ function fromAdapter(r: AdapterResult, model: string): StepOutcome {
     ...(r.waitReview ? { waiting_review: true } : {}),
     ...(r.received_at ? { received_at: r.received_at } : {}),
     ...(r.limit_text ? { limit_text: r.limit_text } : {}),
-    ...(r.limit_warning ? { limit_warning: r.limit_warning } : {}),
+    ...(warningsOf(r, model).length ? { limit_warnings: warningsOf(r, model) } : {}),
   };
 }
 
@@ -299,7 +334,7 @@ ${verdictFormatFor(this.checker)}`;
     const { r, v } = await callChecker(this.checker, prompt, ctx.store.orderDir(order.id));
     if (!r.ok) return fromAdapter(r, this.checkerModel());
     ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
-    if (!v) return { ok: false, error: "checker verdict unparseable", model: this.checkerModel(), duration_ms: r.duration_ms };
+    if (!v) return carryWarnings({ ok: false, error: "checker verdict unparseable", model: this.checkerModel(), duration_ms: r.duration_ms }, warningsOf(r, this.checkerModel()));
     return { ...fromAdapter(r, this.checkerModel()), verdict: v.verdict, issues: v.issues };
   }
 
@@ -423,7 +458,7 @@ ${verdictFormatFor(this.reviewer)}`;
     const { r, v } = await callChecker(this.reviewer, prompt, wt);
     if (!r.ok) return fromAdapter(r, this.checkerModel());
     ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
-    if (!v) return { ok: false, error: "reviewer verdict unparseable", model: this.checkerModel() };
+    if (!v) return carryWarnings({ ok: false, error: "reviewer verdict unparseable", model: this.checkerModel() }, warningsOf(r, this.checkerModel()));
     return { ...fromAdapter(r, this.checkerModel()), verdict: v.verdict, issues: v.issues };
   }
 
@@ -608,7 +643,10 @@ export class VizualDepartment implements DepartmentRunner {
     ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
     const g = structured ? parseStructuredVerdict(r.text, GATE_VERDICTS) : parseGateVerdict(r.text);
     if (!g && structured) return { ...fromAdapter(r, this.checkerModel()), ...unverifiable("verdikt brány není validní JSON podle schématu") };
-    if (!g) return { ok: false, error: "gate verdict unparseable", model: this.checkerModel() };
+    if (!g) return carryWarnings({ ok: false, error: "gate verdict unparseable", model: this.checkerModel() }, warningsOf(r, this.checkerModel()));
+    // FIX1 nález 7: varování brány (r) i meta-kontroly (mr) se nesmí ztratit v žádné větvi.
+    const gateNotes = warningsOf(r, this.checkerModel());
+    let metaNotes: LimitWarningNote[] = [];
     if (this.gateMeta) {
       const mp = `Jsi KONTROLOR verdiktu brány (Claude, jiná rodina než brána GPT). Ověř jen formu a doložení, ne produkt:
 1. verdikt je přesně jedna ze 4 hodnot Build OS P1.6;
@@ -617,11 +655,12 @@ export class VizualDepartment implements DepartmentRunner {
 ZADÁNÍ:\n${briefMarkdown(order.brief!)}\n\nVERDIKT BRÁNY:\n${r.text}\n\n${VERDICT_FORMAT}`;
       const mr = await this.gateMeta.run(mp, { cwd: ctx.store.orderDir(order.id) });
       const mv = mr.ok ? parseVerdict(mr.text) : undefined;
-      if (!mr.ok) return fromAdapter(mr, `meta ${this.gateMeta.model}`);
-      if (mv?.verdict !== "PASS") return { ok: false, error: `gate meta-check ${mv?.verdict ?? "unparseable"}: ${(mv?.issues ?? []).join("; ")}`, model: this.checkerModel() };
+      metaNotes = warningsOf(mr, `meta ${this.gateMeta.model}`);
+      if (!mr.ok) return carryWarnings(fromAdapter(mr, `meta ${this.gateMeta.model}`), gateNotes);
+      if (mv?.verdict !== "PASS") return carryWarnings({ ok: false, error: `gate meta-check ${mv?.verdict ?? "unparseable"}: ${(mv?.issues ?? []).join("; ")}`, model: this.checkerModel() }, [...gateNotes, ...metaNotes]);
     }
     const m = mapGateVerdict(g.verdict);
-    return { ...fromAdapter(r, this.checkerModel()), verdict: m.verdict, issues: m.owner ? [`CONTROL TOWER EXCEPTION: ${g.issues.join("; ")}`] : g.issues };
+    return carryWarnings({ ...fromAdapter(r, this.checkerModel()), verdict: m.verdict, issues: m.owner ? [`CONTROL TOWER EXCEPTION: ${g.issues.join("; ")}`] : g.issues }, metaNotes);
   }
 
   async deliver(order: Order, ctx: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
