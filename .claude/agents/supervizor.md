@@ -119,4 +119,4 @@ Technické artefakty (Technical Architecture, Time-Domain, T-ASTRO, Golden fixtu
 - Komerční tvar funnelu a cena (č. 1) · finální globální název a značka (č. 2) · platební partner (č. 3) · opakovaný příjem (č. 4) · formát produkčního výstupu (č. 5) · ephemeris provider (č. 6) · model lokalizace (č. 7).
 - LOCK milníků, Control Tower Exception, právní rámec.
 - Vizuální směr, copy preference, scope/cost trade-off, launch GO/NO-GO (Build OS §3 bod 10).
-- Merge do `main` a cokoli nevratného (DR-022, TARS-ORCH-001 §5).
+- GO k merge do `main` (merge pak dělá TARS, DR-024) a cokoli nevratného (TARS-ORCH-001 §5).
