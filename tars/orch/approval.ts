@@ -58,30 +58,6 @@ export function parseReadback(
 }
 
 /**
- * Po znovuvydání karty (`cli.ts reissue`) platí rozhodnutí vlastníka jen tehdy, když vzniklo PO `reissued_at`
- * (a po `notBefore`, posledním vlastním zápisu řádku panelu orchestrátorem, který také mění last_edited_time).
- * Neznámý nebo nečitelný čas rozhodnutí = nepřijmout (čekat). Staré GO se tak nikdy nepřebírá.
- */
-export function decisionFresh(
-  reissuedAt: string,
-  decidedAt: string | undefined,
-  notBefore?: string,
-): boolean {
-  const decided = decidedAt ? Date.parse(decidedAt) : NaN;
-  const reissued = Date.parse(reissuedAt);
-  if (Number.isNaN(decided) || Number.isNaN(reissued)) return false;
-  if (decided <= reissued + CLOCK_MARGIN_MS) return false;
-  const own = notBefore ? Date.parse(notBefore) : NaN;
-  return Number.isNaN(own) || decided > own + CLOCK_MARGIN_MS;
-}
-
-/**
- * Rezerva na rozdíl hodin Mac ↔ Notion a na zaokrouhlení `last_edited_time` na minuty: rozhodnutí musí být aspoň
- * o 2 minuty novější než hranice. Ťuknutí těsně po zápisu se nepočítá (vlastník ťukne znovu), nikdy naopak.
- */
-export const CLOCK_MARGIN_MS = 2 * 60_000;
-
-/**
  * Důvod, proč GO nesmí do DONE (undefined = smí). Platí současně:
  *  - existuje `delivered_url` a `approved_hash`,
  *  - `artifact_hash === approved_hash` (vlastník schválil právě tento obsah),

@@ -129,12 +129,12 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       if (ev.option) next.meta = { ...order.meta, owner_option: ev.option };
       break;
     case "reissue":
-      // Stará karta a všechna owner-pole zmizí (staré GO se nikdy nepřebírá); `reissued_at` je hranice pro nové GO.
-      // Hodnota „Rozhodnutí vlastníka“ se při znovuvydání nečte: výchozí hodnotu zjistí orchestrátor až po zápisu nové
-      // karty do řádku (`meta.reissue_seen`, `meta.reissue_seen_card`), proto se zde mažou i všechna `reissue_*` pole.
+      // Stará karta a všechna owner-pole zmizí (staré GO se nikdy nepřebírá). `reissue_round` je kolo karty: zakázka
+      // dostane pro toto kolo nový řádek panelu a rozhodnutí se čte jen z něj (starý řádek je SUPERSEDED).
       next.meta = {
         ...Object.fromEntries(Object.entries(order.meta).filter(([k]) => !k.startsWith("owner_") && !k.startsWith("reissue_") && k !== "readback")),
         reissued_at: now,
+        reissue_round: String(reissueRound(order) + 1),
       };
       next.owner_card_url = undefined;
       next.owner_reasons = undefined;
@@ -166,6 +166,15 @@ export function ownerEventFor(value: unknown): Extract<OrderEvent, { type: "owne
     default:
       return undefined;
   }
+}
+
+/** Kolo karty (`meta.reissue_round`): 0 = karta nikdy znovuvydaná. Nečitelná hodnota vyhodí chybu (nic se nepřijme). */
+export function reissueRound(order: Order): number {
+  const raw = order.meta.reissue_round;
+  if (raw === undefined) return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new TransitionError(`neplatné meta.reissue_round: ${String(raw).slice(0, 20)}`);
+  return n;
 }
 
 export function maxFix(order: Order): number {

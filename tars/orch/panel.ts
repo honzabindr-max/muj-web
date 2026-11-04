@@ -128,7 +128,25 @@ export function panelRow(o: Order, creator: string, checker: string): PanelRow {
   };
 }
 
-/** Rozhodnutí vlastníka z řádku panelu a čas poslední změny řádku (undefined = neznámý). */
+/** Stav starého řádku panelu po znovuvydání karty. Rozhodnutí na takovém řádku se nikdy nepřijme. */
+export const SUPERSEDED_STATE = "SUPERSEDED";
+
+/**
+ * Starý řádek po znovuvydání karty: Stav SUPERSEDED, fronta Hotové, nečeká na vlastníka, odkaz na nový řádek. Odkaz
+ * „Karta rozhodnutí“ se vyprázdní, aby starý řádek neukazoval žádnou kartu. „Rozhodnutí vlastníka“ v PanelRow není (P20).
+ */
+export function supersededRow(o: Order, creator: string, checker: string, newRowId: string): PanelRow {
+  return {
+    ...panelRow(o, creator, checker),
+    Stav: SUPERSEDED_STATE,
+    Fronta: "3 · Hotové",
+    "Čeká na vlastníka": "__NO__",
+    "Poslední krok": `karta znovuvydána → nový řádek ${newRowId}`,
+    "Karta rozhodnutí": null,
+  };
+}
+
+/** Rozhodnutí vlastníka z řádku panelu (undefined = prázdné). */
 export interface OwnerRow {
   decision?: string;
   last_edited_time?: string;
@@ -144,18 +162,24 @@ export interface OwnerRow {
   card?: string | null;
 }
 
+/** Omezení dohledání řádku: vynechat vyřazené řádky a (po znovuvydání) vzít jen řádek s odkazem na tuto kartu. */
+export interface FindRowOptions {
+  exclude?: string[];
+  card?: string;
+}
+
 export interface PanelSink {
   /** Creates or updates the row; returns the row page id. Throws on failure. */
   upsert(row: PanelRow, existingPageId?: string): Promise<string>;
   /** Raw value of the owner-only select „Rozhodnutí vlastníka“ of a row (undefined = empty). Read-only. */
   readOwnerDecision?(pageId: string): Promise<string | undefined>;
-  /** Totéž i s časem poslední změny řádku (`last_edited_time`, Notion REST); potřeba pro GO po znovuvydání karty. */
+  /** Totéž i se spolehlivostí čtení a odkazem „Karta rozhodnutí“ (Notion REST); potřeba pro GO po znovuvydání karty. */
   readOwnerRow?(pageId: string): Promise<OwnerRow>;
   /**
    * Finds the row of an order by its „ID zakázky“ (REST data source query with a filter, never SQL/rows through MCP).
    * Used after a create of unknown outcome, before any new row is created. Returns the page id or undefined.
    */
-  findRowByOrderId?(orderId: string): Promise<string | undefined>;
+  findRowByOrderId?(orderId: string, opts?: FindRowOptions): Promise<string | undefined>;
 }
 
 const text = (s: string | null | undefined) => ({ rich_text: s ? [{ type: "text", text: { content: s.slice(0, 2000) } }] : [] });
@@ -314,6 +338,12 @@ export class McpPanelSink implements PanelSink {
   }
 }
 
+interface FoundRow {
+  id?: string;
+  in_trash?: boolean;
+  properties?: Record<string, { url?: string | null }>;
+}
+
 /** Most pages read when looking a row up by order id (a filtered result is normally a single row). */
 const FIND_MAX_PAGES = 5;
 
@@ -341,10 +371,14 @@ export class RestPanelSink implements PanelSink {
     }
   }
 
-  async findRowByOrderId(orderId: string): Promise<string | undefined> {
+  async findRowByOrderId(orderId: string, opts: FindRowOptions = {}): Promise<string | undefined> {
+    const excluded = new Set((opts.exclude ?? []).map((x) => x.replace(/-/g, "")));
+    // Po znovuvydání karty: vyřazený řádek se nikdy nevezme a platí jen řádek s odkazem na aktuální kartu.
+    const matches = (r: FoundRow) =>
+      Boolean(r.id) && !r.in_trash && !excluded.has(r.id!.replace(/-/g, "")) && (opts.card === undefined || r.properties?.["Karta rozhodnutí"]?.url === opts.card);
     let cursor: string | undefined;
     for (let page = 0; page < FIND_MAX_PAGES; page++) {
-      const j = await this.api.request<{ results?: Array<{ id?: string; in_trash?: boolean }>; has_more?: boolean; next_cursor?: string | null }>(
+      const j = await this.api.request<{ results?: FoundRow[]; has_more?: boolean; next_cursor?: string | null }>(
         "POST",
         `/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`,
         {
@@ -354,7 +388,7 @@ export class RestPanelSink implements PanelSink {
           ...(cursor ? { start_cursor: cursor } : {}),
         },
       );
-      const hit = (j.results ?? []).find((r) => r.id && !r.in_trash);
+      const hit = (j.results ?? []).find(matches);
       if (hit?.id) return hit.id.replace(/-/g, "");
       if (!j.has_more) return undefined; // the whole result was read and holds no live row: it does not exist
       if (!j.next_cursor) break;
@@ -408,11 +442,11 @@ export class HybridPanelSink implements PanelSink {
 
   async readOwnerRow(pageId: string): Promise<OwnerRow> {
     if (this.rest.readOwnerRow) return this.rest.readOwnerRow(pageId);
-    return { decision: await this.rest.readOwnerDecision!(pageId) }; // bez času: po znovuvydání se GO nepřijme
+    return { decision: await this.rest.readOwnerDecision!(pageId) }; // bez readable/card: po znovuvydání se GO nepřijme
   }
 
-  findRowByOrderId(orderId: string): Promise<string | undefined> {
-    return this.rest.findRowByOrderId!(orderId);
+  findRowByOrderId(orderId: string, opts?: FindRowOptions): Promise<string | undefined> {
+    return this.rest.findRowByOrderId!(orderId, opts);
   }
 }
 
@@ -433,11 +467,54 @@ export class PanelIndex {
   get(orderId: string): string | undefined {
     return this.read()[orderId];
   }
-  /** Setting the page id also clears the „unknown outcome“ mark. */
-  set(orderId: string, pageId: string): void {
+  /**
+   * Setting the page id also clears the „unknown outcome“ mark. Refused (false) for a row retired by a card reissue and
+   * for an older card round: a delayed write of the old row can never point the index back at it. Call under the state lock.
+   */
+  set(orderId: string, pageId: string, round = 0): boolean {
     const all = this.read();
+    if (round < roundOf(all, orderId) || supersededOf(all, orderId).includes(norm(pageId))) return false;
     delete all[`${UNCERTAIN_PREFIX}${orderId}`];
-    this.write({ ...all, [orderId]: pageId });
+    this.write({ ...all, [orderId]: pageId, ...(round > 0 ? { [`${ROUND_PREFIX}${orderId}`]: String(round) } : {}) });
+    return true;
+  }
+  /** Kolo karty, ke kterému patří řádek v indexu (0 = zakázka nikdy znovuvydaná). */
+  round(orderId: string): number {
+    return roundOf(this.read(), orderId);
+  }
+  /** Row id kola karty `round`; undefined, když index patří jinému kolu nebo ukazuje na vyřazený řádek. */
+  current(orderId: string, round: number): string | undefined {
+    const all = this.read();
+    const id = all[orderId];
+    if (!id || roundOf(all, orderId) !== round || supersededOf(all, orderId).includes(norm(id))) return undefined;
+    return id;
+  }
+  /** Řádky vyřazené znovuvydáním karty: index na ně už nikdy neukáže a jejich rozhodnutí se nikdy nepřijme. */
+  superseded(orderId: string): string[] {
+    return supersededOf(this.read(), orderId);
+  }
+  /**
+   * Znovuvydání karty (pod stavovým zámkem): dosavadní řádek se vyřadí a index patří kolu `round`, zatím bez řádku.
+   * Nový řádek vznikne až s novou kartou s otiskem (`Orchestrator.syncPanel`).
+   */
+  retire(orderId: string, round: number): void {
+    const all = this.read();
+    const old = all[orderId];
+    const list = supersededOf(all, orderId);
+    if (old && !list.includes(norm(old))) list.push(norm(old));
+    delete all[orderId];
+    delete all[`${UNCERTAIN_PREFIX}${orderId}`];
+    this.write({ ...all, [`${ROUND_PREFIX}${orderId}`]: String(round), [`${SUPERSEDED_PREFIX}${orderId}`]: JSON.stringify(list) });
+  }
+  /** Vyřazené řádky, které už nesou Stav SUPERSEDED a odkaz na nový řádek. */
+  supersededMarked(orderId: string): string[] {
+    return listOf(this.read()[`${MARKED_PREFIX}${orderId}`]);
+  }
+  markSuperseded(orderId: string, pageId: string): void {
+    const all = this.read();
+    const list = listOf(all[`${MARKED_PREFIX}${orderId}`]);
+    if (!list.includes(norm(pageId))) list.push(norm(pageId));
+    this.write({ ...all, [`${MARKED_PREFIX}${orderId}`]: JSON.stringify(list) });
   }
   private write(all: Record<string, string>): void {
     const tmp = `${this.file}.tmp`;
@@ -451,13 +528,6 @@ export class PanelIndex {
   isUncertain(orderId: string): boolean {
     return this.read()[`${UNCERTAIN_PREFIX}${orderId}`] === "1";
   }
-  /** Čas posledního vlastního zápisu řádku (jen u znovuvydaných zakázek): změna řádku orchestrátorem není nové GO. */
-  writtenAt(orderId: string): string | undefined {
-    return this.read()[`${WRITTEN_PREFIX}${orderId}`];
-  }
-  setWrittenAt(orderId: string, iso: string): void {
-    this.write({ ...this.read(), [`${WRITTEN_PREFIX}${orderId}`]: iso });
-  }
   clearUncertain(orderId: string): void {
     const all = this.read();
     delete all[`${UNCERTAIN_PREFIX}${orderId}`];
@@ -466,4 +536,26 @@ export class PanelIndex {
 }
 
 const UNCERTAIN_PREFIX = "uncertain:";
-const WRITTEN_PREFIX = "written:";
+const ROUND_PREFIX = "round:";
+const SUPERSEDED_PREFIX = "superseded:";
+const MARKED_PREFIX = "superseded-marked:";
+
+const norm = (id: string) => id.replace(/-/g, "");
+
+/** Nečitelný seznam vyhodí chybu: volající pak nezapisuje ani nepřijímá (čeká), nikdy naopak. */
+function listOf(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  const v = JSON.parse(raw) as unknown;
+  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) throw new Error("panel-index: poškozený seznam řádků");
+  return v.map(norm);
+}
+function supersededOf(all: Record<string, string>, orderId: string): string[] {
+  return listOf(all[`${SUPERSEDED_PREFIX}${orderId}`]);
+}
+function roundOf(all: Record<string, string>, orderId: string): number {
+  const raw = all[`${ROUND_PREFIX}${orderId}`];
+  if (raw === undefined) return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error("panel-index: poškozené kolo karty");
+  return n;
+}

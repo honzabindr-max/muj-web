@@ -3,7 +3,7 @@
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
-import { artifactHash, decisionFresh, goBlocker } from "./approval";
+import { artifactHash, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
@@ -12,11 +12,11 @@ import type { NotionClient } from "./notion";
 import { buildCardData, cardDataSection } from "./card-data";
 import { isUncertainOutcome, NotionRestError } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
-import { panelRow, type OwnerRow, type PanelIndex, type PanelSink } from "./panel";
-import { dropExpiredPanelWrites, finishPanelWrite, foreignCardWrites, readPanelWrites, registerPanelWrite } from "./panel-writes";
+import { panelRow, supersededRow, type PanelIndex, type PanelRow, type PanelSink } from "./panel";
+import { readPanelEffect, reissueRowOp, writePanelEffect, type PanelEffect } from "./panel-effects";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
-import { isActionable, ownerEventFor, transition, TransitionError, type OrderEvent } from "./state-machine";
+import { isActionable, isTerminal, ownerEventFor, reissueRound, transition, TransitionError, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
 import { acceptableCheckNotes, BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
 import { callChecker } from "./departments";
@@ -150,16 +150,18 @@ export class Orchestrator {
   private syncPanel(o: Order): void {
     const panel = this.d.panel;
     if (!panel) return;
-    const rowOf = (x: Order) => {
-      const dept = x.brief ? this.d.departments[x.brief.department] : undefined;
-      return panelRow(x, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
-    };
-    const queued = rowOf(o);
+    const row = this.rowOf(o);
     this.panelQueue = this.panelQueue.then(async () => {
       const t0 = Date.now();
       let creating = false;
-      let cur = o;
       try {
+        // Znovuvydaná zakázka (podle uloženého stavu, ne podle snímku z doby, kdy byl zápis zařazen): vlastní cesta,
+        // každé kolo karty má vlastní řádek panelu.
+        const fresh = this.tryLoad(o.id) ?? o;
+        if (reissueRound(fresh) > 0 || panel.index.round(o.id) > 0) {
+          await this.syncReissuedRow(fresh, t0);
+          return;
+        }
         let existing = panel.index.get(o.id);
         if (!existing && panel.index.isUncertain(o.id)) {
           // An earlier create may have been saved without us seeing the answer: look the row up by order id (REST filter,
@@ -169,55 +171,127 @@ export class Orchestrator {
           if (existing) panel.index.set(o.id, existing);
           else panel.index.clearUncertain(o.id);
         }
-        // Kolo oprav 3: zápis se staršími daty nesmí přepsat novější kartu. Těsně před odesláním (pod stavovým zámkem)
-        // se zápis ohlásí a když uložený stav mezitím nese jinou kartu, zapíše se uložený stav. Po odpovědi se zápis
-        // odhlásí a uložený stav se přečte znovu: změnila-li se karta během zápisu, řádek se hned přepíše (nejvýš 3×).
-        let id = existing;
-        for (let round = 0; ; round++) {
-          const start = cur;
-          const { order, token } = this.d.store.withStateLock(() => {
-            const fresh = this.tryLoad(start.id);
-            const use = fresh && fresh.owner_card_url !== start.owner_card_url ? fresh : start;
-            return { order: use, token: registerPanelWrite(this.d.store.orderDir(use.id), use.owner_card_url ?? null, this.iso()) };
-          }, this.d.stateLockWaitMs);
-          cur = order;
-          const row = round === 0 && cur === o ? queued : rowOf(cur);
-          creating = !id;
-          // Po znovuvydání karty: vlastní zápis řádku mění last_edited_time, za nové GO se proto počítá jen pozdější změna.
-          // Značka PŘED zápisem i po něm: i zápis s chybou nebo nejasným výsledkem mohl řádek v Notionu změnit.
-          this.markOwnTouch(cur);
-          let written: string;
-          try {
-            written = await panel.sink.upsert(row, id);
-          } catch (e) {
-            // Nejasný výsledek: zápis mohl v Notionu ještě proběhnout, ohlášení zůstává do vypršení (PANEL_WRITE_EXPIRY_MS).
-            if (!isUncertainOutcome(e)) this.finishWrite(cur.id, token);
-            throw e;
-          }
-          id = written;
-          panel.index.set(cur.id, written);
-          this.markOwnTouch(cur);
-          if (cur.meta.reissued_at && cur.state === "WAITING_OWNER" && cur.owner_card_url) await this.reissueBaselineAfterWrite(cur, written);
-          const after = this.d.store.withStateLock(() => {
-            finishPanelWrite(this.d.store.orderDir(cur.id), token);
-            return this.tryLoad(cur.id);
-          }, this.d.stateLockWaitMs);
-          if (!after || after.owner_card_url === cur.owner_card_url) break;
-          if (round >= 2) {
-            this.log({ order: cur.id, kind: "error", role: "transport", result: "panel: karta se mění během každého zápisu, řádek může ukazovat starší kartu", reason: "rozhodnutí se z takového řádku nepřijme (poll kontroluje odkaz karty)" });
-            break;
-          }
-          this.log({ order: cur.id, kind: "info", role: "transport", result: "panel: karta se během zápisu změnila, řádek přepsán uloženým stavem" });
-          cur = after;
+        creating = !existing;
+        const id = await panel.sink.upsert(row, existing);
+        // Odmítnuto, když mezitím proběhlo znovuvydání karty: index na starý řádek už nikdy neukáže.
+        if (!this.d.store.withStateLock(() => panel.index.set(o.id, id), this.d.stateLockWaitMs)) {
+          this.log({ order: o.id, kind: "info", role: "transport", result: "panel: zápis doběhl do řádku vyřazeného znovuvydáním karty, index se nemění", duration_ms: Date.now() - t0 });
+          return;
         }
-        this.log({ order: cur.id, kind: "info", role: "transport", result: `panel ${cur.state}`, duration_ms: Date.now() - t0 });
-        await this.pingOwner(cur, id!);
+        this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+        await this.pingOwner(o, id);
       } catch (e) {
         // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
         if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
+  }
+
+  private rowOf(x: Order): PanelRow {
+    const dept = x.brief ? this.d.departments[x.brief.department] : undefined;
+    return panelRow(x, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
+  }
+
+  /**
+   * Zápis řádku znovuvydané zakázky (PR #99, kolo oprav 4). Každé kolo karty (`meta.reissue_round`) má vlastní řádek:
+   *  - zápis cílí jen na row id, které index drží pro kolo uloženého stavu (`PanelIndex.current`); řádek vyřazený
+   *    znovuvydáním se nikdy nepřepisuje daty nové karty a opožděný zápis do něj nový řádek neovlivní,
+   *  - nový řádek vznikne až s novou kartou s otiskem (nebo v koncovém stavu), s prázdným „Rozhodnutí vlastníka“;
+   *    vytvoření jde přes journal efektu `<id>/panel-row-reissue/r<n>` (PREPARED → receipt, `panel-effects.ts`),
+   *  - potom se vyřazené řádky označí SUPERSEDED s odkazem na nový řádek (opakuje se, dokud se nepovede).
+   * Rozhodnutí se do řádku nikdy nezapisuje (P20). Volá se z fronty panelu; chyby vyhazuje do `syncPanel`.
+   */
+  private async syncReissuedRow(o: Order, t0: number): Promise<void> {
+    const panel = this.d.panel!;
+    const round = reissueRound(o);
+    let id = panel.index.current(o.id, round);
+    let created = false;
+    if (!id) {
+      const card = o.owner_card_url && o.meta.approved_hash ? o.owner_card_url : undefined;
+      if (!card && !isTerminal(o.state)) {
+        this.logOnce({ order: o.id, kind: "info", role: "transport", result: "panel: nový řádek po znovuvydání vznikne až s novou kartou s otiskem" });
+        return;
+      }
+      id = await this.createReissuedRow(o, round, card);
+      if (!id) return;
+      created = true;
+    }
+    if (!created) await panel.sink.upsert(this.rowOf(o), id);
+    await this.markSupersededRows(o, id);
+    this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}${created ? " (nový řádek po znovuvydání karty)" : ""}`, duration_ms: Date.now() - t0 });
+    await this.pingOwner(o, id);
+  }
+
+  /**
+   * Vytvoří řádek kola `round` přes journal efektu. Pokus bez receiptu se naslepo neopakuje: řádek se nejdřív dohledá
+   * (REST, „ID zakázky“, bez vyřazených řádků, s odkazem na aktuální kartu). Vrátí row id, nebo undefined, když index
+   * zápis odmítl (zakázka mezitím patří jinému kolu karty).
+   */
+  private async createReissuedRow(o: Order, round: number, card: string | undefined): Promise<string | undefined> {
+    const panel = this.d.panel!;
+    const dir = this.d.store.orderDir(o.id);
+    const op = reissueRowOp(o.id, round);
+    const lock = <T>(fn: () => T): T => this.d.store.withStateLock(fn, this.d.stateLockWaitMs);
+    const begin = (): PanelEffect => {
+      const prev = readPanelEffect(dir, op);
+      const at = this.iso();
+      const rec: PanelEffect = { operation_id: op, order: o.id, step: "panel-row-reissue", round, state: "PREPARED", attempts: (prev?.attempts ?? 0) + 1, prepared_at: prev?.prepared_at ?? at, updated_at: at };
+      writePanelEffect(dir, rec);
+      return rec;
+    };
+    // PREPARED se uloží PŘED vytvořením řádku; EFFECT_DONE nebo dřívější PREPARED se jen přečte.
+    const start = lock(() => {
+      const prev = readPanelEffect(dir, op);
+      return prev?.state === "EFFECT_DONE" || prev?.state === "PREPARED" ? { prev, rec: undefined } : { prev, rec: begin() };
+    });
+    let rowId: string | undefined;
+    let rec = start.rec;
+    if (start.prev?.state === "EFFECT_DONE") {
+      rowId = start.prev.receipt?.row_id;
+      if (!rowId) throw new Error(`journal efektu ${op}: EFFECT_DONE bez receiptu`);
+    } else if (!rec) {
+      // Dřívější pokus bez receiptu mohl řádek vytvořit: nejdřív dohledat, nikdy naslepo vytvořit druhý.
+      if (!panel.sink.findRowByOrderId) throw new Error("výsledek dřívějšího vytvoření nového řádku je nejasný, čekám na REST kvůli dohledání");
+      const found = await panel.sink.findRowByOrderId(o.id, { exclude: panel.index.superseded(o.id), card });
+      if (found) {
+        lock(() => writePanelEffect(dir, { ...start.prev!, state: "EFFECT_DONE", receipt: { row_id: found }, recovered: true, updated_at: this.iso() }));
+        rowId = found;
+      } else rec = lock(begin);
+    }
+    if (!rowId) {
+      try {
+        rowId = await panel.sink.upsert(this.rowOf(o));
+      } catch (e) {
+        // Čisté odmítnutí = nic nevzniklo; nejasný výsledek zůstává PREPARED a další pokus začne dohledáním.
+        if (!isUncertainOutcome(e)) lock(() => writePanelEffect(dir, { ...rec!, state: "EFFECT_ABSENT", reason: (e as Error).message.slice(0, 200), updated_at: this.iso() }));
+        throw e;
+      }
+      const created = rowId;
+      lock(() => writePanelEffect(dir, { ...rec!, state: "EFFECT_DONE", receipt: { row_id: created }, updated_at: this.iso() }));
+    }
+    const id = rowId;
+    if (!lock(() => panel.index.set(o.id, id, round))) {
+      this.log({ order: o.id, kind: "error", role: "transport", result: "panel: index odmítl nový řádek (zakázka mezitím patří jinému kolu karty)", reason: op });
+      return undefined;
+    }
+    return id;
+  }
+
+  /** Vyřazené řádky označí SUPERSEDED s odkazem na nový řádek. Selhání se zaloguje a zkusí se při dalším zápisu. */
+  private async markSupersededRows(o: Order, newRowId: string): Promise<void> {
+    const panel = this.d.panel!;
+    const done = panel.index.supersededMarked(o.id);
+    for (const old of panel.index.superseded(o.id).filter((x) => !done.includes(x))) {
+      try {
+        const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
+        await panel.sink.upsert(supersededRow(o, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—", newRowId), old);
+        this.d.store.withStateLock(() => panel.index.markSuperseded(o.id, old), this.d.stateLockWaitMs);
+        this.log({ order: o.id, kind: "info", role: "transport", result: `panel: starý řádek ${old} označen SUPERSEDED → nový řádek ${newRowId}` });
+      } catch (e) {
+        this.log({ order: o.id, kind: "error", role: "transport", result: "panel: označení starého řádku SUPERSEDED selhalo, zkusí se znovu", reason: (e as Error).message.slice(0, 300) });
+      }
+    }
   }
 
   /**
@@ -239,9 +313,7 @@ export class Orchestrator {
       this.tickPingKeys?.add(key);
       const title = current.brief?.title ?? `Nová zakázka ${current.id}`;
       const t0 = Date.now();
-      this.markOwnTouch(current); // komentář může změnit last_edited_time řádku
       const r = await ping.send(pageId, title);
-      this.markOwnTouch(current);
       const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
       if (r.outcome === "sent" || r.outcome === "uncertain") {
         this.d.store.withStateLock(() => {
@@ -259,16 +331,6 @@ export class Orchestrator {
     }
   }
 
-  /** Znovuvydaná zakázka: čas vlastního zásahu do řádku panelu (hranice pro nové GO, `decisionFresh`). Nikdy nevyhazuje. */
-  private markOwnTouch(o: Order): void {
-    if (!o.meta.reissued_at || !this.d.panel) return;
-    try {
-      this.d.panel.index.setWrittenAt(o.id, this.iso());
-    } catch (e) {
-      this.safeLog({ order: o.id, kind: "error", role: "transport", result: "značka vlastního zápisu řádku selhala", reason: (e as Error).message.slice(0, 200) });
-    }
-  }
-
   private tryLoad(id: string): Order | undefined {
     try {
       return this.d.store.load(id);
@@ -277,47 +339,6 @@ export class Orchestrator {
     }
   }
 
-  /** Odhlásí zápis řádku (`panel-writes.ts`). Nikdy nevyhazuje: neodhlášený zápis jen vyprší. */
-  private finishWrite(id: string, token: string): void {
-    try {
-      this.d.store.withStateLock(() => finishPanelWrite(this.d.store.orderDir(id), token), this.d.stateLockWaitMs);
-    } catch (e) {
-      this.safeLog({ order: id, kind: "error", role: "transport", result: "odhlášení zápisu řádku selhalo", reason: (e as Error).message.slice(0, 200) });
-    }
-  }
-
-  /**
-   * Kolo oprav 3, znovuvydaná zakázka: hned po zápisu řádku s novou kartou (před upozorněním vlastníka) se přečte, co
-   * v poli „Rozhodnutí vlastníka“ stojí. To je výchozí hodnota (`meta.reissue_seen` pro kartu `meta.reissue_seen_card`);
-   * rozhodnutím na nové kartě je až pozdější změna. Když se to nepovede, výchozí hodnotu zjistí poll.
-   */
-  private async reissueBaselineAfterWrite(o: Order, pageId: string): Promise<void> {
-    const sink = this.d.panel?.sink;
-    if (!sink?.readOwnerRow) return;
-    try {
-      const dir = this.d.store.orderDir(o.id);
-      const g0 = this.d.store.withStateLock(() => readPanelWrites(dir).gen, this.d.stateLockWaitMs);
-      const row = await sink.readOwnerRow(pageId);
-      this.d.store.withStateLock(() => {
-        const fresh = this.d.store.load(o.id);
-        if (fresh.state !== "WAITING_OWNER" || fresh.meta.reissued_at !== o.meta.reissued_at) return;
-        const card = fresh.owner_card_url;
-        if (!card || !fresh.meta.approved_hash || fresh.meta.reissue_seen_card === card) return;
-        if (row.readable !== true || row.card !== card) return;
-        const w = readPanelWrites(dir);
-        if (w.gen !== g0 || foreignCardWrites(w, card).length) return;
-        this.setBaseline(fresh, card, row.decision ?? "");
-      }, this.d.stateLockWaitMs);
-    } catch (e) {
-      this.safeLog({ order: o.id, kind: "error", role: "transport", result: "výchozí rozhodnutí po zápisu nové karty nepřečteno, zjistí ho poll", reason: (e as Error).message.slice(0, 200) });
-    }
-  }
-
-  /** Uloží výchozí hodnotu rozhodnutí pro kartu `card` (pod stavovým zámkem). Výchozí hodnota se nikdy nepřijímá. */
-  private setBaseline(fresh: Order, card: string, value: string): void {
-    if (!this.persist({ ...fresh, meta: { ...fresh.meta, reissue_seen_card: card, reissue_seen: value } })) return;
-    this.log({ order: fresh.id, kind: "info", role: "orchestrator", result: `výchozí rozhodnutí na nové kartě: ${value || "prázdné"}`, reason: "rozhodnutím na nové kartě je až pozdější změna této hodnoty" });
-  }
 
   /**
    * Běžný tick zkusí znovu upozornění u zakázek ve WAITING_OWNER, kterým komentář neodešel (chybělo oprávnění, stránka
@@ -330,7 +351,7 @@ export class Orchestrator {
     this.panelQueue = this.panelQueue.then(async () => {
       try {
         for (const w of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER")) {
-          const pageId = panel.index.get(w.id);
+          const pageId = panel.index.current(w.id, reissueRound(w));
           if (pageId) await this.pingOwner(w, pageId);
         }
       } catch (e) {
@@ -478,15 +499,17 @@ export class Orchestrator {
     }
     for (const waiting of waitingOrders) {
       try {
-        let pageId = panel.index.get(waiting.id);
+        // Jen řádek aktuálního kola karty (po znovuvydání nový řádek; vyřazený řádek se nikdy nečte).
+        const round = reissueRound(waiting);
+        let pageId = panel.index.current(waiting.id, round);
         if (!pageId) {
           // Every earlier write of this row failed (or its outcome is unknown): sync it now, otherwise the tap could never be read.
           await this.resyncPanel(waiting.id);
-          pageId = panel.index.get(waiting.id);
+          pageId = panel.index.current(waiting.id, round);
           if (!pageId) continue;
         }
-        if (waiting.meta.reissued_at) {
-          await this.readReissuedDecision(waiting, pageId);
+        if (round > 0) {
+          await this.readReissuedDecision(waiting, round, pageId);
           continue;
         }
         const value = await panel.sink.readOwnerDecision(pageId);
@@ -505,61 +528,40 @@ export class Orchestrator {
   }
 
   /**
-   * Rozhodnutí z panelu u znovuvydané zakázky (kolo oprav 3). Přijme se jen změna, kterou orchestrátor viděl vzniknout
-   * na NOVÉ kartě; snímek pořízený před zápisem karty se nepoužívá:
-   *  - řádek je spolehlivě přečtený a jeho odkaz „Karta rozhodnutí“ je přesně aktuální karta s otiskem (jinak se řádek
-   *    přepíše, výchozí hodnota se zahodí a zakázka čeká),
-   *  - od čtení neběží ani neproběhl zápis řádku, který by mohl ukázat jinou kartu (`panel-writes.ts`, gen),
-   *  - pro tuto kartu už existuje výchozí hodnota (`meta.reissue_seen`, zjištěná po zápisu nové karty) a hodnota v panelu
-   *    se od ní liší; první pozorování se jen uloží jako výchozí hodnota, nikdy se nepřijme,
-   *  - platí i `decisionFresh` (čas změny řádku po `reissued_at` a po vlastních zápisech).
+   * Rozhodnutí z panelu u znovuvydané zakázky (PR #99, kolo oprav 4). Čte se jen řádek kola karty `round`, který drží
+   * index (nový řádek vznikl s prázdným rozhodnutím a s novou kartou). Přijme se jen, když:
+   *  - zakázka je pořád ve WAITING_OWNER ve stejném kole a index pořád ukazuje na tento řádek (vyřazený řádek nikdy),
+   *  - existuje nová karta s otiskem (`approved_hash`),
+   *  - řádek je spolehlivě přečtený a jeho odkaz „Karta rozhodnutí“ je přesně aktuální karta (jinak se řádek přepíše
+   *    a zakázka čeká).
    * Orchestrátor do pole „Rozhodnutí vlastníka“ nikdy nezapisuje (P20).
    */
-  private async readReissuedDecision(waiting: Order, pageId: string): Promise<void> {
+  private async readReissuedDecision(waiting: Order, round: number, pageId: string): Promise<void> {
     const panel = this.d.panel!;
-    const dir = this.d.store.orderDir(waiting.id);
-    const g0 = this.d.store.withStateLock(() => readPanelWrites(dir).gen, this.d.stateLockWaitMs);
-    const row: OwnerRow = panel.sink.readOwnerRow ? await panel.sink.readOwnerRow(pageId) : { decision: await panel.sink.readOwnerDecision!(pageId) };
-    const notBefore = panel.index.writtenAt(waiting.id);
+    if (!panel.sink.readOwnerRow) {
+      this.logOnce({ order: waiting.id, kind: "info", role: "transport", result: "rozhodnutí po znovuvydání karty čeká na REST čtení řádku (readOwnerRow)" });
+      return;
+    }
+    const row = await panel.sink.readOwnerRow(pageId);
     let resync = false;
     this.d.store.withStateLock(() => {
       const fresh = this.d.store.load(waiting.id);
-      if (fresh.state !== "WAITING_OWNER" || fresh.meta.reissued_at !== waiting.meta.reissued_at) return;
+      if (fresh.state !== "WAITING_OWNER" || reissueRound(fresh) !== round) return;
+      if (panel.index.current(fresh.id, round) !== pageId) return; // řádek mezitím přestal být aktuální
       const value = row.decision ?? "";
       const ev = ownerEventFor(value || undefined);
+      if (!ev) return;
       const wait = (reason: string) =>
-        this.logOnce({ order: fresh.id, kind: "info", role: "orchestrator", result: `${ev ? `${ev.decision} nepřijato (Notion ${value})` : "rozhodnutí nepřijato"}: čeká na nové GO po znovuvydání karty`, reason });
+        this.logOnce({ order: fresh.id, kind: "info", role: "orchestrator", result: `${ev.decision} nepřijato (Notion ${value}): čeká na rozhodnutí na nové kartě`, reason });
       const card = fresh.owner_card_url;
       if (!card || !fresh.meta.approved_hash) return wait("nová karta s otiskem ještě není vydaná");
-      if (row.readable !== true) return wait("řádek panelu nejde spolehlivě přečíst (koš, chybějící sloupec, sink bez readOwnerRow)");
-      const withoutBaseline = (): Order => {
-        const meta = { ...fresh.meta };
-        delete meta.reissue_seen;
-        delete meta.reissue_seen_card;
-        return { ...fresh, meta };
-      };
-      const expired = dropExpiredPanelWrites(dir, this.now().getTime());
-      if (expired.some((x) => x.card !== card)) {
-        if (fresh.meta.reissue_seen_card !== undefined) this.persist(withoutBaseline());
-        return wait("zápis řádku se starší kartou vypršel bez odpovědi; výchozí hodnota se zjistí znovu");
-      }
+      if (row.readable !== true) return wait("řádek panelu nejde spolehlivě přečíst (koš, chybějící sloupec)");
       if (row.card !== card) {
-        if (fresh.meta.reissue_seen_card !== undefined) this.persist(withoutBaseline());
         resync = true;
         this.log({ order: fresh.id, kind: "error", role: "orchestrator", result: "odkaz „Karta rozhodnutí“ v řádku není aktuální karta s otiskem, řádek se přepíše", reason: `v řádku ${String(row.card ?? "nic").slice(0, 80)}` });
         return wait("řádek panelu ukazoval jinou kartu; rozhodnout se musí na aktuální kartě");
       }
-      const w = readPanelWrites(dir);
-      if (w.gen !== g0 || foreignCardWrites(w, card).length) return wait("zápis řádku, který může ukázat jinou kartu, ještě běží nebo proběhl během čtení");
-      if (fresh.meta.reissue_seen_card !== card) return this.setBaseline(fresh, card, value);
-      const base = fresh.meta.reissue_seen ?? "";
-      if (value === base) {
-        if (ev) wait("rozhodnutí v panelu se od vydání nové karty nezměnilo; vlastník ho musí změnit, nebo smazat a po dalším ticku vybrat znovu");
-        return;
-      }
-      if (!value) return this.setBaseline(fresh, card, ""); // vlastník pole smazal: další vyplněná hodnota je nové rozhodnutí
-      if (!ev) return;
-      this.acceptOwner(fresh, ev, `Notion ${value}`, row.last_edited_time, notBefore);
+      this.acceptOwner(fresh, ev, `Notion ${value}`);
     }, this.d.stateLockWaitMs);
     if (resync) await this.resyncPanel(waiting.id);
   }
@@ -570,12 +572,7 @@ export class Orchestrator {
    * `meta.approved_hash` and `meta.artifact_hash === meta.approved_hash`; then it is recorded in `meta.owner_go`
    * and the order STAYS in WAITING_OWNER until `verifyApprovals` reads the target back. A stale GO is logged, nothing else.
    */
-  private acceptOwner(o: Order, ev: Extract<OrderEvent, { type: "owner" }>, source: string, decidedAt?: string, notBefore?: string): Order {
-    // Po znovuvydání karty platí jen rozhodnutí novější než `reissued_at` (a než vlastní zápis řádku); neznámý čas = čekat.
-    if (o.meta.reissued_at && !decisionFresh(o.meta.reissued_at, decidedAt, notBefore)) {
-      this.logOnce({ order: o.id, kind: "info", role: "orchestrator", result: `${ev.decision} nepřijato (${source}): čeká na nové GO po znovuvydání karty` });
-      return o;
-    }
+  private acceptOwner(o: Order, ev: Extract<OrderEvent, { type: "owner" }>, source: string): Order {
     if (ev.decision === "REJECT") return this.apply(o, ev, { role: "orchestrator", result: `owner REJECT (${source})` });
     if (o.meta.owner_go) return o; // already recorded, waits for the read-back
     const why = !o.meta.approved_hash
@@ -898,16 +895,17 @@ export class Orchestrator {
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
       if (o.state !== "WAITING_OWNER") throw new TransitionError(`illegal transition: ${o.state} --owner-->`);
-      return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`, this.iso());
+      return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`);
     }, this.d.stateLockWaitMs);
   }
 
   /**
    * Znovuvydání karty (`cli.ts reissue`). Není to rozhodnutí vlastníka: jen zakázka ve WAITING_OWNER, jejíž karta nemá
    * `meta.approved_hash` (stará verze před DR-039), se pod stavovým zámkem a CAS vrátí do DELIVERED. Přechod smaže
-   * starou kartu a owner-pole a uloží `meta.reissued_at`; další tick vydá standardní cestou (read-back DRAFTu) novou
-   * kartu s otiskem. Rozhodnutí z Notionu pak platí jen jako změna, kterou orchestrátor viděl vzniknout na nové kartě
-   * (`readReissuedDecision`), a jen když vzniklo po `reissued_at` i po vlastních zásazích do řádku (`decisionFresh`).
+   * starou kartu a owner-pole a zvýší `meta.reissue_round`. Ve stejném zámku index panelu vyřadí dosavadní řádek
+   * (`PanelIndex.retire`): starý řádek se už nikdy nečte ani nepřepisuje daty nové karty. Další tick vydá standardní
+   * cestou (read-back DRAFTu) novou kartu s otiskem a s ní nový řádek s prázdným rozhodnutím; starý řádek dostane
+   * Stav SUPERSEDED. „Rozhodnutí vlastníka“ orchestrátor nikdy nezapisuje (P20).
    */
   async reissue(id: string): Promise<Order> {
     const refusal = (o: Order) =>
@@ -922,6 +920,8 @@ export class Orchestrator {
       if (why) throw new TransitionError(why);
       const next = this.apply(o, { type: "reissue" }, { role: "orchestrator", result: "karta znovuvydána" });
       if (next.state !== "DELIVERED") throw new TransitionError(`znovuvydání odmítnuto: stav zakázky ${id} se mezitím změnil`);
+      // Zápis řádku zařazený v `apply` poběží až po tomto zámku, tedy už s vyřazeným starým řádkem.
+      this.d.panel?.index.retire(id, reissueRound(next));
       this.log({ order: id, kind: "info", role: "orchestrator", result: "karta znovuvydána", reason: "stará karta bez otisku; nová karta s otiskem v příštím ticku, GO musí přijít znovu" });
       return next;
     }, this.d.stateLockWaitMs);
