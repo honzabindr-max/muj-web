@@ -2508,3 +2508,124 @@ describe("smoke 4. 11., pokus 1: prompt smoke nekoliduje s koncovou značkou", (
     expect(r2.error).toMatch(/koncová značka chybí/);
   });
 });
+
+describe("smoke 4. 11. 22:55, pokus 3: nový layout bez article (fixture ze živého běhu)", () => {
+  // reads/read-12.md of the third live smoke (sidebar and user name anonymized): the answer "OK" + the end marker in
+  // the message under the heading "ChatGPT řekl:", then the action buttons, the disclaimer, the composer and the open
+  // picker (GPT-6, High 3 of 3). The run ended WAITING_REVIEW "za koncovou značkou následuje další obsah odpovědi".
+  const NONCE3 = "60dda84908";
+  const MARKER3 = `${END_WORD}${NONCE3}`;
+  const S3 = fs.readFileSync(
+    path.join(__dirname, "fixtures", "chatgpt-smoke3-20261104-answer-ok.yml"),
+    "utf8",
+  );
+  const MARKER_LINE = `                      - paragraph [ref=e952]: ${MARKER3}`;
+  /** The fixture with extra lines right after the marker, inside the same message. */
+  const after = (...extra: string[]) =>
+    S3.replace(
+      MARKER_LINE,
+      [MARKER_LINE, ...extra.map((e) => `                      ${e}`)].join(
+        "\n",
+      ),
+    );
+  const run3 = async (pageText: string, schema?: Record<string, unknown>) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const c = new ChatGptWebChecker(new FakeBrowser(() => pageText), {
+      nonce: () => NONCE3,
+    });
+    const r = await c.run(GPT_SMOKE_PROMPT, {
+      cwd: d,
+      ...(schema ? { outputSchema: schema } : {}),
+    });
+    return { r, c };
+  };
+
+  it("fixture: značka je konec odpovědi (disclaimer, kompozér a výběr leží mimo zprávu) → ok a said_ok, model GPT-6 · High odpovídá", async () => {
+    expect(S3).toContain(MARKER_LINE);
+    expect(markerEndsAnswer(S3, MARKER3)).toBe(true);
+    expect(detectModel(S3)).toMatchObject({
+      model: "GPT-6",
+      intensity: "High",
+    });
+    const { r, c } = await run3(S3);
+    expect(r.ok, r.error).toBe(true);
+    expect(smokeSaidOk(r.text)).toBe(true);
+    expect(r.text).not.toMatch(/Kontrola spojení|TARSKONEC|může dělat chyby/);
+    expect(c.lastRecord).toMatchObject({
+      status: "ANSWER",
+      model_matches: true,
+      actual_model: "GPT-6 · High",
+    });
+  });
+
+  it("přesný allowlist UI textů ve zprávě za značkou (disclaimer cs/en, „Nejnovější odpověď“, prvky bez textu) → značka je konec", () => {
+    for (const extra of [
+      "- generic [ref=e990]: ChatGPT může dělat chyby. Důležité informace si ověřte.",
+      "- generic [ref=e990]: ChatGPT can make mistakes. Check important info.",
+      "- paragraph: 'ChatGPT může dělat chyby. Důležité informace si ověřte.'",
+      '- heading "Nejnovější odpověď" [level=4] [ref=e982]',
+      '- heading "Latest response" [level=4]',
+      "- status [ref=e983]",
+      "- button [aria-hidden]",
+    ])
+      expect(markerEndsAnswer(after(extra), MARKER3), extra).toBe(true);
+  });
+
+  it("jakýkoli jiný text za značkou ve zprávě (i podobný disclaimeru) → WAITING_REVIEW", async () => {
+    for (const extra of [
+      "- paragraph [ref=e953]: Ale FIX.",
+      "- paragraph [ref=e953]: ChatGPT může dělat chyby.",
+      "- paragraph [ref=e953]: ChatGPT může dělat chyby. Důležité informace si ověřte. FIX",
+      "- paragraph [ref=e953]: chatgpt může dělat chyby. důležité informace si ověřte.",
+      "- paragraph [ref=e953]: ChatGPT může dělat chyby.  Důležité informace si ověřte.",
+      '- heading "Nejnovější odpověď: FIX" [level=4]',
+      '- link "Nejnovější odpověď": FIX',
+      "- paragraph [ref=e953]: OK",
+    ]) {
+      expect(markerEndsAnswer(after(extra), MARKER3), extra).toBe(false);
+      const { r } = await run3(after(extra));
+      expect(r, extra).toMatchObject({ ok: false, waitReview: true });
+      expect(r.error, extra).toMatch(/za koncovou značkou/);
+    }
+  });
+
+  it("verdikt za značkou (i těsně před disclaimerem) → WAITING_REVIEW, nikdy PASS", async () => {
+    for (const extra of [
+      [`- paragraph [ref=e953]: '${FIX_JSON}'`],
+      [
+        `- paragraph [ref=e953]: '${FIX_JSON}'`,
+        "- generic [ref=e990]: ChatGPT může dělat chyby. Důležité informace si ověřte.",
+      ],
+      ["- paragraph [ref=e953]: FIX"],
+    ]) {
+      const pageText = after(...extra).replace(
+        "- paragraph [ref=e951]: OK",
+        `- paragraph [ref=e951]: '${PASS_JSON}'`,
+      );
+      expect(markerEndsAnswer(pageText, MARKER3)).toBe(false);
+      const { r } = await run3(pageText, REVIEW_SCHEMA);
+      expect(r).toMatchObject({ ok: false, waitReview: true });
+      expect(r.error).toMatch(/za koncovou značkou/);
+    }
+    // control: the same page without anything after the marker is the PASS
+    const clean = S3.replace(
+      "- paragraph [ref=e951]: OK",
+      `- paragraph [ref=e951]: '${PASS_JSON}'`,
+    );
+    const { r } = await run3(clean, REVIEW_SCHEMA);
+    expect(r).toMatchObject({ ok: true, text: PASS_JSON });
+  });
+
+  it("další tah asistenta za zprávou (nadpis „ChatGPT řekl:“) → WAITING_REVIEW", () => {
+    const p = S3.replace(
+      "              - generic [ref=e978]:",
+      [
+        '              - heading "ChatGPT řekl:" [level=4]',
+        "              - paragraph: Oprava: FIX",
+        "              - generic [ref=e978]:",
+      ].join("\n"),
+    );
+    expect(p).not.toBe(S3);
+    expect(markerEndsAnswer(p, MARKER3)).toBe(false);
+  });
+});

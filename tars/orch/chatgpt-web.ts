@@ -421,7 +421,8 @@ const roleOf = (l: string): string | undefined =>
 /**
  * Where the end marker sits in the snapshot tree (Codex review kolo 2, nález 2): the line of its last occurrence, the
  * column, and the assistant message it belongs to by ROLE: its nearest `article` ancestor (ChatGPT renders each turn
- * as an article). `end` = first line after that article (or the end of the page when there is no article ancestor).
+ * as an article). Without an article (layout of smoke 4. 11. 22:55): the nearest ancestor whose child is the heading
+ * "ChatGPT řekl:" (`byHeading`). `end` = first line after that element (or the end of the page when there is neither).
  */
 function markerMessage(page: string, marker: string) {
   const at = page.lastIndexOf(marker);
@@ -437,13 +438,27 @@ function markerMessage(page: string, marker: string) {
   while (mIdx > 0 && starts[mIdx] > at) mIdx--;
   let min = indentOf(lines[mIdx]);
   let article = -1;
+  /** a sibling of the current ancestor (or of the marker line) is the assistant heading "ChatGPT řekl:" */
+  let headingSibling = false;
+  let byHeading = false;
   for (let i = mIdx - 1; i >= 0 && min > 0; i--) {
     if (!lines[i].trim()) continue;
     const ind = indentOf(lines[i]);
-    if (ind >= min) continue;
+    if (ind > min) continue;
+    if (ind === min) {
+      if (ASSISTANT_HEADING.test(lines[i])) headingSibling = true;
+      continue;
+    }
     min = ind;
     if (roleOf(lines[i]) === "article") {
       article = i;
+      break;
+    }
+    // Smoke 4. 11. 22:55: the new layout has no article; the message is the element whose child is the heading
+    // "ChatGPT řekl:" (by role, like the article). The composer, picker and disclaimer lie outside of it.
+    if (headingSibling) {
+      article = i;
+      byHeading = true;
       break;
     }
   }
@@ -456,7 +471,16 @@ function markerMessage(page: string, marker: string) {
         break;
       }
   }
-  return { lines, starts, at, mIdx, col: at - starts[mIdx], article, end };
+  return {
+    lines,
+    starts,
+    at,
+    mIdx,
+    col: at - starts[mIdx],
+    article,
+    byHeading,
+    end,
+  };
 }
 
 /**
@@ -478,7 +502,11 @@ export function answerRegion(
   if (start < 0 || start + end.length > m.at) return undefined;
   if (m.article < 0) return page.slice(start + end.length, m.at);
   const msgStart = m.starts[m.article];
-  if (start + end.length > msgStart) return undefined; // the prompt end lies inside the answer's own message
+  if (start + end.length > msgStart) {
+    // an element found by the heading that also holds the prompt is no message of its own: as without an article
+    if (m.byHeading) return page.slice(start + end.length, m.at);
+    return undefined; // the prompt end lies inside the answer's own message
+  }
   // no other turn between the prompt and the answer
   const between = page.slice(start + end.length, msgStart).split("\n");
   if (between.some((l) => roleOf(l) === "article" || ASSISTANT_HEADING.test(l)))
@@ -550,10 +578,34 @@ const ASSISTANT_HEADING =
   /^\s*-\s*heading\s+"ChatGPT(?:\s+(?:řekl|said))?:?"(?:\s*\[[^\]\n]*\])*:?\s*$/i;
 
 /**
+ * Fixed texts of the ChatGPT UI (cs + en) that are never part of an answer; only an EXACT match of the whole text
+ * (no pattern, no prefix). Smoke 4. 11. 22:55: the disclaimer and the hidden heading of the latest answer.
+ */
+const UI_FIXED_TEXTS: ReadonlySet<string> = new Set([
+  "ChatGPT může dělat chyby. Důležité informace si ověřte.",
+  "ChatGPT can make mistakes. Check important info.",
+  "Nejnovější odpověď",
+  "Latest response",
+]);
+/** `- role [attrs]: text` with a plain (unnamed) role; the text is decoded by its YAML quoting. */
+const UI_TEXT_LINE = /^\s*-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:[ \t]+\S/i;
+/** `- role "name" [attrs]` (optionally `:` with no value): an element with only an accessible name. */
+const UI_NAMED_LINE =
+  /^\s*-\s*[a-z]+\s+"([^"\\\n]*)"(?:\s*\[[^\]\n]*\])*:?\s*$/i;
+
+/** true when the line is only a fixed UI text of UI_FIXED_TEXTS (exact, whole text). */
+export function uiFixedTextLine(line: string): boolean {
+  const named = UI_NAMED_LINE.exec(line);
+  if (named) return UI_FIXED_TEXTS.has(named[1]);
+  return UI_TEXT_LINE.test(line) && UI_FIXED_TEXTS.has(snapshotValue(line));
+}
+
+/**
  * true when the end marker is the real end of the last assistant message (Codex review kolo 1, nález 3; kolo 2,
  * nález 2): on its line only a closing quote may follow; every following line of the same message (by role: the rest
  * of its `article`, whatever the indentation, so leaving a blockquote does not end the check; without an article: the
- * rest of the page) holds no text, only snapshot structure or text-less buttons; and no further turn (article or
+ * rest of the page) holds no text, only snapshot structure, text-less buttons or an exact fixed UI text (UI_FIXED_TEXTS);
+ * and no further turn (article or
  * assistant heading) follows anywhere. Anything else (e.g. a correction to FIX after the marker) → unclear.
  */
 export function markerEndsAnswer(page: string, marker: string): boolean {
@@ -564,7 +616,12 @@ export function markerEndsAnswer(page: string, marker: string): boolean {
   for (let j = m.mIdx + 1; j < m.end; j++) {
     const l = m.lines[j];
     if (ASSISTANT_HEADING.test(l) || roleOf(l) === "article") return false;
-    if (!l.trim() || SNAPSHOT_ONLY_LINE.test(l) || UI_BUTTON_LINE.test(l))
+    if (
+      !l.trim() ||
+      SNAPSHOT_ONLY_LINE.test(l) ||
+      UI_BUTTON_LINE.test(l) ||
+      uiFixedTextLine(l)
+    )
       continue;
     return false;
   }

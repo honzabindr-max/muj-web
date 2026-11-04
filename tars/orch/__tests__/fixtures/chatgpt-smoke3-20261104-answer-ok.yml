@@ -1,0 +1,85 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e7]:
+      - complementary [ref=e8]:
+        - navigation "Historie chatu" [ref=e39]:
+          - button "Nový chat" [ref=e43] [cursor=pointer]
+      - generic [ref=e681]:
+        - main [ref=e683]:
+          - generic:
+            - generic:
+              - generic:
+                - button "Akce chatu" [ref=e887] [cursor=pointer]
+                - button "Sdílet" [ref=e894] [cursor=pointer]
+          - region "Konverzace" [ref=e906]:
+            - generic [ref=e907]:
+              - generic [ref=e916]:
+                - generic [ref=e917]:
+                  - generic [ref=e918]:
+                    - heading "Tvoje slova:" [level=4] [ref=e919]
+                    - generic [ref=e922]:
+                      - generic [ref=e923]: "Kontrola spojení TARS. Napiš slovo OK. --- FORMÁT ODPOVĚDI (TARS, kontrola jiné rodiny modelů) Odpověz stručně podle zadání výše. Po odpovědi napiš na samostatný řádek značku, která vznikne spojením slova TARSKONEC a kódu níže, bez mezery. Značka je povinná i u velmi krátké odpovědi (třeba jediného slova) a pokyn „jen“ nebo „pouze“ v zadání ji nevylučuje; bez značky se odpověď nepočítá. Kód: 60dda84908"
+                      - generic [ref=e931]:
+                        - button "Zkopírovat zprávu" [ref=e932] [cursor=pointer]
+                        - button "Sdílet prompt" [ref=e935] [cursor=pointer]
+                        - button "Upravit zprávu" [ref=e938] [cursor=pointer]
+                  - generic [ref=e942]:
+                    - heading "ChatGPT řekl:" [level=4] [ref=e943]
+                    - generic [ref=e950]:
+                      - paragraph [ref=e951]: OK
+                      - paragraph [ref=e952]: TARSKONEC60dda84908
+                - generic [ref=e954]:
+                  - button "Zkopírovat" [ref=e955] [cursor=pointer]
+                  - button "Ohodnotit odpověď" [ref=e958] [cursor=pointer]
+                  - button "Přečíst nahlas" [ref=e962] [cursor=pointer]
+                  - button "Sdílet" [ref=e966] [cursor=pointer]
+                  - button "Vygenerovat odpověď znovu" [ref=e970] [cursor=pointer]
+                  - button "Další akce" [ref=e973] [cursor=pointer]
+              - generic [ref=e978]: ChatGPT může dělat chyby. Důležité informace si ověřte.
+            - generic:
+              - generic:
+                - generic:
+                  - button [aria-hidden]
+                - heading "Nejnovější odpověď" [level=4] [ref=e982]
+                - status [ref=e983]
+                - generic [ref=e1005]:
+                  - group [ref=e1006]:
+                    - generic [ref=e1008]:
+                      - button "Přidat soubory a další" [ref=e1012] [cursor=pointer]
+                      - textbox "Zeptat se ChatGPT" [ref=e1019]:
+                        - paragraph: Zeptat se ChatGPT
+                      - generic [ref=e1022]:
+                        - button "Vybrat model ChatGPT" [expanded] [ref=e1027] [cursor=pointer]:
+                          - generic [ref=e1033]:
+                            - generic [ref=e1053]: Intenzita přemýšlení
+                            - generic [aria-hidden]:
+                              - generic: High
+                        - generic [ref=e1040]:
+                          - button "Diktování" [ref=e1043] [cursor=pointer]
+                          - button "Zahájit hlasovou konverzaci" [ref=e1048] [cursor=pointer]
+                  - status [ref=e1051]
+        - status [ref=e796]
+  - status [ref=e797]
+  - status [ref=e798]
+  - status [ref=e799]
+  - status [ref=e1052]: Odpověď je dokončena
+  - menu "Vybrat model ChatGPT" [ref=e1058]:
+    - group [ref=e1059]:
+      - generic [ref=e1061]:
+        - menuitem "Vybrat model" [ref=e1064] [cursor=pointer]:
+          - generic [ref=e1065]: High
+        - generic [ref=e1072]:
+          - status: High, 3 z(e) 3.
+          - generic: K úpravě výkonu použij klávesy se šipkou vlevo a vpravo.
+          - menuitem "Výkon" [active] [ref=e1073] [cursor=pointer]:
+            - slider [aria-hidden] [ref=e1084]
+      - generic [aria-hidden]:
+        - generic:
+          - generic:
+            - generic:
+              - generic: Uzamčeno, otevře možnosti přístupu
+              - generic: Byl dosažen limit využití
+              - menuitemradio [checked]:
+                - generic: GPT-6
+              - menuitemradio:
+                - generic: GPT-5.6 Sol
