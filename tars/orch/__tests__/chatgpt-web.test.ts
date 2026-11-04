@@ -1,4 +1,5 @@
 // P16 v3: non-code checks through ChatGPT in the browser, mode Chat (fake browser, no model, no Chrome).
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,6 +27,7 @@ import {
   readRetries,
   verdictFromAnswer,
   writeJournal,
+  type SentEntry,
   type WebBrowser,
 } from "../chatgpt-web";
 import { CopyDepartment, VizualDepartment } from "../departments";
@@ -35,6 +37,7 @@ import { assertKonziliumFamilies } from "../konzilium-lite";
 import { hostAllowed } from "../ladder";
 import {
   buildTask,
+  checkStep,
   playwrightMcpConfig,
   UiUnknownError,
   type BrowserStep,
@@ -69,12 +72,23 @@ const markerOf = (prompt: string) => {
   return m ? `${END_WORD}${m[1]}` : MARKER;
 };
 
+/**
+ * The open model picker as the snapshot shows it (smoke 4. 11.): `menu "Vybrat model ChatGPT"` with the slider status
+ * and the checked model radio. One element line at the level of `  - …` (children indented below it). Model and
+ * intensity count only from it (Codex review PR #101 kolo 1).
+ */
+const picker = (model = "GPT-6", intensity = "Vysoká", level = 3, levels = 3) =>
+  [
+    'menu "Vybrat model ChatGPT" [ref=e810]:',
+    `  - status: ${intensity}, ${level} z(e) ${levels}.`,
+    "  - menuitemradio [checked]:",
+    `    - generic: ${model}`,
+    "  - menuitemradio:",
+    "    - generic: GPT-5.6 Sol",
+  ].join("\n  ");
+
 /** Page snapshot as ChatGPT would show it: model picker, the sent prompt, the answer, the end marker. */
-function page(
-  prompt: string,
-  answer: string,
-  model = 'button "GPT-6 Vysoká" [ref=e3]',
-): string {
+function page(prompt: string, answer: string, model = picker()): string {
   return [
     "- banner:",
     `  - ${model}`,
@@ -149,6 +163,12 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
 });
 
+/** The journal key of a prompt checked with REVIEW_SCHEMA (as ChatGptWebChecker computes it). */
+const promptShaOf = (prompt: string) =>
+  createHash("sha256")
+    .update(`${prompt}\n${JSON.stringify(REVIEW_SCHEMA)}`)
+    .digest("hex");
+
 /** First attempt: NONCE; every later attempt of the same checker gets a new nonce (like random bytes). */
 const checker = (b: WebBrowser) => {
   let n = 0;
@@ -222,7 +242,7 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     // nález 1: the page must show the model (GPT-6 · Vysoká), else the answer is not used
     const joined: Script = (steps) =>
       [
-        '- banner:\n  - button "GPT-6 Vysoká" [ref=e3]',
+        `- banner:\n  - ${picker()}`,
         `- main:`,
         `  - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
         `  - paragraph: '${FIX_JSON} ${MARKER}'`,
@@ -321,7 +341,7 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
   it("nález 1: jiný model než požadovaný → WAITING_REVIEW (nikdy PASS), zapsán skutečný model, záznam říká NEODPOVÍDÁ", async () => {
     const c = checker(
       new FakeBrowser(
-        answering(PASS_JSON, 'button "GPT-5.5 Thinking Heavy" [ref=e3]'),
+        answering(PASS_JSON, picker("GPT-5.5 Thinking", "Heavy")),
       ),
     );
     const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
@@ -347,9 +367,13 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
   });
 
   it("pomocné funkce: detectModel, answerRegion, verdictFromAnswer", () => {
-    expect(detectModel('- button "GPT-6 Vysoká"')).toEqual({
+    // only the open picker counts; a button text is never read as the model (PR #101 kolo 1)
+    expect(detectModel('- button "GPT-6 Vysoká"')).toEqual({});
+    expect(detectModel(`- ${picker()}`)).toEqual({
       model: "GPT-6",
       intensity: "Vysoká",
+      level: 3,
+      levels: 3,
     });
     expect(answerRegion("bez značky", MARKER, NONCE)).toBeUndefined();
     expect(
@@ -612,9 +636,9 @@ describe("P16 v3: režim Chat (paušál), nikdy Work", () => {
 
   it("stránka v režimu Work (model GPT-6.1 Sol / Max. nebo zvolený přepínač Work) → WAITING_REVIEW „běží v režimu Work místo Chat“, odpověď se nepoužije", async () => {
     for (const model of [
-      'button "GPT-6.1 Sol Max." [ref=e3]',
-      'button "GPT-6 Max." [ref=e3]',
-      'tab "Work" [selected] [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]',
+      picker("GPT-6.1 Sol", "Max."),
+      picker("GPT-6", "Max."),
+      `tab "Work" [selected] [ref=e2]\n  - ${picker()}`,
     ]) {
       const c = checker(new FakeBrowser(answering(PASS_JSON, model)));
       const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-")); // attempts are per order dir
@@ -631,7 +655,7 @@ describe("P16 v3: režim Chat (paušál), nikdy Work", () => {
       new FakeBrowser(
         answering(
           PASS_JSON,
-          'tab "Chat" [selected] [ref=e1]\n  - tab "Work" [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]',
+          `tab "Chat" [selected] [ref=e1]\n  - tab "Work" [ref=e2]\n  - ${picker()}`,
         ),
       ),
     );
@@ -643,9 +667,7 @@ describe("P16 v3: režim Chat (paušál), nikdy Work", () => {
 
   it("záložní GPT-5.6 Sol + Vysoká → shoda", async () => {
     const c = checker(
-      new FakeBrowser(
-        answering(PASS_JSON, 'button "GPT-5.6 Sol Vysoká" [ref=e3]'),
-      ),
+      new FakeBrowser(answering(PASS_JSON, picker("GPT-5.6 Sol"))),
     );
     const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
     expect(r.ok).toBe(true);
@@ -658,43 +680,51 @@ describe("P16 v3: režim Chat (paušál), nikdy Work", () => {
 
   it("GPT-6 + Střední → neshoda (zapsáno NEODPOVÍDÁ), nikdy předstíraná shoda", async () => {
     const c = checker(
-      new FakeBrowser(answering(PASS_JSON, 'button "GPT-6 Střední" [ref=e3]')),
+      new FakeBrowser(answering(PASS_JSON, picker("GPT-6", "Střední", 2))),
     );
     const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
     expect(r).toMatchObject({ ok: false, waitReview: true }); // nález 1: never PASS at the wrong intensity
-    expect(c.model).toBe("GPT-6 · Střední");
+    expect(c.model).toBe("GPT-6 · Střední (stupeň 2/3)");
     expect(c.lastRecord).toMatchObject({
       status: "WAITING_REVIEW",
       model_matches: false,
-      actual_model: "GPT-6 · Střední",
+      actual_model: "GPT-6 · Střední (stupeň 2/3)",
     });
     const rec = fs.readdirSync(dir).find((f) => f.startsWith("check-gptweb-"))!;
     expect(fs.readFileSync(path.join(dir, rec), "utf8")).toMatch(/NEODPOVÍDÁ/);
   });
 
-  it("detectModel rozliší GPT-6 od GPT-6.1 Sol a GPT-5.6 Sol (i intenzitu hned za názvem)", () => {
-    expect(detectModel('- button "GPT-6 Vysoká" [ref=e3]')).toEqual({
+  it("detectModel čte jen otevřený výběr: rozliší GPT-6 od GPT-6.1 Sol a GPT-5.6 Sol; text tlačítka nebo stránky se nikdy nepočítá", () => {
+    const top = { level: 3, levels: 3 };
+    expect(detectModel(`- ${picker()}`)).toEqual({
       model: "GPT-6",
       intensity: "Vysoká",
+      ...top,
     });
-    expect(detectModel('- button "GPT-6.1 Sol Max." [ref=e3]')).toEqual({
+    expect(detectModel(`- ${picker("GPT-6.1 Sol", "Max.")}`)).toEqual({
       model: "GPT-6.1 Sol",
       intensity: "Max.",
+      ...top,
     });
-    expect(detectModel('- button "GPT-5.6 Sol Vysoká" [ref=e3]')).toEqual({
+    expect(detectModel(`- ${picker("GPT-5.6 Sol")}`)).toEqual({
       model: "GPT-5.6 Sol",
       intensity: "Vysoká",
+      ...top,
     });
-    expect(detectModel('- button "GPT-6 · Střední"')).toEqual({
-      model: "GPT-6",
-      intensity: "Střední",
-    });
-    expect(detectModel('- button "GPT-6 High"')).toEqual({
+    expect(detectModel(`- ${picker("GPT-6", "High")}`)).toEqual({
       model: "GPT-6",
       intensity: "High",
+      ...top,
     });
-    expect(detectModel('- button "GPT-6.1"').model).toBe("GPT-6.1");
-    expect(detectModel('- button "GPT-6"').model).toBe("GPT-6");
+    // PR #101 kolo 1: the old fallback read model and intensity from any text of the page; now nothing of it counts
+    for (const t of [
+      '- button "GPT-6 Vysoká" [ref=e3]',
+      '- button "GPT-6 · Střední"',
+      '- button "GPT-6 High"',
+      '- link "GPT-6 High" [ref=e9]',
+      '- paragraph: "GPT-6 High, 3 z(e) 3."',
+    ])
+      expect(detectModel(t), t).toEqual({});
   });
 });
 
@@ -1107,7 +1137,7 @@ describe("WAITING_REVIEW (orchestrátor, fake prohlížeč)", () => {
 
 // ─── Codex review kolo 1 (PR #98): nálezy 2, 3, 5, 6 end-to-end ───
 const TOKEN = `ghp_${"A1b2C3d4".repeat(5)}`;
-const BANNER = '- banner:\n  - button "GPT-6 Vysoká" [ref=e3]';
+const BANNER = `- banner:\n  - ${picker()}`;
 
 describe("Codex review kolo 1: odpověď přesně podle schématu, značka = konec odpovědi", () => {
   it("nález 2: próza „jen citace ukázky, kontrolu jsem neprovedl“ + PASS JSON → WAITING_REVIEW (neplatný formát)", async () => {
@@ -1193,10 +1223,10 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     const b = new FakeBrowser((steps) => {
       if (!first) {
         first = sentPrompt(steps);
-        return page(first, PASS_JSON, 'button "GPT-6 Střední" [ref=e3]');
+        return page(first, PASS_JSON, picker("GPT-6", "Střední", 2));
       }
       // the second run sees the OLD chat with its PASS, the picker now shows Vysoká (no new answer was generated)
-      return page(first, PASS_JSON, 'button "GPT-6 Vysoká" [ref=e3]');
+      return page(first, PASS_JSON, picker());
     });
     const c = checker(b);
     const r1 = await c.run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
@@ -1245,7 +1275,7 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     ]);
     const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
     const b2 = new FakeBrowser(answering(PASS_JSON));
-    b2.before = `- banner:\n  - tab "Work" [selected] [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]`;
+    b2.before = `- banner:\n  - tab "Work" [selected] [ref=e2]\n  - ${picker()}`;
     expect(
       (await checker(b2).run("x", { cwd: d, outputSchema: REVIEW_SCHEMA }))
         .error,
@@ -1257,54 +1287,113 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     expect(steps.at(-1)).toEqual({ kind: "read" });
   });
 
-  it("nález 3: pád po „answered“ před uložením výsledku → další běh dokončí z deníku bez nového odeslání", async () => {
-    const b = new FakeBrowser(answering(PASS_JSON));
-    expect(
-      await checker(b).run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
-    ).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(readJournal(dir)).toEqual([
-      expect.objectContaining({
-        state: "answered",
-        answer: PASS_JSON,
-        model_before: "GPT-6 · Vysoká",
-        model_after: "GPT-6 · Vysoká",
-        chat_url: CHAT,
-      }),
-    ]);
-    // the caller crashed before storing the result: a new process (new checker) repeats the check
-    const c2 = new ChatGptWebChecker(b, { nonce: () => "jiny" });
-    const r2 = await c2.run("Posuď.", {
-      cwd: dir,
-      outputSchema: REVIEW_SCHEMA,
-    });
-    expect(r2).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(b.calls).toHaveLength(1); // no browser run, no second send
-    expect(c2.lastRecord).toMatchObject({
-      status: "ANSWER",
-      submits: 0,
-      chat_url: CHAT,
-    });
-    // an "answered" entry without a valid stored answer/model of its run is never used (a new attempt instead)
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
-    const sha = readJournal(dir)![0].prompt_sha256;
-    writeJournal(d, [
-      {
-        prompt_sha256: sha,
+  describe("Codex review PR #101 kolo 3: uložená odpověď se z deníku nikdy neobnovuje", () => {
+    const INTERRUPTED = "přerušený pokus, obnova z deníku se nepovoluje";
+    const stored = (extra: Record<string, unknown>): SentEntry =>
+      ({
+        prompt_sha256: promptShaOf("Posuď."),
         nonce: "old",
         at: new Date().toISOString(),
         state: "answered",
         answer: PASS_JSON,
-        model_before: "GPT-6 · Střední",
+        model_before: "GPT-6 · Vysoká",
         model_after: "GPT-6 · Vysoká",
-      },
-    ]);
-    const b3 = new FakeBrowser(answering(FIX_JSON));
-    const r3 = await checker(b3).run("Posuď.", {
-      cwd: d,
-      outputSchema: REVIEW_SCHEMA,
+        ...extra,
+      }) as SentEntry;
+    const afterRestart = async (e: SentEntry) => {
+      writeJournal(dir, [e]);
+      const b = new FakeBrowser(answering(FIX_JSON));
+      const c = checker(b);
+      const r = await c.run("Posuď.", {
+        cwd: dir,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      return { r, c, b };
+    };
+    const expectBurnedWaiting = (
+      x: Awaited<ReturnType<typeof afterRestart>>,
+    ) => {
+      expect(x.r).toMatchObject({ ok: false, waitReview: true, text: "" });
+      expect(x.r.error).toContain(INTERRUPTED);
+      expect(x.r.error).toMatch(/gpt-retry/);
+      expect(x.b.calls).toHaveLength(0);
+      expect(x.c.lastRecord).toMatchObject({
+        status: "WAITING_REVIEW",
+        submits: 0,
+      });
+      expect(readJournal(dir)).toEqual([
+        expect.objectContaining({ state: "burned", reason: INTERRUPTED }),
+      ]);
+    };
+
+    it("pád po „answered“ před uložením výsledku → po restartu spáleno, WAITING_REVIEW, bez odeslání; gpt-retry pak právě jedno nové odeslání", async () => {
+      // a real "answered" attempt written by a live run
+      const b0 = new FakeBrowser(answering(PASS_JSON));
+      expect(
+        await checker(b0).run("Posuď.", {
+          cwd: dir,
+          outputSchema: REVIEW_SCHEMA,
+        }),
+      ).toMatchObject({ ok: true, text: PASS_JSON });
+      const live = readJournal(dir)!;
+      expect(live).toEqual([
+        expect.objectContaining({
+          state: "answered",
+          answer: PASS_JSON,
+          model_before: "GPT-6 · Vysoká",
+          model_after: "GPT-6 · Vysoká",
+          chat_url: CHAT,
+        }),
+      ]);
+      // the caller crashed before storing the result: a new process (new checker) repeats the check
+      const x = await afterRestart(live[0]);
+      expectBurnedWaiting(x);
+      // the next tick sends nothing on its own either
+      const again = await checker(x.b).run("Posuď.", {
+        cwd: dir,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(again).toMatchObject({ ok: false, waitReview: true });
+      expect(x.b.calls).toHaveLength(0);
+      // gpt-retry: exactly one new send
+      expect(grantRetry(dir, "vlastnik", "přerušená kontrola").ok).toBe(true);
+      const b2 = new FakeBrowser(answering(FIX_JSON));
+      const r2 = await new ChatGptWebChecker(b2, { nonce: () => "novy" }).run(
+        "Posuď.",
+        { cwd: dir, outputSchema: REVIEW_SCHEMA },
+      );
+      expect(r2).toMatchObject({ ok: true, text: FIX_JSON });
+      expect(b2.calls).toHaveLength(1);
+      expect(readJournal(dir)!.at(-1)).toMatchObject({
+        nonce: "novy",
+        state: "answered",
+      });
     });
-    expect(JSON.parse(r3.text).verdict).toBe("FIX");
-    expect(sendsOf(b3)).toHaveLength(1);
+
+    it("syntetický záznam s kompletním „důkazem“ ovládacího prvku → také spálen, bez odeslání", async () => {
+      const evidence = {
+        menu: "Vybrat model ChatGPT",
+        model: "GPT-6",
+        intensity: "High",
+        level: 3,
+        levels: 3,
+      };
+      expectBurnedWaiting(
+        await afterRestart(
+          stored({
+            verify: "picker-v1",
+            picker_before: evidence,
+            picker_after: evidence,
+          }),
+        ),
+      );
+    });
+
+    it("starý záznam „answered“ s „GPT-6 · Střední“ → také spálen, bez odeslání", async () => {
+      expectBurnedWaiting(
+        await afterRestart(stored({ model_before: "GPT-6 · Střední" })),
+      );
+    });
   });
 
   it("nález 3: pád mezi odesláním a odpovědí („sending“/„sent“ v deníku) → pokus spálen, chat se neotevře; nový pokus jen po gpt-retry", async () => {
@@ -1487,13 +1576,18 @@ describe("Codex review kolo 3, nález 1: po spáleném pokusu jen výslovný gpt
         used_at: t.toISOString(),
       }),
     ]);
-    // answered: the result is reused, nothing is sent, no retry is needed or allowed
-    expect(await run()).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(fills(b)).toBe(2);
+    // while the attempt is answered (not burned), no retry is allowed
     expect(grantRetry(dir, "fable", "x")).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/není spálený/),
     });
+    // Codex review PR #101 kolo 3: a later run never restores the stored answer: burned, waits, nothing is sent
+    const later = await run();
+    expect(later).toMatchObject({ ok: false, waitReview: true, text: "" });
+    expect(later.error).toMatch(
+      /přerušený pokus, obnova z deníku se nepovoluje/,
+    );
+    expect(fills(b)).toBe(2);
   });
 
   it("povolení se spotřebuje před odesláním: i neúspěšný nový pokus potřebuje další gpt-retry", async () => {
@@ -1784,5 +1878,391 @@ describe("Codex review kolo 2, nález 4: brána nepustí klik, který spustí da
     );
     // outside the exact mode (e.g. vizuál) ordinary clicks stay allowed
     expect(gateMcpCall(C, { ref: "e13" }, state())).toBeUndefined();
+  });
+});
+
+describe("smoke 4. 11.: anglické popisky a otevřený popover intenzity (fixture ze živého běhu)", () => {
+  // Snapshot page-2026-11-04T14-27-36-716Z.yml of the live smoke after login (sidebar and user name anonymized):
+  // the picker "Vybrat model ChatGPT" open over the composer, label "Medium", slider in the middle (2 of 3).
+  const FIXTURE = fs.readFileSync(
+    path.join(__dirname, "fixtures", "chatgpt-smoke-20261104-picker-en.yml"),
+    "utf8",
+  );
+  /** The same picker after End on the slider: the top step "High". */
+  const AT_TOP = FIXTURE.replace(
+    /Medium, 2 z\(e\) 3\./,
+    "High, 3 z(e) 3.",
+  ).replace(/Medium/g, "High");
+  const MENU_AT = AT_TOP.indexOf('\n  - menu "Vybrat model ChatGPT"');
+  /** The picker closed (Escape): no menu, the picker button no longer expanded. */
+  const CLOSED = `${AT_TOP.slice(0, MENU_AT)}\n`.replace(
+    'button "Vybrat model ChatGPT" [expanded] [ref=e766]',
+    'button "Vybrat model ChatGPT" [ref=e766]',
+  );
+  /** The open picker as a top-level element (after the conversation, like the portal of the live page). */
+  const MENU = AT_TOP.slice(MENU_AT + 1)
+    .split("\n")
+    .map((l) => l.slice(2))
+    .join("\n");
+  const PROMPT = "Posuď zadání.\n\nKód: abc";
+  const sha = typedTextSha(PROMPT);
+  /** The composer holding `paragraphs` (and the send button that ChatGPT shows once the field has text). */
+  const typed = (paragraphs: string[]) =>
+    CLOSED.replace(
+      "                    - paragraph: Zeptat se ChatGPT",
+      paragraphs
+        .map((p) => `                    - paragraph${p ? `: ${p}` : ""}`)
+        .join("\n"),
+    ).replace(
+      'button "Zahájit hlasovou konverzaci" [ref=e787]',
+      'button "Odeslat výzvu" [ref=e900]',
+    );
+  const resp = (yaml: string) =>
+    `### Page\n- Page URL: https://chatgpt.com/\n### Snapshot\n\`\`\`yaml\n${yaml}\n\`\`\``;
+  const T = "mcp__playwright__browser_type";
+  const C = "mcp__playwright__browser_click";
+  const K = "mcp__playwright__browser_press_key";
+
+  it("detectModel čte model z označené položky a intenzitu s polohou posuvníku: Medium (2/3) = neshoda, High (3/3) = shoda, Max = Work", () => {
+    expect(detectModel(FIXTURE)).toEqual({
+      model: "GPT-6",
+      intensity: "Medium",
+      level: 2,
+      levels: 3,
+    });
+    expect(detectModel(AT_TOP)).toEqual({
+      model: "GPT-6",
+      intensity: "High",
+      level: 3,
+      levels: 3,
+    });
+    // the checked radio decides, not the first model of the list
+    const sol = AT_TOP.replace(
+      "menuitemradio [checked]:",
+      "menuitemradio:",
+    ).replace(
+      /(- menuitemradio):\n(\s+- generic: GPT-5\.6 Sol)/,
+      "$1 [checked]:\n$2",
+    );
+    expect(detectModel(sol).model).toBe("GPT-5.6 Sol");
+    // Czech labels work the same way
+    expect(detectModel(AT_TOP.replace(/High/g, "Vysoká")).intensity).toBe(
+      "Vysoká",
+    );
+    // the closed picker shows no model: nothing is guessed
+    expect(detectModel(CLOSED).model).toBeUndefined();
+  });
+
+  it("brána: popover zavřen klávesou, posuvník na High, pak pole prázdné (nápověda není text), jedno ověřené odeslání; jiný text v poli nikdy neprojde", () => {
+    const st = emptyState();
+    observeResponse(resp(FIXTURE), st);
+    expect(st.overlay).toBe(true);
+    // the placeholder "Zeptat se ChatGPT" is not content: the empty field reads as empty
+    expect(st.refs.e758.content).toBe("");
+    // with the picker open the prompt is not typed
+    expect(
+      gateMcpCall(T, { ref: "e758", text: PROMPT }, st, undefined, sha),
+    ).toMatch(/otevřené menu nebo popover/);
+    // the slider and its menu item may be clicked, the model item too; Work never
+    for (const ref of ["e825", "e836", "e816", "e766"])
+      expect(gateMcpCall(C, { ref }, st, undefined, sha), ref).toBeUndefined();
+    expect(gateMcpCall(C, { ref: "e696" }, st, undefined, sha)).toMatch(
+      /kliká jen/,
+    );
+    // keys: only the allowed ones, only in the exact mode
+    for (const key of ["End", "ArrowRight", "Escape"])
+      expect(gateMcpCall(K, { key }, st, undefined, sha), key).toBeUndefined();
+    for (const key of ["Enter", "Control+Enter", "a", ""])
+      expect(gateMcpCall(K, { key }, st, undefined, sha), key).toMatch(
+        /není povolena/,
+      );
+    expect(gateMcpCall(K, { key: "Escape" }, st)).toMatch(
+      /není pro prohlížeč TARS povolen/,
+    );
+    expect(gateMcpCall(K, { key: "Escape" }, st, undefined, sha, true)).toMatch(
+      /není pro prohlížeč TARS povolen/,
+    );
+    countCall(K, { key: "End" }, st);
+    observeResponse(resp(AT_TOP), st);
+    // Escape closes the picker; the field is visible, empty and gets the focus (click)
+    countCall(K, { key: "Escape" }, st);
+    observeResponse(resp(CLOSED), st);
+    expect(st.overlay).toBe(false);
+    expect(st.refs.e758.content).toBe("");
+    expect(gateMcpCall(C, { ref: "e758" }, st, undefined, sha)).toBeUndefined();
+    countCall(C, { ref: "e758" }, st);
+    // unchanged procedure: clear, snapshot, type, snapshot, compare sha256, one send
+    expect(
+      gateMcpCall(T, { ref: "e758", text: "" }, st, undefined, sha),
+    ).toBeUndefined();
+    countCall(T, { ref: "e758", text: "" }, st);
+    observeResponse(resp(CLOSED), st);
+    expect(
+      gateMcpCall(T, { ref: "e758", text: PROMPT }, st, undefined, sha),
+    ).toBeUndefined();
+    countCall(T, { ref: "e758", text: PROMPT }, st);
+    // another text left in the field next to the prompt: no send
+    observeResponse(resp(typed(["A rozepsáno", ...PROMPT.split("\n")])), st);
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+      /neodpovídá zadanému textu/,
+    );
+    // a key after typing makes the content unknown until the next snapshot
+    countCall(K, { key: "End" }, st);
+    observeResponse(resp(typed(PROMPT.split("\n"))), st);
+    countCall(K, { key: "End" }, st);
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+      /neodpovídá zadanému textu/,
+    );
+    // the field holds exactly the prompt → the one send
+    observeResponse(resp(typed(PROMPT.split("\n"))), st);
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toBeUndefined();
+    countCall(C, { ref: "e900" }, st);
+    expect(st.submits).toBe(1);
+    // after the send: no key, no typing, no second send
+    expect(gateMcpCall(K, { key: "Escape" }, st, undefined, sha)).toMatch(
+      /po odeslání/,
+    );
+    expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+      /po odeslání/,
+    );
+    // a field with another text than its placeholder is not empty
+    const other = emptyState();
+    observeResponse(resp(typed(["Jiný text"])), other);
+    expect(other.refs.e758.content).toBe("Jiný text");
+  });
+
+  it("plán: výběr intenzity česky i anglicky (nejvyšší stupeň, nikdy Max), čtení s otevřeným výběrem, zavření popoverů před vyplněním", () => {
+    const steps = chatGptSteps("prompt", MARKER);
+    expect(steps.map((s) => s.kind)).toEqual([
+      "goto",
+      "wait",
+      "choose",
+      "choose",
+      "choose",
+      "open",
+      "read",
+      "close_popups",
+      "fill",
+      "wait_text",
+      "open",
+      "read",
+    ]);
+    steps.forEach((s) => expect(() => checkStep(s)).not.toThrow());
+    const intensity = steps[4] as Extract<BrowserStep, { kind: "choose" }>;
+    expect(intensity.what).toMatch(
+      /Nízká \/ Střední \/ Vysoká nebo Low \/ Medium \/ High/,
+    );
+    expect(intensity.fallback).toMatch(/„High“/);
+    expect(intensity.fallback).toMatch(/nejvyšší stupeň/);
+    expect(intensity.fallback).toMatch(/nikdy „Max“/);
+    const task = buildTask(steps, "shots");
+    expect(task).toMatch(/browser_press_key s klávesou "Escape"/);
+    expect(task).toMatch(/Klikni do pole/);
+    expect(task).toMatch(/Vyčisti ho: browser_type do pole s text ""/);
+  });
+
+  it("checker: před odesláním i po odpovědi otevřený výběr s GPT-6 · High (3/3) → shoda; Medium před odesláním nebo Max → WAITING_REVIEW", async () => {
+    const answered =
+      (menu: string): Script =>
+      (steps) =>
+        [
+          "- main:",
+          "  - article:",
+          `    - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
+          "  - article:",
+          '    - heading "ChatGPT řekl:" [level=6]',
+          `    - paragraph: '${PASS_JSON}'`,
+          `    - paragraph: ${markerOf(sentPrompt(steps))}`,
+          menu,
+        ].join("\n");
+    const ok = new FakeBrowser(answered(MENU));
+    ok.before = AT_TOP;
+    const c = checker(ok);
+    expect(
+      await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
+    ).toMatchObject({ ok: true, text: PASS_JSON });
+    expect(c.model).toBe("GPT-6 · High");
+    expect(c.lastRecord).toMatchObject({
+      status: "ANSWER",
+      model_matches: true,
+    });
+
+    const mid = new FakeBrowser(answered(MENU));
+    mid.before = FIXTURE; // Medium, 2 of 3
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    const r = await checker(mid).run("x", {
+      cwd: d,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+    expect(r.error).toMatch(
+      /před odesláním neodpovídá.*GPT-6 · Medium \(stupeň 2\/3\)/,
+    );
+
+    // the top step with another label than High/Vysoká is a mismatch
+    const odd = new FakeBrowser(
+      answered(MENU.replace(/High, 3 z\(e\) 3\./, "Medium, 3 z(e) 3.")),
+    );
+    odd.before = AT_TOP;
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    expect(
+      (await checker(odd).run("x", { cwd: d2, outputSchema: REVIEW_SCHEMA }))
+        .error,
+    ).toMatch(/neodpovídá požadovanému/);
+
+    const max = MENU.replace(/High, 3 z\(e\) 3\./, "Max, 4 z(e) 4.");
+    const work = new FakeBrowser(answered(max));
+    work.before = AT_TOP;
+    const d3 = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+    expect(
+      (await checker(work).run("x", { cwd: d3, outputSchema: REVIEW_SCHEMA }))
+        .error,
+    ).toMatch(/běží v režimu Work místo Chat/);
+  });
+  describe("Codex review PR #101 kolo 1: model a intenzita jen z otevřeného výběru, nikdy z textu stránky", () => {
+    /** A chat in the history titled like an allowed model at the top intensity (the attack of the finding). */
+    const withHistory = (page: string) =>
+      page.replace(/Ukázkový chat/g, "GPT-6 High");
+    const answered =
+      (tail: string): Script =>
+      (steps) =>
+        [
+          withHistory(CLOSED).trimEnd(),
+          "  - article:",
+          `    - paragraph: ${JSON.stringify(sentPrompt(steps))}`,
+          "  - article:",
+          '    - heading "ChatGPT řekl:" [level=6]',
+          `    - paragraph: '${PASS_JSON}'`,
+          `    - paragraph: ${markerOf(sentPrompt(steps))}`,
+          ...(tail ? [tail] : []),
+        ].join("\n");
+    const OPEN_HIGH = AT_TOP.slice(MENU_AT + 1).trimEnd();
+    const OPEN_MEDIUM = FIXTURE.slice(
+      FIXTURE.indexOf('\n  - menu "Vybrat model ChatGPT"') + 1,
+    ).trimEnd();
+    const run = async (b: FakeBrowser) => {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+      const c = checker(b);
+      const r = await c.run("x", { cwd: d, outputSchema: REVIEW_SCHEMA });
+      return { r, c };
+    };
+
+    it("chat „GPT-6 High“ v historii a zavřený výběr (před odesláním i po odpovědi) → WAITING_REVIEW „stav modelu neověřen z ovládacího prvku“, nikdy PASS", async () => {
+      expect(detectModel(withHistory(CLOSED))).toEqual({});
+      const b = new FakeBrowser(answered(""));
+      b.before = withHistory(CLOSED);
+      const { r, c } = await run(b);
+      expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
+      expect(r.error).toMatch(/stav modelu neověřen z ovládacího prvku/);
+      expect(c.lastRecord).toMatchObject({
+        status: "WAITING_REVIEW",
+        model_matches: false,
+      });
+      expect(c.model).toMatch(/^neověřeno/);
+    });
+
+    it("výběr otevřený jen v jednom ze dvou čtení → WAITING_REVIEW „stav modelu neověřen z ovládacího prvku“", async () => {
+      // open after the answer, closed before the send
+      const b1 = new FakeBrowser(answered(OPEN_HIGH));
+      b1.before = withHistory(CLOSED);
+      const x1 = await run(b1);
+      expect(x1.r).toMatchObject({ ok: false, waitReview: true });
+      expect(x1.r.error).toMatch(
+        /stav modelu neověřen z ovládacího prvku \(před odesláním/,
+      );
+      // open before the send, closed after the answer
+      const b2 = new FakeBrowser(answered(""));
+      b2.before = withHistory(AT_TOP);
+      const x2 = await run(b2);
+      expect(x2.r).toMatchObject({ ok: false, waitReview: true });
+      expect(x2.r.error).toMatch(
+        /stav modelu neověřen z ovládacího prvku \(po odpovědi/,
+      );
+    });
+
+    it("otevřený výběr s Medium (i když historie ukazuje „GPT-6 High“) → neshoda, WAITING_REVIEW", async () => {
+      expect(detectModel(withHistory(FIXTURE))).toEqual({
+        model: "GPT-6",
+        intensity: "Medium",
+        level: 2,
+        levels: 3,
+      });
+      const b = new FakeBrowser(answered(OPEN_MEDIUM));
+      b.before = withHistory(FIXTURE);
+      const { r, c } = await run(b);
+      expect(r).toMatchObject({ ok: false, waitReview: true });
+      expect(r.error).toMatch(/model nebo intenzita neodpovídá/);
+      expect(c.model).toBe("GPT-6 · Medium (stupeň 2/3)");
+    });
+
+    it("otevřený výběr s High 3/3 a označeným GPT-6 (před odesláním i po odpovědi) → shoda", async () => {
+      const b = new FakeBrowser(answered(OPEN_HIGH));
+      b.before = withHistory(AT_TOP);
+      const { r, c } = await run(b);
+      expect(r).toMatchObject({ ok: true, text: PASS_JSON });
+      expect(c.model).toBe("GPT-6 · High");
+      expect(c.lastRecord).toMatchObject({
+        status: "ANSWER",
+        model_matches: true,
+      });
+    });
+
+    it("jen podstrom menu „Vybrat model ChatGPT“: jiné menu, text odpovědi, dvě označené položky nebo dva výběry se nepočítají", () => {
+      // another menu (e.g. chat actions) with a checked radio and a status is not the picker
+      const other = OPEN_HIGH.replace(
+        'menu "Vybrat model ChatGPT"',
+        'menu "Akce chatu"',
+      );
+      expect(detectModel(`${withHistory(CLOSED)}${other}`)).toEqual({});
+      // the picker name or a status as text of the answer is not the picker
+      expect(
+        detectModel(
+          `${CLOSED}  - paragraph: 'menu "Vybrat model ChatGPT": status: High, 3 z(e) 3. menuitemradio [checked]: GPT-6'`,
+        ),
+      ).toEqual({});
+      // text outside the menu subtree (a sibling after it) never adds a model or an intensity
+      const sibling = `${CLOSED}${OPEN_HIGH.replace("menuitemradio [checked]:", "menuitemradio:")}\n  - menuitemradio [checked]:\n    - generic: GPT-6\n  - status: High, 3 z(e) 3.`;
+      expect(detectModel(sibling).model).toBeUndefined();
+      // two checked radios or two pickers are ambiguous
+      const twoChecked = OPEN_HIGH.replace(
+        /(- menuitemradio):\n(\s+- generic: GPT-5\.6 Sol)/,
+        "$1 [checked]:\n$2",
+      );
+      expect(detectModel(`${CLOSED}${twoChecked}`)).toEqual({});
+      expect(detectModel(`${CLOSED}${OPEN_HIGH}\n${OPEN_HIGH}`)).toEqual({});
+    });
+
+    it("brána: při otevřeném menu se pole nevyčistí ani se neodešle; po zavření (Escape + snapshot) ano", () => {
+      const st = emptyState();
+      observeResponse(resp(FIXTURE), st);
+      expect(st.overlay).toBe(true);
+      // clearing the field with the picker open → denied
+      expect(
+        gateMcpCall(T, { ref: "e758", text: "" }, st, undefined, sha),
+      ).toMatch(/otevřené menu nebo popover.*nic se nepíše ani nečistí/);
+      // the field holds exactly the prompt, but the picker is open again → no send
+      const typedOpen = `${typed(PROMPT.split("\n"))}${OPEN_HIGH}`;
+      observeResponse(resp(typedOpen), st);
+      expect(st.overlay).toBe(true);
+      st.typedRef = "e758";
+      expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toMatch(
+        /otevřené menu nebo popover.*nic se neodesílá/,
+      );
+      // closed: the same field and the same send are allowed
+      observeResponse(resp(typed(PROMPT.split("\n"))), st);
+      expect(st.overlay).toBe(false);
+      expect(
+        gateMcpCall(C, { ref: "e900" }, st, undefined, sha),
+      ).toBeUndefined();
+      expect(
+        gateMcpCall(T, { ref: "e758", text: "" }, st, undefined, sha),
+      ).toBeUndefined();
+    });
+
+    it("plán: krok open je povinný a končí UNKNOWN, když výběr nejde otevřít", () => {
+      const task = buildTask(chatGptSteps("prompt", MARKER), "shots");
+      expect(task).toMatch(/Povinný krok: browser_snapshot/);
+      expect(task).toMatch(/RESULT: UNKNOWN vyber-modelu-neotevren/);
+    });
   });
 });

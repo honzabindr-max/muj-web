@@ -30,6 +30,28 @@ export const BROWSER_MCP_TOOLS = [
   "browser_wait_for",
 ] as const;
 
+/**
+ * The one extra tool of the exact mode (the ChatGPT check, typeSha set, not read-only): browser_press_key, only with
+ * ALLOWED_KEYS and only before the send (gateMcpCall). Every other run keeps BROWSER_MCP_TOOLS without keys.
+ */
+export const EXACT_MODE_KEY_TOOL = "browser_press_key";
+
+/**
+ * Keys the ChatGPT check may press (smoke 4. 11.: the intensity slider is aria-hidden and moves only by arrow keys,
+ * popovers close only by Escape). Never Enter or any other key that could send, type or change the page otherwise.
+ */
+export const ALLOWED_KEYS: readonly string[] = [
+  "Escape",
+  "ArrowRight",
+  "ArrowLeft",
+  "End",
+  "Home",
+];
+
+/** An open menu, listbox or dialog in a snapshot (it may cover the composer; the prompt is typed only without one). */
+const OVERLAY_RE =
+  /^\s*-\s*'?(?:menu|listbox|dialog|alertdialog)(?=[\s"'[:]|$)/m;
+
 const ACTION_TOOLS = new Set(["browser_click", "browser_type"]);
 export const MAX_TOOL_CALLS = 80;
 /** Clicks on labels like these count as sending (a second one is denied); typing after the first send is denied. */
@@ -57,22 +79,32 @@ const CLICK_ROLES = new Set([
   "slider",
   "switch",
   "combobox",
+  "textbox",
 ]);
 export const CHAT_CLICK_NAME_RE =
-  /^(?:Chat|GPT-6|GPT-5\.6 Sol|Vysoká|High|Nový chat|New chat|Nová konverzace|[^\n]*\b(?:model[a-zěščřžýáíéůú]*|intenzit[a-zěščřžýáíéůú]*|přemýšlení|reasoning|effort)\b[^\n]*)$/i;
-/** true when an element (role + own accessible name) may be clicked in exact mode without being the send. */
+  /^(?:Chat|GPT-6|GPT-5\.6 Sol|Vysoká|High|Výkon|Performance|Nový chat|New chat|Nová konverzace|[^\n]*\b(?:model[a-zěščřžýáíéůú]*|intenzit[a-zěščřžýáíéůú]*|přemýšlení|reasoning|effort)\b[^\n]*)$/i;
+/**
+ * true when an element may be clicked in exact mode without being the send: judged by its role and own accessible
+ * name; an element without a name (model radio `- menuitemradio [checked]: - generic: GPT-6`) by its one-line text.
+ * The composer field (textbox, to focus it) and the intensity slider (aria-hidden, no name) are allowed by role.
+ */
 export function chatClickAllowed(
   role: string | undefined,
   name: string | undefined,
+  content?: string,
 ): boolean {
-  if (!role || !CLICK_ROLES.has(role) || !name) return false;
+  if (!role || !CLICK_ROLES.has(role)) return false;
+  const label = (
+    name || (content && !content.includes("\n") ? content : "")
+  ).trim();
   if (
-    /\bwork\b/i.test(name) ||
-    GENERATION_ACTION_RE.test(name) ||
-    SUBMIT_LABEL_RE.test(name)
+    /\bwork\b/i.test(label) ||
+    GENERATION_ACTION_RE.test(label) ||
+    SUBMIT_LABEL_RE.test(label)
   )
     return false;
-  return CHAT_CLICK_NAME_RE.test(name.trim());
+  if (role === "textbox" || role === "slider") return true;
+  return label !== "" && CHAT_CLICK_NAME_RE.test(label);
 }
 
 export interface RefInfo {
@@ -102,6 +134,8 @@ export interface GateState {
   blocked?: { kind: "offhost" | "bot"; detail: string };
   /** Exact mode (typeSha): the ref the prompt was typed into; the send is allowed only when its content matches. */
   typedRef?: string;
+  /** The last readable snapshot shows an open menu, listbox or dialog (the prompt is not typed then). */
+  overlay?: boolean;
 }
 
 export const emptyState = (): GateState => ({ calls: 0, submits: 0, refs: {} });
@@ -166,7 +200,8 @@ export function gateMcpCall(
     return `běh zastaven (${state.blocked.kind === "bot" ? "ověření proti botům" : "stránka mimo povolené hosty"}): ${state.blocked.detail}`;
   if (state.calls >= MAX_TOOL_CALLS)
     return `překročen limit ${MAX_TOOL_CALLS} volání nástrojů prohlížeče`;
-  if (!(BROWSER_MCP_TOOLS as readonly string[]).includes(tool))
+  const keyTool = tool === EXACT_MODE_KEY_TOOL && Boolean(typeSha) && !noType;
+  if (!(BROWSER_MCP_TOOLS as readonly string[]).includes(tool) && !keyTool)
     return `nástroj ${tool} není pro prohlížeč TARS povolen`;
   if (!filenameAllowed(input.filename, filesDir))
     return `soubor smí být jen ve složce ${filesDir ?? "(neurčena)"}/ tohoto běhu: ${String(input.filename).slice(0, 80)}`;
@@ -186,6 +221,12 @@ export function gateMcpCall(
     if (url !== "about:blank" && !hostAllowed(url))
       return `host není povolen: ${url}`;
   }
+  if (keyTool) {
+    if (state.submits >= 1) return "po odeslání se už nestiskne žádná klávesa";
+    const key = String(input.key ?? "");
+    if (!ALLOWED_KEYS.includes(key))
+      return `klávesa „${key.slice(0, 20)}“ není povolena (jen ${ALLOWED_KEYS.join(", ")})`;
+  }
   if (ACTION_TOOLS.has(tool)) {
     const target = String(input.target ?? input.ref ?? "");
     const ref = Object.hasOwn(state.refs, target)
@@ -200,7 +241,7 @@ export function gateMcpCall(
       typeSha &&
       tool === "browser_click" &&
       !ref.submit &&
-      !chatClickAllowed(ref.role, ref.name)
+      !chatClickAllowed(ref.role, ref.name, ref.content)
     )
       return `v tomto běhu se kliká jen na výběr režimu, modelu, intenzity a nový chat, ne na "${ref.label.slice(0, 80)}"`;
     if (typeof input.element === "string" && !actionAllowed(input.element))
@@ -211,6 +252,14 @@ export function gateMcpCall(
       return "dvojklik na odesílací prvek se nepovoluje";
     if (noType && (tool === "browser_type" || ref.submit))
       return "tento běh jen čte: nic se nepíše ani neodesílá";
+    // Codex review PR #101 kolo 1 (known risk): an open menu, listbox or dialog may cover the composer, so in exact mode
+    // nothing is typed into the field (not even clearing it) and nothing is sent while the last snapshot shows one.
+    if (
+      typeSha &&
+      (tool === "browser_type" || (tool === "browser_click" && ref.submit)) &&
+      state.overlay === true
+    )
+      return `podle posledního snapshotu je otevřené menu nebo popover (může překrývat pole): ${tool === "browser_type" ? "nic se nepíše ani nečistí" : "nic se neodesílá"}; zavři ho (browser_press_key Escape) a udělej browser_snapshot`;
     if (typeSha && tool === "browser_type") {
       if (input.slowly === true)
         return "pomalé psaní (slowly) se nepovoluje: nepřepíše rozepsaný text v poli";
@@ -258,9 +307,10 @@ export function countCall(
     ref.content = undefined;
     if (!isClearText(input.text)) state.typedRef = target;
   }
-  // A click may change the field: it is verified again by the next snapshot.
+  // A click or a key may change the field: it is verified again by the next snapshot.
   if (
-    toolName.endsWith("browser_click") &&
+    (toolName.endsWith("browser_click") ||
+      toolName.endsWith("browser_press_key")) &&
     !ref?.submit &&
     state.typedRef !== undefined &&
     Object.hasOwn(state.refs, state.typedRef)
@@ -356,6 +406,12 @@ export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
       all += ` ${c.role} ${c.name} ${c.text}`;
       texts.push(yamlScalar(c.text));
     }
+    let content = texts.join("\n");
+    // Smoke 4. 11.: an empty ChatGPT composer shows its placeholder as text (`- textbox "Zeptat se ChatGPT":` with
+    // `- paragraph: Zeptat se ChatGPT`). A field holding exactly its own accessible name counts as empty; anything
+    // else stays content. (Safe: the send still needs the field to hold exactly the prompt, sha256.)
+    if (e.role === "textbox" && e.name && content.trim() === e.name.trim())
+      content = "";
     const info: RefInfo = {
       label: own.slice(0, 120),
       ok: actionAllowed(all),
@@ -363,7 +419,7 @@ export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
       role: e.role,
       name: e.name,
       regen: GENERATION_ACTION_RE.test(all),
-      content: texts.join("\n"),
+      content,
     };
     const prev = Object.hasOwn(refs, e.ref) ? refs[e.ref] : undefined;
     // The same ref twice: what the field holds is ambiguous (content unknown).
@@ -425,6 +481,7 @@ export function observeResponse(
   if (snap) {
     const refs = parseSnapshotRefs(snap);
     if (Object.keys(refs).length) state.refs = refs;
+    state.overlay = OVERLAY_RE.test(snap);
   } else if (snap === "") {
     // The page changed but its snapshot cannot be read (file outside cwd, missing, too big): the old refs no longer
     // describe the page and a challenge in it would stay unseen, so no click/type until a readable snapshot.
