@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Orchestrator, tickScopeError } from "../orchestrator";
 import { transition } from "../state-machine";
@@ -444,6 +444,214 @@ describe("tick lease with fence", () => {
     expect(grants).toEqual(Array(rounds).fill(1));
     expect(fs.existsSync(path.join(dir, ".lock"))).toBe(false);
   }, 120_000);
+});
+
+const until = async (files: string[], ms = 60_000) => {
+  const t0 = Date.now();
+  while (!files.every((f) => fs.existsSync(path.join(dir, f)))) {
+    if (Date.now() - t0 > ms)
+      throw new Error(`timeout waiting for ${files.join(",")}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+const child = (role: string) =>
+  spawn(
+    process.execPath,
+    [
+      "--import",
+      TSX,
+      path.join(__dirname, "state-lock-child.ts"),
+      dir,
+      role,
+      "wo-own",
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+const exited = (k: ReturnType<typeof spawn>) =>
+  new Promise<number | null>((r) => k.on("exit", (c) => r(c)));
+
+describe("short .state.lock: token + PID + start time, takeover only with proof (kolo oprav 1)", () => {
+  it("two OS processes: A paused (SIGSTOP) mid-save with a lock aged past 30 s, B abort waits — B's state survives, A's late write is refused", async () => {
+    const s = new Store(dir);
+    const o = order("DOING");
+    for (let i = 0; i < 5; i++)
+      s.save(i === 0 ? o : { ...s.load(o.id), updated_at: `t${i}` });
+    expect(s.load(o.id).version).toBe(5);
+    const a = child("a");
+    const aExit = exited(a);
+    await until(["a-in"]);
+    process.kill(a.pid!, "SIGSTOP"); // A really stops in the middle of its read–check–write
+    const lock = path.join(dir, ".state.lock");
+    const held = JSON.parse(fs.readFileSync(lock, "utf8"));
+    expect(held.pid).toBe(a.pid);
+    expect(held.started).toBe(processStartTime(a.pid!));
+    const old = new Date(Date.now() - 10 * 60_000); // simulated: the lock is 10 minutes old (old code stole it after 30 s)
+    fs.utimesSync(lock, old, old);
+    const b = child("b");
+    const bExit = exited(b);
+    await until(["b-start"]);
+    await new Promise((r) => setTimeout(r, 700)); // B polls the lock several times meanwhile
+    expect(fs.existsSync(path.join(dir, "b-save"))).toBe(false); // B did not take over by age
+    expect(JSON.parse(fs.readFileSync(lock, "utf8")).token).toBe(held.token);
+    expect(s.load(o.id).version).toBe(5);
+    process.kill(a.pid!, "SIGCONT");
+    fs.writeFileSync(path.join(dir, "a-go"), "");
+    expect(await Promise.all([aExit, bExit])).toEqual([0, 0]);
+    const r = (f: string) => fs.readFileSync(path.join(dir, f), "utf8");
+    expect(r("a-save")).toBe("1"); // A finished its write while it held the lock (version 6)
+    expect(r("b-save")).toBe("1"); // B's abort applied after it, on top of version 6
+    expect(r("a-late")).toBe("0"); // A's late output based on version 5 is refused
+    const disk = s.load(o.id);
+    expect(disk.state).toBe("FAILED");
+    expect(disk.failure_reason).toMatch(/manual abort: B/);
+    expect(disk.version).toBe(7);
+    expect(disk.draft_file).toBe("a.md");
+    // A's late write lands before or after B's abort (both race for the lock once A leaves it): refused either way.
+    expect(refusals(s).at(-1)?.reason).toMatch(/verze 5 ≠ uložená [67]/);
+    expect(fs.existsSync(lock)).toBe(false);
+  }, 120_000);
+
+  it("a lock of a provably dead holder (PID gone, or PID reused with another start time) is taken over and logged", () => {
+    const lock = path.join(dir, ".state.lock");
+    const s = new Store(dir);
+    for (const h of [
+      {
+        token: "dead1",
+        pid: deadPid(),
+        started: "Mon Jan  1 00:00:00 2001",
+        acquired_at: NOW,
+      },
+      {
+        token: "dead2",
+        pid: process.pid,
+        started: "Mon Jan  1 00:00:00 2001",
+        acquired_at: NOW,
+      },
+    ]) {
+      fs.writeFileSync(lock, JSON.stringify(h));
+      expect(s.withStateLock(() => "took over", 2000)).toBe("took over");
+      expect(fs.existsSync(lock)).toBe(false);
+    }
+    expect(
+      s.readLog(50).filter((e) => e.result?.startsWith(".state.lock převzat")),
+    ).toHaveLength(2);
+    expect(
+      fs.readdirSync(dir).filter((f) => f.startsWith(".state.lock")),
+    ).toEqual([]);
+  });
+
+  it("HOLD: live holder (even with an ancient timestamp), unreadable / old-format lock, a takeover guard left behind", () => {
+    const lock = path.join(dir, ".state.lock");
+    const s = new Store(dir);
+    const live = {
+      token: "live",
+      pid: process.pid,
+      started: processStartTime(process.pid)!,
+      acquired_at: "2000-01-01T00:00:00.000Z",
+    };
+    for (const content of [
+      JSON.stringify(live),
+      "",
+      "{nope",
+      `${deadPid()} 0c7e`,
+      JSON.stringify({ pid: deadPid() }),
+    ]) {
+      fs.writeFileSync(lock, content);
+      fs.utimesSync(lock, new Date(0), new Date(0));
+      expect(() => s.withStateLock(() => 1, 120)).toThrow(/HOLD/);
+      expect(fs.readFileSync(lock, "utf8")).toBe(content);
+    }
+    fs.writeFileSync(
+      lock,
+      JSON.stringify({
+        token: "dead",
+        pid: deadPid(),
+        started: "x",
+        acquired_at: NOW,
+      }),
+    );
+    fs.writeFileSync(`${lock}.takeover`, "4242 crashed-taker");
+    expect(() => s.withStateLock(() => 1, 120)).toThrow(/HOLD/);
+    fs.rmSync(`${lock}.takeover`);
+    expect(s.withStateLock(() => "ok", 2000)).toBe("ok");
+  });
+});
+
+describe(".fence counter: atomic, never read as 0 (kolo oprav 1)", () => {
+  const seed = (fence: number) => {
+    fs.mkdirSync(path.join(dir, "wo-own"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "wo-own", "state.json"),
+      JSON.stringify({ ...order("DOING"), version: 3, fence }),
+    );
+  };
+  const fenceFile = () => path.join(dir, ".fence");
+
+  for (const [name, damage] of [
+    ["truncated", () => fs.writeFileSync(fenceFile(), "5")], // half of "500\n"? any shorter number is still below the stored fence
+    ["empty", () => fs.writeFileSync(fenceFile(), "")],
+    ["garbage", () => fs.writeFileSync(fenceFile(), "\u0000\u0000")],
+    ["missing", () => fs.rmSync(fenceFile(), { force: true })],
+  ] as const) {
+    it(`${name} .fence with a stored state.fence=500 → new fence > 500, the order continues`, () => {
+      seed(500);
+      damage();
+      const s = new Store(dir);
+      expect(s.acquireLock()).toBe(true);
+      expect(s.fence).toBe(501);
+      expect(fs.readFileSync(fenceFile(), "utf8")).toBe("501\n");
+      expect(s.save({ ...s.load("wo-own"), failure_reason: "pokračuje" })).toBe(
+        true,
+      );
+      expect(s.load("wo-own").fence).toBe(501);
+      s.releaseLock();
+      expect(s.acquireLock()).toBe(true);
+      expect(s.fence).toBe(502);
+      s.releaseLock();
+      expect(fs.readdirSync(dir).filter((f) => f.includes(".tmp"))).toEqual([]);
+    });
+  }
+
+  it("damaged .fence and an unreadable state.json → HOLD with a clear reason, nothing written; a readable counter still works", () => {
+    seed(500);
+    fs.mkdirSync(path.join(dir, "wo-bad"));
+    fs.writeFileSync(path.join(dir, "wo-bad", "state.json"), "{trunc");
+    fs.writeFileSync(fenceFile(), "");
+    const s = new Store(dir);
+    expect(s.acquireLock()).toBe(false);
+    expect(fs.existsSync(path.join(dir, ".lock"))).toBe(false);
+    expect(fs.readFileSync(fenceFile(), "utf8")).toBe("");
+    const hold = s
+      .readLog(20)
+      .find((e) => e.result === "tick lock HOLD: fence nelze bezpečně určit");
+    expect(hold?.reason).toMatch(
+      /runs\/\.fence chybí nebo je poškozený.*wo-bad/,
+    );
+    fs.writeFileSync(fenceFile(), "700\n");
+    expect(s.acquireLock()).toBe(true);
+    expect(s.fence).toBe(701);
+    s.releaseLock();
+  });
+
+  it("the counter is written through a unique tmp + rename (no in-place write of .fence)", () => {
+    const writes: string[] = [];
+    const ow = fs.openSync;
+    const spy = vi.spyOn(fs, "openSync").mockImplementation(((
+      p: fs.PathLike,
+      ...rest: unknown[]
+    ) => {
+      writes.push(String(p));
+      return (ow as (...a: unknown[]) => number)(p, ...rest);
+    }) as typeof fs.openSync);
+    const s = new Store(dir);
+    expect(s.acquireLock()).toBe(true);
+    spy.mockRestore();
+    s.releaseLock();
+    expect(
+      writes.some((p) => /\.fence\.\d+\.[0-9a-f-]{36}\.tmp$/.test(p)),
+    ).toBe(true);
+    expect(writes).not.toContain(fenceFile());
+  });
 });
 
 describe("N3: tick only with an explicit TARS_DEPARTMENTS", () => {

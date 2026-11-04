@@ -75,6 +75,41 @@ export function parseLease(text: string): Partial<TickLease> | undefined {
   }
 }
 
+/** Content of runs/.state.lock (DR-039, etapa 2, kolo oprav 1): who holds the short lock, provable like the lease. */
+export interface StateLockHolder {
+  token: string;
+  pid: number;
+  /** `ps -o lstart=` of the holder; "" when it could not be read (then the lock is never taken over: HOLD). */
+  started: string;
+  acquired_at: string;
+}
+
+/** The next fence cannot be determined safely (damaged counter and an unreadable state.json): HOLD. */
+export class FenceHoldError extends Error {}
+
+/** Atomic, durable replace of a small file: unique tmp + fsync + rename + fsync of the directory. */
+export function writeDurable(file: string, content: string): void {
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, "wx");
+    try {
+      fs.writeSync(fd, content);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+  const dfd = fs.openSync(path.dirname(file), "r");
+  try {
+    fs.fsyncSync(dfd);
+  } finally {
+    fs.closeSync(dfd);
+  }
+}
+
 export class Store {
   /** Tick lease held by this instance (set by acquireLock, cleared by releaseLock). Saves through it are fenced. */
   private lease: TickLease | undefined;
@@ -178,10 +213,16 @@ export class Store {
   /**
    * Short lock around one synchronous read-modify-write of an order's state (every `save`, owner decision from Notion
    * in a tick, `cli owner`, `abort`, the tick lease). Separate from the tick lock, which is held for a whole tick.
-   * Re-entrant within one Store instance (a save inside `withStateLock` does not wait for itself). Released only
-   * while it still carries our token. Waits up to `waitMs`, then throws.
+   * Re-entrant within one Store instance (a save inside `withStateLock` does not wait for itself).
+   *
+   * DR-039, etapa 2 (kolo oprav 1): `.state.lock` carries token + PID + process start time and is created atomically
+   * with its full content (tmp + link). A held lock is taken over only when its holder provably does not run (PID
+   * gone, or the PID belongs to a process with another start time) — never by age: a holder paused in the middle of
+   * a save (SIGSTOP, sleep, swap) keeps it, so the CAS read–check–rename in `save` is never interleaved. Anything we
+   * cannot prove (unreadable or old-format lock, ps failure) → wait, after `waitMs` throw (HOLD; the caller retries
+   * later). Released only while it still carries our token.
    */
-  withStateLock<T>(fn: () => T, waitMs = 5000, staleMs = 30_000): T {
+  withStateLock<T>(fn: () => T, waitMs = 5000): T {
     if (this.stateLockDepth > 0) {
       this.stateLockDepth++;
       try {
@@ -191,23 +232,31 @@ export class Store {
       }
     }
     const f = path.join(this.runsDir, ".state.lock");
-    const mine = `${process.pid} ${randomUUID()}`;
+    const holder: StateLockHolder = { token: randomUUID(), pid: process.pid, started: Store.ownStartTime() ?? "", acquired_at: new Date().toISOString() };
+    const mine = JSON.stringify(holder) + "\n";
+    const tmp = `${f}.${process.pid}.${holder.token}.tmp`;
+    fs.writeFileSync(tmp, mine); // EACCES, ENOSPC, ...: not a collision, thrown at once
     const t0 = Date.now();
-    for (;;) {
-      try {
-        fs.writeFileSync(f, mine, { flag: "wx" });
-        break;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; // EACCES, ENOSPC, ...: not a collision, never wait on it
+    let probed: { token?: string; at: number } = { at: 0 };
+    try {
+      for (;;) {
+        try {
+          fs.linkSync(tmp, f); // atomic create with the full content; EEXIST while somebody holds it
+          break;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; // not a collision: never wait on it
+        }
+        // Somebody holds it. Whatever happens below, the timeout is checked on every pass.
+        const current = this.readStateLock(f);
+        if (current && (current.token !== probed.token || Date.now() - probed.at >= 250)) {
+          probed = { token: current.token, at: Date.now() };
+          if (holderStatus(current) === "dead" && this.takeOverStateLock(f, current)) continue;
+        }
+        if (Date.now() - t0 >= waitMs) throw new Error("stav zakázky právě mění jiný proces (zámek .state.lock, HOLD), zkus to za chvíli");
+        if (current !== null) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // null = vanished: retry at once
       }
-      // Somebody holds it. Whatever happens below, the timeout is checked on every pass.
-      try {
-        if (Date.now() - fs.statSync(f).mtimeMs > staleMs) fs.rmSync(f, { force: true });
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // vanished meanwhile: just try again
-      }
-      if (Date.now() - t0 >= waitMs) throw new Error("stav zakázky právě mění jiný proces (zámek .state.lock), zkus to za chvíli");
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    } finally {
+      fs.rmSync(tmp, { force: true });
     }
     this.stateLockDepth = 1;
     try {
@@ -215,7 +264,56 @@ export class Store {
     } finally {
       this.stateLockDepth = 0;
       try {
-        if (fs.readFileSync(f, "utf8") === mine) fs.rmSync(f, { force: true }); // never remove a lock somebody else took over
+        if (fs.readFileSync(f, "utf8") === mine) fs.rmSync(f, { force: true }); // never remove a lock somebody else holds
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+
+  /** Holder of `.state.lock`: null = the file vanished, undefined = unreadable / not this format (never a proof). */
+  private readStateLock(f: string): StateLockHolder | null | undefined {
+    let text: string;
+    try {
+      text = fs.readFileSync(f, "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+    try {
+      const v = JSON.parse(text) as Partial<StateLockHolder>;
+      return v && typeof v.token === "string" && Number.isInteger(v.pid) ? (v as StateLockHolder) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Removes the `.state.lock` of a provably dead holder. Takers exclude each other with `.state.lock.takeover`
+   * (exclusive create), so the file renamed away is exactly the dead holder's (token re-checked under that guard; a
+   * live process never replaces an existing lock and the dead holder never removes it). A taker that crashed and left
+   * the guard behind → every further takeover waits (HOLD, README: nouzový postup); normal locking still works.
+   */
+  private takeOverStateLock(f: string, dead: StateLockHolder): boolean {
+    const guard = `${f}.takeover`;
+    const me = `${process.pid} ${randomUUID()}`;
+    try {
+      fs.writeFileSync(guard, me, { flag: "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") return false; // another taker (or a crashed one): wait
+      throw e;
+    }
+    try {
+      const again = this.readStateLock(f);
+      if (!again || again.token !== dead.token || holderStatus(again) !== "dead") return false;
+      const grave = `${f}.${randomUUID()}.dead`;
+      fs.renameSync(f, grave);
+      fs.rmSync(grave, { force: true });
+      this.log({ ts: new Date().toISOString(), order: "-", kind: "info", role: "orchestrator", result: ".state.lock převzat: držitel prokazatelně neběží", reason: `pid ${dead.pid}` });
+      return true;
+    } finally {
+      try {
+        if (fs.readFileSync(guard, "utf8") === me) fs.rmSync(guard, { force: true });
       } catch {
         /* already gone */
       }
@@ -262,12 +360,39 @@ export class Store {
     }
   }
 
+  /**
+   * Next fence number (DR-039, etapa 2, kolo oprav 1). A damaged counter is never read as 0: the result is
+   * max(readable `.fence`, fence of the current lock, every fence stored in runs/<id>/state.json) + 1. When `.fence`
+   * is missing/unreadable AND some state.json cannot be read, the maximum is unknown → FenceHoldError (HOLD).
+   * Written atomically and durably (writeDurable).
+   */
   private nextFence(): number {
     const f = path.join(this.runsDir, ".fence");
-    const last = fs.existsSync(f) ? Number(fs.readFileSync(f, "utf8").trim()) || 0 : 0;
-    const prev = Number(this.readLease()?.fence) || 0;
-    const n = Math.max(last, prev) + 1;
-    fs.writeFileSync(f, `${n}\n`);
+    let counter: number | undefined;
+    try {
+      const t = fs.readFileSync(f, "utf8").trim();
+      if (/^\d+$/.test(t)) counter = Number(t);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+    let stored = 0;
+    const unreadable: string[] = [];
+    for (const d of fs.readdirSync(this.runsDir)) {
+      const sf = path.join(this.runsDir, d, "state.json");
+      if (!fs.existsSync(sf)) continue;
+      try {
+        const v = Number((JSON.parse(fs.readFileSync(sf, "utf8")) as Order).fence ?? 0);
+        if (Number.isFinite(v)) stored = Math.max(stored, v);
+        else unreadable.push(d);
+      } catch {
+        unreadable.push(d);
+      }
+    }
+    if (counter === undefined && unreadable.length)
+      throw new FenceHoldError(`tick lock HOLD: čítač runs/.fence chybí nebo je poškozený a nejde přečíst ${unreadable.join(", ")}/state.json — nejvyšší fence nelze bezpečně určit (README: nouzový postup)`);
+    const prev = Number(this.readLease()?.fence);
+    const n = Math.max(counter ?? 0, Number.isFinite(prev) ? prev : 0, stored) + 1;
+    writeDurable(f, `${n}\n`);
     return n;
   }
 
@@ -299,6 +424,10 @@ export class Store {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
       if (/\.state\.lock/.test((e as Error).message)) return false; // short lock busy: HOLD, the next tick tries again
+      if (e instanceof FenceHoldError) {
+        this.log({ ts: new Date().toISOString(), order: "-", kind: "error", role: "orchestrator", result: "tick lock HOLD: fence nelze bezpečně určit", reason: e.message });
+        return false;
+      }
       throw e;
     }
     if (!granted) return false;
