@@ -1757,3 +1757,172 @@ describe("opravný PR „panel“, kolo 2 (Codex review kolo 1)", () => {
     expect(new PanelIndex(dir).get(id)).toBeUndefined();
   });
 });
+
+describe("opravný PR „panel“, kolo 3 (Codex review kolo 2)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("bod 1: uložené GO, read-back selže, vlastník během PATCH změní GO na REJECT → řádek se vyřadí, staré GO se do nového kola nepřenese, DONE nenastane", async () => {
+    const { o, notion, panel, id, card } = await reissued();
+    const p2 = panel.page("page2");
+    p2.decision = "GO";
+    notion.readFails = true; // read-back selže: zakázka zůstane WAITING_OWNER s uloženým GO
+    const orig = panel.upsert.bind(panel);
+    let armed = true;
+    panel.upsert = async (row, page) => {
+      if (page === "page2" && armed && store.load(id).meta.owner_go) {
+        armed = false; // panel-sync už přečetl řádek s GO; vlastník teď (během PATCH) změní GO na REJECT
+        p2.decision = "REJECT";
+      }
+      return orig(row, page);
+    };
+    // Poll přijme GO (uloží owner_go), read-back selže; panel-sync po přijetí: čtení (GO) → PATCH (vlastník mezitím
+    // REJECT) → čtení po PATCH.
+    await o.pollOwnerDecisions();
+    await o.flushPanel();
+    expect(armed).toBe(false);
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          /rozhodnutí REJECT vzniklo v okně zápisu řádku/.test(e.reason ?? ""),
+      ),
+    ).toBe(true);
+    notion.readFails = false; // read-back by teď prošel
+    await o.pollOwnerDecisions();
+    await o.pollOwnerDecisions();
+    const w = store.load(id);
+    expect(w.state).toBe("WAITING_OWNER"); // nikdy DONE podle starého GO
+    expect(w.meta.owner_go).toBeUndefined();
+    expect(w.meta.owner_go_source).toBeUndefined();
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          /uložené GO .* z vyřazeného řádku zrušeno/.test(e.result ?? ""),
+      ),
+    ).toBe(true);
+    await expectNewRowR2(o, panel, id, card);
+  });
+
+  /** Nový řádek kola 2 (page3) s aktuální kartou a prázdným rozhodnutím; REJECT na něm → FAILED. */
+  async function expectNewRowR2(
+    o: Orchestrator,
+    panel: Panel,
+    id: string,
+    card: string,
+  ) {
+    expect(store.load(id).meta.reissue_round).toBe("2");
+    expect(new PanelIndex(dir).current(id, 2)).toBe("page3");
+    expect(panel.page("page3").row["Karta rozhodnutí"]).toBe(card);
+    expect(panel.page("page3").decision).toBeUndefined();
+    expect(panel.page("page2").row.Stav).toBe(SUPERSEDED_STATE);
+    panel.page("page3").decision = "REJECT";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("FAILED");
+    for (const w of panel.writes)
+      expect(Object.keys(w.row)).not.toContain(OWNER_DECISION_PROPERTY); // P20
+  }
+
+  /**
+   * REST vytvoření čistě odmítne (401), REST dohledání nedostupné (503), MCP hledání nic nenajde (zpožděný index).
+   * `blockLocks` = kolik dalších `.state.lock` po odmítnutí REST vyprší (souběžný držitel zámku).
+   */
+  function mcpSetup(blockLocks: number) {
+    const panel = new Panel();
+    let mcpCreates = 0;
+    let restRefusals = 0;
+    let block = 0;
+    const real = Store.prototype.withStateLock;
+    vi.spyOn(Store.prototype, "withStateLock").mockImplementation(function <T>(
+      this: Store,
+      fn: () => T,
+      waitMs?: number,
+    ): T {
+      if (block > 0) {
+        block--;
+        throw new Error(
+          "stav zakázky právě mění jiný proces (zámek .state.lock, HOLD), zkus to za chvíli",
+        );
+      }
+      return real.call(this, fn, waitMs) as T;
+    });
+    const rest: PanelSink = {
+      upsert: async (row, page) => {
+        if (!page) {
+          restRefusals++;
+          block = restRefusals === 1 ? blockLocks : 0; // jen u prvního pokusu je zámek obsazený
+          throw new NotionRestError(401, "unauthorized"); // čisté odmítnutí před zápisem → fallback
+        }
+        return panel.upsert(row, page);
+      },
+      findRowByOrderId: async () => {
+        throw new NotionRestError(503, "service_unavailable");
+      },
+      readOwnerDecision: (p) => panel.readOwnerDecision(p),
+    };
+    const mcp: PanelSink = {
+      upsert: async (row, page) => {
+        if (!page) mcpCreates++;
+        return panel.upsert(row, page);
+      },
+    };
+    const lookup = {
+      find: async (orderId: string, opts?: { unique?: boolean }) => {
+        void orderId;
+        void opts;
+        return undefined; // index MCP hledání je zpožděný
+      },
+    };
+    const x = build(new HybridPanelSink(rest, mcp, () => {}, lookup));
+    return {
+      ...x,
+      panel,
+      mcpCreates: () => mcpCreates,
+      restRefusals: () => restRefusals,
+    };
+  }
+
+  async function expectCreatedOnce(x: ReturnType<typeof mcpSetup>, id: string) {
+    new PanelIndex(dir).markDirty(id);
+    clock = new Date(Date.parse(clock) + 20 * 60_000).toISOString();
+    await x.o.resyncPanel(id);
+    // První pokus: REST odmítl, záznam transportu nezískal zámek → MCP se nezavolalo, chyba nese „neodešlo“.
+    expect(x.restRefusals()).toBe(2);
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          e.result === "panel sync failed" &&
+          /MCP vytvoření neodešlo/.test(e.reason ?? ""),
+      ),
+    ).toBe(true);
+    expect(x.mcpCreates()).toBe(1); // první pokus MCP nevolal, druhý řádek vytvořil
+    expect(x.panel.creates).toBe(1);
+    expect(new PanelIndex(dir).get(id)).toBe("page1");
+    expect(new EffectJournal(dir).get(rowOp(id, 0))).toMatchObject({
+      state: "EFFECT_DONE",
+      transport: "mcp",
+      attempts: 2,
+    });
+    expect(
+      log().some(
+        (e) => e.order === id && /EFFECT_UNKNOWN \/ HOLD/.test(e.result ?? ""),
+      ),
+    ).toBe(false);
+  }
+
+  it("bod 2: po PREPARED REST odmítne (401) a záznam transportu MCP nezíská `.state.lock` → MCP neodejde, EFFECT_ABSENT, další sync řádek vytvoří (žádný HOLD)", async () => {
+    const x = mcpSetup(1);
+    const r = (await x.o.tick()) as { order: string };
+    await x.o.flushPanel();
+    await expectCreatedOnce(x, r.order);
+  });
+
+  it("bod 2: zámek nedostupný i pro zápis EFFECT_ABSENT → zůstane PREPARED, další sync ho doplní z paměti procesu a řádek vytvoří jednou (žádný HOLD)", async () => {
+    const x = mcpSetup(2);
+    const r = (await x.o.tick()) as { order: string };
+    await x.o.flushPanel();
+    await expectCreatedOnce(x, r.order);
+  });
+});

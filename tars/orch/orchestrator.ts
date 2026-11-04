@@ -171,6 +171,15 @@ class PanelRowHold extends Error {}
  */
 class PanelRowGuardWait extends Error {}
 
+/**
+ * Kolo 3, bod 2: REST vytvoření řádku čistě odmítl a záznam transportu MCP do journalu se nepodařil (zámek `.state.lock`
+ * nezískán, fence neplatí). MCP se proto vůbec nezavolá: žádné vytvoření neproběhlo, výsledek je prokazatelně bez efektu.
+ */
+class McpCreateNotSent extends Error {}
+
+/** Kolo 3, bod 1: meta pole s rozhodnutím vlastníka; po vyřazení řádku se do nového kola nepřenášejí. */
+const OWNER_DECISION_META = ["owner_go", "owner_go_source", "owner_option"];
+
 /** Wraps any adapter: output containing a secret is dropped, never stored (§6). */
 export class SecretScanningAdapter implements TextAdapter {
   constructor(private inner: TextAdapter) {}
@@ -223,6 +232,12 @@ export class Orchestrator {
   private ctx: DeptContext;
   /** Etapa 3: durable PREPARED / receipt of every external write (runs/<id>/effects/). */
   private effects: EffectJournal;
+  /**
+   * Kolo 3, bod 2: operace vytvoření řádku, u kterých tento proces ví, že pokus `attempts` nic nevytvořil (REST čistě
+   * odmítl, MCP neodešlo), ale EFFECT_ABSENT se do journalu zapsat nepodařilo (zámek stále nedostupný). Další zápis řádku
+   * to do journalu doplní dřív, než by PREPARED vedl na dohledání a HOLD. Jen v paměti: po pádu procesu zůstává PREPARED.
+   */
+  private provenAbsent = new Map<string, number>();
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -441,9 +456,20 @@ export class Orchestrator {
         creating = true;
         // Kolo 2, bod 3: vytvoření přes MCP fallback se v journalu označí dřív, než odejde (obnova pak bez
         // konzistentního REST dohledání končí HOLD, nikdy dalším POST).
+        // Kolo 3, bod 2: nejde-li záznam zapsat (zámek, fence), MCP se nezavolá a chyba nese „nic neodešlo“
+        // (`McpCreateNotSent` → EFFECT_ABSENT níže), nikdy nejistý výsledek.
         id = await panel.sink.upsert(row, undefined, {
-          beforeMcpCreate: () =>
-            this.fenced(lease, () => this.effects.markTransport(op, "mcp")),
+          beforeMcpCreate: () => {
+            try {
+              this.fenced(lease, () => this.effects.markTransport(op, "mcp"));
+            } catch (err) {
+              const attempts = this.effects.get(op)?.attempts;
+              if (attempts !== undefined) this.provenAbsent.set(op, attempts);
+              throw new McpCreateNotSent(
+                `REST vytvoření odmítl a záznam transportu MCP do journalu se nepodařil (${String((err as Error)?.message ?? err).slice(0, 200)}); MCP vytvoření neodešlo`,
+              );
+            }
+          },
         });
       } else if (vetted?.kind === "ok") {
         ({ id, seq } = await this.vettedPatch(
@@ -551,28 +577,34 @@ export class Orchestrator {
         });
         return;
       }
+      // Kolo 3, bod 2: MCP vytvoření neodešlo (REST čistě odmítl, záznam transportu se nezapsal) = jistě bez efektu.
+      const notSent = e instanceof McpCreateNotSent;
+      const unsure = !notSent && isUncertainOutcome(e);
       try {
         // PR #99: journal a značky jen s platným fence (jinak je zapíše až platný držitel zámku panelu).
         this.fenced(lease, () => {
           if (creating) {
             // Clean refusal → certainly no row; anything else may have created one: stays PREPARED, looked up first next time.
             // A stale fence (PanelLockHoldError) sent nothing, but the record stays PREPARED: the next attempt looks up first.
-            if (isUncertainOutcome(e) || e instanceof PanelLockHoldError)
+            if (unsure || e instanceof PanelLockHoldError)
               this.effects.note(op, (e as Error).message ?? String(e));
-            else this.effects.absent(op, (e as Error).message ?? String(e));
+            else {
+              this.effects.absent(op, (e as Error).message ?? String(e));
+              this.provenAbsent.delete(op);
+            }
           }
           // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
-          if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e))
+          if (creating && panel.sink.findRowByOrderId && unsure)
             panel.index.markUncertain(o.id);
         });
       } catch {
-        /* fence neplatí nebo journal nezapisovatelný */
+        /* fence neplatí nebo journal nezapisovatelný (u `notSent` doplní EFFECT_ABSENT další zápis, `provenAbsent`) */
       }
       try {
         // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
         // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
         // exist, so the operation stays PREPARED and every later sync of this order is a HOLD (`resolvePanelRow`).
-        if (!creating || !isUncertainOutcome(e) || panel.sink.findRowByOrderId)
+        if (!creating || !unsure || panel.sink.findRowByOrderId)
           panel.index.markDirty(o.id);
         else panel.index.clearDirty(o.id);
       } catch {
@@ -868,7 +900,26 @@ export class Orchestrator {
     sel: { round: number; card?: string },
   ): Promise<{ id: string; source: "receipt" | "lookup" } | undefined> {
     const panel = this.d.panel!;
-    const prev = this.effects.get(op);
+    let prev = this.effects.get(op);
+    // Kolo 3, bod 2: tento proces ví, že poslední pokus nic nevytvořil (MCP neodešlo), jen EFFECT_ABSENT nešlo zapsat.
+    // Doplní se teď, s platným fence a jen pro tentýž pokus (stejné `attempts`, bez záznamu transportu MCP).
+    const proven = this.provenAbsent.get(op);
+    if (proven !== undefined) {
+      prev = this.fenced(lease, () => {
+        const cur = this.effects.get(op);
+        if (
+          cur?.state === "PREPARED" &&
+          !cur.transport &&
+          cur.attempts === proven
+        )
+          return this.effects.absent(
+            op,
+            "REST vytvoření odmítl a MCP vytvoření neodešlo (záznam transportu se nezapsal); doplněno později",
+          );
+        return cur;
+      });
+      this.provenAbsent.delete(op);
+    }
     if (prev?.state === "EFFECT_DONE" && prev.receipt) {
       const id = pageIdFromUrl(prev.receipt.url);
       // Kolo 2, bod 1: karta řádku z receiptu nečtena; volající ho prověří stejně jako řádek z indexu (`vetRow`).
@@ -1699,16 +1750,32 @@ export class Orchestrator {
         return false;
       }
       const at = this.iso();
+      // Kolo 3, bod 1: rozhodnutí vlastníka uložené z vyřazeného řádku nebo kola (`owner_go`, jeho zdroj, volba A/B) se
+      // do nového kola nepřenáší. Platí jen rozhodnutí z nového řádku aktuální karty; jinak by úspěšný read-back převedl
+      // zakázku do DONE podle GO, které vlastník mezitím v řádku změnil (např. na REJECT).
+      const droppedGo = o.meta.owner_go;
+      const keep = Object.fromEntries(
+        Object.entries(o.meta).filter(
+          ([k]) => !OWNER_DECISION_META.includes(k),
+        ),
+      );
       const next: Order = {
         ...o,
         updated_at: at,
         meta: {
-          ...o.meta,
+          ...keep,
           reissue_round: String(round + 1),
           row_invalidated_at: at,
         },
       };
       if (!this.persist(next)) return false; // zůstává PREPARED: dokončí další vstup
+      if (droppedGo)
+        this.log({
+          order: id,
+          kind: "info",
+          role: "orchestrator",
+          result: `uložené GO (${o.meta.owner_go_source ?? "?"}) z vyřazeného řádku zrušeno; platí jen rozhodnutí z nového řádku kola ${round + 1}`,
+        });
       o = next;
     } else if (reissueRound(o) < round) {
       this.effects.unknown(
