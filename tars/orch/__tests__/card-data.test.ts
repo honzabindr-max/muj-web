@@ -317,6 +317,10 @@ describe("orchestrátor: karta s daty", () => {
       this.pages.push({ title, md });
       return { url: "https://app.notion.com/p/card" };
     }
+    /** DR-039: karta vzniká až po read-backu DRAFTu (jeho otisk = approved_hash). */
+    async readPage() {
+      return "# Draft\n\nTexty obrazovek.";
+    }
   }
   function run(notion: NotionClient, cardAdapter?: TextAdapter) {
     const store = new Store(dir);

@@ -30,9 +30,10 @@ import { missingSources, SourceLoader } from "../sources";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
 import { spawnSync } from "node:child_process";
 
-import { combineI8, parseGuardOutput } from "../guard";
+import { combineI8, parseGuardOutput, runGuardWithI8, unwrapGuardOutput, type GuardResult } from "../guard";
 import type { NotionClient } from "../notion";
-import { extractNotionUrl, McpNotion, NotionRestApi, NotionRestError } from "../notion";
+import { extractNotionUrl, McpNotion, NotionRestApi, NotionRestError, OwnerDecisionWriteError, pageIdFromUrl, RestNotion, setsOwnerDecision } from "../notion";
+import { artifactHash } from "../approval";
 import { OwnerPing } from "../owner-ping";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
 import { scanSecrets } from "../secret-scan";
@@ -74,9 +75,25 @@ class MockBrowser implements BrowserRunner {
 }
 class MockNotion implements NotionClient {
   pages: Array<{ title: string; md: string }> = [];
+  /** How "Notion" returns a stored page on read-back (default: exactly as written). */
+  render: (md: string) => string = (md) => md;
+  readFails = false;
+  reads = 0;
   async createPage(_p: string, title: string, md: string) {
     this.pages.push({ title, md });
     return { url: `https://app.notion.com/p/mock${this.pages.length}` };
+  }
+  async readPage(url: string) {
+    this.reads++;
+    if (this.readFails) throw new NotionRestError(503, "service_unavailable");
+    const n = Number(/mock(\d+)$/.exec(url)?.[1]);
+    const p = this.pages[n - 1];
+    if (!p) throw new NotionRestError(404, "object_not_found");
+    return this.render(p.md);
+  }
+  /** Somebody edits the page in Notion after it was delivered. */
+  edit(url: string, md: string) {
+    this.pages[Number(/mock(\d+)$/.exec(url)?.[1]) - 1].md = md;
   }
 }
 
@@ -121,13 +138,18 @@ function orch(
     panel?: PanelSink;
     ownerPing?: OwnerPing;
     sourcesNotion?: NotionClient;
+    notion?: MockNotion;
+    /** Replaces the mock page writer/reader, e.g. RestNotion on a fake REST API. */
+    notionClient?: NotionClient;
     stateLockWaitMs?: number;
+    /** Replaces the mock guard, e.g. the real runGuardWithI8 on a fake hook script. */
+    guard?: () => GuardResult;
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
   const creator = new MockAdapter("gpt", "gpt", opts.creator ?? [{ text: DRAFT }]);
   const checker = new MockAdapter("claude", "opus", opts.checker ?? [{ text: PASS }]);
-  const notion = new MockNotion();
+  const notion = opts.notion ?? new MockNotion();
   const copy = new CopyDepartment(new SecretScanningAdapter(creator), checker);
   const gate = new MockAdapter("gpt", "gpt-gate", opts.checker ?? [{ text: PASS }]);
   const browser = opts.browser ?? new MockBrowser();
@@ -143,8 +165,8 @@ function orch(
       browserReady: () => (opts.browserReady ? OKP : { ok: false, reasons: ["profil TARS-agent není přihlášen"] }),
       desktopReady: () => new NotImplementedDesktop().preflight(),
     },
-    notion,
-    guard: () => ({ alarm: Boolean(opts.alarm), summary: opts.alarm ? "TARS-GUARD ALARM" : "TARS-GUARD OK (7/7)" }),
+    notion: opts.notionClient ?? notion,
+    guard: opts.guard ?? (() => ({ alarm: Boolean(opts.alarm), summary: opts.alarm ? "TARS-GUARD ALARM" : "TARS-GUARD OK (7/7)" })),
     draftParentId: "parent",
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
@@ -170,8 +192,33 @@ describe("state machine", () => {
   it("owner gate: DELIVERED → WAITING_OWNER → DONE / FAILED", () => {
     const d = transition(blank("DELIVERED"), { type: "delivered", owner_needed: true }, NOW);
     expect(d.state).toBe("WAITING_OWNER");
-    expect(transition(d, { type: "owner", decision: "GO" }, NOW).state).toBe("DONE");
+    const H = "a".repeat(64);
+    const ok = { ...d, delivered_url: "https://app.notion.com/p/x", meta: { approved_hash: H, artifact_hash: H, readback: JSON.stringify({ url: "https://app.notion.com/p/x", hash: H, verified_at: NOW }) } };
+    expect(transition(ok, { type: "owner", decision: "GO" }, NOW).state).toBe("DONE");
     expect(transition(d, { type: "owner", decision: "REJECT" }, NOW).state).toBe("FAILED");
+  });
+
+  it("DR-039: the state machine itself refuses GO → DONE without hash binding and matching read-back", () => {
+    const H = "a".repeat(64);
+    const G = "b".repeat(64);
+    const url = "https://app.notion.com/p/x";
+    const rb = (hash: string, u = url) => JSON.stringify({ url: u, hash, verified_at: NOW });
+    const w = (meta: Record<string, string>): Order => ({ ...blank("WAITING_OWNER"), delivered_url: url, meta });
+    const go = { type: "owner", decision: "GO" } as const;
+    for (const [o, why] of [
+      [w({}), /chybí approved_hash/],
+      [{ ...w({ approved_hash: H, artifact_hash: H, readback: rb(H) }), delivered_url: undefined }, /delivered_url/],
+      [w({ approved_hash: H, artifact_hash: G, readback: rb(H) }), /artifact_hash ≠ approved_hash/],
+      [w({ approved_hash: H, artifact_hash: H }), /čeká na read-back/],
+      [w({ approved_hash: H, artifact_hash: H, readback: "{nečitelné" }), /čeká na read-back/],
+      [w({ approved_hash: H, artifact_hash: H, readback: rb(G) }), /obsah se po vydání karty změnil/],
+      // Kolo oprav 1: rendered_hash už není druhý přijatý otisk.
+      [w({ approved_hash: H, artifact_hash: H, rendered_hash: G, readback: rb(G) }), /obsah se po vydání karty změnil/],
+      [w({ approved_hash: H, artifact_hash: H, readback: rb(H, "https://app.notion.com/p/jina") }), /jiné URL/],
+    ] as const)
+      expect(() => transition(o, go, NOW)).toThrow(why);
+    expect(transition(w({ approved_hash: H, artifact_hash: H, readback: rb(H) }), go, NOW).state).toBe("DONE");
+    expect(transition(w({}), { type: "owner", decision: "REJECT" }, NOW).state).toBe("FAILED");
   });
 
   it(`FIXING at most ${MAX_FIX_ROUNDS} rounds, then FAILED`, () => {
@@ -237,7 +284,10 @@ describe("orchestrator (mock adapters)", () => {
     expect((await o.tick()).status).toBe("waiting_owner"); // no new order while card is open
     expect(supervisor.calls).toHaveLength(1);
     const [w] = store.listOrders();
-    expect(o.owner(w.id, "GO").state).toBe("DONE");
+    // DR-039: GO is only recorded; DONE comes with the read-back on the next tick.
+    expect(o.owner(w.id, "GO").state).toBe("WAITING_OWNER");
+    await o.pollOwnerDecisions(); // what the next tick runs first
+    expect(store.load(w.id).state).toBe("DONE");
   });
 
   it("FIX twice then PASS → creator revises with checker issues", async () => {
@@ -328,9 +378,121 @@ describe("parsers", () => {
     expect(looksLikeLimit("syntax error")).toBe(false);
   });
   it("guard parsing", () => {
-    expect(parseGuardOutput("TARS-GUARD OK (7/7): I1").alarm).toBe(false);
+    const OK8 = "TARS-GUARD OK (8/8): I1 všechny klony HTTPS; I2 fine-grained token; I3 token bez Administration; I4 ruleset main aktivní; I5 SSH ke GitHubu zamítnuto; I6 žádné staré .env.migrate*/.env.verify; I7 Vercel CLI odhlášené; I8 prohlížečová automatizace jen v profilu TARS-agent, bez Google účtu;";
+    expect(parseGuardOutput(OK8).alarm).toBe(false);
+    expect(parseGuardOutput(`${OK8}\nTARS-GUARD upozornění: I6 na disku jsou čerstvé .env.verify – do 12 h je hlídač smaže`).alarm).toBe(false);
     expect(parseGuardOutput("TARS-GUARD ALARM – x").alarm).toBe(true);
     expect(parseGuardOutput("").alarm).toBe(true);
+  });
+
+  it("guard-unknown-fails-closed (DR-039): anything but a clean 8/8 with I1–I8 is an alarm", () => {
+    const items = ["I1 OK", "I2 PASS", "I3 OK", "I4 OK", "I5 OK", "I6 OK", "I7 Vercel CLI není nainstalované", "I8 OK"];
+    const line = (xs: string[], n = xs.length, t = 8) => `TARS-GUARD OK (${n}/${t}): ${xs.map((x) => `${x};`).join(" ")}`;
+    expect(parseGuardOutput(line(items)).alarm).toBe(false);
+    for (const out of [
+      "TARS-GUARD OK (5/8)\nTARS-GUARD upozornění: I4 pravidla main UNKNOWN", // the audit probe
+      line(items.filter((x) => !x.startsWith("I4")), 8), // summary says 8/8, I4 missing
+      line(items.slice(0, 7), 7), // 7/8
+      line(items.slice(0, 7), 7, 7), // old 7/7 format
+      line(items, 8, 9),
+      line([...items.slice(0, 7), "I9 h"]), // I8 replaced
+      line([...items.slice(0, 7), "I88 h"]),
+      `${line(items)}\nTARS-GUARD upozornění: I5 SSH ke GitHubu UNKNOWN (offline?)`, // OK summary vs partial UNKNOWN
+      `${line(items)}\nI3 FAIL`,
+      `${line(items)}\n${line(items)}`, // two status lines
+      "TARS-GUARD OK",
+      "TARS-GUARD OK (8/8)",
+      "TARS-GUARD OK (osm/8): I1",
+      "nějaký šum bez stavového řádku",
+      line(items.map((x) => (x.startsWith("I2") ? "I2 přihlášení gh UNKNOWN" : x))),
+      // Kolo oprav 1: každá položka musí mít výslovně kladný stav.
+      "TARS-GUARD OK (8/8): I1 SKIP; I2 SKIP; I3 SKIP; I4 SKIP; I5 SKIP; I6 SKIP; I7 SKIP; I8 SKIP;",
+      line(items.map((x) => (x.startsWith("I3") ? "I3 SKIP" : x))), // one SKIP
+      line(items.map((x) => (x.startsWith("I4") ? "I4" : x))), // empty state
+      line(items.map((x) => (x.startsWith("I5") ? "I5 něco jiného" : x))), // unknown state
+      line(items.map((x) => (x.startsWith("I6") ? "I6 OK ale ne" : x))), // OK with extra text is not a known state
+      line([...items.slice(0, 7), "I1 OK"]), // duplicate I1 instead of I8
+      line([...items, "I1 OK"], 8), // duplicate I1, 9 items
+      line(items.map((x) => (x.startsWith("I2") ? "I2 a" : x))),
+    ])
+      expect(parseGuardOutput(out).alarm, out).toBe(true);
+    expect(parseGuardOutput(line(items.slice(0, 7), 7)).summary).toMatch(/fail-closed/);
+    expect(parseGuardOutput("TARS-GUARD OK (8/8): I1 SKIP; I2 SKIP; I3 SKIP; I4 SKIP; I5 SKIP; I6 SKIP; I7 SKIP; I8 SKIP;").summary).toMatch(/I1 stav „SKIP“ není kladný/);
+    expect(parseGuardOutput(line(items.map((x) => (x.startsWith("I4") ? "I4" : x)))).summary).toMatch(/I4 bez stavu/);
+    expect(parseGuardOutput(line([...items.slice(0, 7), "I1 OK"])).summary).toMatch(/chybí I8|I1 uvedeno víckrát/);
+  });
+
+  it("I8 OK next to I8 WARN / UNKNOWN is an alarm (fail-closed)", () => {
+    const g = { alarm: false, summary: "TARS-GUARD OK (8/8)" };
+    expect(combineI8(g, "I8 OK y").alarm).toBe(false);
+    expect(combineI8(g, "I8 WARN Preferences profilu TARS-agent nečitelné – Google účet UNKNOWN\nI8 OK y").alarm).toBe(true);
+    expect(combineI8({ alarm: true, summary: "x" }, "I8 OK y").alarm).toBe(true);
+  });
+
+  // Kolo oprav 2: tars-guard.sh je SessionStart hook a stdout je JSON obálka, ne samostatný řádek.
+  // Fixture = skutečný stdout `bash .claude/hooks/tars-guard.sh` (2026-11-04, 8/8 OK, bez tajemství).
+  const REAL_GUARD = fs.readFileSync(path.join(__dirname, "fixtures", "guard-stdout-ok.txt"), "utf8");
+  const fakeGuard = (stdout: string, i8 = "I8 OK x"): (() => GuardResult) => {
+    const out = path.join(dir, "guard-stdout.txt");
+    fs.writeFileSync(out, stdout);
+    fs.writeFileSync(path.join(dir, "guard.sh"), `#!/bin/bash\ncat '${out}'\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, "i8.sh"), `#!/bin/bash\necho "${i8}"\n`, { mode: 0o755 });
+    return () => runGuardWithI8(path.join(dir, "guard.sh"), path.join(dir, "i8.sh"), dir, dir);
+  };
+
+  it("guard JSON envelope (real hook stdout): unwrapped, then the same strict I1–I8 check", () => {
+    expect(REAL_GUARD.trim().startsWith('{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "TARS-GUARD OK (8/8): I1 ')).toBe(true);
+    const r = parseGuardOutput(REAL_GUARD);
+    expect(r.alarm).toBe(false);
+    expect(r.summary).toMatch(/^TARS-GUARD OK \(8\/8\): I1 všechny klony HTTPS; .* I8 prohlížečová automatizace/);
+    // the hook's stdout with stderr appended, exactly as runGuard joins them
+    expect(parseGuardOutput(`${REAL_GUARD}\n`).alarm).toBe(false);
+    expect(parseGuardOutput(`${REAL_GUARD}\nTARS-GUARD upozornění: I6 na disku jsou čerstvé .env.verify – do 12 h je hlídač smaže`).alarm).toBe(false);
+    expect(unwrapGuardOutput("TARS-GUARD OK (8/8): I1 OK;")).toEqual({ text: "TARS-GUARD OK (8/8): I1 OK;" });
+    const ctx = (s: string) => REAL_GUARD.replace("TARS-GUARD OK (8/8):", s);
+    const bad: Array<[string, string, RegExp]> = [
+      ["SKIP", REAL_GUARD.replace("I3 token bez Administration", "I3 SKIP"), /I3 stav „SKIP“ není kladný/],
+      ["WARN as item state", REAL_GUARD.replace("I4 ruleset main aktivní", "I4 WARN"), /I4 stav „WARN“ není kladný/],
+      ["WARN line", REAL_GUARD.replace(';\\n"}}', ';\\nI8 WARN Preferences profilu nečitelné\\n"}}'), /rozpor: I8 WARN/],
+      ["UNKNOWN item", REAL_GUARD.replace("I2 fine-grained token", "I2 přihlášení gh UNKNOWN"), /I2 stav/],
+      ["UNKNOWN warning next to OK", REAL_GUARD.replace(';\\n"}}', ';\\nTARS-GUARD upozornění: I5 SSH ke GitHubu UNKNOWN (offline?)\\n"}}'), /rozpor/],
+      ["7/8 + UNKNOWN (real I4 offline shape)", REAL_GUARD.replace(" I4 ruleset main aktivní;", "").replace("(8/8)", "(7/8)").replace(';\\n"}}', ';\\nTARS-GUARD upozornění: I4 pravidla main UNKNOWN (offline nebo chyba API)\\n"}}'), /7\/8/],
+      ["missing I4", REAL_GUARD.replace(" I4 ruleset main aktivní;", ""), /chybí I4/],
+      ["duplicate I1 instead of I8", REAL_GUARD.replace("I8 prohlížečová automatizace jen v profilu TARS-agent, bez Google účtu", "I1 všechny klony HTTPS"), /chybí I8/],
+      ["duplicate I1, 9 items", REAL_GUARD.replace(" I8 prohl", " I1 OK; I8 prohl"), /9 položek/],
+      ["ALARM in envelope", ctx("TARS-GUARD ALARM – porušeny bezpečnostní invarianty jádra (DR-022):\\n- I3 token MÁ Administration\\n"), /TARS-GUARD ALARM/],
+      ["empty context", '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}\n', /chybí řádek TARS-GUARD OK/],
+      ["invalid JSON", REAL_GUARD.replace('"}}', '"}'), /neplatný JSON/],
+      ["truncated JSON", REAL_GUARD.slice(0, 120), /neplatný JSON/],
+      ["no hookSpecificOutput", '{"additionalContext": "TARS-GUARD OK (8/8): I1 OK;"}\n', /bez hookSpecificOutput/],
+      ["missing additionalContext", REAL_GUARD.replace('"additionalContext"', '"context"'), /chybí additionalContext/],
+      ["additionalContext not text", '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": 8}}\n', /chybí additionalContext/],
+      ["other hook event", REAL_GUARD.replace('"SessionStart"', '"PreToolUse"'), /není SessionStart/],
+      ["two envelopes in conflict", `${REAL_GUARD}${REAL_GUARD.replace("I3 token bez Administration", "I3 SKIP")}`, /2 obálky/],
+      ["two identical envelopes", `${REAL_GUARD}${REAL_GUARD}`, /2 obálky/],
+      ["envelope + plain OK line", `${REAL_GUARD}${JSON.parse(REAL_GUARD).hookSpecificOutput.additionalContext}`, /víc řádků TARS-GUARD OK/],
+    ];
+    for (const [name, out, why] of bad) {
+      const g = parseGuardOutput(out);
+      expect(g.alarm, name).toBe(true);
+      expect(g.summary, name).toMatch(why);
+    }
+  });
+
+  it("runGuardWithI8 on a script printing the real hook stdout: no alarm; SKIP inside the envelope: alarm", () => {
+    expect(fakeGuard(REAL_GUARD)()).toMatchObject({ alarm: false, summary: expect.stringMatching(/^TARS-GUARD OK \(8\/8\): I1 .* \| I8 OK$/) });
+    expect(fakeGuard(REAL_GUARD.replace("I5 SSH ke GitHubu zamítnuto", "I5 SKIP"))().alarm).toBe(true);
+    expect(fakeGuard(REAL_GUARD, "I8 ALARM x")().alarm).toBe(true);
+  });
+
+  it("regression: tick with the real hook stdout does not end in guard_alarm", async () => {
+    const { o, supervisor } = orch({ guard: fakeGuard(REAL_GUARD) });
+    const r = await o.tick();
+    expect(r.status).not.toBe("guard_alarm");
+    expect(r).toMatchObject({ state: "DONE" });
+    expect(supervisor.calls.length).toBeGreaterThan(0);
+    const bad = orch({ guard: fakeGuard(REAL_GUARD.replace("I7 Vercel CLI odhlášené", "I7 UNKNOWN")) });
+    expect((await bad.o.tick()).status).toBe("guard_alarm");
   });
   it("reserved decisions and helpers", () => {
     expect(reservedDecisionHits("Nová cena 2 490 Kč")).toContain("cena");
@@ -578,12 +740,220 @@ describe("Notion panel (mocked)", () => {
   });
 });
 
+/** Fake Notion REST API: POST /v1/pages stores the markdown, GET /v1/pages/{id}/markdown returns it through `render`. */
+function fakeNotionRest(render: (md: string) => string = (md) => md, markdownExtra: Record<string, unknown> = {}) {
+  const pages = new Map<string, string>();
+  const calls: Array<{ method: string; url: string; body?: string }> = [];
+  const fn = async (url: string, init: { method: string; body?: string }) => {
+    calls.push({ method: init.method, url, body: init.body });
+    const res = (status: number, j: unknown) => ({ ok: status < 300, status, json: async () => j });
+    if (init.method === "POST" && url.endsWith("/v1/pages")) {
+      const id = (pages.size + 1).toString(16).padStart(32, "0");
+      pages.set(id, (JSON.parse(init.body!) as { markdown: string }).markdown);
+      return res(200, { id, url: `https://www.notion.so/DRAFT-Navrh-${id}` });
+    }
+    const m = /\/v1\/pages\/([0-9a-f]{32})\/markdown$/.exec(url);
+    if (init.method === "GET" && m && pages.has(m[1])) return res(200, { object: "page_markdown", id: m[1], markdown: render(pages.get(m[1])!), truncated: false, unknown_block_ids: [], ...markdownExtra });
+    return res(404, { code: "object_not_found" });
+  };
+  const token = ["ntn", "_", "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7"].join("");
+  return { api: new NotionRestApi(token, fn as never), pages, calls };
+}
+
+describe("DR-039: GO bound to the artifact hash, DONE only with a read-back", () => {
+  const OWNER = { supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] };
+  async function waitingOrder(extra: Parameters<typeof orch>[0] = {}) {
+    const x = orch({ ...OWNER, ...extra });
+    const r = (await x.o.tick()) as { order: string; status: string };
+    expect(r.status).toBe("waiting_owner");
+    return { ...x, id: r.order };
+  }
+
+  it("the card binds GO to the sha256 of the DRAFT read back before the card; GO is recorded, the read-back makes it DONE", async () => {
+    const { o, notion, id } = await waitingOrder();
+    const w = store.load(id);
+    const sent = artifactHash(notion.pages[0].md);
+    expect(w.meta.delivered_hash).toBe(sent);
+    expect(w.meta.approved_hash).toBe(sent); // the mock returns the page unchanged
+    expect(w.meta.artifact_hash).toBe(sent);
+    expect(notion.reads).toBe(1); // one read-back, before the card was written
+    expect(notion.pages[1].md).toContain(sent.slice(0, 16));
+    const go = o.owner(id, "GO", "A");
+    expect(go.state).toBe("WAITING_OWNER");
+    expect(go.meta.owner_go).toBeTruthy();
+    await o.verifyApprovals();
+    const done = store.load(id);
+    expect(done.state).toBe("DONE");
+    expect(done.meta.owner_option).toBe("A");
+    const rb = JSON.parse(done.meta.readback);
+    expect(rb).toMatchObject({ url: done.delivered_url, hash: sent });
+    expect(Number.isNaN(Date.parse(rb.verified_at))).toBe(false);
+    expect(lastStepSentence(done)).toBe("Vlastník dal GO.");
+  });
+
+  it("the owner card never contains a ready-made `cli.ts owner` command", async () => {
+    const { notion } = await waitingOrder();
+    const card = notion.pages.find((p) => p.title.startsWith("KARTA"))!.md;
+    expect(card).not.toMatch(/cli\.ts\s+owner/);
+    expect(card).not.toContain("cli.ts");
+    expect(card).toContain("Rozhodnutí zadává vlastník v přehledu");
+  });
+
+  it("stale GO: artifact_hash ≠ approved_hash → stays WAITING_OWNER, reason logged, nothing recorded", async () => {
+    const { o, id } = await waitingOrder();
+    store.save({ ...store.load(id), meta: { ...store.load(id).meta, artifact_hash: "f".repeat(64) } });
+    expect(o.owner(id, "GO").state).toBe("WAITING_OWNER");
+    await o.verifyApprovals();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    expect(store.readLog(200).some((e) => /GO nepřijato.*artifact_hash ≠ approved_hash/.test(e.result ?? ""))).toBe(true);
+  });
+
+  it("GO without a card hash (old order) never reaches DONE", async () => {
+    const { o, id } = await waitingOrder();
+    const cur = store.load(id);
+    const meta = { ...cur.meta };
+    delete meta.approved_hash;
+    delete meta.artifact_hash;
+    store.save({ ...cur, meta });
+    o.owner(id, "GO");
+    await o.tick();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.readLog(200).some((e) => /GO nepřijato.*chybí approved_hash/.test(e.result ?? ""))).toBe(true);
+  });
+
+  it("page edited after delivery → GO dropped, artifact_hash moved, the same GO is never accepted again", async () => {
+    const { o, notion, id } = await waitingOrder();
+    const w = store.load(id);
+    notion.edit(w.delivered_url!, notion.pages[0].md + "\n\nDodatek vložený po schválení.");
+    o.owner(id, "GO");
+    await o.verifyApprovals();
+    const held = store.load(id);
+    expect(held.state).toBe("WAITING_OWNER");
+    expect(held.meta.owner_go).toBeUndefined();
+    expect(held.meta.artifact_hash).not.toBe(held.meta.approved_hash);
+    expect(JSON.parse(held.meta.readback).hash).toBe(held.meta.artifact_hash);
+    expect(store.readLog(200).some((e) => /obsah se po vydání karty změnil/.test(e.result ?? ""))).toBe(true);
+    expect(o.owner(id, "GO").meta.owner_go).toBeUndefined(); // stale now
+    expect(o.owner(id, "REJECT").state).toBe("FAILED"); // REJECT always works
+  });
+
+  it("read-back unavailable or failing → „čeká na read-back“, retried, then DONE", async () => {
+    const { o, notion, id } = await waitingOrder();
+    notion.readFails = true;
+    o.owner(id, "GO");
+    await o.verifyApprovals();
+    await o.verifyApprovals();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.load(id).meta.readback).toBeUndefined();
+    expect(store.readLog(200).filter((e) => e.result === "čeká na read-back")).toHaveLength(1); // logged once
+    notion.readFails = false;
+    await o.verifyApprovals();
+    expect(store.load(id).state).toBe("DONE");
+  });
+
+  it("page changed between delivery and card issuance → approved_hash = what the owner sees, not what was sent; GO → DONE", async () => {
+    const x = orch(OWNER);
+    x.notion.render = (md) => md + "\n\nÚprava mezi doručením a vydáním karty.";
+    const r = (await x.o.tick()) as { order: string; status: string };
+    expect(r.status).toBe("waiting_owner");
+    const w = store.load(r.order);
+    const seen = artifactHash(x.notion.render(x.notion.pages[0].md));
+    expect(w.meta.approved_hash).toBe(seen);
+    expect(w.meta.approved_hash).not.toBe(w.meta.delivered_hash);
+    expect(w.meta.artifact_hash).toBe(seen);
+    expect(x.notion.pages[1].md).toContain(seen.slice(0, 16));
+    x.o.owner(r.order, "GO");
+    await x.o.verifyApprovals();
+    expect(store.load(r.order).state).toBe("DONE");
+  });
+
+  it("no read-back path at all (MCP fallback, Notion without REST token) → no card, stays DELIVERED with the reason", async () => {
+    const created: string[] = [];
+    const plain: NotionClient = { createPage: async (_p, title) => (created.push(title), { url: "https://app.notion.com/p/plain1" }) };
+    const x = orch({ ...OWNER, notionClient: plain });
+    const r = (await x.o.tick()) as { order: string; status: string };
+    const o1 = store.load(r.order);
+    expect(o1.state).toBe("DELIVERED");
+    expect(o1.owner_card_url).toBeUndefined();
+    expect(o1.meta.approved_hash).toBeUndefined();
+    expect(created.some((t) => t.startsWith("KARTA"))).toBe(false);
+    expect(store.readLog(200).some((e) => e.result === "karta nevydána: read-back DRAFTu selhal" && /read-back není k dispozici/.test(e.reason ?? ""))).toBe(true);
+  });
+
+  it("read-back fails at card issuance → no card; the next tick with a working read-back issues it", async () => {
+    const x = orch(OWNER);
+    x.notion.readFails = true;
+    const r = (await x.o.tick()) as { order: string; status: string };
+    expect(store.load(r.order).state).toBe("DELIVERED");
+    expect(store.load(r.order).owner_card_url).toBeUndefined();
+    expect(x.notion.pages.some((p) => p.title.startsWith("KARTA"))).toBe(false);
+    x.notion.readFails = false;
+    await x.o.tick();
+    const w = store.load(r.order);
+    expect(w.state).toBe("WAITING_OWNER");
+    expect(w.owner_card_url).toBeTruthy();
+    expect(w.meta.approved_hash).toBe(artifactHash(x.notion.pages[0].md));
+  });
+
+  it("copy provoz on a fake Notion REST: a real delivered DRAFT still goes GO → DONE, even when Notion re-renders it", async () => {
+    // Notion returns its own markdown (escaped characters, different list marker): the card's read-back hashes that form.
+    const f = fakeNotionRest((md) => md.replace(/^- /gm, "* ").replace(/\*\*/g, "__"));
+    const { o, id } = await waitingOrder({ notionClient: new RestNotion(f.api) });
+    const w = store.load(id);
+    expect(w.delivered_url).toMatch(/^https:\/\/www\.notion\.so\/DRAFT-Navrh-0+1$/);
+    expect(w.meta.approved_hash).not.toBe(w.meta.delivered_hash);
+    expect(w.meta.rendered_hash).toBeUndefined();
+    expect(f.calls.filter((c) => c.method === "GET").map((c) => c.url)).toEqual([`https://api.notion.com/v1/pages/${"0".repeat(31)}1/markdown`]);
+    o.owner(id, "GO");
+    await o.verifyApprovals();
+    expect(store.load(id).state).toBe("DONE");
+    expect(JSON.parse(store.load(id).meta.readback).hash).toBe(w.meta.approved_hash);
+    // No REST write ever carried the owner's property.
+    for (const c of f.calls) expect(c.body ?? "").not.toMatch(/"Rozhodnut[ií] vlastn[ií]ka"\s*:/);
+  });
+
+  it("fake REST: a truncated or incomplete read-back issues no card (stays DELIVERED)", async () => {
+    for (const extra of [{ truncated: true }, { unknown_block_ids: ["x"] }, { markdown: undefined }, { markdown: 42 }]) {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-orch-"));
+      store = new Store(dir);
+      const f = fakeNotionRest((md) => md, extra);
+      const x = orch({ ...OWNER, notionClient: new RestNotion(f.api) });
+      const r = (await x.o.tick()) as { order: string };
+      expect(store.load(r.order).state, JSON.stringify(extra)).toBe("DELIVERED");
+      expect(store.load(r.order).owner_card_url).toBeUndefined();
+      expect(store.load(r.order).meta.approved_hash).toBeUndefined();
+    }
+  });
+
+  it("the orchestrator's REST client refuses any body that sets „Rozhodnutí vlastníka“ (nothing is sent)", async () => {
+    const f = fakeNotionRest();
+    for (const key of ["Rozhodnutí vlastníka", "rozhodnuti  VLASTNIKA", "Rozhodnutí vlastníka "]) {
+      await expect(f.api.request("PATCH", "/v1/pages/p", { properties: { [key]: { select: { name: "GO" } } } })).rejects.toBeInstanceOf(OwnerDecisionWriteError);
+      await expect(f.api.request("POST", "/v1/pages", { pages: [{ properties: { [key]: { select: { name: "REJECT" } } } }] })).rejects.toBeInstanceOf(OwnerDecisionWriteError);
+    }
+    expect(f.calls).toHaveLength(0);
+    // Text that only mentions the property (a card) is fine.
+    expect(setsOwnerDecision({ markdown: "v poli „Rozhodnutí vlastníka“ vyber GO" })).toBe(false);
+  });
+
+  it("pageIdFromUrl takes only the trailing page id of a Notion URL", () => {
+    const id = "3d40ae49f507817db496c4e823996bc4";
+    expect(pageIdFromUrl(`https://www.notion.so/${id}`)).toBe(id);
+    expect(pageIdFromUrl(`https://app.notion.com/p/Cafe-${id}`)).toBe(id);
+    expect(pageIdFromUrl("https://www.notion.so/3d40ae49-f507-817d-b496-c4e823996bc4")).toBe(id);
+    expect(pageIdFromUrl("https://app.notion.com/p/mock1")).toBeUndefined();
+    expect(pageIdFromUrl(`https://evil.example/${id}`)).toBeUndefined();
+    expect(pageIdFromUrl("není url")).toBeUndefined();
+  });
+});
+
 describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => {
   async function waiting(panel: MockPanel) {
-    const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
+    const { o, notion } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
     const r = (await o.tick()) as { order: string; status: string };
     expect(r.status).toBe("waiting_owner");
-    return { o, id: r.order };
+    return { o, id: r.order, notion };
   }
 
   it.each([
@@ -626,11 +996,11 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
 
   it("tick picks the decision up (WIP limit holds until then)", async () => {
     const panel = new MockPanel();
-    const { o, id } = await waiting(panel);
+    const { o, id, notion } = await waiting(panel);
     expect(await o.tick()).toMatchObject({ status: "waiting_owner", order: id });
     expect(panel.reads).toBeGreaterThan(0);
     panel.decision = "GO B";
-    const { o: o2 } = orch({ panel, supervisor: [{ text: BRIEF() }] });
+    const { o: o2 } = orch({ panel, notion, supervisor: [{ text: BRIEF() }] });
     await o2.pollOwnerDecisions();
     expect(store.load(id).state).toBe("DONE");
   });

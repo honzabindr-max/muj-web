@@ -3,6 +3,7 @@
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
+import { artifactHash, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
@@ -14,7 +15,7 @@ import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
 import { scanSecrets } from "./secret-scan";
-import { isActionable, ownerEventFor, transition, type OrderEvent } from "./state-machine";
+import { isActionable, ownerEventFor, transition, TransitionError, type OrderEvent } from "./state-machine";
 import type { Store } from "./store";
 import { acceptableCheckNotes, BriefError, buildBriefCheckPrompt, buildSupervisorPrompt, HANDOFF_PAGE_ID, parseBrief, reservedDecisionHits, type DeptAvailability } from "./supervisor";
 import { callChecker } from "./departments";
@@ -333,10 +334,16 @@ export class Orchestrator {
   /**
    * Owner gate through the Notion panel: for every order in WAITING_OWNER the owner may have filled the
    * select „Rozhodnutí vlastníka“ (GO | GO A | GO B | REJECT) on the iPhone. The orchestrator only READS it
-   * (never writes that property) and runs the matching `owner` transition. Unknown/empty values are ignored;
+   * (never writes that property). REJECT runs the `owner` transition; GO is only recorded (DR-039, `acceptOwner`)
+   * and reaches DONE in `verifyApprovals` after a fresh read-back. Unknown/empty values are ignored;
    * a failed read is logged and retried on the next tick.
    */
   async pollOwnerDecisions(): Promise<void> {
+    await this.readNotionDecisions();
+    await this.verifyApprovals();
+  }
+
+  private async readNotionDecisions(): Promise<void> {
     const panel = this.d.panel;
     if (!panel) return;
     const waitingOrders = this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER");
@@ -361,10 +368,100 @@ export class Orchestrator {
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(waiting.id);
           if (fresh.state !== "WAITING_OWNER") return;
-          this.apply(fresh, ev, { role: "orchestrator", result: `owner ${value} (Notion)` });
+          this.acceptOwner(fresh, ev, `Notion ${value}`);
         }, this.d.stateLockWaitMs);
       } catch (e) {
         this.log({ order: waiting.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
+      }
+    }
+  }
+
+  /**
+   * DR-039, one entry point for every owner decision (Notion panel and `owner()`); call under the state lock.
+   * REJECT → FAILED at once. GO is bound to the delivered artifact: it is accepted only when the card carries
+   * `meta.approved_hash` and `meta.artifact_hash === meta.approved_hash`; then it is recorded in `meta.owner_go`
+   * and the order STAYS in WAITING_OWNER until `verifyApprovals` reads the target back. A stale GO is logged, nothing else.
+   */
+  private acceptOwner(o: Order, ev: Extract<OrderEvent, { type: "owner" }>, source: string): Order {
+    if (ev.decision === "REJECT") return this.apply(o, ev, { role: "orchestrator", result: `owner REJECT (${source})` });
+    if (o.meta.owner_go) return o; // already recorded, waits for the read-back
+    const why = !o.meta.approved_hash
+      ? "chybí approved_hash (karta bez otisku artefaktu)"
+      : o.meta.artifact_hash !== o.meta.approved_hash
+        ? "artifact_hash ≠ approved_hash (GO patří k jinému obsahu)"
+        : undefined;
+    if (why) {
+      this.logOnce({ order: o.id, kind: "info", role: "orchestrator", result: `GO nepřijato (${source}): ${why}` });
+      return o;
+    }
+    const at = this.iso();
+    const next: Order = { ...o, updated_at: at, meta: { ...o.meta, owner_go: at, owner_go_source: source, ...(ev.option ? { owner_option: ev.option } : {}) } };
+    this.d.store.save(next);
+    this.syncPanel(next);
+    this.log({ order: o.id, kind: "info", role: "orchestrator", result: `owner GO (${source}) přijato, čeká na read-back` });
+    return next;
+  }
+
+  /** Current content of the delivered artifact: the department's own read-back (PR head) or the Notion page (REST). */
+  private async readArtifact(o: Order): Promise<string> {
+    const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
+    if (dept?.readback) return dept.readback(o, this.ctx);
+    if (this.d.notion.readPage) return this.d.notion.readPage(o.delivered_url!);
+    throw new Error("read-back není k dispozici (Notion REST bez tokenu)");
+  }
+
+  /**
+   * DR-039: GO → DONE only after a fresh read-back. For every WAITING_OWNER order with a recorded GO, read the target
+   * at `delivered_url`, store `meta.readback` {url, hash, verified_at} and run the `owner` GO transition only when the
+   * hash equals `approved_hash` (the state machine re-checks it in `goBlocker`). No read-back, an error or an unclear
+   * answer: the order stays WAITING_OWNER („čeká na read-back“) and the next tick tries again. A different hash: the
+   * order stays WAITING_OWNER with „obsah se po vydání karty změnil“, the GO is dropped and `artifact_hash` set to the
+   * hash found, so the same GO can never be accepted again for that content.
+   */
+  async verifyApprovals(): Promise<void> {
+    for (const w of this.d.store.listOrders().filter((x) => x.state === "WAITING_OWNER" && x.meta.owner_go)) {
+      try {
+        if (!w.delivered_url) {
+          this.logOnce({ order: w.id, kind: "info", role: "orchestrator", result: "čeká na read-back", reason: "chybí delivered_url" });
+          continue;
+        }
+        let hash: string;
+        try {
+          hash = artifactHash(await this.readArtifact(w));
+        } catch (e) {
+          this.logOnce({ order: w.id, kind: "info", role: "transport", result: "čeká na read-back", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+          continue;
+        }
+        this.d.store.withStateLock(() => {
+          const fresh = this.d.store.load(w.id);
+          if (fresh.state !== "WAITING_OWNER" || fresh.meta.owner_go !== w.meta.owner_go || fresh.delivered_url !== w.delivered_url) return;
+          const matched = hash === fresh.meta.approved_hash;
+          const meta: Record<string, string> = {
+            ...fresh.meta,
+            readback: JSON.stringify({ url: fresh.delivered_url, hash, verified_at: this.iso() }),
+            artifact_hash: matched ? fresh.meta.approved_hash! : hash,
+          };
+          if (!matched) {
+            delete meta.owner_go;
+            delete meta.owner_go_source;
+            const held: Order = { ...fresh, updated_at: this.iso(), meta };
+            this.d.store.save(held);
+            this.syncPanel(held);
+            this.log({ order: w.id, kind: "error", role: "orchestrator", result: "obsah se po vydání karty změnil, GO zrušeno", reason: `hash ${hash.slice(0, 12)} ≠ ${String(fresh.meta.approved_hash).slice(0, 12)}` });
+            return;
+          }
+          const verified: Order = { ...fresh, meta };
+          const blocker = goBlocker(verified);
+          if (blocker) {
+            this.d.store.save(verified);
+            this.logOnce({ order: w.id, kind: "info", role: "orchestrator", result: "čeká na read-back", reason: blocker });
+            return;
+          }
+          const option = fresh.meta.owner_option === "A" || fresh.meta.owner_option === "B" ? fresh.meta.owner_option : undefined;
+          this.apply(verified, { type: "owner", decision: "GO", option }, { role: "orchestrator", result: `owner GO (${fresh.meta.owner_go_source ?? "?"}) + read-back OK` });
+        }, this.d.stateLockWaitMs);
+      } catch (e) {
+        this.log({ order: w.id, kind: "error", role: "orchestrator", result: "read-back selhal", reason: (e as Error).message.slice(0, 300) });
       }
     }
   }
@@ -508,7 +605,9 @@ export class Orchestrator {
           this.log({ order: o.id, kind: "call", role: "transport", model: r.model, duration_ms: r.duration_ms, result: r.ok ? r.url : "error", reason: r.error });
           const b = this.bad(o, r, "transport");
           if (b) return b;
-          o = { ...o, delivered_url: r.url };
+          // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
+          const sent = r.content !== undefined ? artifactHash(r.content) : undefined;
+          o = { ...o, delivered_url: r.url, meta: sent ? { ...o.meta, delivered_hash: sent } : o.meta };
           this.d.store.save(o);
         }
         const reasons = [
@@ -518,6 +617,18 @@ export class Orchestrator {
         ];
         const ownerNeeded = reasons.length > 0;
         if (ownerNeeded && !o.owner_card_url) {
+          // DR-039: no card without a fingerprint. Right before the card is written the DRAFT is read back; the hash of
+          // exactly what was read (what the owner will see on the page) becomes approved_hash = artifact_hash. A failed
+          // read-back (incl. MCP-only delivery without REST) leaves the order in DELIVERED with the reason and no card;
+          // the next tick retries. It never reaches WAITING_OWNER with a card.
+          let seen: string;
+          try {
+            seen = artifactHash(await this.readArtifact(o));
+          } catch (e) {
+            this.logOnce({ order: o.id, kind: "info", role: "transport", result: "karta nevydána: read-back DRAFTu selhal", reason: String((e as Error)?.message ?? e).slice(0, 200) });
+            return o;
+          }
+          o = { ...o, meta: { ...o.meta, approved_hash: seen, artifact_hash: seen } };
           try {
             const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
             const text = ownerCard(o, reasons, dept!);
@@ -531,6 +642,7 @@ export class Orchestrator {
               this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
               card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
             }
+            // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
             o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
             this.d.store.save(o);
           } catch (e) {
@@ -583,11 +695,16 @@ export class Orchestrator {
     }, this.d.stateLockWaitMs);
   }
 
-  /** Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED. */
+  /**
+   * Owner gate (§5). Logged as an owner decision, not as a manual intervention before DELIVERED.
+   * DR-039: same rules as the Notion panel (`acceptOwner`): REJECT → FAILED; GO bound to the approved hash is only
+   * recorded and the order stays WAITING_OWNER until the next tick's read-back (`verifyApprovals`).
+   */
   owner(id: string, decision: "GO" | "REJECT", option?: "A" | "B"): Order {
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
-      return this.apply(o, { type: "owner", decision, option }, { role: "orchestrator", result: `owner ${decision}${option ? ` ${option}` : ""}` });
+      if (o.state !== "WAITING_OWNER") throw new TransitionError(`illegal transition: ${o.state} --owner-->`);
+      return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`);
     }, this.d.stateLockWaitMs);
   }
 }
@@ -605,6 +722,7 @@ export function ownerCard(o: Order, reasons: string[], dept: DepartmentRunner): 
     "",
     `## Důkaz`,
     `- Výstup (DRAFT): ${o.delivered_url}`,
+    ...(o.meta.approved_hash ? [`- Otisk výstupu (sha256): \`${o.meta.approved_hash.slice(0, 16)}\` — GO platí jen pro tento obsah.`] : []),
     `- Tvůrce: ${dept.creatorModel()} · Kontrolor: ${dept.checkerModel()} · kol oprav: ${o.fix_rounds}`,
     `- Stav běhu: runs/${o.id}/state.json, záznam runs/log.jsonl (lokálně u orchestrátoru)`,
     "",
@@ -615,11 +733,6 @@ export function ownerCard(o: Order, reasons: string[], dept: DepartmentRunner): 
     `- **GO** — přijímám výstup jako podklad; další krok podle HANDOFF.`,
     `- **REJECT** — výstup zahodit; důvod napiš do komentáře.`,
     "",
-    "Na iPhonu: v přehledu „TARS — Zakázky“ vyber u této zakázky v poli „Rozhodnutí vlastníka“ GO, GO A, GO B nebo REJECT. Orchestrátor hodnotu jen čte a při dalším ticku (do 30 min) provede přechod stavu.",
-    "",
-    "Nebo zápis rozhodnutí do orchestrátoru ručně:",
-    "```",
-    `cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts owner ${o.id} GO`,
-    "```",
+    "Rozhodnutí zadává vlastník v přehledu „TARS — Zakázky“: u této zakázky vyber v poli „Rozhodnutí vlastníka“ GO, GO A, GO B nebo REJECT. Orchestrátor hodnotu jen čte; GO dokončí až po kontrole, že stránka výstupu má stále schválený obsah.",
   ].join("\n");
 }

@@ -214,9 +214,10 @@ async function main() {
       const ev = ownerEventFor(decision);
       if (!id || !ev) throw new Error("usage: owner <order-id> GO|'GO A'|'GO B'|REJECT");
       const orch = build();
+      // Jen pro vlastníka: agent tento podpříkaz nikdy nespouští (DR-039, bash-preflight). GO čeká na read-back v ticku.
       const o = orch.owner(id, ev.decision, ev.option);
       await orch.flushPanel();
-      console.log(`${o.id} → ${o.state}`);
+      console.log(`${o.id} → ${o.state}${o.state === "WAITING_OWNER" ? (o.meta.owner_go ? " (GO přijato, DONE po read-backu v příštím ticku)" : " (GO nepřijato, důvod v runs/log.jsonl)") : ""}`);
       return;
     }
     default:

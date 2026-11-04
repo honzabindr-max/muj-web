@@ -126,6 +126,100 @@ const ALLOW: Array<[string, string]> = [
   ["allowlist: review-launch.sh", "tars/orch/review-launch.sh /Users/janbindr/Projects/muj-web-guard /tmp/prompt.md /tmp/out.txt"],
 ];
 
+// DR-039: agent nikdy nezadává GO ani REJECT za vlastníka, ani přes `cli.ts owner`.
+const OWNER_DENY: Array<[string, string]> = [
+  ["npx tsx", "npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["cd && npx tsx (návod ze staré karty)", "cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["node --import tsx", "node --import tsx tars/orch/cli.ts owner wo-1 REJECT"],
+  ["tsx přímo", "tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["npm exec tsx --", "npm exec tsx -- tars/orch/cli.ts owner wo-1 GO"],
+  ["npm exec -- tsx", "npm exec -- tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["absolutní cesty", "/Users/janbindr/Projects/muj-web/node_modules/.bin/tsx /Users/janbindr/Projects/muj-web/tars/orch/cli.ts owner wo-1 GO"],
+  ["relativní ./cli.ts", "npx tsx ./cli.ts owner wo-1 GO"],
+  ["uvozovky", "npx tsx \"tars/orch/cli.ts\" 'owner' wo-1 'GO A'"],
+  ["slepené uvozovky", 'npx tsx tars/orch/cli.ts "ow"ner wo-1 GO'],
+  ["escape uvnitř slova", "npx tsx tars/orch/cli.ts ow\\ner wo-1 GO"],
+  ["ANSI-C $'...'", "npx tsx tars/orch/cli.ts $'\\x6fwner' wo-1 GO"],
+  ["proměnná před příkazem", "TARS_PANEL=0 npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["env", "env TARS_PANEL=0 npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["env -i s přepínači", "env -i PATH=/usr/bin npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["timeout", "timeout 60 npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  ["přepínač před podpříkazem", "npx tsx tars/orch/cli.ts --verbose owner wo-1 GO"],
+  ["bash -c", "bash -c 'npx tsx tars/orch/cli.ts owner wo-1 GO'"],
+  ["sh -c s cd", 'sh -c "cd /x && npx tsx tars/orch/cli.ts owner wo-1 GO"'],
+  ["eval", "eval 'npx tsx tars/orch/cli.ts owner wo-1 GO'"],
+  ["$(...)", "echo $(npx tsx tars/orch/cli.ts owner wo-1 GO)"],
+  ["zpětné apostrofy", "echo `npx tsx tars/orch/cli.ts owner wo-1 GO`"],
+  ["podpříkaz z proměnné", "npx tsx tars/orch/cli.ts $CMD wo-1 GO"],
+  ["podpříkaz z $(...)", "npx tsx tars/orch/cli.ts $(echo owner) wo-1 GO"],
+  ["podpříkaz přes xargs", "echo owner wo-1 GO | xargs npx tsx tars/orch/cli.ts"],
+  ["node -e s execSync", "node -e \"require('child_process').execSync('npx tsx tars/orch/cli.ts owner wo-1 GO')\""],
+  ["python3 -c se subprocess", "python3 -c \"import subprocess; subprocess.run(['npx','tsx','tars/orch/cli.ts','owner','wo-1','GO'])\""],
+  ["nedovřená uvozovka (parser si není jistý)", "npx tsx tars/orch/cli.ts owner wo-1 'GO"],
+  // Kolo oprav 1 (GPT review): surový text se kontroluje vždy, i když parser příkaz nepozná.
+  ["printf | bash", "printf '%s\\n' 'npx tsx tars/orch/cli.ts owner wo-1 GO' | bash"],
+  ["echo | sh", "echo 'npx tsx tars/orch/cli.ts owner wo-1 GO' | sh"],
+  ["eval s $(...)", "eval \"$(echo 'npx tsx tars/orch/cli.ts owner wo-1 GO')\""],
+  ["xargs s celým příkazem v textu", "echo 'tars/orch/cli.ts owner wo-1 GO' | xargs npx tsx"],
+  ["bash -c s proměnnou", "C='npx tsx tars/orch/cli.ts owner wo-1 GO'; bash -c \"$C\""],
+  ["bash -c $'...' s escape", "bash -c $'npx tsx tars/orch/cli.ts \\x6fwner wo-1 GO'"],
+  ["heredoc do bash", "bash <<EOF\nnpx tsx tars/orch/cli.ts owner wo-1 GO\nEOF"],
+  ["tars/orch/cli bez přípony", "printf 'npx tsx tars/orch/cli owner wo-1 GO' | sh"],
+  ["přepínač před owner v textu", "echo 'tars/orch/cli.ts --verbose owner wo-1 GO' | bash"],
+];
+
+const OWNER_ALLOW: Array<[string, string]> = [
+  ["cli.ts tick", "npx tsx tars/orch/cli.ts tick"],
+  ["cli.ts status", "npx tsx tars/orch/cli.ts status"],
+  ["cli.ts konzilium", "npx tsx tars/orch/cli.ts konzilium vstup.json"],
+  ["grep owner cli.ts", "grep owner cli.ts"],
+  ["grep -n owner tars/orch/cli.ts", "grep -n owner tars/orch/cli.ts"],
+  ["git log cli.ts", "git log --oneline -- tars/orch/cli.ts"],
+  ["commit zpráva zmiňuje owner a cli.ts", 'git commit -m "docs: owner v cli.ts jen pro vlastníka"'],
+  ["cat cli.ts", "cat tars/orch/cli.ts"],
+  ["rg owner v cli.ts", "rg -n 'owner' tars/orch/cli.ts"],
+  ["echo cli.ts tick | bash", "echo 'npx tsx tars/orch/cli.ts tick' | bash"],
+  ["printf cli.ts status | sh", "printf 'npx tsx tars/orch/cli.ts status' | sh"],
+];
+
+describe("bash-preflight: cli.ts owner (DR-039)", () => {
+  it.each(OWNER_DENY)("zamítnout: %s", (_name, command) => {
+    const d = decide(command);
+    expect(d.decision).toBe("deny");
+    expect(d.reason).toBe("Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)");
+  });
+
+  it.each(OWNER_ALLOW)("povolit: %s", (_name, command) => {
+    expect(decide(command).decision).toBe("allow");
+  });
+
+  it("allowlist owner blok nepřebije", () => {
+    const allow = path.join(dir, "all.allow");
+    writeFileSync(allow, ".*\n");
+    const r = run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" } }), { TARS_PREFLIGHT_ALLOW: allow });
+    expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
+    const ok = run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "a && b" } }), { TARS_PREFLIGHT_ALLOW: allow });
+    expect(ok.stdout.trim()).toBe(""); // allowlist dál funguje pro P04
+  });
+
+  it("zamítnutí owner se loguje bez celého příkazu", () => {
+    decide("npx tsx tars/orch/cli.ts owner wo-tajne-id GO");
+    const log = readFileSync(LOG, "utf8");
+    expect(log).toMatch(/DENY_OWNER/);
+    expect(log).not.toContain("wo-tajne-id");
+  });
+
+  it("obrana ve vrstvách: bez python3 hook propustí (fail-open, exit 1)", () => {
+    const r = spawnSync("/bin/bash", [SCRIPT], {
+      input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" } }),
+      encoding: "utf8",
+      env: { PATH: "/nonexistent", TARS_PREFLIGHT_LOG: LOG } as unknown as NodeJS.ProcessEnv,
+    });
+    expect(r.status).toBe(1);
+    expect(r.stdout.trim()).toBe("");
+  });
+});
+
 describe("bash-preflight: zamítnout", () => {
   it.each(DENY)("%s", (_name, command, re) => {
     const d = decide(command);

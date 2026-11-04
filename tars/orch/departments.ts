@@ -44,6 +44,11 @@ export interface CheckOutcome extends StepOutcome {
 
 export interface DeliverOutcome extends StepOutcome {
   url?: string;
+  /**
+   * DR-039: the artifact exactly as it was sent (DRAFT markdown, or the PR head commit). Its sha256 is the hash the
+   * owner's GO is bound to. Without it a GO can never reach DONE.
+   */
+  content?: string;
 }
 
 export interface DeptContext {
@@ -63,6 +68,11 @@ export interface DepartmentRunner {
   check(order: Order, ctx: DeptContext): Promise<CheckOutcome>;
   revise(order: Order, ctx: DeptContext): Promise<StepOutcome & { draft_file?: string }>;
   deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome>;
+  /**
+   * DR-039 read-back of the delivered artifact at `order.delivered_url`, in the same form as `DeliverOutcome.content`.
+   * Absent = the orchestrator reads a Notion page through `NotionClient.readPage`.
+   */
+  readback?(order: Order, ctx: DeptContext): Promise<string>;
   /** Department-level rule: does delivery always need the owner (e.g. PR into main)? */
   alwaysOwner: boolean;
   /** Creator specialist role (definition in .claude/agents/**). */
@@ -285,8 +295,9 @@ ${verdictFormatFor(this.checker)}`;
       "---",
       "",
     ].join("\n");
-    const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, header + draft);
-    return { ok: true, url: page.url, model: "notion" };
+    const content = header + draft;
+    const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, content);
+    return { ok: true, url: page.url, model: "notion", content };
   }
 }
 
@@ -397,7 +408,19 @@ ${verdictFormatFor(this.reviewer)}`;
       encoding: "utf8",
     });
     const url = /https:\/\/github\.com\/\S+\/pull\/\d+/.exec(r.stdout ?? "")?.[0];
-    return url ? { ok: true, url, model: "gh" } : { ok: false, error: "gh pr create failed" };
+    if (!url) return { ok: false, error: "gh pr create failed" };
+    // DR-039: the artifact the owner's GO is bound to is the pushed head commit of the PR.
+    const head = git(wt, ["rev-parse", "HEAD"]);
+    return { ok: true, url, model: "gh", content: head.ok && /^[0-9a-f]{40}\s*$/.test(head.out) ? head.out.trim() : undefined };
+  }
+
+  /** Read-back: the PR's current head commit as GitHub reports it (`gh pr view --json headRefOid`). */
+  async readback(order: Order): Promise<string> {
+    if (!order.delivered_url) throw new Error("chybí delivered_url");
+    const r = spawnSync("gh", ["pr", "view", order.delivered_url, "--json", "headRefOid", "--jq", ".headRefOid"], { encoding: "utf8", timeout: 60_000 });
+    const sha = (r.stdout ?? "").trim();
+    if (r.status !== 0 || !/^[0-9a-f]{40}$/.test(sha)) throw new Error("gh pr view: head commit nečitelný");
+    return sha;
   }
 }
 
@@ -545,8 +568,9 @@ ZADÁNÍ:\n${briefMarkdown(order.brief!)}\n\nVERDIKT BRÁNY:\n${r.text}\n\n${VER
 
   async deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome> {
     const draft = ctx.store.readFile(order.id, order.draft_file!);
-    const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, `**DRAFT — není schváleno.** Tvůrce: ${this.creatorModel()} · Kontrolor: ${this.checkerModel()}.\n\n${draft}`);
-    return { ok: true, url: page.url, model: "notion" };
+    const content = `**DRAFT — není schváleno.** Tvůrce: ${this.creatorModel()} · Kontrolor: ${this.checkerModel()}.\n\n${draft}`;
+    const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, content);
+    return { ok: true, url: page.url, model: "notion", content };
   }
 }
 
