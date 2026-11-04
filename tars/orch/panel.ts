@@ -56,6 +56,7 @@ const STEP_TEXT: Record<string, string> = {
   delivered: "Výstup doručen jako DRAFT.",
   limit: "Narazil na limit předplatného, pokračuje po obnovení.",
   resume: "Pokračuje po pauze kvůli limitu.",
+  retry_review: "Znovu zkouší kontrolu GPT v prohlížeči (stejný artefakt).",
 };
 
 /** One Czech sentence describing the last transition (deterministic). */
@@ -82,6 +83,8 @@ export function lastStepSentence(o: Order): string {
       return o.brief?.check_notes?.length
         ? "Supervizor vybral zakázku z HANDOFF, kontrola zadání: PASS s výhradami (DR-031)."
         : STEP_TEXT.planned;
+    case "wait_review":
+      return `Čeká na kontrolu (GPT v prohlížeči): ${(o.review_reason ?? "").slice(0, 150)}`;
     case "fail":
     case "unknown":
       return `Zastaveno: ${(o.failure_reason ?? "").slice(0, 150)}`;
@@ -92,6 +95,7 @@ export function lastStepSentence(o: Order): string {
 
 export function queueOf(o: Order): string {
   if (o.state === "WAITING_OWNER") return "1 · Čeká na vlastníka";
+  if (o.state === "WAITING_REVIEW") return "2 · Čeká na kontrolu";
   if (o.state === "DONE" || o.state === "FAILED" || o.state === "UNKNOWN")
     return "3 · Hotové";
   return "2 · Běží";

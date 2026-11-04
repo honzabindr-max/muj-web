@@ -30,6 +30,8 @@ export interface StepOutcome {
   /** Rung 3–4 UI failure after 2 attempts → UNKNOWN + owner card (§2b). */
   ui_unknown?: boolean;
   limit?: boolean;
+  /** P16 v2: the review did not happen (GPT in the browser unavailable) → WAITING_REVIEW, never PASS. */
+  waiting_review?: boolean;
   error?: string;
   model?: string;
   duration_ms?: number;
@@ -175,7 +177,7 @@ export async function callChecker(
 }
 
 function fromAdapter(r: AdapterResult, model: string): StepOutcome {
-  return { ok: r.ok, limit: r.limit, error: r.error, model, duration_ms: r.duration_ms };
+  return { ok: r.ok, limit: r.limit, error: r.error, model, duration_ms: r.duration_ms, ...(r.waitReview ? { waiting_review: true } : {}) };
 }
 
 // ───────────────────────────── Copy a kreativa ─────────────────────────────

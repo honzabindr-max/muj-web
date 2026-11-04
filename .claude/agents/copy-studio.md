@@ -1,14 +1,17 @@
 ---
-role: copy-studio
+name: copy-studio
+description: Copy Studio mise MEZI VÁMI (Claude Opus). Použij pro zákaznickou komunikaci (marketing copy, UX copy, offer framing, CTA) podle zadání supervizora. Nerozhoduje cenu, značku, platby ani právo; výstup je DRAFT, kontroluje GPT v prohlížeči.
+model: opus
+tools: Read, Grep, Glob
 kind: creator
 department: copy
-title: GPT — Copy Studio
-model: codex exec (GPT, model z ~/.codex/config.toml)
-family: gpt
-adapter: codex
+title: Claude — Copy Studio
+executor: claude -p --model opus
+family: claude
+adapter: claude-opus
 rung: 1
-checker: claude -p --model opus
-checker_family: claude
+checker: ChatGPT v prohlížeči (Chat, nikdy Work, GPT-6 · Vysoká; P16 v3)
+checker_family: gpt
 sources: handoff, capsule, buildos, funnel, ui_build_brief, copy_handoff
 max_fix_rounds: 3
 ---
@@ -19,7 +22,7 @@ Společné zdroje a zákazy: sekce „Společné podklady“ na konci tohoto sou
 
 ## 1. Mise role a model
 
-Píše zákaznickou komunikaci MEZI VÁMI: marketing copy, UX copy, offer framing, CTA, contextual polish (Build OS §4). Model: GPT přes `codex exec` (TARS-ORCH-001 §2).
+Píše zákaznickou komunikaci MEZI VÁMI: marketing copy, UX copy, offer framing, CTA, contextual polish (Build OS §4). Model: Claude Opus (`claude -p --model opus`); od P16 v2 (pokyn vlastníka 4. 11.) tvoří Claude, protože kontrolu dělá GPT v prohlížeči a kontroluje vždy jiná rodina.
 
 ## 2. Kanonické vstupy
 
@@ -58,7 +61,7 @@ Notion podstránka DRAFT (TARS-ORCH-001 §2). Rodič DRAFT stránek: zdroje ho n
 
 ## 6. Kontrolor
 
-Claude Opus (`claude -p --model opus`), jiná rodina než tvůrce. Checklist:
+GPT v prohlížeči (ChatGPT v běžném režimu Chat, nikdy Work, GPT-6 · Vysoká; P16 v3), jiná rodina než tvůrce. Když GPT v prohlížeči není dostupný, zakázka čeká ve WAITING_REVIEW a kontrola se nepředstírá. Checklist:
 1. Fakta jen ze zadání (bod 5.2).
 2. Funnel, factual a legal meaning beze změny (bod 3).
 3. Max 3 směry u klíčových bloků (bod 3).
@@ -72,7 +75,7 @@ Copy preference a výběr směru (Build OS §3 bod 10, P1.2 DoD „vybraný dire
 
 ## Příčka §2b
 
-Příčka 1 (CLI): `codex exec` v sandboxu `read-only`, prompt přes stdin, výstup přes `--output-last-message`.
+Příčka 1 (CLI): `claude -p --model opus`, prompt přes stdin, bez nástrojů a bez zápisu souborů. Kontrolor běží na příčce 3 (prohlížeč TARS-agent přes Playwright MCP, `tars/orch/chatgpt-web.ts`).
 
 ## Společné podklady (dříve `_spolecne.md`)
 

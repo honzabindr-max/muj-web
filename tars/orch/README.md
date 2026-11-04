@@ -43,7 +43,26 @@ because they run inside this repo and would otherwise trigger a GPT review per c
 ## Lifecycle
 
 `NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE`,
-plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`.
+plus `PAUSED` (subscription limit, resumes on a later tick), `WAITING_REVIEW` („čeká na kontrolu“, P16 v2), `FAILED`, `UNKNOWN`.
+
+### Kontroly mimo kód přes GPT v prohlížeči (P16 v3)
+
+Pravidlo vlastníka (P16 v3, 4. 11. 9:53): kontrolu zadání supervizora, kontrolu copy, vizuální bránu a oponenta
+Konzilia Lite dělá GPT v prohlížeči (`chatgpt-web.ts`, `ChatGptWebChecker`, rodina `gpt`) v běžném režimu Chat
+(čerpá paušál ChatGPT, ne limit Work): chatgpt.com → přepínač „Chat | Work“ = Chat (když Chat není, `UNKNOWN
+chat-nedostupny`; Work nikdy, ani jako fallback; žádný projekt) → GPT-6 (záložní GPT-5.6 Sol) → intenzita Vysoká
+(záložní nejvyšší stupeň posuvníku; skutečný model ze stránky se zapíše do `runs/<zakázka>/check-gptweb-*.md` a do
+logu; stránka s Work nebo modelem Work = `WAITING_REVIEW` „běží v režimu Work místo Chat“) → jedno odeslání promptu →
+čekání na koncovou značku → odpověď se čte ze
+stránky jako data a v kódu se ověří podle JSON schématu. Žádný nový prohlížečový kód: `McpBrowser` + `mcp-gate.ts`
+(host allowlist, one submit, vkládaný text musí sedět na sha256 promptu). Nikdy se nepřihlašuje.
+Kontrola kódu (oddělení dev) zůstává Codex. Tvůrce copy je kvůli tomu Claude Opus (kontroluje jiná rodina).
+
+Nepřihlášený profil, selhání prohlížeče, limit, timeout nebo odpověď mimo schéma = `waitReview`: zakázka přejde do
+`WAITING_REVIEW` se stejným artefaktem (`review_hash` = sha256 zadání v `meta.pending_brief`, nebo draftu). Další tick
+to zkusí znovu nejvýš jednou; změněný artefakt = `UNKNOWN`. Bez skutečné odpovědi nikdy PASS.
+Živý neškodný test: `npx tsx tars/orch/cli.ts gpt-smoke` (prompt „Odpověz jen slovem OK.“). Profil TARS-agent musí
+být přihlášený do ChatGPT (běžný účet); přihlašuje se jen vlastník.
 
 - State: `runs/<order-id>/state.json` (atomic write). Episodic log: `runs/log.jsonl`. Both are gitignored.
 - One owner of the state (DR-039, etapa 2): every state carries a monotonic `version`; `Store.save` writes only over
@@ -97,8 +116,9 @@ startu, nebo živý, ale zaseknutý držitel = HOLD. TARS ho sám nikdy neodstra
 ```
 npx tsx tars/orch/cli.ts tick
 npx tsx tars/orch/cli.ts status
-npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP)
-npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP
+npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP), dir runs/shots-browser-check
+npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP, dir runs/shots-browser-smoke
+npx tsx tars/orch/cli.ts gpt-retry <id> fable|vlastnik <proč>   # one new GPT check attempt after a burned one (never automatic)
 npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
 npx vitest run tars
 tars/orch/launchd/install.sh
