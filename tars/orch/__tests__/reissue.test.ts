@@ -1098,3 +1098,122 @@ describe("kolo oprav 5: zápisy panelu jedné zakázky pod jedním zámkem", () 
     expect(panel.page("page2").decision).toBe("REJECT");
   });
 });
+
+describe("oprava po review sloučení: dohledaný řádek a PATCH, který selže", () => {
+  /** Po znovuvydání: první POST nového řádku dorazí, ale odpověď se ztratí; další PATCHe vrací 409, dokud `patchFails`. */
+  async function lostPostThen409() {
+    const panel = new Panel();
+    const x = await oldCardOrder(panel);
+    const oldCard = store.load(x.id).owner_card_url!;
+    clock = "2026-11-04T08:40:00.000Z";
+    await x.o.reissue(x.id);
+    await x.o.flushPanel();
+    const real = panel.upsert.bind(panel);
+    const ctl = { lostPost: false, patchFails: false, patches409: 0 };
+    panel.upsert = async (row: PanelRow, page?: string) => {
+      if (!page && !ctl.lostPost) {
+        ctl.lostPost = true;
+        ctl.patchFails = true;
+        await real(row);
+        throw new Error("notion: spojení přerušeno po odeslání");
+      }
+      if (page && ctl.patchFails) {
+        ctl.patches409++;
+        throw new NotionRestError(409, "conflict_error");
+      }
+      return real(row, page);
+    };
+    clock = "2026-11-04T08:45:00.000Z";
+    await x.o.tick();
+    await x.o.flushPanel();
+    expect(panel.creates).toBe(2); // page2 vznikl, odpověď POST se ztratila
+    // Obnova: dohledání page2 podle aktuální karty, následný PATCH 409.
+    await x.o.resyncPanel(x.id);
+    expect(ctl.patches409).toBeGreaterThan(0);
+    expect(panel.creates).toBe(2);
+    const w = store.load(x.id);
+    expect(w.state).toBe("WAITING_OWNER");
+    expect(new PanelIndex(dir).current(x.id, 1)).toBe("page2");
+    return { ...x, panel, ctl, oldCard, card: w.owner_card_url! };
+  }
+
+  it("ztracená odpověď POST → dohledání → PATCH 409 → REJECT na P2 se nezahodí (žádné tainted) a po úspěšném syncu se přijme", async () => {
+    const { o, panel, ctl, id, card } = await lostPostThen409();
+    // Záznam zápisu nese aktuální kartu dohledaného řádku, ne null.
+    expect(new PanelIndex(dir).lastWrite(id)).toMatchObject({
+      row: "page2",
+      round: 1,
+      card,
+    });
+    panel.page("page2").decision = "REJECT";
+    await o.pollOwnerDecisions();
+    await o.flushPanel();
+    expect(new PanelIndex(dir).tainted(id)).toEqual([]);
+    ctl.patchFails = false;
+    await o.resyncPanel(id);
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("FAILED");
+    expect(new PanelIndex(dir).tainted(id)).toEqual([]);
+  });
+
+  it("chybějící záznam zápisu (řádek z receiptu, PATCH selhal) není důkaz cizí karty: čeká, netaintuje, po úspěšném syncu přijme", async () => {
+    const { o, panel, id } = await reissued();
+    const f = path.join(dir, "panel-index.json");
+    const all = JSON.parse(fs.readFileSync(f, "utf8")) as Record<
+      string,
+      string
+    >;
+    delete all[`written:${id}`];
+    fs.writeFileSync(f, JSON.stringify(all));
+    panel.failUpsert = new NotionRestError(409, "conflict_error");
+    panel.page("page2").decision = "REJECT";
+    await o.pollOwnerDecisions();
+    await o.flushPanel();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(new PanelIndex(dir).tainted(id)).toEqual([]);
+    expect(new PanelIndex(dir).lastWrite(id)).toBeUndefined();
+    panel.failUpsert = undefined;
+    await o.resyncPanel(id);
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("FAILED");
+    expect(new PanelIndex(dir).tainted(id)).toEqual([]);
+  });
+
+  it("skutečně cizí stará karta v dohledaném řádku dál vede na tainted (HOLD), ani REJECT se nepřijme", async () => {
+    const { o, panel, ctl, id, oldCard, card } = await lostPostThen409();
+    expect(oldCard).not.toBe(card);
+    const p2 = panel.page("page2");
+    panel.land("page2", { ...p2.row, "Karta rozhodnutí": oldCard }); // někdo mimo zámek
+    p2.decision = "REJECT";
+    await o.pollOwnerDecisions();
+    await o.flushPanel();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(new PanelIndex(dir).tainted(id)).toEqual(["page2"]);
+    ctl.patchFails = false;
+    await o.resyncPanel(id);
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(new PanelIndex(dir).tainted(id)).toEqual(["page2"]);
+  });
+
+  it("záznam zápisu do tohoto řádku s jinou (starou) kartou dál vede na tainted", async () => {
+    const { o, panel, id, oldCard, card } = await reissued();
+    expect(oldCard).not.toBe(card);
+    const f = path.join(dir, "panel-index.json");
+    const all = JSON.parse(fs.readFileSync(f, "utf8")) as Record<
+      string,
+      string
+    >;
+    all[`written:${id}`] = JSON.stringify({
+      row: "page2",
+      round: 1,
+      card: oldCard,
+      fence: 1,
+    });
+    fs.writeFileSync(f, JSON.stringify(all));
+    panel.page("page2").decision = "REJECT";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(new PanelIndex(dir).tainted(id)).toEqual(["page2"]);
+  });
+});

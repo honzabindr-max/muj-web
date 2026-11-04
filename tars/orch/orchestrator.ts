@@ -334,15 +334,21 @@ export class Orchestrator {
         return;
       }
       if (!existing) {
-        existing = await this.resolvePanelRow(
+        const found = await this.resolvePanelRow(
           o.id,
           op,
           lease,
           reissued ? { round, card } : { round: 0 },
         );
+        existing = found?.id;
+        // Oprava po review sloučení: dohledaný řádek nikdy nezapíše `lastWrite.card = null` před následným PATCH.
+        // - Řádek dohledaný podle odkazu na aktuální kartu (čtením ověřeno, že ji nese): zápis se zaznamená rovnou
+        //   s touto kartou, takže selhání následného PATCH (např. 409) na přijetí rozhodnutí nic nemění.
+        // - Jinak (receipt z journalu, kolo 0): jen index, záznam zápisu až po úspěšném PATCH níže. Při chybě zůstane
+        //   řádek dirty a poll čeká (netaintuje), další úspěšná synchronizace záznam doplní.
         if (
-          existing &&
-          this.setIndex(lease, o.id, existing, round, null) !== "ok"
+          found &&
+          this.setIndex(lease, o.id, found.id, round, found.card) !== "ok"
         )
           return;
       }
@@ -475,18 +481,22 @@ export class Orchestrator {
     return this.d.panel!.sink.upsert(row, page);
   }
 
-  /** Index set + record of the write in one fenced step; anything but "ok" is logged (conflict = HOLD). */
+  /**
+   * Index set + record of the write in one fenced step; anything but "ok" is logged (conflict = HOLD).
+   * `card` undefined = index only, no record of a write (the row's card is not known yet, e.g. a row recovered from the
+   * journal receipt before its PATCH): an older record is never replaced by a guess.
+   */
   private setIndex(
     lease: PanelLease,
     id: string,
     pageId: string,
     round: number,
-    card: string | null,
+    card: string | null | undefined,
   ): IndexSetResult {
     const panel = this.d.panel!;
     const r = this.fenced(lease, () => {
       const res = panel.index.set(id, pageId, round);
-      if (res === "ok")
+      if (res === "ok" && card !== undefined)
         panel.index.recordWrite(id, {
           row: pageId,
           round,
@@ -596,12 +606,12 @@ export class Orchestrator {
     op: string,
     lease: PanelLease,
     sel: { round: number; card?: string },
-  ): Promise<string | undefined> {
+  ): Promise<{ id: string; card: string | undefined } | undefined> {
     const panel = this.d.panel!;
     const prev = this.effects.get(op);
     if (prev?.state === "EFFECT_DONE" && prev.receipt) {
       const id = pageIdFromUrl(prev.receipt.url);
-      if (id) return id;
+      if (id) return { id, card: undefined }; // karta řádku nečtena
     }
     if (panel.sink.findRowByOrderId) {
       // Review kolo 3: nothing of unclear outcome was ever sent for this row (no PREPARED / UNKNOWN, no uncertain mark):
@@ -648,7 +658,12 @@ export class Orchestrator {
             role: "transport",
             result: `panel: řádek nalezen podle ID zakázky, druhý se nevytváří (${op})`,
           });
-        return found;
+        // Dohledání s `card` vrací jen řádek, jehož odkaz „Karta rozhodnutí“ je tato karta (REST čtení; přes MCP to
+        // ověřit nejde a dohledání s `card` tam končí `PanelRowUnclear`): karta řádku je tím ověřená.
+        return {
+          id: found,
+          card: sel.round > 0 && sel.card !== undefined ? sel.card : undefined,
+        };
       }
       this.fenced(lease, () => {
         if (prev && prev.state !== "EFFECT_ABSENT")
@@ -1237,6 +1252,21 @@ export class Orchestrator {
         last.row === norm &&
         last.round === round &&
         last.card === card;
+      // Oprava po review sloučení: `tainted` jen s důkazem, že řádek nesl JINOU kartu (čtení řádku, nebo záznam
+      // posledního zápisu do tohoto řádku v tomto kole s jinou kartou). Chybějící záznam, záznam jiného řádku nebo bez
+      // karty (dohledaný řádek, jehož PATCH selhal) důkaz není: nepřijmout, řádek dorovnat a po úspěšném zápisu přijmout.
+      const otherCardWritten =
+        last !== undefined &&
+        last.row === norm &&
+        last.round === round &&
+        typeof last.card === "string" &&
+        last.card !== card;
+      if (!cardDiffers && !otherCardWritten && !lastOk) {
+        resync = true;
+        return wait(
+          "záznam posledního zápisu řádku pod zámkem panelu nenese aktuální kartu; řádek se dorovná, rozhodnutí se přijme po úspěšném zápisu",
+        );
+      }
       if (cardDiffers || !lastOk) {
         // Vlastník mohl rozhodovat nad jinou kartou, než jakou do řádku naposledy zapsal držitel zámku: nikdy nepřijmout.
         panel.index.taint(fresh.id, pageId);
