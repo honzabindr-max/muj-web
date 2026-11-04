@@ -92,18 +92,25 @@ Zakázka, která dostala kartu ještě před DR-039 (ve `WAITING_OWNER`, bez `me
 `DELIVERED`: smaže starou kartu (`owner_card_url`) i všechna `owner_*` pole v `meta`, uloží `meta.reissued_at` a zapíše
 „karta znovuvydána“ do `runs/log.jsonl`. Jiný stav nebo karta s otiskem = odmítnuto (exit 1). Další tick projde
 standardní cestou: read-back DRAFTu → nová karta s `approved_hash`/`artifact_hash`. Staré GO se nikdy nepřebírá.
-Z Notionu platí rozhodnutí jen tehdy, když platí obě podmínky:
+Z Notionu platí rozhodnutí jen tehdy, když platí všechny podmínky (orchestrátor do pole „Rozhodnutí vlastníka“ nikdy
+nezapisuje, P20):
+- **karta**: řádek je spolehlivě přečtený (`readable`: ne koš, sloupec existuje) a jeho odkaz „Karta rozhodnutí“ je
+  přesně aktuální karta s otiskem. Jinak se řádek přepíše, výchozí hodnota se zahodí a zakázka čeká.
+- **žádný souběžný zápis se starší kartou**: každý zápis řádku se před odesláním ohlásí v `runs/<id>/panel-writes.json`
+  (token + karta, kterou posílá) a po odpovědi odhlásí; zápis se staršími daty se těsně před odesláním nahradí
+  uloženým stavem a po odpovědi, pokud se karta mezitím změnila, se řádek hned přepíše. Rozhodnutí se nepřijme, dokud
+  běží (nebo během čtení proběhl) zápis, který může ukázat jinou kartu; zápis bez odpovědi vyprší po 15 min.
+- **hodnota**: změna oproti výchozí hodnotě (`meta.reissue_seen` pro kartu `meta.reissue_seen_card`), kterou
+  orchestrátor přečte hned po zápisu nové karty do řádku (před upozorněním vlastníka), případně při prvním pollu.
+  Hodnota se při znovuvydání nečte (snímek před zápisem by nezachytil ťuknutí na starou kartu těsně před uložením).
+  Vymazání pole nastaví výchozí hodnotu na prázdnou.
 - **čas**: `last_edited_time` řádku je víc než 2 min (rezerva na hodiny a zaokrouhlení na minuty) po `reissued_at`
   i po každém vlastním zásahu orchestrátoru do řádku (zápis řádku před ním i po něm, i neúspěšný; komentář
   s upozorněním). Neznámý čas = nepřijmout.
-- **hodnota**: liší se od hodnoty, která v panelu stála při znovuvydání (`meta.reissue_stale_decision`), nebo
-  orchestrátor od znovuvydání viděl pole prázdné (`meta.reissue_armed`). Když stará hodnota nešla zjistit („?“),
-  platí jen druhá cesta. „Prázdné“ se počítá jen ze spolehlivě přečteného řádku (`readable`): řádek v koši ani
-  odpověď bez sloupce „Rozhodnutí vlastníka“ nejsou prázdné pole a stará hodnota je pak „?“.
 
 Do té doby zakázka čeká ve `WAITING_OWNER` („čeká na nové GO po znovuvydání karty“). Postup pro vlastníka, když v panelu
-zůstalo staré „GO“: pole vymazat, počkat na další tick a pak vybrat GO znovu. Pro `owner()` platí podmínka času
-(čas volání). `reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání.
+zůstalo staré „GO“: vybrat jinou hodnotu (např. „GO A“), nebo pole vymazat, počkat na další tick a pak vybrat GO znovu.
+Pro `owner()` platí podmínka času (čas volání). `reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání.
 
 ## Safety
 

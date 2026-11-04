@@ -82,17 +82,6 @@ export function decisionFresh(
 export const CLOCK_MARGIN_MS = 2 * 60_000;
 
 /**
- * Po znovuvydání karty musí být i HODNOTA v panelu nová, ne jen čas změny řádku (ten posune i cizí nebo vlastní zápis):
- * buď se liší od hodnoty, která v panelu stála při znovuvydání (`stale`, známá), nebo orchestrátor od znovuvydání
- * viděl pole prázdné (`armed`, vlastník staré rozhodnutí smazal). Neznámá stará hodnota („?“) = jen přes `armed`.
- */
-export function decisionValueNew(stale: string | undefined, value: string, armed: boolean): boolean {
-  if (armed) return true;
-  if (stale === undefined || stale === "?") return false;
-  return value !== stale;
-}
-
-/**
  * Důvod, proč GO nesmí do DONE (undefined = smí). Platí současně:
  *  - existuje `delivered_url` a `approved_hash`,
  *  - `artifact_hash === approved_hash` (vlastník schválil právě tento obsah),

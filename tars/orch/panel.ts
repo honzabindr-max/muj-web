@@ -137,6 +137,11 @@ export interface OwnerRow {
    * jako select. Jinak (koš, chybějící nebo přejmenovaný sloupec) prázdné `decision` NEZNAMENÁ prázdné pole.
    */
   readable?: boolean;
+  /**
+   * Odkaz „Karta rozhodnutí“, který řádek v okamžiku čtení ukazuje (null = prázdný, undefined = sloupec v odpovědi
+   * chybí nebo není typu url). Po znovuvydání karty platí rozhodnutí jen z řádku, který ukazuje přesně aktuální kartu.
+   */
+  card?: string | null;
 }
 
 export interface PanelSink {
@@ -364,11 +369,13 @@ export class RestPanelSink implements PanelSink {
   }
 
   async readOwnerRow(pageId: string): Promise<OwnerRow> {
-    const j = await this.api.request<{ in_trash?: boolean; last_edited_time?: string; properties?: Record<string, { select?: { name?: string } | null }> }>("GET", `/v1/pages/${pageId}`);
+    const j = await this.api.request<{ in_trash?: boolean; last_edited_time?: string; properties?: Record<string, { select?: { name?: string } | null; url?: string | null }> }>("GET", `/v1/pages/${pageId}`);
     if (j.in_trash) return { readable: false };
     const prop = j.properties?.[OWNER_DECISION_PROPERTY];
     const readable = Boolean(prop && typeof prop === "object" && "select" in prop);
-    return { decision: prop?.select?.name ?? undefined, last_edited_time: typeof j.last_edited_time === "string" ? j.last_edited_time : undefined, readable };
+    const cardProp = j.properties?.["Karta rozhodnutí"];
+    const card = cardProp && typeof cardProp === "object" && "url" in cardProp ? (typeof cardProp.url === "string" ? cardProp.url : null) : undefined;
+    return { decision: prop?.select?.name ?? undefined, last_edited_time: typeof j.last_edited_time === "string" ? j.last_edited_time : undefined, readable, card };
   }
 }
 
