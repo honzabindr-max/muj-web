@@ -88,23 +88,9 @@ function runConfigured(name: string, stdin: string, env: Env) {
   return { status: r.status, stdout: r.stdout };
 }
 
-describe("settings.json: fail-closed a hranice zápisu", () => {
-  it("je platný JSON s permissions.blockWritesOutsideWorkingDirectories = true", () => {
-    expect(settings().permissions.blockWritesOutsideWorkingDirectories).toBe(
-      true,
-    );
-  });
-
-  it.each(["bash-preflight.sh", "notion-owner-decision.py"])(
-    "%s má onFailure: block a konečný timeout",
-    (name) => {
-      const h = preHook(name);
-      expect(h.onFailure).toBe("block");
-      expect(h.timeout).toBeGreaterThan(0);
-      expect(h.timeout).toBeLessThanOrEqual(60);
-    },
-  );
-
+// onFailure, timeout a blockWritesOutsideWorkingDirectories hlídá fail-closed-settings.test.ts
+// (přichází spolu se změnou .claude/settings.json).
+describe("settings.json: zapojení hooků", () => {
   it("bash-preflight je zapojený na matcher Bash, notion-owner-decision na Notion MCP", () => {
     const pre = settings().hooks.PreToolUse;
     expect(
@@ -172,12 +158,12 @@ describe("selhání hooku = blok", () => {
   );
 
   it("timeout: hook doběhne hluboko pod limitem i u dlouhého příkazu; po limitu blokuje Claude Code (onFailure: block)", () => {
-    const limitMs = (preHook("bash-preflight.sh").timeout ?? 0) * 1000;
+    const limitMs = 5000; // hluboko pod timeoutem hooku (30 s v settings.json)
     const long = "git status " + "'a b' ".repeat(5000);
     const t0 = Date.now();
     const r = preflight(bashInput(long));
     expect(r.status).toBe(0);
-    expect(Date.now() - t0).toBeLessThan(Math.min(5000, limitMs));
+    expect(Date.now() - t0).toBeLessThan(limitMs);
   });
 });
 
