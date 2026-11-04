@@ -1,4 +1,5 @@
 // P16 v3: non-code checks through ChatGPT in the browser, mode Chat (fake browser, no model, no Chrome).
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,10 +23,13 @@ import {
   END_WORD,
   grantRetry,
   markerEndsAnswer,
+  PICKER_VERIFY,
   readJournal,
   readRetries,
   verdictFromAnswer,
   writeJournal,
+  type PickerEvidence,
+  type SentEntry,
   type WebBrowser,
 } from "../chatgpt-web";
 import { CopyDepartment, VizualDepartment } from "../departments";
@@ -160,6 +164,20 @@ let dir: string;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
 });
+
+/** The journal key of a prompt checked with REVIEW_SCHEMA (as ChatGptWebChecker computes it). */
+const promptShaOf = (prompt: string) =>
+  createHash("sha256")
+    .update(`${prompt}\n${JSON.stringify(REVIEW_SCHEMA)}`)
+    .digest("hex");
+/** Picker evidence of one read with GPT-6 at Vysoká, top step (what picker() shows by default). */
+const HIGH_EVIDENCE: PickerEvidence = {
+  menu: "Vybrat model ChatGPT",
+  model: "GPT-6",
+  intensity: "Vysoká",
+  level: 3,
+  levels: 3,
+};
 
 /** First attempt: NONCE; every later attempt of the same checker gets a new nonce (like random bytes). */
 const checker = (b: WebBrowser) => {
@@ -1291,6 +1309,9 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
         model_before: "GPT-6 · Vysoká",
         model_after: "GPT-6 · Vysoká",
         chat_url: CHAT,
+        verify: PICKER_VERIFY,
+        picker_before: HIGH_EVIDENCE,
+        picker_after: HIGH_EVIDENCE,
       }),
     ]);
     // the caller crashed before storing the result: a new process (new checker) repeats the check
@@ -1306,7 +1327,7 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
       submits: 0,
       chat_url: CHAT,
     });
-    // an "answered" entry without a valid stored answer/model of its run is never used (a new attempt instead)
+    // an "answered" entry without the control check evidence is never used: burned, WAITING_REVIEW, nothing sent
     const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
     const sha = readJournal(dir)![0].prompt_sha256;
     writeJournal(d, [
@@ -1325,8 +1346,87 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
       cwd: d,
       outputSchema: REVIEW_SCHEMA,
     });
-    expect(JSON.parse(r3.text).verdict).toBe("FIX");
-    expect(sendsOf(b3)).toHaveLength(1);
+    expect(r3).toMatchObject({ ok: false, waitReview: true, text: "" });
+    expect(b3.calls).toHaveLength(0);
+  });
+
+  describe("Codex review PR #101 kolo 2: obnova z deníku jen s důkazem ověření ovládacího prvku", () => {
+    const stored = (extra: Partial<SentEntry>): SentEntry => ({
+      prompt_sha256: promptShaOf("Posuď."),
+      nonce: "old",
+      at: new Date().toISOString(),
+      state: "answered",
+      answer: PASS_JSON,
+      model_before: "GPT-6 · High",
+      model_after: "GPT-6 · High",
+      ...extra,
+    });
+    const restore = async (e: SentEntry) => {
+      writeJournal(dir, [e]);
+      const b = new FakeBrowser(answering(FIX_JSON));
+      const c = checker(b);
+      const r = await c.run("Posuď.", {
+        cwd: dir,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      return { r, c, b };
+    };
+
+    it("starý záznam „answered“ bez verze s „GPT-6 · High“ → WAITING_REVIEW, spálen, bez odeslání; nový pokus jen gpt-retry", async () => {
+      const { r, c, b } = await restore(stored({}));
+      expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
+      expect(r.error).toMatch(/starý záznam bez ověření ovládacího prvku/);
+      expect(r.error).toMatch(/gpt-retry/);
+      expect(b.calls).toHaveLength(0);
+      expect(c.lastRecord).toMatchObject({
+        status: "WAITING_REVIEW",
+        submits: 0,
+      });
+      expect(readJournal(dir)).toEqual([
+        expect.objectContaining({
+          state: "burned",
+          reason: "starý záznam bez ověření ovládacího prvku",
+        }),
+      ]);
+      // the next tick sends nothing on its own either
+      const again = await checker(b).run("Posuď.", {
+        cwd: dir,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(again).toMatchObject({ ok: false, waitReview: true });
+      expect(b.calls).toHaveLength(0);
+      // a version without evidence is inconclusive too
+      const v = await restore(stored({ verify: PICKER_VERIFY }));
+      expect(v.r).toMatchObject({ ok: false, waitReview: true });
+      expect(v.b.calls).toHaveLength(0);
+    });
+
+    it("nový záznam s platným důkazem → obnova bez odeslání projde", async () => {
+      const { r, c, b } = await restore(
+        stored({
+          verify: PICKER_VERIFY,
+          picker_before: HIGH_EVIDENCE,
+          picker_after: HIGH_EVIDENCE,
+        }),
+      );
+      expect(r).toMatchObject({ ok: true, text: PASS_JSON });
+      expect(b.calls).toHaveLength(0);
+      expect(c.lastRecord).toMatchObject({ status: "ANSWER", submits: 0 });
+      expect(c.model).toBe("GPT-6 · Vysoká");
+    });
+
+    it("nový záznam s důkazem Medium → neshoda, WAITING_REVIEW bez odeslání", async () => {
+      const { r, b } = await restore(
+        stored({
+          verify: PICKER_VERIFY,
+          picker_before: HIGH_EVIDENCE,
+          picker_after: { ...HIGH_EVIDENCE, intensity: "Medium", level: 2 },
+        }),
+      );
+      expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
+      expect(b.calls).toHaveLength(0);
+      expect(readJournal(dir)![0]).toMatchObject({ state: "burned" });
+    });
   });
 
   it("nález 3: pád mezi odesláním a odpovědí („sending“/„sent“ v deníku) → pokus spálen, chat se neotevře; nový pokus jen po gpt-retry", async () => {
@@ -2179,7 +2279,9 @@ describe("smoke 4. 11.: anglické popisky a otevřený popover intenzity (fixtur
       // closed: the same field and the same send are allowed
       observeResponse(resp(typed(PROMPT.split("\n"))), st);
       expect(st.overlay).toBe(false);
-      expect(gateMcpCall(C, { ref: "e900" }, st, undefined, sha)).toBeUndefined();
+      expect(
+        gateMcpCall(C, { ref: "e900" }, st, undefined, sha),
+      ).toBeUndefined();
       expect(
         gateMcpCall(T, { ref: "e758", text: "" }, st, undefined, sha),
       ).toBeUndefined();
