@@ -111,9 +111,23 @@ export class Orchestrator {
     this.d.store.log({ ts: this.iso(), ...e });
   }
 
+  /**
+   * DR-039, etapa 2: a save the Store refused (newer version on disk, e.g. an abort while this step waited for a model;
+   * or the tick lease is no longer ours) is never retried and nothing else follows from it: the newer stored state is
+   * returned instead, the Store has already logged the refusal.
+   */
+  private persist(o: Order): Order | undefined {
+    if (this.d.store.save(o)) return o;
+    return undefined;
+  }
+
+  private current(id: string): Order {
+    return this.d.store.load(id);
+  }
+
   private apply(order: Order, ev: OrderEvent, extra: Partial<LogEntry> = {}): Order {
     const next = transition(order, ev, this.iso());
-    this.d.store.save(next);
+    if (!this.persist(next)) return this.current(order.id);
     this.syncPanel(next);
     this.log({
       order: order.id,
@@ -317,6 +331,11 @@ export class Orchestrator {
       }
       const max = this.d.maxStepsPerTick ?? 20;
       for (let i = 0; i < max && isActionable(order.state) && order.state !== "PAUSED"; i++) {
+        // DR-039, etapa 2: the next step (model call, delivery) starts only while the tick lease is still ours.
+        if (!this.d.store.holdsLease()) {
+          this.log({ order: order.id, kind: "error", role: "orchestrator", result: "tick lock už nedrží tento běh, krok nespuštěn" });
+          return { status: "locked" };
+        }
         // Re-check guard before anything leaves the machine.
         if (order.state === "DELIVERED" && this.d.guard().alarm) return { status: "guard_alarm", summary: "ALARM before delivery" };
         order = await this.step(order);
@@ -396,7 +415,7 @@ export class Orchestrator {
     }
     const at = this.iso();
     const next: Order = { ...o, updated_at: at, meta: { ...o.meta, owner_go: at, owner_go_source: source, ...(ev.option ? { owner_option: ev.option } : {}) } };
-    this.d.store.save(next);
+    if (!this.persist(next)) return this.current(o.id);
     this.syncPanel(next);
     this.log({ order: o.id, kind: "info", role: "orchestrator", result: `owner GO (${source}) přijato, čeká na read-back` });
     return next;
@@ -445,7 +464,7 @@ export class Orchestrator {
             delete meta.owner_go;
             delete meta.owner_go_source;
             const held: Order = { ...fresh, updated_at: this.iso(), meta };
-            this.d.store.save(held);
+            if (!this.persist(held)) return;
             this.syncPanel(held);
             this.log({ order: w.id, kind: "error", role: "orchestrator", result: "obsah se po vydání karty změnil, GO zrušeno", reason: `hash ${hash.slice(0, 12)} ≠ ${String(fresh.meta.approved_hash).slice(0, 12)}` });
             return;
@@ -453,7 +472,7 @@ export class Orchestrator {
           const verified: Order = { ...fresh, meta };
           const blocker = goBlocker(verified);
           if (blocker) {
-            this.d.store.save(verified);
+            if (!this.persist(verified)) return;
             this.logOnce({ order: w.id, kind: "info", role: "orchestrator", result: "čeká na read-back", reason: blocker });
             return;
           }
@@ -608,7 +627,7 @@ export class Orchestrator {
           // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
           const sent = r.content !== undefined ? artifactHash(r.content) : undefined;
           o = { ...o, delivered_url: r.url, meta: sent ? { ...o.meta, delivered_hash: sent } : o.meta };
-          this.d.store.save(o);
+          if (!this.persist(o)) return this.current(o.id);
         }
         const reasons = [
           ...(dept!.alwaysOwner ? ["výstup je PR do main — merge dělá vlastník (DR-022)"] : []),
@@ -626,7 +645,7 @@ export class Orchestrator {
             seen = artifactHash(await this.readArtifact(o));
           } catch (e) {
             this.logOnce({ order: o.id, kind: "info", role: "transport", result: "karta nevydána: read-back DRAFTu selhal", reason: String((e as Error)?.message ?? e).slice(0, 200) });
-            return o;
+            return this.current(o.id); // etapa 2: the stored state (it may have moved on during the read)
           }
           o = { ...o, meta: { ...o.meta, approved_hash: seen, artifact_hash: seen } };
           try {
@@ -643,8 +662,9 @@ export class Orchestrator {
               card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
             }
             // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
+            // Etapa 2: a refused save (newer state on disk) stops here, nothing follows from an outdated order.
             o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
-            this.d.store.save(o);
+            if (!this.persist(o)) return this.current(o.id);
           } catch (e) {
             return this.bad(o, { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
           }
@@ -707,6 +727,21 @@ export class Orchestrator {
       return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`);
     }, this.d.stateLockWaitMs);
   }
+}
+
+const KNOWN_DEPARTMENTS: readonly Department[] = ["copy", "dev", "vizual"];
+
+/**
+ * N3 (DR-039, etapa 2): `cli.ts tick` runs only with an explicit scope. Without TARS_DEPARTMENTS (or with an unknown
+ * name) the tick is refused instead of silently wiring every department (dev opens PRs, vizual opens Chrome).
+ * Returns the Czech reason to refuse, or undefined when the scope is valid.
+ */
+export function tickScopeError(raw: string | undefined): string | undefined {
+  const list = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!list.length) return "tick odmítnut: chybí TARS_DEPARTMENTS. Rozsah běhu musí být výslovný, např. TARS_DEPARTMENTS=copy (launchd plist ho nastavuje); všechna oddělení = TARS_DEPARTMENTS=copy,dev,vizual.";
+  const unknown = list.filter((d) => !KNOWN_DEPARTMENTS.includes(d as Department));
+  if (unknown.length) return `tick odmítnut: neznámé oddělení v TARS_DEPARTMENTS: ${unknown.join(", ")} (povolené: ${KNOWN_DEPARTMENTS.join(", ")}).`;
+  return undefined;
 }
 
 /** Keeps only the listed departments (empty list = all). Unwired ones show as unavailable to the supervisor. */

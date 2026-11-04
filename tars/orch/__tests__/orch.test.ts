@@ -1082,31 +1082,34 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
     expect(fs.existsSync(path.join(dir, ".state.lock"))).toBe(false); // released
   });
 
-  it("state lock: two Store instances exclude each other, a stale lock is taken over, the lock is released after an error", () => {
+  it("state lock: two Store instances exclude each other, an old lock of a live holder is never taken over, the lock is released after an error", () => {
     const a = new Store(dir);
     const b = new Store(dir);
     expect(() => a.withStateLock(() => b.withStateLock(() => 1, 60))).toThrow(/zámek/);
     expect(() => a.withStateLock(() => { throw new Error("boom"); })).toThrow("boom");
     expect(b.withStateLock(() => "ok", 60)).toBe("ok");
     const lock = path.join(dir, ".state.lock");
-    fs.writeFileSync(lock, "1");
-    fs.utimesSync(lock, new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
-    expect(b.withStateLock(() => "took over", 60)).toBe("took over");
+    // Kolo oprav 1: age is never a proof. Old-format lock (PID 1 exists) and a JSON lock of this live process, both 2 min old → HOLD.
+    for (const content of ["1", JSON.stringify({ token: "live", pid: process.pid, started: "", acquired_at: "2000-01-01T00:00:00Z" })]) {
+      fs.writeFileSync(lock, content);
+      fs.utimesSync(lock, new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+      expect(() => b.withStateLock(() => "took over", 60)).toThrow(/zámek \.state\.lock, HOLD/);
+      expect(fs.readFileSync(lock, "utf8")).toBe(content);
+    }
+    fs.rmSync(lock);
   });
 
   it("state lock: an error other than EEXIST is thrown at once; a lock that vanishes while we look never loops past the timeout", () => {
     const a = new Store(dir);
-    const w = vi.spyOn(fs, "writeFileSync");
+    const w = vi.spyOn(fs, "linkSync");
     w.mockImplementation(() => { throw Object.assign(new Error("denied"), { code: "EACCES" }); });
     const t0 = Date.now();
     expect(() => a.withStateLock(() => 1, 10_000)).toThrow("denied");
     expect(Date.now() - t0).toBeLessThan(1000); // no waiting on a non-collision
     w.mockImplementation(() => { throw Object.assign(new Error("exists"), { code: "EEXIST" }); });
-    const st = vi.spyOn(fs, "statSync").mockImplementation(() => { throw Object.assign(new Error("gone"), { code: "ENOENT" }); });
-    expect(() => a.withStateLock(() => 1, 120)).toThrow(/zámek/); // the old code looped here for ever
-    st.mockImplementation(() => { throw Object.assign(new Error("denied"), { code: "EACCES" }); });
-    expect(() => a.withStateLock(() => 1, 10_000)).toThrow("denied");
+    expect(() => a.withStateLock(() => 1, 120)).toThrow(/zámek/); // "exists" but no file to read: never loops past the timeout
     vi.restoreAllMocks();
+    expect(fs.readdirSync(dir).filter((f) => f.startsWith(".state.lock"))).toEqual([]); // no tmp left behind
     expect(a.withStateLock(() => "fine", 100)).toBe("fine");
   });
 

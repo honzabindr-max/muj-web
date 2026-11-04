@@ -46,6 +46,41 @@ because they run inside this repo and would otherwise trigger a GPT review per c
 plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`.
 
 - State: `runs/<order-id>/state.json` (atomic write). Episodic log: `runs/log.jsonl`. Both are gitignored.
+- One owner of the state (DR-039, etapa 2): every state carries a monotonic `version`; `Store.save` writes only over
+  the version it read (compare-and-set under the short `runs/.state.lock`). Older output — a late worker after
+  `abort`, a second process that read earlier — is refused and logged („zastaralý zápis stavu odmítnut“), the newer
+  state stays and the step stops.
+- Tick lock `runs/.lock` is a lease: token, fence (monotonic, `runs/.fence`), PID, process start time (`ps -o lstart`),
+  heartbeat. It is taken over only when the holder provably does not run (PID gone, or another start time), never by
+  age; anything uncertain = HOLD (tick ends `locked`). Only the holder's own token releases it. Saves under the lease
+  are fenced (lock still ours, stored fence not newer); a tick that lost the lease stops before the next step.
+- The short `runs/.state.lock` follows the same rule (kolo oprav 1): it carries token, PID and process start time, is
+  created atomically with its full content, and is taken over only when the holder provably does not run — never by
+  age, so a process paused in the middle of a save keeps it. Busy or uncertain = wait, then HOLD (the operation throws
+  „zámek .state.lock, HOLD“ and is retried later). Takers exclude each other with `runs/.state.lock.takeover`.
+- `runs/.fence` is written atomically (unique tmp + fsync + rename + fsync of the directory). A missing or damaged
+  counter is never read as 0: the next fence is max(readable counter, current lock, every `fence` in
+  `runs/*/state.json`) + 1. If the counter is damaged and some `state.json` is unreadable too, the tick is HOLD
+  („tick lock HOLD: fence nelze bezpečně určit“ in `runs/log.jsonl`).
+
+### Nouzový postup: zámek visí (HOLD)
+
+Známé riziko, záměrně neopraveno: zámek starého formátu (jen PID, z doby před etapou 2), zámek bez čitelného času
+startu, nebo živý, ale zaseknutý držitel = HOLD. TARS ho sám nikdy neodstraní. Postup pro vlastníka / Fable:
+
+1. Zjisti, kdo zámek drží: `cat runs/.lock runs/.state.lock runs/.state.lock.takeover` (chybějící soubor = ten zámek
+   nevisí). Zámek nese `pid` a `started`.
+2. Ověř, že tick neběží: `launchctl print gui/$(id -u)/work.good-inventions.tars-orch | grep -E 'state|pid'` nesmí
+   ukazovat `state = running`, a `pgrep -fl 'tars/orch/cli.ts'` nesmí vrátit nic (ani `owner`, `abort`, `tick`).
+3. Porovnej držitele: `ps -o pid=,lstart= -p <pid ze zámku>`. Smazat je bezpečné jen když proces neexistuje, nebo
+   má jiný čas startu než `started` v zámku. Když proces běží a je to `cli.ts`, nemaž — počkej, nebo ho nejdřív
+   řádně ukonči (`kill <pid>`, ne `-9`) a opakuj krok 2.
+4. Teprve pak odstraň jen ten jeden visící soubor (`runs/.lock`, `runs/.state.lock` nebo `runs/.state.lock.takeover`).
+   `runs/.fence` ani `state.json` nemaž nikdy.
+5. HOLD kvůli fence: oprav nebo obnov nečitelný `runs/<id>/state.json` (hláška v logu říká který), nebo zapiš do
+   `runs/.fence` číslo vyšší než každé `fence` ve `runs/*/state.json`. Další tick pokračuje.
+- `cli.ts tick` requires an explicit `TARS_DEPARTMENTS` (e.g. `copy`; all = `copy,dev,vizual`); without it, or with
+  an unknown name, it refuses to run (N3). The launchd plist sets `copy`.
 - `WAITING_OWNER` when the output is a PR into main, or the order touches a Sponsor-reserved decision
   (LOCK, price, brand, payments, legal, CTE). A GO/REJECT card is created in Notion.
 - WIP limit 1: no new order starts while a card waits for the owner.
