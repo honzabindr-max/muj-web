@@ -232,12 +232,6 @@ export class Orchestrator {
   private ctx: DeptContext;
   /** Etapa 3: durable PREPARED / receipt of every external write (runs/<id>/effects/). */
   private effects: EffectJournal;
-  /**
-   * Kolo 3, bod 2: operace vytvoření řádku, u kterých tento proces ví, že pokus `attempts` nic nevytvořil (REST čistě
-   * odmítl, MCP neodešlo), ale EFFECT_ABSENT se do journalu zapsat nepodařilo (zámek stále nedostupný). Další zápis řádku
-   * to do journalu doplní dřív, než by PREPARED vedl na dohledání a HOLD. Jen v paměti: po pádu procesu zůstává PREPARED.
-   */
-  private provenAbsent = new Map<string, number>();
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -463,8 +457,15 @@ export class Orchestrator {
             try {
               this.fenced(lease, () => this.effects.markTransport(op, "mcp"));
             } catch (err) {
-              const attempts = this.effects.get(op)?.attempts;
-              if (attempts !== undefined) this.provenAbsent.set(op, attempts);
+              // Kolo 4: důkaz „pokus nic neodeslal“ trvale na disk (bez `.state.lock`), aby ho převzala i další
+              // instance (nový `panel-sync`), když ani EFFECT_ABSENT níže nezíská zámek.
+              try {
+                const attempts = this.effects.get(op)?.attempts;
+                if (attempts !== undefined)
+                  this.effects.recordNotSent(op, attempts);
+              } catch {
+                /* bez trvalého důkazu zůstane PREPARED: nejhůř HOLD, nikdy dvojí vytvoření */
+              }
               throw new McpCreateNotSent(
                 `REST vytvoření odmítl a záznam transportu MCP do journalu se nepodařil (${String((err as Error)?.message ?? err).slice(0, 200)}); MCP vytvoření neodešlo`,
               );
@@ -590,7 +591,7 @@ export class Orchestrator {
               this.effects.note(op, (e as Error).message ?? String(e));
             else {
               this.effects.absent(op, (e as Error).message ?? String(e));
-              this.provenAbsent.delete(op);
+              this.effects.clearNotSent(op);
             }
           }
           // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
@@ -598,7 +599,7 @@ export class Orchestrator {
             panel.index.markUncertain(o.id);
         });
       } catch {
-        /* fence neplatí nebo journal nezapisovatelný (u `notSent` doplní EFFECT_ABSENT další zápis, `provenAbsent`) */
+        /* fence neplatí nebo journal nezapisovatelný (u `notSent` doplní EFFECT_ABSENT další zápis z `.not-sent`) */
       }
       try {
         // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
@@ -901,24 +902,23 @@ export class Orchestrator {
   ): Promise<{ id: string; source: "receipt" | "lookup" } | undefined> {
     const panel = this.d.panel!;
     let prev = this.effects.get(op);
-    // Kolo 3, bod 2: tento proces ví, že poslední pokus nic nevytvořil (MCP neodešlo), jen EFFECT_ABSENT nešlo zapsat.
-    // Doplní se teď, s platným fence a jen pro tentýž pokus (stejné `attempts`, bez záznamu transportu MCP).
-    const proven = this.provenAbsent.get(op);
+    // Kolo 3, bod 2 + kolo 4: trvale doloženo (`.not-sent`, i z jiné instance / procesu), že pokus nic nevytvořil (MCP
+    // neodešlo), jen EFFECT_ABSENT nešlo zapsat. Doplní se teď, s platným fence a jen pro tentýž pokus (stejné
+    // `attempts`, bez záznamu transportu MCP); jinak je důkaz zastaralý a smaže se bez účinku.
+    const proven = this.effects.notSentAttempt(op);
     if (proven !== undefined) {
       prev = this.fenced(lease, () => {
         const cur = this.effects.get(op);
-        if (
-          cur?.state === "PREPARED" &&
-          !cur.transport &&
-          cur.attempts === proven
-        )
-          return this.effects.absent(
-            op,
-            "REST vytvoření odmítl a MCP vytvoření neodešlo (záznam transportu se nezapsal); doplněno později",
-          );
-        return cur;
+        const r =
+          cur?.state === "PREPARED" && !cur.transport && cur.attempts === proven
+            ? this.effects.absent(
+                op,
+                "REST vytvoření odmítl a MCP vytvoření neodešlo (záznam transportu se nezapsal); doplněno později",
+              )
+            : cur;
+        this.effects.clearNotSent(op);
+        return r;
       });
-      this.provenAbsent.delete(op);
     }
     if (prev?.state === "EFFECT_DONE" && prev.receipt) {
       const id = pageIdFromUrl(prev.receipt.url);

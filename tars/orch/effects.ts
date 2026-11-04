@@ -196,6 +196,40 @@ export class EffectJournal {
     return this.write({ ...this.require(op), transport, updated_at: this.now() });
   }
 
+  /**
+   * Opravný PR „panel“, kolo 4: trvalý důkaz, že pokus `attempts` operace nic nevytvořil (REST čistě odmítl, MCP se
+   * nezavolalo), když EFFECT_ABSENT nejde zapsat do journalu (`.state.lock` obsazený). Samostatný soubor vedle záznamu
+   * (`<step>-r<kolo>.not-sent`, ne `.json`, takže ho `list` nevrací), zapsaný atomicky a trvale (`writeDurable`) BEZ
+   * `.state.lock`: zapisuje ho jen proces, který ten pokus sám provedl, a týká se jen toho jednoho pokusu. Převezme ho
+   * i nová instance (další `panel-sync`): `absent` se doplní jen pro PREPARED bez záznamu transportu MCP se stejným
+   * `attempts`, takže pozdější (skutečně odeslaný) pokus ho nikdy nepřebije.
+   */
+  recordNotSent(op: string, attempts: number): void {
+    const f = this.notSentFile(op);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    writeDurable(f, JSON.stringify({ operation_id: op, attempts, at: this.now() }) + "\n");
+  }
+
+  /** Pokus, u kterého je trvale doloženo „nic neodešlo“ (`recordNotSent`); undefined = žádný nebo nečitelný záznam. */
+  notSentAttempt(op: string): number | undefined {
+    const f = this.notSentFile(op);
+    if (!fs.existsSync(f)) return undefined;
+    try {
+      const r = JSON.parse(fs.readFileSync(f, "utf8")) as { operation_id?: unknown; attempts?: unknown };
+      return r.operation_id === op && typeof r.attempts === "number" ? r.attempts : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  clearNotSent(op: string): void {
+    fs.rmSync(this.notSentFile(op), { force: true });
+  }
+
+  private notSentFile(op: string): string {
+    return this.file(op).replace(/\.json$/, ".not-sent");
+  }
+
   private require(op: string): EffectRecord {
     const r = this.get(op);
     if (!r) throw new Error(`operace ${op} nemá záznam PREPARED`);

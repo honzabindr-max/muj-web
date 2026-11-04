@@ -1874,19 +1874,25 @@ describe("opravný PR „panel“, kolo 3 (Codex review kolo 2)", () => {
         return undefined; // index MCP hledání je zpožděný
       },
     };
-    const x = build(new HybridPanelSink(rest, mcp, () => {}, lookup));
+    const sink = new HybridPanelSink(rest, mcp, () => {}, lookup);
+    const x = build(sink);
     return {
       ...x,
+      sink,
       panel,
       mcpCreates: () => mcpCreates,
       restRefusals: () => restRefusals,
     };
   }
 
-  async function expectCreatedOnce(x: ReturnType<typeof mcpSetup>, id: string) {
+  async function expectCreatedOnce(
+    x: ReturnType<typeof mcpSetup>,
+    id: string,
+    next: Orchestrator = x.o,
+  ) {
     new PanelIndex(dir).markDirty(id);
     clock = new Date(Date.parse(clock) + 20 * 60_000).toISOString();
-    await x.o.resyncPanel(id);
+    await next.resyncPanel(id);
     // První pokus: REST odmítl, záznam transportu nezískal zámek → MCP se nezavolalo, chyba nese „neodešlo“.
     expect(x.restRefusals()).toBe(2);
     expect(
@@ -1919,10 +1925,89 @@ describe("opravný PR „panel“, kolo 3 (Codex review kolo 2)", () => {
     await expectCreatedOnce(x, r.order);
   });
 
-  it("bod 2: zámek nedostupný i pro zápis EFFECT_ABSENT → zůstane PREPARED, další sync ho doplní z paměti procesu a řádek vytvoří jednou (žádný HOLD)", async () => {
+  it("bod 2: zámek nedostupný i pro zápis EFFECT_ABSENT → zůstane PREPARED, další sync ho doplní z trvalého důkazu (.not-sent) a řádek vytvoří jednou (žádný HOLD)", async () => {
     const x = mcpSetup(2);
     const r = (await x.o.tick()) as { order: string };
     await x.o.flushPanel();
     await expectCreatedOnce(x, r.order);
+  });
+
+  /**
+   * Kolo 4: tick s REST, který vytvoření čistě odmítá (EFFECT_ABSENT, řádek nevznikne), pak první `panel-sync` jako
+   * NOVÁ instance (cli.ts volá `build()` pro každý příkaz): REST 401, `.state.lock` obsazený pro záznam transportu MCP
+   * i pro EFFECT_ABSENT → skončí PREPARED, MCP neodešlo, důkaz „neodesláno“ jen na disku.
+   */
+  async function firstSyncLeavesPrepared(x: ReturnType<typeof mcpSetup>) {
+    const refusing: PanelSink = {
+      upsert: async () => {
+        throw new NotionRestError(401, "unauthorized");
+      },
+    };
+    const t = build(refusing);
+    const r = (await t.o.tick()) as { order: string };
+    await t.o.flushPanel();
+    const op = rowOp(r.order, 0);
+    expect(new EffectJournal(dir).get(op)?.state).toBe("EFFECT_ABSENT");
+    new PanelIndex(dir).markDirty(r.order);
+    clock = new Date(Date.parse(clock) + 20 * 60_000).toISOString();
+    await build(x.sink, new Store(dir)).o.resyncPanel(r.order);
+    expect(x.restRefusals()).toBe(1);
+    const j = new EffectJournal(dir).get(op);
+    expect(j).toMatchObject({ state: "PREPARED" });
+    expect(j?.transport).toBeUndefined();
+    expect(x.mcpCreates()).toBe(0);
+    expect(x.panel.creates).toBe(0);
+    return { id: r.order, op, attempts: j!.attempts };
+  }
+
+  it("kolo 4: zámek nedostupný i pro zápis EFFECT_ABSENT, další `panel-sync` je NOVÁ instance (nový proces) → převezme trvalý důkaz z disku a řádek vytvoří právě jednou (žádný HOLD)", async () => {
+    const x = mcpSetup(2);
+    const { id, op, attempts } = await firstSyncLeavesPrepared(x);
+    expect(new EffectJournal(dir).notSentAttempt(op)).toBe(attempts);
+    // Nová instance jako v cli.ts (`build()` pro každý příkaz): nový Store, nový orchestrátor, stejný sink.
+    new PanelIndex(dir).markDirty(id);
+    clock = new Date(Date.parse(clock) + 20 * 60_000).toISOString();
+    await build(x.sink, new Store(dir)).o.resyncPanel(id);
+    expect(x.mcpCreates()).toBe(1);
+    expect(x.panel.creates).toBe(1);
+    expect(new PanelIndex(dir).get(id)).toBe("page1");
+    expect(new EffectJournal(dir).get(op)).toMatchObject({
+      state: "EFFECT_DONE",
+      transport: "mcp",
+      attempts: attempts + 1,
+    });
+    expect(new EffectJournal(dir).notSentAttempt(op)).toBeUndefined();
+    expect(
+      log().some(
+        (e) => e.order === id && /EFFECT_UNKNOWN \/ HOLD/.test(e.result ?? ""),
+      ),
+    ).toBe(false);
+    // Další panel-sync (opět nová instance) už jen dorovná existující řádek, žádné druhé vytvoření.
+    new PanelIndex(dir).markDirty(id);
+    await build(x.sink, new Store(dir)).o.resyncPanel(id);
+    expect(x.mcpCreates()).toBe(1);
+    expect(x.panel.creates).toBe(1);
+  });
+
+  it("kolo 4: zastaralý důkaz „neodesláno“ (jiný pokus) se nepoužije: pozdější pokus s odeslaným MCP zůstane PREPARED a vede na HOLD, ne na nové vytvoření", async () => {
+    const x = mcpSetup(2);
+    const { id, op, attempts } = await firstSyncLeavesPrepared(x);
+    const j = new EffectJournal(dir);
+    // Pozdější pokus jiného procesu: PREPARED a MCP vytvoření odešlo (výsledek neznámý); důkaz ukazuje na starší pokus.
+    j.prepare(op);
+    j.markTransport(op, "mcp");
+    j.recordNotSent(op, attempts);
+    new PanelIndex(dir).markDirty(id);
+    clock = new Date(Date.parse(clock) + 20 * 60_000).toISOString();
+    await build(x.sink, new Store(dir)).o.resyncPanel(id);
+    expect(x.mcpCreates()).toBe(0);
+    expect(x.panel.creates).toBe(0);
+    // Zastaralý důkaz se nepoužil: žádné EFFECT_ABSENT, výsledek pokusu s odeslaným MCP zůstává nejasný (HOLD).
+    expect(j.get(op)).toMatchObject({
+      attempts: attempts + 1,
+      transport: "mcp",
+    });
+    expect(["PREPARED", "EFFECT_UNKNOWN"]).toContain(j.get(op)?.state);
+    expect(j.notSentAttempt(op)).toBeUndefined();
   });
 });
