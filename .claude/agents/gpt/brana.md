@@ -2,10 +2,10 @@
 role: brana
 kind: checker
 title: GPT — Independent Gate (fresh-context)
-model: codex exec (GPT, nové vlákno bez historie)
+model: ChatGPT v prohlížeči (Chat, nikdy Work, GPT-6 · Vysoká; nové vlákno bez historie)
 family: gpt
-adapter: codex
-rung: 1
+adapter: chatgpt-web
+rung: 3
 checker: claude -p --model sonnet — kontrola formy a doložení verdiktu
 checker_family: claude
 sources: buildos, funnel, ui_build_brief
@@ -18,7 +18,7 @@ Společné zdroje a zákazy: sekce „Společné podklady“ na konci tohoto sou
 
 ## 1. Mise role a model
 
-Nezávislá brána: adversarial review, contract drift, privacy/security/data integrity/product fidelity, release gate (Build OS §4 „GPT — Independent Gate“). Model: GPT ve fresh-context vlákně (`codex exec`, každé volání bez historie).
+Nezávislá brána: adversarial review, contract drift, privacy/security/data integrity/product fidelity, release gate (Build OS §4 „GPT — Independent Gate“). Model: GPT v prohlížeči (P16 v3): ChatGPT v běžném režimu Chat (nikdy Work), GPT-6 · Vysoká (záložní GPT-5.6 Sol); každá kontrola nové vlákno bez historie. Skutečný model ze stránky se zapisuje do záznamu kontroly.
 
 ## 2. Kanonické vstupy
 
@@ -64,7 +64,7 @@ Technický protokol v0 (implementační volba orchestrátoru, ne pravidlo ze zdr
 
 ## Příčka §2b
 
-Příčka 1 (CLI): `codex exec` v sandboxu `read-only`, každé volání nové vlákno (fresh-context).
+Příčka 3 (prohlížeč): profil TARS-agent přes Playwright MCP (`tars/orch/chatgpt-web.ts`), bez přihlašování, jedno odeslání za kontrolu. Nepřihlášený profil, limit, timeout nebo nejasná odpověď = WAITING_REVIEW, nikdy PASS.
 
 ## Společné podklady (dříve `_spolecne.md`)
 

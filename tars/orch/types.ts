@@ -12,6 +12,8 @@ export const STATES = [
   "WAITING_OWNER",
   "DONE",
   "PAUSED",
+  /** P16 v2: kontrola mimo kód (GPT v prohlížeči) neproběhla; stejný artefakt čeká, další tick to zkusí znovu. */
+  "WAITING_REVIEW",
   "FAILED",
   "UNKNOWN",
 ] as const;
@@ -75,6 +77,12 @@ export interface Order {
   /** State to return to after PAUSED. */
   paused_from?: OrderState;
   resume_after?: string;
+  /** State to return to after WAITING_REVIEW (NEW = kontrola zadání, CHECKING = kontrola výstupu). */
+  review_from?: OrderState;
+  /** sha256 of the artifact waiting for review; the retry checks exactly this content (P16 v2). */
+  review_hash?: string;
+  /** Why the review did not happen (browser, login, limit, timeout, unclear answer). */
+  review_reason?: string;
   /** Latest checker feedback (input for FIXING). */
   last_issues?: string[];
   /** Path (relative to order dir) of the current draft artifact. */

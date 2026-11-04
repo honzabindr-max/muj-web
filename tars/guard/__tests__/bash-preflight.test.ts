@@ -25,12 +25,23 @@ function decide(command: string) {
   if (r.stdout.trim() === "") return { decision: "allow" as const, reason: "" };
   const j = JSON.parse(r.stdout);
   expect(j.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-  return { decision: j.hookSpecificOutput.permissionDecision as string, reason: j.hookSpecificOutput.permissionDecisionReason as string };
+  return {
+    decision: j.hookSpecificOutput.permissionDecision as string,
+    reason: j.hookSpecificOutput.permissionDecisionReason as string,
+  };
 }
 
 const DENY: Array<[string, string, RegExp]> = [
-  ["heredoc s řetězením (reálný případ)", "mkdir -p /tmp/t && cd /tmp/t && cat > test.js <<'EOF'", /Heredoc/],
-  ["sed -i s && (reálný případ)", "sed -i 's/a/b/' f.ts && npx vitest", /Řetězení/],
+  [
+    "heredoc s řetězením (reálný případ)",
+    "mkdir -p /tmp/t && cd /tmp/t && cat > test.js <<'EOF'",
+    /Heredoc/,
+  ],
+  [
+    "sed -i s && (reálný případ)",
+    "sed -i 's/a/b/' f.ts && npx vitest",
+    /Řetězení/,
+  ],
   ["heredoc samotný", "cat <<EOF", /Heredoc/],
   ["heredoc s pomlčkou", "cat <<-EOF", /Heredoc/],
   ["&&", "a && b", /Řetězení/],
@@ -56,24 +67,40 @@ const DENY: Array<[string, string, RegExp]> = [
   ["bash -c s řetězením", "bash -c 'a && b'", /Řetězení/],
   ["sh -c se zápisem do souboru", "sh -c 'echo x > f'", /Přesměrování/],
   ["zápis do souboru uvnitř $(...)", "echo $(echo x > f)", /Přesměrování/],
-  ["heredoc s nedovřenou uvozovkou v těle neprojde", "cat <<EOF\nit's", /Heredoc/],
+  [
+    "heredoc s nedovřenou uvozovkou v těle neprojde",
+    "cat <<EOF\nit's",
+    /Heredoc/,
+  ],
   ["bash -ce (sdružené přepínače)", "bash -ce 'echo x > f'", /Přesměrování/],
   ["bash --command", "bash --command 'echo x > f'", /Přesměrování/],
   ["env -u s hodnotou přepínače", "env -u FOO sed -i s/a/b/ f", /sed -i/],
   ["sudo -u s hodnotou přepínače", "sudo -u root tee f", /tee/],
   ["xargs -I {}", "xargs -I {} tee f", /tee/],
   ["find -exec sed -i", "find . -type f -exec sed -i s/a/b/ {} \\;", /sed -i/],
-  ["find -exec env sed -i", "find . -name '*.txt' -exec env LC_ALL=C sed -i '' 's/old/new/g' {} +", /sed -i/],
-  ["xargs -0 env sed -i", "find . -name '*.txt' -print0 | xargs -0 env LC_ALL=C sed -i '' 's/old/new/g'", /sed -i/],
-  ["xargs --null env sed -i", "find . -name '*.txt' -print0 | xargs --null env LC_ALL=C sed -i '' 's/old/new/g'", /sed -i/],
+  [
+    "find -exec env sed -i",
+    "find . -name '*.txt' -exec env LC_ALL=C sed -i '' 's/old/new/g' {} +",
+    /sed -i/,
+  ],
+  [
+    "xargs -0 env sed -i",
+    "find . -name '*.txt' -print0 | xargs -0 env LC_ALL=C sed -i '' 's/old/new/g'",
+    /sed -i/,
+  ],
+  [
+    "xargs --null env sed -i",
+    "find . -name '*.txt' -print0 | xargs --null env LC_ALL=C sed -i '' 's/old/new/g'",
+    /sed -i/,
+  ],
   ["příkaz v aritmetice", "echo $(( $(echo 1 > f) + 1 ))", /Přesměrování/],
   [">&1foo je soubor, ne dup fd", "echo x >&1foo", /Přesměrování/],
   [">&'f' je soubor", "echo x >&'f'", /Přesměrování/],
   ["ANSI-C $'tee'", "$'tee' f", /tee/],
   ["vnořené zpětné apostrofy", "echo `echo \\`tee f\\``", /tee/],
   ["eval s ANSI-C escape", "eval $'echo x \\x3e f'", /Přesměrování/],
-  ["vnořené eval", "eval \"eval \\\"eval 'echo x > f'\\\"\"", /Přesměrování/],
-  ["locale quoting $\"tee\"", '$"tee" f', /tee/],
+  ["vnořené eval", 'eval "eval \\"eval \'echo x > f\'\\""', /Přesměrování/],
+  ['locale quoting $"tee"', '$"tee" f', /tee/],
   ["sed -li", "sed -li '' s/a/b/ f", /sed -i/],
   ["eval -- payload", "eval -- 'tee f'", /tee/],
   ["negace ! před tee", "echo $(! tee f)", /tee/],
@@ -122,29 +149,50 @@ const ALLOW: Array<[string, string]> = [
   ["komentář se středníkem", "git status # ; comment"],
   ["komentář s $(tee f)", "git status # $(tee f)"],
   ["komentář s >", "cat f 2>/dev/null # > log"],
-  ["# uprostřed slova není komentář, ale ani řetězení", "gh pr view 5 --json title#x"],
-  ["allowlist: review-launch.sh", "tars/orch/review-launch.sh /Users/janbindr/Projects/muj-web-guard /tmp/prompt.md /tmp/out.txt"],
+  [
+    "# uprostřed slova není komentář, ale ani řetězení",
+    "gh pr view 5 --json title#x",
+  ],
+  [
+    "allowlist: review-launch.sh",
+    "tars/orch/review-launch.sh /Users/janbindr/Projects/muj-web-guard /tmp/prompt.md /tmp/out.txt",
+  ],
 ];
 
 // DR-039: agent nikdy nezadává GO ani REJECT za vlastníka, ani přes `cli.ts owner`.
 const OWNER_DENY: Array<[string, string]> = [
   ["npx tsx", "npx tsx tars/orch/cli.ts owner wo-1 GO"],
-  ["cd && npx tsx (návod ze staré karty)", "cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  [
+    "cd && npx tsx (návod ze staré karty)",
+    "cd ~/Projects/muj-web && npx tsx tars/orch/cli.ts owner wo-1 GO",
+  ],
   ["node --import tsx", "node --import tsx tars/orch/cli.ts owner wo-1 REJECT"],
   ["tsx přímo", "tsx tars/orch/cli.ts owner wo-1 GO"],
   ["npm exec tsx --", "npm exec tsx -- tars/orch/cli.ts owner wo-1 GO"],
   ["npm exec -- tsx", "npm exec -- tsx tars/orch/cli.ts owner wo-1 GO"],
-  ["absolutní cesty", "/Users/janbindr/Projects/muj-web/node_modules/.bin/tsx /Users/janbindr/Projects/muj-web/tars/orch/cli.ts owner wo-1 GO"],
+  [
+    "absolutní cesty",
+    "/Users/janbindr/Projects/muj-web/node_modules/.bin/tsx /Users/janbindr/Projects/muj-web/tars/orch/cli.ts owner wo-1 GO",
+  ],
   ["relativní ./cli.ts", "npx tsx ./cli.ts owner wo-1 GO"],
   ["uvozovky", "npx tsx \"tars/orch/cli.ts\" 'owner' wo-1 'GO A'"],
   ["slepené uvozovky", 'npx tsx tars/orch/cli.ts "ow"ner wo-1 GO'],
   ["escape uvnitř slova", "npx tsx tars/orch/cli.ts ow\\ner wo-1 GO"],
   ["ANSI-C $'...'", "npx tsx tars/orch/cli.ts $'\\x6fwner' wo-1 GO"],
-  ["proměnná před příkazem", "TARS_PANEL=0 npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  [
+    "proměnná před příkazem",
+    "TARS_PANEL=0 npx tsx tars/orch/cli.ts owner wo-1 GO",
+  ],
   ["env", "env TARS_PANEL=0 npx tsx tars/orch/cli.ts owner wo-1 GO"],
-  ["env -i s přepínači", "env -i PATH=/usr/bin npx tsx tars/orch/cli.ts owner wo-1 GO"],
+  [
+    "env -i s přepínači",
+    "env -i PATH=/usr/bin npx tsx tars/orch/cli.ts owner wo-1 GO",
+  ],
   ["timeout", "timeout 60 npx tsx tars/orch/cli.ts owner wo-1 GO"],
-  ["přepínač před podpříkazem", "npx tsx tars/orch/cli.ts --verbose owner wo-1 GO"],
+  [
+    "přepínač před podpříkazem",
+    "npx tsx tars/orch/cli.ts --verbose owner wo-1 GO",
+  ],
   ["bash -c", "bash -c 'npx tsx tars/orch/cli.ts owner wo-1 GO'"],
   ["sh -c s cd", 'sh -c "cd /x && npx tsx tars/orch/cli.ts owner wo-1 GO"'],
   ["eval", "eval 'npx tsx tars/orch/cli.ts owner wo-1 GO'"],
@@ -152,41 +200,98 @@ const OWNER_DENY: Array<[string, string]> = [
   ["zpětné apostrofy", "echo `npx tsx tars/orch/cli.ts owner wo-1 GO`"],
   ["podpříkaz z proměnné", "npx tsx tars/orch/cli.ts $CMD wo-1 GO"],
   ["podpříkaz z $(...)", "npx tsx tars/orch/cli.ts $(echo owner) wo-1 GO"],
-  ["podpříkaz přes xargs", "echo owner wo-1 GO | xargs npx tsx tars/orch/cli.ts"],
-  ["node -e s execSync", "node -e \"require('child_process').execSync('npx tsx tars/orch/cli.ts owner wo-1 GO')\""],
-  ["python3 -c se subprocess", "python3 -c \"import subprocess; subprocess.run(['npx','tsx','tars/orch/cli.ts','owner','wo-1','GO'])\""],
-  ["nedovřená uvozovka (parser si není jistý)", "npx tsx tars/orch/cli.ts owner wo-1 'GO"],
+  [
+    "podpříkaz přes xargs",
+    "echo owner wo-1 GO | xargs npx tsx tars/orch/cli.ts",
+  ],
+  [
+    "node -e s execSync",
+    "node -e \"require('child_process').execSync('npx tsx tars/orch/cli.ts owner wo-1 GO')\"",
+  ],
+  [
+    "python3 -c se subprocess",
+    "python3 -c \"import subprocess; subprocess.run(['npx','tsx','tars/orch/cli.ts','owner','wo-1','GO'])\"",
+  ],
+  [
+    "nedovřená uvozovka (parser si není jistý)",
+    "npx tsx tars/orch/cli.ts owner wo-1 'GO",
+  ],
   // Kolo oprav 1 (GPT review): surový text se kontroluje vždy, i když parser příkaz nepozná.
-  ["printf | bash", "printf '%s\\n' 'npx tsx tars/orch/cli.ts owner wo-1 GO' | bash"],
+  [
+    "printf | bash",
+    "printf '%s\\n' 'npx tsx tars/orch/cli.ts owner wo-1 GO' | bash",
+  ],
   ["echo | sh", "echo 'npx tsx tars/orch/cli.ts owner wo-1 GO' | sh"],
-  ["eval s $(...)", "eval \"$(echo 'npx tsx tars/orch/cli.ts owner wo-1 GO')\""],
-  ["xargs s celým příkazem v textu", "echo 'tars/orch/cli.ts owner wo-1 GO' | xargs npx tsx"],
-  ["bash -c s proměnnou", "C='npx tsx tars/orch/cli.ts owner wo-1 GO'; bash -c \"$C\""],
-  ["bash -c $'...' s escape", "bash -c $'npx tsx tars/orch/cli.ts \\x6fwner wo-1 GO'"],
-  ["heredoc do bash", "bash <<EOF\nnpx tsx tars/orch/cli.ts owner wo-1 GO\nEOF"],
-  ["tars/orch/cli bez přípony", "printf 'npx tsx tars/orch/cli owner wo-1 GO' | sh"],
-  ["přepínač před owner v textu", "echo 'tars/orch/cli.ts --verbose owner wo-1 GO' | bash"],
+  [
+    "eval s $(...)",
+    "eval \"$(echo 'npx tsx tars/orch/cli.ts owner wo-1 GO')\"",
+  ],
+  [
+    "xargs s celým příkazem v textu",
+    "echo 'tars/orch/cli.ts owner wo-1 GO' | xargs npx tsx",
+  ],
+  [
+    "bash -c s proměnnou",
+    "C='npx tsx tars/orch/cli.ts owner wo-1 GO'; bash -c \"$C\"",
+  ],
+  [
+    "bash -c $'...' s escape",
+    "bash -c $'npx tsx tars/orch/cli.ts \\x6fwner wo-1 GO'",
+  ],
+  [
+    "heredoc do bash",
+    "bash <<EOF\nnpx tsx tars/orch/cli.ts owner wo-1 GO\nEOF",
+  ],
+  [
+    "tars/orch/cli bez přípony",
+    "printf 'npx tsx tars/orch/cli owner wo-1 GO' | sh",
+  ],
+  [
+    "přepínač před owner v textu",
+    "echo 'tars/orch/cli.ts --verbose owner wo-1 GO' | bash",
+  ],
 ];
 
 const OWNER_ALLOW: Array<[string, string]> = [
   ["cli.ts tick", "npx tsx tars/orch/cli.ts tick"],
   ["cli.ts status", "npx tsx tars/orch/cli.ts status"],
   ["cli.ts konzilium", "npx tsx tars/orch/cli.ts konzilium vstup.json"],
+  // Codex review kolo 3 (PR #98), nález 1: nový pokus kontroly GPT není rozhodnutí vlastníka (owner zůstává blokovaný).
+  [
+    "cli.ts gpt-retry (Fable)",
+    "npx tsx tars/orch/cli.ts gpt-retry wo-1 fable timeout kontroly copy",
+  ],
+  [
+    "cli.ts gpt-retry (vlastník)",
+    "npx tsx tars/orch/cli.ts gpt-retry wo-1 vlastnik 'zkusit znovu'",
+  ],
+  [
+    "cli.ts gpt-retry se slovem owner v důvodu",
+    "npx tsx tars/orch/cli.ts gpt-retry wo-1 fable owner je pryč",
+  ],
   ["grep owner cli.ts", "grep owner cli.ts"],
   ["grep -n owner tars/orch/cli.ts", "grep -n owner tars/orch/cli.ts"],
   ["git log cli.ts", "git log --oneline -- tars/orch/cli.ts"],
-  ["commit zpráva zmiňuje owner a cli.ts", 'git commit -m "docs: owner v cli.ts jen pro vlastníka"'],
+  [
+    "commit zpráva zmiňuje owner a cli.ts",
+    'git commit -m "docs: owner v cli.ts jen pro vlastníka"',
+  ],
   ["cat cli.ts", "cat tars/orch/cli.ts"],
   ["rg owner v cli.ts", "rg -n 'owner' tars/orch/cli.ts"],
   ["echo cli.ts tick | bash", "echo 'npx tsx tars/orch/cli.ts tick' | bash"],
-  ["printf cli.ts status | sh", "printf 'npx tsx tars/orch/cli.ts status' | sh"],
+  [
+    "printf cli.ts status | sh",
+    "printf 'npx tsx tars/orch/cli.ts status' | sh",
+  ],
 ];
 
 describe("bash-preflight: cli.ts owner (DR-039)", () => {
   it.each(OWNER_DENY)("zamítnout: %s", (_name, command) => {
     const d = decide(command);
     expect(d.decision).toBe("deny");
-    expect(d.reason).toBe("Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)");
+    expect(d.reason).toBe(
+      "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)",
+    );
   });
 
   it.each(OWNER_ALLOW)("povolit: %s", (_name, command) => {
@@ -196,9 +301,20 @@ describe("bash-preflight: cli.ts owner (DR-039)", () => {
   it("allowlist owner blok nepřebije", () => {
     const allow = path.join(dir, "all.allow");
     writeFileSync(allow, ".*\n");
-    const r = run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" } }), { TARS_PREFLIGHT_ALLOW: allow });
-    expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
-    const ok = run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "a && b" } }), { TARS_PREFLIGHT_ALLOW: allow });
+    const r = run(
+      JSON.stringify({
+        tool_name: "Bash",
+        tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" },
+      }),
+      { TARS_PREFLIGHT_ALLOW: allow },
+    );
+    expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe(
+      "deny",
+    );
+    const ok = run(
+      JSON.stringify({ tool_name: "Bash", tool_input: { command: "a && b" } }),
+      { TARS_PREFLIGHT_ALLOW: allow },
+    );
     expect(ok.stdout.trim()).toBe(""); // allowlist dál funguje pro P04
   });
 
@@ -209,13 +325,19 @@ describe("bash-preflight: cli.ts owner (DR-039)", () => {
     expect(log).not.toContain("wo-tajne-id");
   });
 
-  it("obrana ve vrstvách: bez python3 hook propustí (fail-open, exit 1)", () => {
+  it("bez python3 hook zablokuje (fail-closed, exit 2)", () => {
     const r = spawnSync("/bin/bash", [SCRIPT], {
-      input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" } }),
+      input: JSON.stringify({
+        tool_name: "Bash",
+        tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" },
+      }),
       encoding: "utf8",
-      env: { PATH: "/nonexistent", TARS_PREFLIGHT_LOG: LOG } as unknown as NodeJS.ProcessEnv,
+      env: {
+        PATH: "/nonexistent",
+        TARS_PREFLIGHT_LOG: LOG,
+      } as unknown as NodeJS.ProcessEnv,
     });
-    expect(r.status).toBe(1);
+    expect(r.status).toBe(2);
     expect(r.stdout.trim()).toBe("");
   });
 });
@@ -240,27 +362,38 @@ describe("bash-preflight: okrajové chování", () => {
   });
 
   it("allowlist nepropustí řetězení přilepené k povolenému skriptu", () => {
-    expect(decide("tars/orch/review-launch.sh /wt /p /o; rm -rf /x").decision).toBe("deny");
-    expect(decide("tars/orch/review-launch.sh /wt /p /o && ls").decision).toBe("deny");
-    expect(decide("tars/orch/review-launch.sh /wt /p /o > /tmp/x").decision).toBe("deny");
+    expect(
+      decide("tars/orch/review-launch.sh /wt /p /o; rm -rf /x").decision,
+    ).toBe("deny");
+    expect(decide("tars/orch/review-launch.sh /wt /p /o && ls").decision).toBe(
+      "deny",
+    );
+    expect(
+      decide("tars/orch/review-launch.sh /wt /p /o > /tmp/x").decision,
+    ).toBe("deny");
   });
 
   it("jiný nástroj než Bash se nekontroluje", () => {
-    const r = run(JSON.stringify({ tool_name: "Read", tool_input: { command: "a && b" } }));
+    const r = run(
+      JSON.stringify({ tool_name: "Read", tool_input: { command: "a && b" } }),
+    );
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe("");
   });
 
-  it("neplatný JSON na vstupu neblokuje (exit 1, ne 2) a hlásí chybu", () => {
+  it("neplatný JSON na vstupu blokuje (fail-closed, exit 2) a hlásí chybu", () => {
     const r = run("tohle neni json");
-    expect(r.status).toBe(1);
-    expect(r.stderr).toMatch(/NEBYL zablokován/);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/ZABLOKOVÁN \(fail-closed\)/);
   });
 
   it("špatný regex v allowlistu hook nerozbije", () => {
     const allow = path.join(dir, "bad.allow");
     writeFileSync(allow, "([\n");
-    const r = run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } }), { TARS_PREFLIGHT_ALLOW: allow });
+    const r = run(
+      JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } }),
+      { TARS_PREFLIGHT_ALLOW: allow },
+    );
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe("");
   });

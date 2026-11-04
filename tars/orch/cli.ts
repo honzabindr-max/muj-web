@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | konzilium <vstup.json>
+// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | konzilium <vstup.json> | gpt-smoke | gpt-retry <id> fable|vlastnik <proč>
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
 import { CardRegistry } from "./cards";
+import { ChatGptWebChecker } from "./chatgpt-web";
 import {
   CopyDepartment,
   DevDepartment,
@@ -14,9 +15,14 @@ import {
 } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
-import { McpBrowser } from "./mcp-browser";
+import {
+  BROWSER_CHECK_DIR,
+  BROWSER_SMOKE_DIR,
+  McpBrowser,
+} from "./mcp-browser";
+import { runGptRetry } from "./gpt-retry";
 import { runGuardWithI8 } from "./guard";
-import { codexConfigModel, exitCodeFor, runKonzilium } from "./konzilium-lite";
+import { exitCodeFor, runKonzilium } from "./konzilium-lite";
 import {
   checkRestAccess,
   makeNotionStack,
@@ -91,6 +97,8 @@ const makeBrowser = () =>
   new McpBrowser(new SecretScanningAdapter(new ClaudeCli("sonnet")), {
     runsDir,
   });
+/** P16 v3: every non-code check = ChatGPT in the browser, mode Chat (subscription, never Work), GPT-6 · Vysoká. */
+const makeGptWeb = () => new ChatGptWebChecker(makeBrowser());
 
 async function refreshBrowserStatus(): Promise<PreflightResult> {
   const b = makeBrowser();
@@ -100,9 +108,10 @@ async function refreshBrowserStatus(): Promise<PreflightResult> {
   if (!lockStore.acquireLock())
     return { ok: false, reasons: ["běží jiná zakázka (lock)"] };
   try {
+    // The wrapper accepts only a shots-* dir as the MCP output dir (Codex review kolo 3, nález 2).
     r = await b.loginCheck(
       "https://claude.ai/new",
-      path.join(runsDir, "browser-check"),
+      path.join(runsDir, BROWSER_CHECK_DIR),
     );
   } catch (e) {
     r = {
@@ -155,6 +164,7 @@ function build(): Orchestrator {
   const opus = wrap(new ClaudeCli("opus"));
   const sonnet = wrap(new ClaudeCli("sonnet"));
   const codex = wrap(new CodexCli());
+  const gptWeb = wrap(makeGptWeb());
   const cards = new CardRegistry(cardsDir);
   const cardText = (role: string) =>
     cards.check(role).ok ? cards.text(role) : "";
@@ -182,21 +192,21 @@ function build(): Orchestrator {
     },
     store,
     supervisor: opus,
-    briefChecker: codex, // karta supervizor.md bod 6: GPT kontroluje zadání
+    briefChecker: gptWeb, // karta supervizor.md bod 6 + P16 v2: zadání kontroluje GPT v prohlížeči
     departments: onlyEnabled<DepartmentRunner>(enabledDepartments, {
-      copy: new CopyDepartment(codex, opus, cardText("copy-studio")), // GPT creates, Claude checks
+      copy: new CopyDepartment(opus, gptWeb, cardText("copy-studio")), // P16 v2: Claude creates, GPT (prohlížeč) checks
       dev: new DevDepartment(
         new AiChain(aiChain),
         codex,
         path.join(cardsDir, "invariant-sentinel.md"),
-      ), // Claude chain creates, GPT reviews
+      ), // Claude chain creates, Codex reviews code
       vizual: new VizualDepartment(
         makeBrowser(),
-        codex,
+        gptWeb,
         cardText("vizual"),
         cardText("brana"),
         sonnet,
-      ), // Claude Design creates, GPT gate checks
+      ), // Claude Design creates, GPT gate (prohlížeč) checks
     }),
     notion,
     cardAdapter: sonnet, // data vizuální karty rozhodnutí (card-data.ts)
@@ -242,6 +252,36 @@ async function main() {
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;
       return;
     }
+    case "gpt-smoke": {
+      // Harmless live check of the P16 v3 path: one prompt "Odpověz jen slovem OK." in ChatGPT mode Chat (no project).
+      // Needs the TARS-agent profile logged in to ChatGPT (ordinary account); only the owner logs in, TARS never does.
+      const lock = new Store(runsDir);
+      if (!lock.acquireLock()) throw new Error("běží jiná zakázka (lock)");
+      try {
+        // A fresh dir per smoke run: the journal of sent prompts (one send per dir) must not block the next smoke.
+        const dir = path.join(
+          runsDir,
+          "gpt-smoke",
+          new Date().toISOString().replace(/[-:.]/g, ""),
+        );
+        fs.mkdirSync(dir, { recursive: true });
+        const gpt = makeGptWeb();
+        const r = await gpt.run("Odpověz jen slovem OK.", { cwd: dir });
+        console.log(
+          JSON.stringify({
+            ok: r.ok,
+            said_ok: r.ok && /\bOK\b/.test(r.text),
+            model: gpt.model,
+            model_matches: gpt.lastRecord?.model_matches ?? false,
+            reason: gpt.lastRecord?.reason,
+          }),
+        );
+        process.exitCode = r.ok ? 0 : 3;
+      } finally {
+        lock.releaseLock();
+      }
+      return;
+    }
     case "status":
       for (const o of store.listOrders())
         console.log(
@@ -271,7 +311,7 @@ async function main() {
       try {
         const r = await makeBrowser().run(
           [{ kind: "goto", url: "about:blank" }, { kind: "read" }],
-          path.join(runsDir, "browser-smoke"),
+          path.join(runsDir, BROWSER_SMOKE_DIR),
         );
         console.log(
           JSON.stringify({
@@ -341,24 +381,53 @@ async function main() {
         return;
       }
       const api = new NotionRestApi(token);
-      const r = await runKonzilium(path.resolve(file), {
-        creator: new ClaudeCli("opus"),
-        // Izolovaný codex nečte config.toml, model z něj se proto předá přes -m.
-        checker: new CodexCli(
-          codexConfigModel(
-            path.join(
-              process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"),
-              "config.toml",
-            ),
-          ) ?? "codex-default",
-        ),
-        runsDir,
-        notion: new RestNotion(api),
-        panel: new RestPanelSink(api),
-        cardParentId: konziliumParentId,
-      });
-      console.log(JSON.stringify(r));
-      process.exitCode = exitCodeFor(r.status);
+      // P16 v2: oponent = GPT v prohlížeči. Chrome TARS-agent smí běžet jen pod zámkem běhu (I8).
+      const lock = new Store(runsDir);
+      if (!lock.acquireLock()) {
+        console.log(
+          "Konzilium Lite: běží jiná zakázka (lock), GPT v prohlížeči teď nejde; nic nespuštěno.",
+        );
+        process.exitCode = 3;
+        return;
+      }
+      try {
+        const r = await runKonzilium(path.resolve(file), {
+          creator: new ClaudeCli("opus"),
+          checker: makeGptWeb(),
+          runsDir,
+          notion: new RestNotion(api),
+          panel: new RestPanelSink(api),
+          cardParentId: konziliumParentId,
+        });
+        console.log(JSON.stringify(r));
+        process.exitCode = exitCodeFor(r.status);
+      } finally {
+        lock.releaseLock();
+      }
+      return;
+    }
+    case "gpt-retry": {
+      // Codex review kolo 3, nález 1: the only way to a new GPT check attempt after a burned one (Fable or the owner).
+      // Writes one grant and a log line (who, when, why); never sends. Not an owner decision, not blocked by preflight.
+      const [id, by, ...why] = args;
+      if (!id || !by || !why.length)
+        throw new Error("usage: gpt-retry <id> fable|vlastnik <proč>");
+      const lock = new Store(runsDir);
+      if (!lock.acquireLock())
+        throw new Error(
+          "běží jiná zakázka (lock); gpt-retry zopakuj po jejím konci",
+        );
+      try {
+        const r = runGptRetry(store, id, by, why.join(" "));
+        console.log(
+          r.ok
+            ? `${id}: nový pokus GPT povolen (kdo=${r.grant.by}, kdy=${r.grant.at}); odešle se nejvýš jednou v dalším běhu`
+            : `${id}: gpt-retry odmítnut: ${r.reason}`,
+        );
+        process.exitCode = r.ok ? 0 : 1;
+      } finally {
+        lock.releaseLock();
+      }
       return;
     }
     case "owner": {
@@ -377,7 +446,7 @@ async function main() {
     }
     default:
       console.log(
-        "usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id> | konzilium <vstup.json>",
+        "usage: cli.ts tick | status | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id> | konzilium <vstup.json>",
       );
       process.exitCode = 1;
   }

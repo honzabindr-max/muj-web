@@ -99,6 +99,7 @@ export type TickResult =
   | { status: "locked" }
   | { status: "paused"; order: string; resume_after: string }
   | { status: "waiting_owner"; order: string }
+  | { status: "waiting_review"; order: string; reason?: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
 /** Etapa 3: outcome of one journaled external write (`runEffect`). */
@@ -786,10 +787,15 @@ export class Orchestrator {
           };
         order = this.apply(order, { type: "resume" }, { role: "orchestrator" });
       }
+      // P16 v2: a waiting review is retried at most once per tick, on exactly the artifact that waits.
+      if (order.state === "WAITING_REVIEW") order = this.retryReview(order);
       const max = this.d.maxStepsPerTick ?? 20;
       for (
         let i = 0;
-        i < max && isActionable(order.state) && order.state !== "PAUSED";
+        i < max &&
+        isActionable(order.state) &&
+        order.state !== "PAUSED" &&
+        order.state !== "WAITING_REVIEW";
         i++
       ) {
         // DR-039, etapa 2: the next step (model call, delivery) starts only while the tick lease is still ours.
@@ -815,6 +821,12 @@ export class Orchestrator {
         };
       if (order.state === "WAITING_OWNER")
         return { status: "waiting_owner", order: order.id };
+      if (order.state === "WAITING_REVIEW")
+        return {
+          status: "waiting_review",
+          order: order.id,
+          reason: order.review_reason,
+        };
       return { status: "advanced", order: order.id, state: order.state };
     } finally {
       await this.flushPanel();
@@ -1215,13 +1227,42 @@ export class Orchestrator {
       .catch(() => undefined);
   }
 
-  /** Common handling of a model step outcome: limit → PAUSED, error → FAILED. */
+  /**
+   * P16 v2: the artifact a review is about. NEW = the brief waiting for its check (meta.pending_brief), CHECKING = the
+   * current draft. Its sha256 is stored with WAITING_REVIEW and must be the same when the review is retried.
+   */
+  private reviewArtifact(o: Order, from: Order["state"]): string {
+    if (from === "NEW") return o.meta.pending_brief ?? "";
+    return o.draft_file ? this.d.store.readFile(o.id, o.draft_file) : "";
+  }
+
+  private waitForReview(order: Order, reason: string, role: LogEntry["role"], model?: string): Order {
+    const hash = artifactHash(this.reviewArtifact(order, order.state));
+    return this.apply(order, { type: "wait_review", reason, hash }, { role, model, result: "čeká na kontrolu", reason });
+  }
+
+  /** Back to the review step, unless the artifact changed while waiting (then UNKNOWN: GPT would check something else). */
+  private retryReview(order: Order): Order {
+    const from = order.review_from;
+    if (!from) return this.apply(order, { type: "unknown", reason: "WAITING_REVIEW bez review_from" }, { role: "orchestrator" });
+    let now: string;
+    try {
+      now = artifactHash(this.reviewArtifact(order, from));
+    } catch (e) {
+      return this.apply(order, { type: "unknown", reason: `artefakt čekající na kontrolu nejde přečíst: ${(e as Error).message}` }, { role: "orchestrator" });
+    }
+    if (order.review_hash && now !== order.review_hash) return this.apply(order, { type: "unknown", reason: "artefakt se během čekání na kontrolu změnil (hash ≠ review_hash)" }, { role: "orchestrator" });
+    return this.apply(order, { type: "retry_review" }, { role: "orchestrator", result: "znovu kontrola GPT v prohlížeči" });
+  }
+
+  /** Common handling of a model step outcome: review unavailable → WAITING_REVIEW, limit → PAUSED, error → FAILED. */
   private bad(
     order: Order,
     r: StepOutcome,
     role: LogEntry["role"],
   ): Order | undefined {
     if (r.ok) return undefined;
+    if (r.waiting_review && role === "checker" && order.state === "CHECKING") return this.waitForReview(order, r.error ?? "kontrola neproběhla", role, r.model);
     if (r.ui_unknown) {
       // §2b: UI failure after 2 attempts → UNKNOWN + owner card, never blind retry.
       this.unknownCard(order, r.error);
@@ -1316,49 +1357,31 @@ export class Orchestrator {
         const supSources = sourcesBlock(loaded);
         let lastErr = "";
         let issues: string[] = [];
+        // P16 v2: a brief that waited for its check (WAITING_REVIEW) is checked again as it was, not rewritten.
+        const pending = order.meta.pending_brief;
         for (let attempt = 0; attempt < 2; attempt++) {
-          const prompt = buildSupervisorPrompt(
-            capsule,
-            this.d.store.readLog(200),
-            open,
-            avail,
-            card,
-            handoff,
-            issues,
-            supSources,
-            requiredByDept,
-          );
-          const r = await this.d.supervisor.run(prompt, {
-            cwd: this.d.store.orderDir(order.id),
-          });
-          this.log({
-            order: order.id,
-            kind: "call",
-            role: "supervisor",
-            model: this.d.supervisor.model,
-            family: this.d.supervisor.family,
-            duration_ms: r.duration_ms,
-            result: r.ok ? "ok" : "error",
-            reason: r.error,
-          });
-          if (!r.ok)
-            return this.bad(
-              order,
-              {
-                ok: false,
-                limit: r.limit,
-                error: r.error,
-                model: this.d.supervisor.model,
-              },
-              "supervisor",
-            )!;
-          let brief;
-          try {
-            brief = parseBrief(r.text);
-          } catch (e) {
-            if (!(e instanceof BriefError)) throw e;
-            lastErr = e.message;
-            continue;
+          let brief: ReturnType<typeof parseBrief> | undefined;
+          let supMs: number | undefined;
+          if (attempt === 0 && pending) {
+            try {
+              brief = parseBrief(pending);
+            } catch {
+              brief = undefined; // damaged pending brief: the supervisor writes a new one
+            }
+          }
+          if (!brief) {
+            const prompt = buildSupervisorPrompt(capsule, this.d.store.readLog(200), open, avail, card, handoff, issues, supSources, requiredByDept);
+            const r = await this.d.supervisor.run(prompt, { cwd: this.d.store.orderDir(order.id) });
+            this.log({ order: order.id, kind: "call", role: "supervisor", model: this.d.supervisor.model, family: this.d.supervisor.family, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
+            if (!r.ok) return this.bad(order, { ok: false, limit: r.limit, error: r.error, model: this.d.supervisor.model }, "supervisor")!;
+            supMs = r.duration_ms;
+            try {
+              brief = parseBrief(r.text);
+            } catch (e) {
+              if (!(e instanceof BriefError)) throw e;
+              lastErr = e.message;
+              continue;
+            }
           }
           // Deterministic: every required source of the creator card must be referenced (else FIX).
           const required =
@@ -1386,61 +1409,20 @@ export class Orchestrator {
             loaded.filter((l) => required.includes(l.key)),
           );
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const {
-            r: c,
-            v,
-            findings: cFindings,
-          } = await callChecker(
-            this.d.briefChecker,
-            buildBriefCheckPrompt(
-              brief,
-              handoff,
-              card,
-              capsule,
-              required,
-              deptSources,
-              Boolean(this.d.briefChecker.supportsOutputSchema),
-            ),
-            this.d.store.orderDir(order.id),
-          );
-          this.log({
-            order: order.id,
-            kind: "call",
-            role: "checker",
-            model: this.d.briefChecker.model,
-            family: this.d.briefChecker.family,
-            duration_ms: c.duration_ms,
-            result: v?.verdict ?? "error",
-            reason: c.error ?? v?.issues.join(" | ").slice(0, 500),
-          });
-          if (!c.ok)
-            return this.bad(
-              order,
-              {
-                ok: false,
-                limit: c.limit,
-                error: c.error,
-                model: this.d.briefChecker.model,
-              },
-              "checker",
-            )!;
-          this.d.store.writeFile(
-            order.id,
-            `brief-check-a${attempt}.md`,
-            c.text,
-          );
+          const { r: c, v, findings: cFindings } = await callChecker(this.d.briefChecker, buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources, Boolean(this.d.briefChecker.supportsOutputSchema)), this.d.store.orderDir(order.id));
+          this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
+          if (!c.ok && c.waitReview) {
+            // The brief is kept as it is (same hash); the next tick checks exactly this brief again.
+            const held = { ...order, meta: { ...order.meta, pending_brief: JSON.stringify(brief) } };
+            return this.waitForReview(held, c.error ?? "kontrola zadání neproběhla", "checker", this.d.briefChecker.model);
+          }
+          if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
+          this.d.store.writeFile(order.id, `brief-check-a${attempt}.md`, c.text);
+          const { pending_brief: _done, ...meta } = order.meta;
+          void _done;
           if (v?.verdict === "PASS") {
             this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
-            return this.apply(
-              { ...order, brief },
-              { type: "planned" },
-              {
-                role: "supervisor",
-                model: this.d.supervisor.model,
-                duration_ms: r.duration_ms,
-                result: `${brief.department}: ${brief.title}`,
-              },
-            );
+            return this.apply({ ...order, meta, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: supMs, result: `${brief.department}: ${brief.title}` });
           }
           // DR-031 b. 2: poslední pokus s FIX jen medium/low/info = známá rizika, zadání se přijme s výhradami.
           const notes =
@@ -1449,25 +1431,12 @@ export class Orchestrator {
               : undefined;
           if (notes) {
             const accepted = { ...brief, check_notes: notes };
-            this.d.store.writeFile(
-              order.id,
-              "brief.md",
-              briefMarkdown(accepted),
-            );
-            return this.apply(
-              { ...order, brief: accepted },
-              { type: "planned" },
-              {
-                role: "supervisor",
-                model: this.d.supervisor.model,
-                duration_ms: r.duration_ms,
-                result: `PASS s výhradami (DR-031): ${brief.department}: ${brief.title}`,
-                reason: notes.join(" | ").slice(0, 500),
-              },
-            );
+            this.d.store.writeFile(order.id, "brief.md", briefMarkdown(accepted));
+            return this.apply({ ...order, meta, brief: accepted }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: supMs, result: `PASS s výhradami (DR-031): ${brief.department}: ${brief.title}`, reason: notes.join(" | ").slice(0, 500) });
           }
           issues = v?.issues ?? ["verdikt kontrolora nečitelný"];
           lastErr = `brief check ${v?.verdict ?? "unparseable"}: ${issues.join("; ")}`;
+          if (pending) order = { ...order, meta };
         }
         return this.apply(
           order,

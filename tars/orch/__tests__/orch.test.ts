@@ -147,8 +147,9 @@ function orch(
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
-  const creator = new MockAdapter("gpt", "gpt", opts.creator ?? [{ text: DRAFT }]);
-  const checker = new MockAdapter("claude", "opus", opts.checker ?? [{ text: PASS }]);
+  // P16 v2: copy = Claude creates, GPT (in the browser) checks.
+  const creator = new MockAdapter("claude", "opus", opts.creator ?? [{ text: DRAFT }]);
+  const checker = new MockAdapter("gpt", "gpt-web", opts.checker ?? [{ text: PASS }]);
   const notion = opts.notion ?? new MockNotion();
   const copy = new CopyDepartment(new SecretScanningAdapter(creator), checker);
   const gate = new MockAdapter("gpt", "gpt-gate", opts.checker ?? [{ text: PASS }]);
@@ -525,9 +526,9 @@ describe("specialist cards (§2a)", () => {
   });
 
   it("rejects a card with a missing section or same-family checker", () => {
-    const good = fs.readFileSync(path.join(CARDS_DIR, "gpt", "copy-studio.md"), "utf8");
+    const good = fs.readFileSync(path.join(CARDS_DIR, "copy-studio.md"), "utf8");
     expect(validateCardText(good.replace("## 6. Kontrolor", "## 6. X"), "x").problems.join()).toMatch(/Kontrolor/);
-    expect(validateCardText(good.replace("checker_family: claude", "checker_family: gpt"), "x").problems.join()).toMatch(/tvůrce ≠ kontrolor/);
+    expect(validateCardText(good.replace("checker_family: gpt", "checker_family: claude"), "x").problems.join()).toMatch(/tvůrce ≠ kontrolor/);
   });
 
   it("supervisor without its card does not run", async () => {
@@ -686,7 +687,8 @@ describe("Notion panel (mocked)", () => {
     const last = panel.rows.at(-1)!.row;
     expect(last["Odkaz na výstup"]).toBe("https://app.notion.com/p/mock1");
     expect(last["Fronta"]).toBe("3 · Hotové");
-    expect(last["Tvůrce (model)"]).toContain("gpt");
+    expect(last["Tvůrce (model)"]).toContain("opus"); // P16 v2: copy creator = Claude
+    expect(last["Kontrolor (model)"]).toContain("gpt");
   });
 
   it("WAITING_OWNER row is flagged and queued first", async () => {
