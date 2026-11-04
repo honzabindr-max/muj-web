@@ -1,0 +1,1 @@
+{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "TARS-GUARD OK (8/8): I1 všechny klony HTTPS; I2 fine-grained token; I3 token bez Administration; I4 ruleset main aktivní; I5 SSH ke GitHubu zamítnuto; I6 žádné staré .env.migrate*/.env.verify; I7 Vercel CLI odhlášené; I8 prohlížečová automatizace jen v profilu TARS-agent, bez Google účtu;\n"}}

@@ -30,7 +30,7 @@ import { missingSources, SourceLoader } from "../sources";
 import { actionAllowed, adapterPreflight, hostAllowed } from "../ladder";
 import { spawnSync } from "node:child_process";
 
-import { combineI8, parseGuardOutput } from "../guard";
+import { combineI8, parseGuardOutput, runGuardWithI8, unwrapGuardOutput, type GuardResult } from "../guard";
 import type { NotionClient } from "../notion";
 import { extractNotionUrl, McpNotion, NotionRestApi, NotionRestError, OwnerDecisionWriteError, pageIdFromUrl, RestNotion, setsOwnerDecision } from "../notion";
 import { artifactHash } from "../approval";
@@ -142,6 +142,8 @@ function orch(
     /** Replaces the mock page writer/reader, e.g. RestNotion on a fake REST API. */
     notionClient?: NotionClient;
     stateLockWaitMs?: number;
+    /** Replaces the mock guard, e.g. the real runGuardWithI8 on a fake hook script. */
+    guard?: () => GuardResult;
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
@@ -164,7 +166,7 @@ function orch(
       desktopReady: () => new NotImplementedDesktop().preflight(),
     },
     notion: opts.notionClient ?? notion,
-    guard: () => ({ alarm: Boolean(opts.alarm), summary: opts.alarm ? "TARS-GUARD ALARM" : "TARS-GUARD OK (7/7)" }),
+    guard: opts.guard ?? (() => ({ alarm: Boolean(opts.alarm), summary: opts.alarm ? "TARS-GUARD ALARM" : "TARS-GUARD OK (7/7)" })),
     draftParentId: "parent",
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
@@ -425,6 +427,72 @@ describe("parsers", () => {
     expect(combineI8(g, "I8 OK y").alarm).toBe(false);
     expect(combineI8(g, "I8 WARN Preferences profilu TARS-agent nečitelné – Google účet UNKNOWN\nI8 OK y").alarm).toBe(true);
     expect(combineI8({ alarm: true, summary: "x" }, "I8 OK y").alarm).toBe(true);
+  });
+
+  // Kolo oprav 2: tars-guard.sh je SessionStart hook a stdout je JSON obálka, ne samostatný řádek.
+  // Fixture = skutečný stdout `bash .claude/hooks/tars-guard.sh` (2026-11-04, 8/8 OK, bez tajemství).
+  const REAL_GUARD = fs.readFileSync(path.join(__dirname, "fixtures", "guard-stdout-ok.txt"), "utf8");
+  const fakeGuard = (stdout: string, i8 = "I8 OK x"): (() => GuardResult) => {
+    const out = path.join(dir, "guard-stdout.txt");
+    fs.writeFileSync(out, stdout);
+    fs.writeFileSync(path.join(dir, "guard.sh"), `#!/bin/bash\ncat '${out}'\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, "i8.sh"), `#!/bin/bash\necho "${i8}"\n`, { mode: 0o755 });
+    return () => runGuardWithI8(path.join(dir, "guard.sh"), path.join(dir, "i8.sh"), dir, dir);
+  };
+
+  it("guard JSON envelope (real hook stdout): unwrapped, then the same strict I1–I8 check", () => {
+    expect(REAL_GUARD.trim().startsWith('{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "TARS-GUARD OK (8/8): I1 ')).toBe(true);
+    const r = parseGuardOutput(REAL_GUARD);
+    expect(r.alarm).toBe(false);
+    expect(r.summary).toMatch(/^TARS-GUARD OK \(8\/8\): I1 všechny klony HTTPS; .* I8 prohlížečová automatizace/);
+    // the hook's stdout with stderr appended, exactly as runGuard joins them
+    expect(parseGuardOutput(`${REAL_GUARD}\n`).alarm).toBe(false);
+    expect(parseGuardOutput(`${REAL_GUARD}\nTARS-GUARD upozornění: I6 na disku jsou čerstvé .env.verify – do 12 h je hlídač smaže`).alarm).toBe(false);
+    expect(unwrapGuardOutput("TARS-GUARD OK (8/8): I1 OK;")).toEqual({ text: "TARS-GUARD OK (8/8): I1 OK;" });
+    const ctx = (s: string) => REAL_GUARD.replace("TARS-GUARD OK (8/8):", s);
+    const bad: Array<[string, string, RegExp]> = [
+      ["SKIP", REAL_GUARD.replace("I3 token bez Administration", "I3 SKIP"), /I3 stav „SKIP“ není kladný/],
+      ["WARN as item state", REAL_GUARD.replace("I4 ruleset main aktivní", "I4 WARN"), /I4 stav „WARN“ není kladný/],
+      ["WARN line", REAL_GUARD.replace(';\\n"}}', ';\\nI8 WARN Preferences profilu nečitelné\\n"}}'), /rozpor: I8 WARN/],
+      ["UNKNOWN item", REAL_GUARD.replace("I2 fine-grained token", "I2 přihlášení gh UNKNOWN"), /I2 stav/],
+      ["UNKNOWN warning next to OK", REAL_GUARD.replace(';\\n"}}', ';\\nTARS-GUARD upozornění: I5 SSH ke GitHubu UNKNOWN (offline?)\\n"}}'), /rozpor/],
+      ["7/8 + UNKNOWN (real I4 offline shape)", REAL_GUARD.replace(" I4 ruleset main aktivní;", "").replace("(8/8)", "(7/8)").replace(';\\n"}}', ';\\nTARS-GUARD upozornění: I4 pravidla main UNKNOWN (offline nebo chyba API)\\n"}}'), /7\/8/],
+      ["missing I4", REAL_GUARD.replace(" I4 ruleset main aktivní;", ""), /chybí I4/],
+      ["duplicate I1 instead of I8", REAL_GUARD.replace("I8 prohlížečová automatizace jen v profilu TARS-agent, bez Google účtu", "I1 všechny klony HTTPS"), /chybí I8/],
+      ["duplicate I1, 9 items", REAL_GUARD.replace(" I8 prohl", " I1 OK; I8 prohl"), /9 položek/],
+      ["ALARM in envelope", ctx("TARS-GUARD ALARM – porušeny bezpečnostní invarianty jádra (DR-022):\\n- I3 token MÁ Administration\\n"), /TARS-GUARD ALARM/],
+      ["empty context", '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}\n', /chybí řádek TARS-GUARD OK/],
+      ["invalid JSON", REAL_GUARD.replace('"}}', '"}'), /neplatný JSON/],
+      ["truncated JSON", REAL_GUARD.slice(0, 120), /neplatný JSON/],
+      ["no hookSpecificOutput", '{"additionalContext": "TARS-GUARD OK (8/8): I1 OK;"}\n', /bez hookSpecificOutput/],
+      ["missing additionalContext", REAL_GUARD.replace('"additionalContext"', '"context"'), /chybí additionalContext/],
+      ["additionalContext not text", '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": 8}}\n', /chybí additionalContext/],
+      ["other hook event", REAL_GUARD.replace('"SessionStart"', '"PreToolUse"'), /není SessionStart/],
+      ["two envelopes in conflict", `${REAL_GUARD}${REAL_GUARD.replace("I3 token bez Administration", "I3 SKIP")}`, /2 obálky/],
+      ["two identical envelopes", `${REAL_GUARD}${REAL_GUARD}`, /2 obálky/],
+      ["envelope + plain OK line", `${REAL_GUARD}${JSON.parse(REAL_GUARD).hookSpecificOutput.additionalContext}`, /víc řádků TARS-GUARD OK/],
+    ];
+    for (const [name, out, why] of bad) {
+      const g = parseGuardOutput(out);
+      expect(g.alarm, name).toBe(true);
+      expect(g.summary, name).toMatch(why);
+    }
+  });
+
+  it("runGuardWithI8 on a script printing the real hook stdout: no alarm; SKIP inside the envelope: alarm", () => {
+    expect(fakeGuard(REAL_GUARD)()).toMatchObject({ alarm: false, summary: expect.stringMatching(/^TARS-GUARD OK \(8\/8\): I1 .* \| I8 OK$/) });
+    expect(fakeGuard(REAL_GUARD.replace("I5 SSH ke GitHubu zamítnuto", "I5 SKIP"))().alarm).toBe(true);
+    expect(fakeGuard(REAL_GUARD, "I8 ALARM x")().alarm).toBe(true);
+  });
+
+  it("regression: tick with the real hook stdout does not end in guard_alarm", async () => {
+    const { o, supervisor } = orch({ guard: fakeGuard(REAL_GUARD) });
+    const r = await o.tick();
+    expect(r.status).not.toBe("guard_alarm");
+    expect(r).toMatchObject({ state: "DONE" });
+    expect(supervisor.calls.length).toBeGreaterThan(0);
+    const bad = orch({ guard: fakeGuard(REAL_GUARD.replace("I7 Vercel CLI odhlášené", "I7 UNKNOWN")) });
+    expect((await bad.o.tick()).status).toBe("guard_alarm");
   });
   it("reserved decisions and helpers", () => {
     expect(reservedDecisionHits("Nová cena 2 490 Kč")).toContain("cena");

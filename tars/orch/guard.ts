@@ -29,16 +29,51 @@ const OK_WORDS = new Set(["OK", "PASS"]);
 const ITEM_RE = /^(I\d+)(?:\s+(.*))?$/;
 
 const OK_LINE_RE = /^TARS-GUARD OK \((\d+)\/(\d+)\)(?::(.*))?$/;
-const UNSURE_RE = /\bUNKNOWN\b|\bFAIL(?:ED)?\b|\bALARM\b/i;
+const UNSURE_RE = /\bUNKNOWN\b|\bFAIL(?:ED)?\b|\bALARM\b|\bWARN(?:ING)?\b/i;
+
+/**
+ * `tars-guard.sh` is a SessionStart hook: its stdout is one JSON line
+ * `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "TARS-GUARD OK (8/8): …\n"}}`
+ * (the script prints nothing else to stdout). This unwraps the envelope into plain text; non-JSON lines (a plain-text
+ * guard, stderr) pass through unchanged. Fail-closed: a line that looks like JSON but does not parse, an envelope
+ * without `hookEventName: "SessionStart"` or without a string `additionalContext`, or more than one envelope = error.
+ */
+export function unwrapGuardOutput(out: string): { text: string } | { error: string } {
+  const contexts: string[] = [];
+  const plain: string[] = [];
+  for (const raw of out.split("\n")) {
+    const l = raw.trim();
+    if (!l.startsWith("{")) {
+      plain.push(raw);
+      continue;
+    }
+    let j: unknown;
+    try {
+      j = JSON.parse(l);
+    } catch {
+      return { error: "neplatný JSON ve výstupu" };
+    }
+    const h = (j as { hookSpecificOutput?: { hookEventName?: unknown; additionalContext?: unknown } } | null)?.hookSpecificOutput;
+    if (!h || typeof h !== "object") return { error: "JSON bez hookSpecificOutput" };
+    if (h.hookEventName !== "SessionStart") return { error: "hookEventName není SessionStart" };
+    if (typeof h.additionalContext !== "string") return { error: "chybí additionalContext (text)" };
+    contexts.push(h.additionalContext);
+  }
+  if (contexts.length > 1) return { error: `${contexts.length} obálky SessionStart místo jedné` };
+  return { text: [...contexts, ...plain].join("\n") };
+}
 
 /**
  * Fail-closed (DR-039): the gate opens only for exactly one line „TARS-GUARD OK (8/8): …“ that lists every one of
  * I1–I8 exactly once with an explicitly positive state (`GUARD_OK_TEXTS`, or OK / PASS), and nothing in the whole
- * output says UNKNOWN, FAIL or ALARM (a summary OK next to a partial UNKNOWN/FAIL is a contradiction = alarm).
+ * output says UNKNOWN, FAIL, WARN or ALARM (a summary OK next to a partial UNKNOWN/FAIL is a contradiction = alarm).
  * Missing, unparseable, duplicated, SKIP / empty / unknown state or < 8/8 output = alarm.
+ * Takes the hook's JSON envelope or plain text (`unwrapGuardOutput`); the same strict check runs after unwrapping.
  */
 export function parseGuardOutput(out: string): GuardResult {
-  const lines = out.split("\n").map((l) => l.trim());
+  const u = unwrapGuardOutput(out);
+  if ("error" in u) return { alarm: true, summary: `TARS-GUARD: ${u.error} | fail-closed`.slice(0, 300) };
+  const lines = u.text.split("\n").map((l) => l.trim());
   const statusLine = lines.find((l) => /TARS-GUARD (ALARM|OK)/.test(l)) ?? "TARS-GUARD: no status line";
   const fail = (why: string): GuardResult => ({ alarm: true, summary: `${statusLine.slice(0, 240)} | fail-closed: ${why}`.slice(0, 300) });
   if (lines.some((l) => /TARS-GUARD ALARM/.test(l))) return { alarm: true, summary: statusLine.slice(0, 300) };
