@@ -22,7 +22,7 @@ import {
   type NotionRestApi,
 } from "./notion";
 import { redactDeep, redactSecrets } from "./secret-scan";
-import { writeDurable } from "./store";
+import { Store, writeDurable } from "./store";
 import type { Order } from "./types";
 
 export const PANEL_DATA_SOURCE_ID = "93d450d0-fabd-4e29-8f09-decda4ad45b6";
@@ -149,10 +149,22 @@ export interface PanelSink {
   readOwnerDecision?(pageId: string): Promise<string | undefined>;
   /**
    * Finds the row of an order by its „ID zakázky“ (REST data source query with a filter, never SQL/rows through MCP).
-   * Used after a create of unknown outcome, before any new row is created. Returns the page id or undefined.
+   * Used after a create of unknown outcome, before any new row is created. Returns the page id, or undefined only when
+   * the row certainly does not exist (a consistent query). Review kolo 3: a search that may lag behind (MCP
+   * `notion-search`) never answers undefined; finding nothing there throws `PanelRowUnclear`. `consistentOnly`: do not
+   * fall back to such a search at all (a new row with nothing sent before: the caller creates it).
    */
-  findRowByOrderId?(orderId: string): Promise<string | undefined>;
+  findRowByOrderId?(
+    orderId: string,
+    opts?: { consistentOnly?: boolean },
+  ): Promise<string | undefined>;
 }
+
+/**
+ * Review kolo 3: the lookup could not prove that the row does not exist (the consistent REST query is unavailable and
+ * the MCP search, whose index lags behind, found nothing — or was not asked). Never read as „does not exist“.
+ */
+export class PanelRowUnclear extends Error {}
 
 const text = (s: string | null | undefined) => ({
   rich_text: s ? [{ type: "text", text: { content: s.slice(0, 2000) } }] : [],
@@ -381,7 +393,10 @@ export class RestPanelSink implements PanelSink {
   }
 }
 
-/** Looks a panel row up by „ID zakázky“; undefined only when it certainly does not exist, otherwise throws. */
+/**
+ * Looks a panel row up by „ID zakázky“: the page id of an exact hit, undefined when nothing was found, throws when the
+ * answer is unclear. Review kolo 3: undefined here is NOT a proof of absence (the MCP search index lags behind).
+ */
 export interface PanelRowLookup {
   find(orderId: string): Promise<string | undefined>;
 }
@@ -426,7 +441,9 @@ export function fetchedProperties(
  * panel data source, then `notion-fetch` of EVERY candidate. The code (not the model) decides: the search call must
  * carry exactly the expected input and return a parseable, complete result; a hit is a fetched page of the panel data
  * source whose property „ID zakázky“ equals the order id exactly. Anything unclear (missing call, unparseable result,
- * a candidate not fetched, a full page of candidates) throws, so it never answers „does not exist“ by mistake.
+ * a candidate not fetched, a full page of candidates) throws. Undefined = the search found nothing, which is not a
+ * proof of absence (review kolo 3: the search index lags behind a fresh create); `HybridPanelSink` turns it into
+ * `PanelRowUnclear`.
  */
 export class McpPanelLookup implements PanelRowLookup {
   constructor(private cwd: string) {}
@@ -514,6 +531,9 @@ export class McpPanelLookup implements PanelRowLookup {
  * Review kolo 2: finding a row by order id uses the same chain as the write: REST query first; when REST cannot answer
  * (any fallback-eligible error — a query never writes) the MCP lookup answers, if one is configured. Without it, or when
  * it fails too, the error stands („cannot tell“: nothing is created).
+ * Review kolo 3: only the REST query can prove absence. The MCP search either finds the row or throws `PanelRowUnclear`
+ * (its index lags behind, so an empty result is never „does not exist“). With `consistentOnly` the MCP search is not
+ * asked at all: REST unavailable → `PanelRowUnclear` straight away.
  */
 export class HybridPanelSink implements PanelSink {
   constructor(
@@ -539,24 +559,56 @@ export class HybridPanelSink implements PanelSink {
     return this.rest.readOwnerDecision!(pageId);
   }
 
-  async findRowByOrderId(orderId: string): Promise<string | undefined> {
+  async findRowByOrderId(
+    orderId: string,
+    opts: { consistentOnly?: boolean } = {},
+  ): Promise<string | undefined> {
     try {
       return await this.rest.findRowByOrderId!(orderId);
     } catch (e) {
       if (!this.mcpLookup || !isFallbackEligible(e, true)) throw e;
+      if (opts.consistentOnly)
+        throw new PanelRowUnclear(
+          `Notion REST: ${redactSecrets(e.message)}, jistou neexistenci řádku nelze ověřit`,
+        );
       this.log(
         `Notion REST: ${redactSecrets(e.message)}, dohledávám řádek přes fallback`,
       );
     }
-    return this.mcpLookup.find(orderId);
+    const found = await this.mcpLookup.find(orderId);
+    if (found) return found;
+    throw new PanelRowUnclear(
+      "řádek panelu nejasný, ruční kontrola: hledání přes MCP nic nenašlo, jeho index může být zpožděný",
+    );
   }
 }
 
-/** Order id → panel page id, so every transition updates the same row. */
+/**
+ * Order id → panel page id, so every transition updates the same row.
+ * Review kolo 3: every read-modify-write of the file runs under the same short `.state.lock` as state.json
+ * (`Store.withStateLock`, shared by the orchestrator and the CLI), and the file is replaced atomically (`writeDurable`:
+ * tmp + fsync + rename). A process can no longer write back an older snapshot over a newer mark or sequence.
+ * Plain reads stay lock-free: the atomic rename means a reader always sees one whole version.
+ */
 export class PanelIndex {
   private file: string;
-  constructor(runsDir: string) {
+  private store: Store;
+  constructor(runsDir: string, store?: Store) {
     this.file = path.join(runsDir, "panel-index.json");
+    this.store = store ?? new Store(runsDir);
+  }
+  /** One read-modify-write under the state lock; `fn` gets the current content and returns what to write (or nothing). */
+  private update<T>(
+    fn: (all: Record<string, string>) => {
+      write?: Record<string, string>;
+      result: T;
+    },
+  ): T {
+    return this.store.withStateLock(() => {
+      const r = fn(this.read());
+      if (r.write) this.write(r.write);
+      return r.result;
+    });
   }
   private read(): Record<string, string> {
     return fs.existsSync(this.file)
@@ -571,24 +623,29 @@ export class PanelIndex {
   }
   /** Setting the page id also clears the „unknown outcome“ mark. */
   set(orderId: string, pageId: string): void {
-    const all = this.read();
-    delete all[`${UNCERTAIN_PREFIX}${orderId}`];
-    this.write({ ...all, [orderId]: pageId });
+    this.update((all) => {
+      delete all[`${UNCERTAIN_PREFIX}${orderId}`];
+      return { write: { ...all, [orderId]: pageId }, result: undefined };
+    });
   }
   private write(all: Record<string, string>): void {
     writeDurable(this.file, JSON.stringify(all, null, 2) + "\n"); // etapa 3: page ids and dirty marks survive a crash
   }
   /** A create of this order's row may have been saved although we got no answer: look it up before creating again. */
   markUncertain(orderId: string): void {
-    this.write({ ...this.read(), [`${UNCERTAIN_PREFIX}${orderId}`]: "1" });
+    this.update((all) => ({
+      write: { ...all, [`${UNCERTAIN_PREFIX}${orderId}`]: "1" },
+      result: undefined,
+    }));
   }
   isUncertain(orderId: string): boolean {
     return this.read()[`${UNCERTAIN_PREFIX}${orderId}`] === "1";
   }
   clearUncertain(orderId: string): void {
-    const all = this.read();
-    delete all[`${UNCERTAIN_PREFIX}${orderId}`];
-    this.write(all);
+    this.update((all) => {
+      delete all[`${UNCERTAIN_PREFIX}${orderId}`];
+      return { write: all, result: undefined };
+    });
   }
   /**
    * Etapa 3: the last write of this order's row failed; the next tick rewrites the row from state.json (same order id,
@@ -596,17 +653,21 @@ export class PanelIndex {
    */
   markDirty(orderId: string): void {
     // Review kolo 2: the mark remembers the last write sent so far; only a write sent AFTER it may clear it.
-    const all = this.read();
-    const issued = seqOf(all, `${SEQ_PREFIX}${orderId}`);
-    if (
-      all[`${DIRTY_PREFIX}${orderId}`] === "1" &&
-      seqOf(all, `${DIRTY_SEQ_PREFIX}${orderId}`) >= issued
-    )
-      return;
-    this.write({
-      ...all,
-      [`${DIRTY_PREFIX}${orderId}`]: "1",
-      [`${DIRTY_SEQ_PREFIX}${orderId}`]: String(issued),
+    this.update((all) => {
+      const issued = seqOf(all, `${SEQ_PREFIX}${orderId}`);
+      if (
+        all[`${DIRTY_PREFIX}${orderId}`] === "1" &&
+        seqOf(all, `${DIRTY_SEQ_PREFIX}${orderId}`) >= issued
+      )
+        return { result: undefined };
+      return {
+        write: {
+          ...all,
+          [`${DIRTY_PREFIX}${orderId}`]: "1",
+          [`${DIRTY_SEQ_PREFIX}${orderId}`]: String(issued),
+        },
+        result: undefined,
+      };
     });
   }
   isDirty(orderId: string): boolean {
@@ -618,27 +679,30 @@ export class PanelIndex {
    * or concurrent write leaves it (returns false). Review kolo 2.
    */
   clearDirty(orderId: string, writeSeq?: number): boolean {
-    const all = this.read();
-    if (!(`${DIRTY_PREFIX}${orderId}` in all)) return true;
-    if (
-      writeSeq !== undefined &&
-      writeSeq <= seqOf(all, `${DIRTY_SEQ_PREFIX}${orderId}`)
-    )
-      return false;
-    delete all[`${DIRTY_PREFIX}${orderId}`];
-    delete all[`${DIRTY_SEQ_PREFIX}${orderId}`];
-    this.write(all);
-    return true;
+    return this.update((all) => {
+      if (!(`${DIRTY_PREFIX}${orderId}` in all)) return { result: true };
+      if (
+        writeSeq !== undefined &&
+        writeSeq <= seqOf(all, `${DIRTY_SEQ_PREFIX}${orderId}`)
+      )
+        return { result: false };
+      delete all[`${DIRTY_PREFIX}${orderId}`];
+      delete all[`${DIRTY_SEQ_PREFIX}${orderId}`];
+      return { write: all, result: true };
+    });
   }
   /**
    * Review kolo 2: a monotonic sequence of row writes of an order, taken right before the write is sent (send order,
    * not answer order). Shared through this file by every process that writes the panel (orchestrator, CLI).
    */
   beginWrite(orderId: string): number {
-    const all = this.read();
-    const seq = seqOf(all, `${SEQ_PREFIX}${orderId}`) + 1;
-    this.write({ ...all, [`${SEQ_PREFIX}${orderId}`]: String(seq) });
-    return seq;
+    return this.update((all) => {
+      const seq = seqOf(all, `${SEQ_PREFIX}${orderId}`) + 1;
+      return {
+        write: { ...all, [`${SEQ_PREFIX}${orderId}`]: String(seq) },
+        result: seq,
+      };
+    });
   }
   dirtyOrders(): string[] {
     return Object.keys(this.read())

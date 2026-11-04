@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { EffectJournal, operationId } from "../effects";
 import { NotionRestError } from "../notion";
 import {
   fetchedProperties,
@@ -188,7 +189,7 @@ describe("nález 2 [medium]: a new row while REST does not see the panel (404) a
     },
   };
 
-  it("(a) REST 404 + MCP lookup answers 0 → the row is created exactly once (through the MCP sink)", async () => {
+  it("(a) REST 404, a new row (nothing PREPARED) → created exactly once through the MCP sink, the lagging MCP search is not asked (review kolo 3)", async () => {
     waiting();
     const mcp = new Sink();
     let lookups = 0;
@@ -201,7 +202,7 @@ describe("nález 2 [medium]: a new row while REST does not see the panel (404) a
     const index = new PanelIndex(dir);
     const o = makeOrch(store, notion, { panel: { sink, index } });
     await o.resyncPanel(ORDER_ID);
-    expect(lookups).toBe(1);
+    expect(lookups).toBe(0);
     expect(mcp.creates).toBe(1);
     expect(index.get(ORDER_ID)).toBe("row-1");
     expect(index.isDirty(ORDER_ID)).toBe(false);
@@ -211,8 +212,9 @@ describe("nález 2 [medium]: a new row while REST does not see the panel (404) a
     expect(mcp.rows.size).toBe(1);
   });
 
-  it("(b) REST 404 + MCP lookup fails → no create, the row stays dirty (also on the next tick)", async () => {
+  it("(b) REST 404 + PREPARED create + MCP lookup fails → no create, the row stays dirty (also on the next tick)", async () => {
     waiting();
+    new EffectJournal(dir).prepare(operationId(ORDER_ID, "panel-row", 0)); // review kolo 3: only then is the lookup asked
     const mcp = new Sink();
     const sink = new HybridPanelSink(rest404, mcp, () => undefined, {
       find: async () => {
@@ -233,6 +235,7 @@ describe("nález 2 [medium]: a new row while REST does not see the panel (404) a
 
   it("the MCP lookup finds the row created earlier → no second create, page id recovered", async () => {
     waiting();
+    new EffectJournal(dir).prepare(operationId(ORDER_ID, "panel-row", 0)); // the earlier create of unclear outcome
     const mcp = new Sink();
     await mcp.upsert({
       "ID zakázky": ORDER_ID,
@@ -372,7 +375,7 @@ describe("McpPanelLookup: the code decides from the transported tool calls, neve
     expect(r).toBe(PAGE);
   });
 
-  it("empty, complete search result → certainly no row (undefined)", async () => {
+  it("empty, complete search result → nothing found (undefined; HybridPanelSink never reads it as absence, review kolo 3)", async () => {
     const r = await withFakeClaude(
       [
         {

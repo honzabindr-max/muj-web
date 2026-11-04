@@ -30,7 +30,12 @@ import {
 } from "./effects";
 import { isUncertainOutcome, NotionRestError, pageIdFromUrl } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
-import { panelRow, type PanelIndex, type PanelSink } from "./panel";
+import {
+  panelRow,
+  PanelRowUnclear,
+  type PanelIndex,
+  type PanelSink,
+} from "./panel";
 import {
   missingSources,
   sourcesBlock,
@@ -383,7 +388,25 @@ export class Orchestrator {
       }
     }
     if (panel.sink.findRowByOrderId) {
-      const found = await panel.sink.findRowByOrderId(orderId);
+      // Review kolo 3: nothing of unclear outcome was ever sent for this row (no PREPARED / UNKNOWN, no uncertain mark):
+      // only the consistent query is asked; when it cannot answer, the row is created. Otherwise a lookup that cannot
+      // prove absence (`PanelRowUnclear`: REST unavailable and the lagging MCP search found nothing) is a HOLD.
+      const newRow =
+        (!prev || prev.state === "EFFECT_ABSENT") &&
+        !panel.index.isUncertain(orderId);
+      let found: string | undefined;
+      try {
+        found = await panel.sink.findRowByOrderId(orderId, {
+          consistentOnly: newRow,
+        });
+      } catch (e) {
+        if (!(e instanceof PanelRowUnclear)) throw e;
+        if (newRow) return undefined; // nothing sent before: create it
+        if (prev?.state === "PREPARED") this.effects.unknown(op, e.message);
+        throw new PanelRowHold(
+          `řádek panelu nejasný, ruční kontrola: ${e.message} (${op})`,
+        );
+      }
       if (found) {
         if (prev && prev.state !== "EFFECT_DONE")
           this.effects.done(

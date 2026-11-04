@@ -218,7 +218,7 @@ function build(): Orchestrator {
     panel:
       process.env.TARS_PANEL === "0"
         ? undefined
-        : { sink: panelSink, index: new PanelIndex(runsDir) },
+        : { sink: panelSink, index: new PanelIndex(runsDir, store) }, // review kolo 3: index under the state lock
     ownerPing: new OwnerPing(stack.rest, { userId: ownerUserIdFromEnv() }), // bez tokenu (stack.rest) jen zaloguje
   });
 }
