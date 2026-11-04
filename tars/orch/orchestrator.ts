@@ -398,7 +398,8 @@ export class Orchestrator {
         }
         const row = panel.sink.readOwnerRow ? await panel.sink.readOwnerRow(pageId) : { decision: await panel.sink.readOwnerDecision(pageId), last_edited_time: undefined };
         const value = row.decision;
-        if (!value && waiting.meta.reissued_at && waiting.meta.reissue_armed !== "1") {
+        // Jen spolehlivě přečtené prázdné pole (ne koš, ne chybějící sloupec) je smazání starého rozhodnutí.
+        if (!value && row.readable === true && waiting.meta.reissued_at && waiting.meta.reissue_armed !== "1") {
           // Vlastník po znovuvydání staré rozhodnutí smazal: další vyplněná hodnota je nové rozhodnutí.
           this.d.store.withStateLock(() => {
             const fresh = this.d.store.load(waiting.id);
@@ -798,8 +799,10 @@ export class Orchestrator {
     const pageId = panel?.index.get(id);
     if (!panel || !pageId || !(panel.sink.readOwnerRow || panel.sink.readOwnerDecision)) return "?";
     try {
-      const v = panel.sink.readOwnerRow ? (await panel.sink.readOwnerRow(pageId)).decision : await panel.sink.readOwnerDecision!(pageId);
-      return v ?? "";
+      // Bez jistoty, že jde o čitelný řádek (koš, chybějící sloupec, sink bez readOwnerRow), je stará hodnota neznámá.
+      if (!panel.sink.readOwnerRow) return "?";
+      const r = await panel.sink.readOwnerRow(pageId);
+      return r.readable === true ? (r.decision ?? "") : "?";
     } catch {
       return "?";
     }

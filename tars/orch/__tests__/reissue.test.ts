@@ -106,8 +106,14 @@ class Panel implements PanelSink {
   async readOwnerDecision() {
     return this.decision;
   }
+  /** false = řádek v koši nebo bez sloupce „Rozhodnutí vlastníka“ (prázdná hodnota pak nic neznamená). */
+  readable = true;
   async readOwnerRow(): Promise<OwnerRow> {
-    return { decision: this.decision, last_edited_time: this.lastEdited };
+    return {
+      decision: this.readable ? this.decision : undefined,
+      last_edited_time: this.lastEdited,
+      readable: this.readable,
+    };
   }
 }
 
@@ -350,6 +356,7 @@ describe("GO po znovuvydání karty: jen nové, s read-backem", () => {
     panel.readOwnerRow = async () => ({
       decision: panel.decision,
       last_edited_time: panel.lastEdited,
+      readable: true,
     });
     clock = "2026-11-04T08:45:00.000Z";
     await x.o.tick();
@@ -363,6 +370,26 @@ describe("GO po znovuvydání karty: jen nové, s read-backem", () => {
     panel.decision = "GO";
     await x.o.pollOwnerDecisions();
     expect(store.load(x.id).meta.owner_go).toBe(clock);
+  });
+
+  it("řádek v koši (nebo bez sloupce) při znovuvydání ani potom nic neznamená: stará hodnota „?“, žádné aktivování; obnovený řádek se starým GO neprojde", async () => {
+    const panel = new Panel();
+    const x = await oldCardOrder(panel);
+    panel.decision = "GO"; // staré GO na řádku
+    panel.readable = false; // řádek je zrovna v koši
+    clock = "2026-11-04T08:40:00.000Z";
+    await x.o.reissue(x.id);
+    expect(store.load(x.id).meta.reissue_stale_decision).toBe("?");
+    clock = "2026-11-04T08:45:00.000Z";
+    await x.o.tick();
+    clock = "2026-11-04T08:50:00.000Z";
+    await x.o.pollOwnerDecisions(); // čte se „prázdno“ z koše
+    expect(store.load(x.id).meta.reissue_armed).toBeUndefined();
+    panel.readable = true; // řádek obnoven se starým GO, čas změny je nový
+    panel.lastEdited = "2026-11-04T08:49:00.000Z";
+    await x.o.pollOwnerDecisions();
+    expect(store.load(x.id).meta.owner_go).toBeUndefined();
+    expect(store.load(x.id).state).toBe("WAITING_OWNER");
   });
 
   it("vlastní zápis řádku, který selže (Notion ho mohl uložit), posune hranici také", async () => {
@@ -495,6 +522,7 @@ describe("decisionFresh a RestPanelSink.readOwnerRow", () => {
         properties: { "Rozhodnutí vlastníka": { select: { name: "GO" } } },
       },
       c: { properties: { "Rozhodnutí vlastníka": { select: null } } },
+      d: { properties: { Rozhodnutí: { select: { name: "GO" } } } },
     };
     const fn = async (url: string) => {
       const id = /\/v1\/pages\/(\w+)$/.exec(url)![1];
@@ -509,11 +537,19 @@ describe("decisionFresh a RestPanelSink.readOwnerRow", () => {
     expect(await sink.readOwnerRow("a")).toEqual({
       decision: "GO",
       last_edited_time: "2026-11-04T08:49:00.000Z",
+      readable: true,
     });
-    expect(await sink.readOwnerRow("b")).toEqual({});
+    expect(await sink.readOwnerRow("b")).toEqual({ readable: false });
     expect(await sink.readOwnerRow("c")).toEqual({
       decision: undefined,
       last_edited_time: undefined,
+      readable: true,
+    });
+    // Sloupec chybí (přejmenovaný): prázdná hodnota není „prázdné pole“.
+    expect(await sink.readOwnerRow("d")).toEqual({
+      decision: undefined,
+      last_edited_time: undefined,
+      readable: false,
     });
     expect(await sink.readOwnerDecision("a")).toBe("GO");
   });

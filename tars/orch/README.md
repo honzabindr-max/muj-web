@@ -98,7 +98,8 @@ Z Notionu platí rozhodnutí jen tehdy, když platí obě podmínky:
   s upozorněním). Neznámý čas = nepřijmout.
 - **hodnota**: liší se od hodnoty, která v panelu stála při znovuvydání (`meta.reissue_stale_decision`), nebo
   orchestrátor od znovuvydání viděl pole prázdné (`meta.reissue_armed`). Když stará hodnota nešla zjistit („?“),
-  platí jen druhá cesta.
+  platí jen druhá cesta. „Prázdné“ se počítá jen ze spolehlivě přečteného řádku (`readable`): řádek v koši ani
+  odpověď bez sloupce „Rozhodnutí vlastníka“ nejsou prázdné pole a stará hodnota je pak „?“.
 
 Do té doby zakázka čeká ve `WAITING_OWNER` („čeká na nové GO po znovuvydání karty“). Postup pro vlastníka, když v panelu
 zůstalo staré „GO“: pole vymazat, počkat na další tick a pak vybrat GO znovu. Pro `owner()` platí podmínka času
