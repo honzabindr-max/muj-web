@@ -29,6 +29,11 @@ export interface RunOpts {
    * (CODEX_ISOLATION_ARGS). Other adapters ignore it.
    */
   isolated?: boolean;
+  /**
+   * ChatGPT web only: durable directory of the journal of sent prompts (P16, Codex review kolo 1 nález 5). Default cwd
+   * (the order dir); Konzilium Lite gives its run dir, because its cwd is a temporary dir that is removed.
+   */
+  journalDir?: string;
 }
 
 /**
@@ -49,6 +54,11 @@ export interface AdapterResult {
   text: string;
   /** Subscription/usage limit detected → orchestrator PAUSEs instead of failing. */
   limit: boolean;
+  /**
+   * P16 v2: the review could not happen (browser, login, limit, timeout, unclear answer). The orchestrator moves the
+   * order to WAITING_REVIEW with the same artifact; nothing is ever PASS without a real answer.
+   */
+  waitReview?: boolean;
   error?: string;
   duration_ms: number;
 }

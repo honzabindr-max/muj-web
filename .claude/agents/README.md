@@ -10,18 +10,20 @@ Jediný zdroj pravdy pro specialisty orchestrátoru `tars/orch` (DR-029, krok 2)
 | vyvojar | Claude (sonnet) | subagent Claude Code | `vyvojar.md` |
 | vizual | Claude (sonnet) | subagent Claude Code; skutečný výkon: Claude Design přes prohlížeč (příčka 3) | `vizual.md` |
 | invariant-sentinel | Claude (sonnet) | subagent Claude Code; v AI Chain se předává bez frontmatteru | `invariant-sentinel.md` |
-| copy-studio | GPT | GPT přes codex (krok 1) | `gpt/copy-studio.md` |
-| brana | GPT | GPT přes codex (krok 1) | `gpt/brana.md` |
+| copy-studio | Claude (opus) | subagent Claude Code; v orchestrátoru `claude -p --model opus` (od P16 v2) | `copy-studio.md` |
+| brana | GPT | GPT v prohlížeči (P16 v2) | `gpt/brana.md` |
 
 Každá definice obsahuje: frontmatter (`name`, `description` = kdy roli použít, `model`, `tools`, plus pole TARS: `kind`, `department`, `title`, `executor`, `family`, `adapter`, `rung`, `checker`, `checker_family`, `sources`, `max_fix_rounds`) a tělo se sedmi sekcemi karty (role a model, povinné zdroje, zákazy, výstup, kritéria přijetí, kontrolor, eskalace, příčka) a sekcí „Společné podklady“ (dřívější `_spolecne.md`, ve všech definicích shodná).
 
-## GPT přes codex (krok 1)
+## GPT: kontroly mimo kód v prohlížeči, kód přes Codex (P16 v2)
 
-Role, které podle karty dělá GPT, nejsou Claude subagenty. Jejich soubory v `gpt/` záměrně nemají pole `name` (místo něj `role`), takže je Claude Code načte jen jako dokumentaci a Claude je nikdy nespustí. Čte je pouze orchestrátor, který je vkládá do promptu pro `codex exec` (read-only sandbox, od kroku 1 s `--output-schema` a JSON verdiktem `{verdict, findings[]}`).
+Pravidlo vlastníka (4. 11.): všechny kontroly, které se netýkají kódu, dělá GPT v prohlížeči (ChatGPT v běžném režimu Chat, nikdy Work, GPT-6 · Vysoká, adaptér `tars/orch/chatgpt-web.ts`; P16 v3). Codex zůstává na programování a kontrolu kódu. Když GPT v prohlížeči není dostupný, zakázka čeká ve `WAITING_REVIEW` a kontrola se nepředstírá.
 
-- copy-studio: tvůrce oddělení Copy, `codex exec` s promptem přes stdin. Kontroluje ho Claude Opus.
-- brana: nezávislá brána (fresh-context), `codex exec` v `read-only`. Verdikt brány kontroluje formou Claude Sonnet.
-- Kontroloři Claude subagentů jsou GPT přes `codex exec`: kontrola zadání supervizora, review vývojáře (plus deterministické kontroly a CI) a brána pro vizuál.
+Role, které podle karty dělá GPT, nejsou Claude subagenty. Jejich soubory v `gpt/` záměrně nemají pole `name` (místo něj `role`), takže je Claude Code načte jen jako dokumentaci a Claude je nikdy nespustí. Čte je pouze orchestrátor, který je vkládá do promptu kontroly (JSON verdikt `{verdict, findings[]}`, ověřený v kódu podle schématu).
+
+- brana: nezávislá brána, každá kontrola nové vlákno v ChatGPT v prohlížeči. Verdikt brány kontroluje formou Claude Sonnet.
+- Kontroloři Claude rolí: kontrola zadání supervizora, kontrola copy a brána pro vizuál = GPT v prohlížeči; review vývojáře = Codex (`codex exec`, plus deterministické kontroly a CI).
+- copy-studio je od P16 v2 tvůrce Claude (opus), aby kontrola GPT zůstala jinou rodinou.
 
 ## Pravidlo „tvůrce a kontrolor z různých rodin“
 

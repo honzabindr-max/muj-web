@@ -147,8 +147,9 @@ function orch(
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
-  const creator = new MockAdapter("gpt", "gpt", opts.creator ?? [{ text: DRAFT }]);
-  const checker = new MockAdapter("claude", "opus", opts.checker ?? [{ text: PASS }]);
+  // P16 v2: copy = Claude creates, GPT (in the browser) checks.
+  const creator = new MockAdapter("claude", "opus", opts.creator ?? [{ text: DRAFT }]);
+  const checker = new MockAdapter("gpt", "gpt-web", opts.checker ?? [{ text: PASS }]);
   const notion = opts.notion ?? new MockNotion();
   const copy = new CopyDepartment(new SecretScanningAdapter(creator), checker);
   const gate = new MockAdapter("gpt", "gpt-gate", opts.checker ?? [{ text: PASS }]);
@@ -525,9 +526,9 @@ describe("specialist cards (§2a)", () => {
   });
 
   it("rejects a card with a missing section or same-family checker", () => {
-    const good = fs.readFileSync(path.join(CARDS_DIR, "gpt", "copy-studio.md"), "utf8");
+    const good = fs.readFileSync(path.join(CARDS_DIR, "copy-studio.md"), "utf8");
     expect(validateCardText(good.replace("## 6. Kontrolor", "## 6. X"), "x").problems.join()).toMatch(/Kontrolor/);
-    expect(validateCardText(good.replace("checker_family: claude", "checker_family: gpt"), "x").problems.join()).toMatch(/tvůrce ≠ kontrolor/);
+    expect(validateCardText(good.replace("checker_family: gpt", "checker_family: claude"), "x").problems.join()).toMatch(/tvůrce ≠ kontrolor/);
   });
 
   it("supervisor without its card does not run", async () => {
@@ -660,6 +661,10 @@ class MockPanel implements PanelSink {
     if (this.failRead) throw new Error("notion 502");
     return this.decision;
   }
+  /** Review kolo 1: a row is looked up by order id before it is created; a failed write here never saved one. */
+  async findRowByOrderId() {
+    return this.rows.some((r) => !r.page) ? "page1" : undefined;
+  }
   async upsert(row: PanelRow, page?: string) {
     if (this.failNext > 0) {
       this.failNext--;
@@ -682,7 +687,8 @@ describe("Notion panel (mocked)", () => {
     const last = panel.rows.at(-1)!.row;
     expect(last["Odkaz na výstup"]).toBe("https://app.notion.com/p/mock1");
     expect(last["Fronta"]).toBe("3 · Hotové");
-    expect(last["Tvůrce (model)"]).toContain("gpt");
+    expect(last["Tvůrce (model)"]).toContain("opus"); // P16 v2: copy creator = Claude
+    expect(last["Kontrolor (model)"]).toContain("gpt");
   });
 
   it("WAITING_OWNER row is flagged and queued first", async () => {
@@ -1175,6 +1181,15 @@ describe("create of unknown outcome never produces a second row (krok 5, kolo 3)
 
   it("lookup fails (REST paused) → no new row is created, the mark stays, a later sync resolves it", async () => {
     const panel = new UncertainPanel();
+    // review kolo 1: the first create is preceded by a lookup too; it answers once, then REST pauses
+    const real = panel.findRowByOrderId.bind(panel);
+    let answered = 0;
+    panel.findRowByOrderId = async (id: string) => {
+      if (answered++ === 0) return undefined; // nothing created yet
+      panel.lookups++;
+      if (panel.lookupFails) throw new NotionRestError(429, "paused");
+      return real(id);
+    };
     panel.lookupFails = true;
     const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
     const r = (await o.tick()) as { order: string };
@@ -1231,14 +1246,17 @@ describe("create of unknown outcome never produces a second row (krok 5, kolo 3)
     expect(new PanelIndex(dir).get(r.order)).toBe("saved1");
   });
 
-  it("a sink that cannot look rows up never marks (the mark could not be resolved and would block the panel for good)", async () => {
+  it("a sink that cannot look rows up never marks, and never creates a second time after an unclear create (HOLD)", async () => {
     let creates = 0;
     const panel: PanelSink = { upsert: async () => { creates++; throw new Error("boom"); } };
     const { o } = orch({ panel, supervisor: [{ text: BRIEF({ owner_decisions: ["cena"] }) }] });
     const r = (await o.tick()) as { order: string };
     await o.flushPanel();
+    await o.resyncPanel(r.order);
     expect(new PanelIndex(dir).isUncertain(r.order)).toBe(false);
-    expect(creates).toBeGreaterThan(1); // every sync still tries again, as before
+    expect(new PanelIndex(dir).isDirty(r.order)).toBe(false);
+    expect(creates).toBe(1); // review kolo 1: the row may exist and cannot be looked up → no second create
+    expect(store.readLog(200).some((e) => e.result === `EFFECT_UNKNOWN / HOLD: ${r.order}/panel-row/r0`)).toBe(true);
   });
 
   it("only uncertain outcomes mark; a clean error (404) does not", async () => {

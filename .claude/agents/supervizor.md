@@ -9,7 +9,7 @@ executor: claude -p --model opus
 family: claude
 adapter: claude-opus
 rung: 1
-checker: codex exec (GPT) — kontrola zadání
+checker: ChatGPT v prohlížeči (GPT, P16 v2) — kontrola zadání
 checker_family: gpt
 sources: handoff, capsule, buildos
 max_fix_rounds: 0
@@ -58,7 +58,7 @@ Technický protokol v0 (implementační volba orchestrátoru, ne pravidlo ze zdr
 
 ## 6. Kontrolor
 
-GPT přes `codex exec` (jiná rodina než supervizor Claude Opus; TARS-ORCH-001 §2a bod 6). Checklist odvozený z bodů 3 a 5:
+GPT v prohlížeči (ChatGPT v běžném režimu Chat, nikdy Work, GPT-6 · Vysoká; P16 v3), jiná rodina než supervizor Claude Opus (TARS-ORCH-001 §2a bod 6). Nedostupný GPT v prohlížeči = zakázka čeká ve WAITING_REVIEW, kontrola se nepředstírá. Checklist odvozený z bodů 3 a 5:
 1. `why` cituje text, který v HANDOFF stojí v ACTIVE TRACK nebo DALŠÍ KROK.
 2. Zakázka nespadá pod „Co se NESMÍ dělat znovu“ a nemění zamčený kontrakt.
 3. `inputs` obsahují jen fakta z HANDOFF nebo kufříku; pracovní hodnoty nejsou podané jako zamčené.

@@ -184,6 +184,16 @@ mcp() {
   # Jediný povolený způsob připojení: CDP endpoint na loopbacku. Žádné --user-data-dir, --extension, --config ani
   # --executable-path, takže MCP nemůže otevřít ani převzít jiný (běžný) profil.
   local args=(-y "$mcp_pkg" --cdp-endpoint "http://127.0.0.1:$port" --no-webmcp)
+  # Výstupní soubory MCP (automatické snapshoty, screenshoty) jen do složky shots-* daného běhu (Codex review kolo 2,
+  # nález 5), nikdy do sdíleného .playwright-mcp/. Cesta musí být existující absolutní složka shots-* (bez symlinků).
+  if [ -n "${TARS_MCP_OUTPUT_DIR:-}" ]; then
+    local out
+    case "$TARS_MCP_OUTPUT_DIR" in /*) ;; *) fail "výstupní složka MCP není absolutní cesta" ;; esac
+    out=$(cd "$TARS_MCP_OUTPUT_DIR" 2>/dev/null && pwd -P)
+    [ -n "$out" ] || fail "výstupní složka MCP neexistuje"
+    case "$(basename "$out")" in shots|shots-*) ;; *) fail "výstupní složka MCP není složka shots-* běhu" ;; esac
+    args+=(--output-dir "$out")
+  fi
   if [ "${TARS_BROWSER_DRYRUN:-}" = "1" ]; then echo "EXEC npx ${args[*]}"; return 0; fi
   exec npx "${args[@]}"
 }

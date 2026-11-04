@@ -43,7 +43,26 @@ because they run inside this repo and would otherwise trigger a GPT review per c
 ## Lifecycle
 
 `NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE`,
-plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`.
+plus `PAUSED` (subscription limit, resumes on a later tick), `WAITING_REVIEW` („čeká na kontrolu“, P16 v2), `FAILED`, `UNKNOWN`.
+
+### Kontroly mimo kód přes GPT v prohlížeči (P16 v3)
+
+Pravidlo vlastníka (P16 v3, 4. 11. 9:53): kontrolu zadání supervizora, kontrolu copy, vizuální bránu a oponenta
+Konzilia Lite dělá GPT v prohlížeči (`chatgpt-web.ts`, `ChatGptWebChecker`, rodina `gpt`) v běžném režimu Chat
+(čerpá paušál ChatGPT, ne limit Work): chatgpt.com → přepínač „Chat | Work“ = Chat (když Chat není, `UNKNOWN
+chat-nedostupny`; Work nikdy, ani jako fallback; žádný projekt) → GPT-6 (záložní GPT-5.6 Sol) → intenzita Vysoká
+(záložní nejvyšší stupeň posuvníku; skutečný model ze stránky se zapíše do `runs/<zakázka>/check-gptweb-*.md` a do
+logu; stránka s Work nebo modelem Work = `WAITING_REVIEW` „běží v režimu Work místo Chat“) → jedno odeslání promptu →
+čekání na koncovou značku → odpověď se čte ze
+stránky jako data a v kódu se ověří podle JSON schématu. Žádný nový prohlížečový kód: `McpBrowser` + `mcp-gate.ts`
+(host allowlist, one submit, vkládaný text musí sedět na sha256 promptu). Nikdy se nepřihlašuje.
+Kontrola kódu (oddělení dev) zůstává Codex. Tvůrce copy je kvůli tomu Claude Opus (kontroluje jiná rodina).
+
+Nepřihlášený profil, selhání prohlížeče, limit, timeout nebo odpověď mimo schéma = `waitReview`: zakázka přejde do
+`WAITING_REVIEW` se stejným artefaktem (`review_hash` = sha256 zadání v `meta.pending_brief`, nebo draftu). Další tick
+to zkusí znovu nejvýš jednou; změněný artefakt = `UNKNOWN`. Bez skutečné odpovědi nikdy PASS.
+Živý neškodný test: `npx tsx tars/orch/cli.ts gpt-smoke` (prompt „Odpověz jen slovem OK.“). Profil TARS-agent musí
+být přihlášený do ChatGPT (běžný účet); přihlašuje se jen vlastník.
 
 - State: `runs/<order-id>/state.json` (atomic write). Episodic log: `runs/log.jsonl`. Both are gitignored.
 - One owner of the state (DR-039, etapa 2): every state carries a monotonic `version`; `Store.save` writes only over
@@ -62,6 +81,31 @@ plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`
   counter is never read as 0: the next fence is max(readable counter, current lock, every `fence` in
   `runs/*/state.json`) + 1. If the counter is damaged and some `state.json` is unreadable too, the tick is HOLD
   („tick lock HOLD: fence nelze bezpečně určit“ in `runs/log.jsonl`).
+
+### Vedlejší účinky: journal a obnova po pádu (DR-039, etapa 3)
+
+- Každý externí zápis zakázky — DRAFT stránka (`deliver` copy/vizual), PR (`deliver` dev), karta GO/REJECT, karta
+  UNKNOWN, komentář s upozorněním na iPhone — má záznam v `runs/<id>/effects/<krok>-r<kolo>.json` (`effects.ts`),
+  zapsaný trvale jako `.fence` (tmp + fsync + rename + fsync adresáře). Pořadí: `PREPARED` → zápis → receipt
+  (`EFFECT_DONE`, URL objektu). `operation_id` = `<zakázka>/<krok>/r<kolo>` (kolo oprav, u komentáře číslo přechodu
+  do `WAITING_OWNER`); opakovaný pokus má stejné id a jen zvýší `attempts`.
+- Vytvářený objekt nese značku `[op:<operation_id>]`: u Notion stránek na konci titulku (tělo stránky, na které stojí
+  read-back hash, se nemění; řádek panelu titulek stránky nezobrazuje), u PR v těle.
+- Tick, který najde `PREPARED` bez receiptu (proces spadl mezi zápisem a uložením výsledku), nevolá znovu naslepo:
+  dohledá značku — Notion přes REST výpis potomků rodičovské stránky (`GET /v1/blocks/{parent}/children`, celý, ne
+  vyhledávání, které čerstvé stránky nevidí), PR přes `gh pr list --head tars/<id> --state all`. Právě jeden nález →
+  receipt se doplní a zakázka pokračuje. S jistotou nic → nový pokus se stejným `operation_id`. Cokoli nejasného
+  (chyba hledání, víc kopií, nalezený objekt v koši, neúplný výpis, dohledání není k dispozici — bez tokenu nebo
+  oddělení bez `findEffect`) → `EFFECT_UNKNOWN` / HOLD: zakázka `UNKNOWN` s důvodem „EFFECT_UNKNOWN (…)“ v logu i
+  v panelu (Poslední krok) a žádný další zápis. Receipt už v journalu (pád po receiptu, před `state.json`) se použije
+  bez dohledání. Zápis, který skončil chybou s nejasným výsledkem, zůstává `PREPARED` (příště se nejdřív dohledává);
+  čisté odmítnutí (REST 4xx kromě 408, secret-scan) je `EFFECT_ABSENT` a smí se opakovat.
+- Komentář s upozorněním nejde dohledat podle značky: pokus bez receiptu se neopakuje (`EFFECT_UNKNOWN`,
+  `meta.owner_ping` se označí), stejně jako dosud nejasný výsledek.
+- Panel: selhaný zápis řádku označí zakázku `dirty:` v `runs/panel-index.json`; další tick řádek přepíše ze
+  `state.json` (stejné ID zakázky → stejný řádek; po nejasném vytvoření se řádek nejdřív dohledá podle „ID zakázky“).
+- Nouzový postup u `EFFECT_UNKNOWN`: v Notionu (pod rodičovskou stránkou DRAFTů) nebo na GitHubu vyhledej značku
+  z důvodu v panelu. Zakázka zůstává `UNKNOWN`; rozhodnutí, zda ji zopakovat, je na vlastníkovi.
 
 ### Nouzový postup: zámek visí (HOLD)
 
@@ -99,9 +143,11 @@ Každé kolo karty má **vlastní řádek panelu** (starý řádek se nepřepisu
   vyřazený řádek i zápis staršího kola, takže pozastavený `cli.ts panel-sync` ani opožděný REST PATCH staré karty
   (po MCP fallbacku) nemůže index vrátit; jejich zápis skončí jen ve starém řádku.
 - Další tick projde standardní cestou: read-back DRAFTu → nová karta s `approved_hash`/`artifact_hash`. Teprve s ní
-  vznikne nový řádek (karta je v něm od prvního zápisu, „Rozhodnutí vlastníka“ prázdné). Vytvoření jde přes journal
-  efektu `<id>/panel-row-reissue/r<n>` v `runs/<id>/panel-effects.json` (PREPARED před zápisem, EFFECT_DONE s row id po
-  něm; pokus bez odpovědi se nejdřív dohledá podle „ID zakázky“ a odkazu na aktuální kartu, vyřazené řádky se vynechají).
+  vznikne nový řádek (karta je v něm od prvního zápisu, „Rozhodnutí vlastníka“ prázdné). Vytvoření jde přes stejný
+  journal efektů etapy 3 jako řádek kola 0: operace `<id>/panel-row/r<n>` (n = kolo karty) v `runs/<id>/effects/`
+  (PREPARED před zápisem, EFFECT_DONE s receiptem po něm; pokus bez odpovědi se nejdřív dohledá podle „ID zakázky“ a
+  odkazu na aktuální kartu, vyřazené řádky se vynechají; MCP hledání to ověřit neumí, takže tam = HOLD). Karta
+  znovuvydaného kola je v journalu samostatný efekt `<id>/owner-card-k<n>/r<fix>`, receipt staré karty se nepřevezme.
 - Potom se starý řádek označí Stav `SUPERSEDED`, Fronta „3 · Hotové“, Čeká na vlastníka = ne, Poslední krok
   „karta znovuvydána → nový řádek <id>“, bez odkazu na kartu. Selhání se zkusí znovu při dalším zápisu.
 - Všechny zápisy (tick, `panel-sync`, oprava karty) cílí na row id, které index drží pro kolo uloženého stavu.
@@ -139,8 +185,9 @@ do pole „Rozhodnutí vlastníka“ nikdy nezapisuje (P20).
 ```
 npx tsx tars/orch/cli.ts tick
 npx tsx tars/orch/cli.ts status
-npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP)
-npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP
+npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP), dir runs/shots-browser-check
+npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP, dir runs/shots-browser-smoke
+npx tsx tars/orch/cli.ts gpt-retry <id> fable|vlastnik <proč>   # one new GPT check attempt after a burned one (never automatic)
 npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
 npx tsx tars/orch/cli.ts reissue <order-id>       # znovuvydání karty bez otisku, viz Lifecycle
 npx vitest run tars

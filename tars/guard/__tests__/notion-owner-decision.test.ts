@@ -53,9 +53,9 @@ describe("notion-owner-decision: povolit", () => {
 });
 
 describe("notion-owner-decision: okrajové chování", () => {
-  it("neplatný JSON neblokuje (exit 1, ne 2) a hlásí chybu: obrana ve vrstvách, ne důkaz identity", () => {
+  it("neplatný JSON blokuje (fail-closed, exit 2) a hlásí chybu", () => {
     const r = run("tohle neni json");
-    expect(r.status).toBe(1);
-    expect(r.stderr).toMatch(/NEBYLO zablokováno/);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/ZABLOKOVÁNO \(fail-closed\)/);
   });
 });

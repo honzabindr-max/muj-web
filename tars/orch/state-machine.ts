@@ -1,6 +1,6 @@
 // Deterministic order lifecycle (TARS-ORCH-001 §3).
 // NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE
-// side states: PAUSED (subscription limit), FAILED, UNKNOWN.
+// side states: PAUSED (subscription limit), WAITING_REVIEW (GPT v prohlížeči nedostupný, P16 v2), FAILED, UNKNOWN.
 
 import { goBlocker } from "./approval";
 import type { Order, OrderState } from "./types";
@@ -19,6 +19,9 @@ export type OrderEvent =
   | { type: "reissue" }
   | { type: "limit"; resume_after: string }
   | { type: "resume" }
+  /** P16 v2: the non-code review (GPT in the browser) did not happen; the same artifact waits with its hash. */
+  | { type: "wait_review"; reason: string; hash: string }
+  | { type: "retry_review" }
   | { type: "fail"; reason: string }
   | { type: "unknown"; reason: string };
 
@@ -78,11 +81,18 @@ function target(order: Order, ev: OrderEvent): OrderState {
     case "resume":
       if (s === "PAUSED" && order.paused_from) return order.paused_from;
       break;
+    case "wait_review":
+      // Only a review step may wait: the brief check (NEW) and the output check (CHECKING).
+      if (s === "NEW" || s === "CHECKING") return "WAITING_REVIEW";
+      break;
+    case "retry_review":
+      if (s === "WAITING_REVIEW" && order.review_from) return order.review_from;
+      break;
     case "fail":
-      if (ACTIVE.includes(s) || s === "PAUSED") return "FAILED";
+      if (ACTIVE.includes(s) || s === "PAUSED" || s === "WAITING_REVIEW") return "FAILED";
       break;
     case "unknown":
-      if (ACTIVE.includes(s) || s === "PAUSED") return "UNKNOWN";
+      if (ACTIVE.includes(s) || s === "PAUSED" || s === "WAITING_REVIEW") return "UNKNOWN";
       break;
   }
   throw new TransitionError(`illegal transition: ${s} --${ev.type}-->`);
@@ -100,6 +110,11 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       { from: order.state, to, event: ev.type, at: now },
     ],
   };
+  // A real review answer (brief check → planned, output check → verdict) ends the wait for review.
+  if (ev.type === "verdict" || ev.type === "planned") {
+    next.review_hash = undefined;
+    next.review_reason = undefined;
+  }
   switch (ev.type) {
     case "verdict":
       next.last_issues = ev.issues ?? [];
@@ -120,6 +135,15 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
     case "resume":
       next.paused_from = undefined;
       next.resume_after = undefined;
+      break;
+    case "wait_review":
+      next.review_from = order.state;
+      next.review_hash = ev.hash;
+      next.review_reason = ev.reason.slice(0, 500);
+      break;
+    case "retry_review":
+      // review_hash stays until the review really happens: the retry is checked against it.
+      next.review_from = undefined;
       break;
     case "start":
       if (!ev.preflight.ok) next.failure_reason = `preflight: ${ev.preflight.reasons.join("; ")}`.slice(0, 500);
@@ -187,5 +211,5 @@ export function isTerminal(s: OrderState): boolean {
 
 /** States where the orchestrator itself should act on the next tick. */
 export function isActionable(s: OrderState): boolean {
-  return ACTIVE.includes(s) || s === "PAUSED";
+  return ACTIVE.includes(s) || s === "PAUSED" || s === "WAITING_REVIEW";
 }

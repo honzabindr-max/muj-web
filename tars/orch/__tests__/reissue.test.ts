@@ -23,7 +23,7 @@ import {
   SecretScanningAdapter,
   type OrchestratorDeps,
 } from "../orchestrator";
-import { readPanelEffect, reissueRowOp } from "../panel-effects";
+import { EffectJournal, operationId } from "../effects";
 import {
   HybridPanelSink,
   OWNER_DECISION_PROPERTY,
@@ -181,6 +181,13 @@ class Panel implements PanelSink {
 let dir: string;
 let store: Store;
 let clock: string;
+/** Merge s etapou 3: řádek kola karty `round` je efekt `<id>/panel-row/r<round>` v journalu etapy 3. */
+const rowOp = (id: string, round = 1) => operationId(id, "panel-row", round);
+const rowEffect = (id: string, round = 1) =>
+  new EffectJournal(dir).get(rowOp(id, round));
+const rowReceipt = (page: string) => ({
+  url: `https://www.notion.so/${page}`,
+});
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-reissue-"));
   store = new Store(dir);
@@ -198,9 +205,10 @@ function build(
     supervisor: new Mock("claude", "opus", BRIEF),
     briefChecker: new Mock("gpt", "gpt-brief", PASS),
     departments: {
+      // P16 v2 (#98): copy = Claude tvoří, GPT (v prohlížeči) kontroluje.
       copy: new CopyDepartment(
-        new SecretScanningAdapter(new Mock("gpt", "gpt", DRAFT)),
-        new Mock("claude", "opus", PASS),
+        new SecretScanningAdapter(new Mock("claude", "opus", DRAFT)),
+        new Mock("gpt", "gpt-web", PASS),
       ),
       vizual: new VizualDepartment(
         new Browser(),
@@ -219,7 +227,8 @@ function build(
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
     now: () => new Date(clock),
-    panel: { sink: panel, index: new PanelIndex(dir) },
+    // etapa 3: index pod stavovým zámkem téhož Store (re-entrantní jen v jedné instanci, stejně jako v cli.ts)
+    panel: { sink: panel, index: new PanelIndex(dir, st) },
     sources: new SourceLoader(notion, dir, path.join(dir, "sources-cache")),
     ...extra,
   });
@@ -369,14 +378,15 @@ describe("cli.ts reissue: znovuvydání karty bez otisku", () => {
       w.owner_card_url,
     );
     expect(new PanelIndex(dir).current(id, 1)).toBe("page2");
-    // Journal efektu: PREPARED → EFFECT_DONE s row id.
-    const eff = readPanelEffect(store.orderDir(id), reissueRowOp(id, 1));
+    // Journal efektu etapy 3: PREPARED → EFFECT_DONE s row id (jeden mechanismus pro kolo 0 i znovuvydaná kola).
+    const eff = rowEffect(id);
     expect(eff).toMatchObject({
-      operation_id: `${id}/panel-row-reissue/r1`,
+      operation_id: `${id}/panel-row/r1`,
+      step: "panel-row",
       state: "EFFECT_DONE",
       round: 1,
       attempts: 1,
-      receipt: { row_id: "page2" },
+      receipt: rowReceipt("page2"),
     });
     // Starý řádek page1: SUPERSEDED, hotové, nečeká, odkaz na nový řádek, bez karty.
     const p1 = panel.page("page1").row;
@@ -642,18 +652,17 @@ describe("journal efektu nového řádku (PREPARED → receipt)", () => {
     panel.createLandsThenFails = true;
     clock = "2026-11-04T08:45:00.000Z";
     await x.o.tick();
-    const op = reissueRowOp(x.id, 1);
     // Jediný POST (attempts 1); další zápis v ticku nebo panel-sync řádek jen dohledá.
-    expect(readPanelEffect(store.orderDir(x.id), op)).toMatchObject({
+    expect(rowEffect(x.id)).toMatchObject({
       attempts: 1,
     });
     expect(panel.creates).toBe(2);
     await x.o.resyncPanel(x.id);
     expect(panel.creates).toBe(2); // žádný duplicitní řádek
-    expect(readPanelEffect(store.orderDir(x.id), op)).toMatchObject({
+    expect(rowEffect(x.id)).toMatchObject({
       state: "EFFECT_DONE",
       recovered: true,
-      receipt: { row_id: "page2" },
+      receipt: rowReceipt("page2"),
     });
     expect(new PanelIndex(dir).current(x.id, 1)).toBe("page2");
     expect(panel.page("page1").row.Stav).toBe(SUPERSEDED_STATE);
@@ -667,16 +676,15 @@ describe("journal efektu nového řádku (PREPARED → receipt)", () => {
     panel.failUpsert = new NotionRestError(400, "validation_error");
     clock = "2026-11-04T08:45:00.000Z";
     await x.o.tick();
-    const op = reissueRowOp(x.id, 1);
-    const absent = readPanelEffect(store.orderDir(x.id), op)!;
+    const absent = rowEffect(x.id)!;
     expect(absent.state).toBe("EFFECT_ABSENT");
     expect(panel.creates).toBe(1); // čistá odmítnutí nic nevytvořila
     panel.failUpsert = undefined;
     await x.o.resyncPanel(x.id);
-    expect(readPanelEffect(store.orderDir(x.id), op)).toMatchObject({
+    expect(rowEffect(x.id)).toMatchObject({
       state: "EFFECT_DONE",
       attempts: absent.attempts + 1,
-      receipt: { row_id: "page2" },
+      receipt: rowReceipt("page2"),
     });
     // Nejasný pokus: page1 (stejné ID zakázky) se jako výsledek nikdy nepřijme.
     expect(await panel.findRowByOrderId(x.id, { exclude: ["page1"] })).toBe(
@@ -866,9 +874,8 @@ describe("kolo oprav 5: zápisy panelu jedné zakázky pod jedním zámkem", () 
     clock = "2026-11-04T08:45:00.000Z";
     const ticking = x.o.tick();
     while (!panel.holding) await yieldLoop();
-    const op = reissueRowOp(x.id, 1);
     // Tick drží zámek panelu: PREPARED uložený, POST nového řádku ještě nedoběhl.
-    expect(readPanelEffect(store.orderDir(x.id), op)).toMatchObject({
+    expect(rowEffect(x.id)).toMatchObject({
       state: "PREPARED",
       attempts: 1,
     });
@@ -893,10 +900,10 @@ describe("kolo oprav 5: zápisy panelu jedné zakázky pod jedním zámkem", () 
     await waitingSync;
     expect(panel.creates).toBe(2);
     expect(new PanelIndex(dir).current(x.id, 1)).toBe("page2");
-    expect(readPanelEffect(store.orderDir(x.id), op)).toMatchObject({
+    expect(rowEffect(x.id)).toMatchObject({
       state: "EFFECT_DONE",
       attempts: 1,
-      receipt: { row_id: "page2" },
+      receipt: rowReceipt("page2"),
     });
     expect(writesTo(panel, "page3")).toEqual([]);
     panel.page("page2").decision = "REJECT";
