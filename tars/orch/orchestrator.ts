@@ -196,7 +196,9 @@ export class Orchestrator {
           // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
           if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
           // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
-          panel.index.markDirty(o.id);
+          // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
+          // exist, so a catch-up would create a second one. That case keeps the old rule (next transition only).
+          if (!creating || !isUncertainOutcome(e) || panel.sink.findRowByOrderId) panel.index.markDirty(o.id);
         } catch {
           /* the index itself is unwritable: the next transition still rewrites the row */
         }

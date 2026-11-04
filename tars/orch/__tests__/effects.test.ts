@@ -394,6 +394,46 @@ describe("panel projection: dirty rows are caught up on the next tick, never dup
     ).toBe(true);
   });
 
+  it("a create of unknown outcome on a sink that cannot look rows up is NOT marked dirty: the tick never creates a second row", async () => {
+    waiting();
+    const sink = new FakeSink();
+    (sink as { findRowByOrderId?: unknown }).findRowByOrderId = undefined;
+    sink.failNext = 1;
+    sink.commitOnFailure = true;
+    const index = new PanelIndex(dir);
+    const o = makeOrch(store, notion, { panel: { sink, index } });
+    await o.resyncPanel(ORDER_ID);
+    expect(sink.creates).toBe(1);
+    expect(index.isDirty(ORDER_ID)).toBe(false);
+    await o.tick();
+    await o.tick();
+    expect(sink.creates).toBe(1);
+    expect(sink.rows.size).toBe(1);
+  });
+
+  it("a cleanly refused create (4xx, nothing written) is dirty and the next tick creates the row once", async () => {
+    waiting();
+    const sink = new FakeSink();
+    const real = sink.upsert.bind(sink);
+    let refuse = true;
+    sink.upsert = async (row, existing) => {
+      if (refuse) {
+        refuse = false;
+        throw new NotionRestError(400, "validation_error");
+      }
+      return real(row, existing);
+    };
+    const index = new PanelIndex(dir);
+    const o = makeOrch(store, notion, { panel: { sink, index } });
+    await o.resyncPanel(ORDER_ID);
+    expect(index.isDirty(ORDER_ID)).toBe(true);
+    expect(sink.creates).toBe(0);
+    await o.tick();
+    await o.tick();
+    expect(sink.creates).toBe(1);
+    expect(index.isDirty(ORDER_ID)).toBe(false);
+  });
+
   it("a failed update of a known row: the next tick rewrites the same row from state.json; a second failure keeps the mark", async () => {
     waiting();
     const sink = new FakeSink();
