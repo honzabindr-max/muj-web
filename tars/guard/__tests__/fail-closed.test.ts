@@ -142,6 +142,73 @@ describe("selhání hooku = blok", () => {
     expect(r.stderr).toMatch(/ZABLOKOVÁNO \(fail-closed\)/);
   });
 
+  const BAD_PAYLOADS: [string, string][] = [
+    ["prázdný stdin", ""],
+    ["jen bílé znaky", "  \n"],
+    ["prázdný objekt {}", "{}"],
+    ["pole []", "[]"],
+    ["řetězec místo objektu", '"Bash"'],
+    ["null", "null"],
+  ];
+
+  it.each([
+    ...BAD_PAYLOADS,
+    ["chybějící tool_input", JSON.stringify({ tool_name: "Bash" })],
+    [
+      "tool_input bez command",
+      JSON.stringify({ tool_name: "Bash", tool_input: {} }),
+    ],
+    [
+      "command není řetězec",
+      JSON.stringify({ tool_name: "Bash", tool_input: { command: 1 } }),
+    ],
+    [
+      "tool_name není řetězec",
+      JSON.stringify({ tool_name: 1, tool_input: { command: "ls" } }),
+    ],
+  ])("bash-preflight s neúplným payloadem (%s): exit 2", (_n, stdin) => {
+    const r = preflight(stdin);
+    expect(r.status).toBe(2);
+    expect(r.stdout.trim()).toBe("");
+    expect(r.stderr).toMatch(
+      /neplatný vstup hooku .*ZABLOKOVÁN \(fail-closed\)/,
+    );
+  });
+
+  it.each([
+    ...BAD_PAYLOADS,
+    [
+      "chybějící tool_input",
+      JSON.stringify({
+        tool_name: "mcp__claude_ai_Notion__notion-update-page",
+      }),
+    ],
+    [
+      "tool_input není objekt",
+      JSON.stringify({
+        tool_name: "mcp__claude_ai_Notion__notion-update-page",
+        tool_input: "x",
+      }),
+    ],
+    ["chybějící tool_name", JSON.stringify({ tool_input: {} })],
+  ])("notion-owner-decision s neúplným payloadem (%s): exit 2", (_n, stdin) => {
+    const r = spawnSync("python3", ["-I", NOTION], {
+      input: stdin,
+      encoding: "utf8",
+    });
+    expect(r.status).toBe(2);
+    expect(r.stdout.trim()).toBe("");
+    expect(r.stderr).toMatch(
+      /neplatný vstup hooku .*ZABLOKOVÁNO \(fail-closed\)/,
+    );
+  });
+
+  it("bash-preflight: prázdný příkaz v úplném payloadu nic nespouští, projde", () => {
+    const r = preflight(bashInput("   "));
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
+
   it.each(["bash-preflight.sh", "notion-owner-decision.py"])(
     "%s: nakonfigurovaný příkaz bez python3 na PATH skončí nenulově (s onFailure: block = blok)",
     (name) => {
@@ -186,6 +253,23 @@ describe("P20: nejistý rozbor s cli.ts = deny, ostatní nejisté = allow", () =
       "npx tsx tars/orch/cli $(echo own",
     ],
     ["cli.ts tick s nedovřenou uvozovkou", "npx tsx tars/orch/cli.ts tick 'x"],
+    // vnořený nejistý rozbor (Parser.sub dřív Unsure spolkl)
+    [
+      "bash -c s nejistým vnitřkem a cli.ts",
+      `bash -c "npx tsx tars/orch/cli.ts tick 'a"`,
+    ],
+    [
+      "sh -c s nejistým vnitřkem a cli.ts",
+      `sh -c "node tars/orch/cli.ts status \\"x"`,
+    ],
+    [
+      "eval s nejistým vnitřkem a tars/orch/cli",
+      `eval "npx tsx tars/orch/cli tick 'x"`,
+    ],
+    [
+      "dvojí vnoření bash -c > eval s nejistým vnitřkem",
+      `bash -c "eval \\"tars/orch/cli.ts tick 'x\\""`,
+    ],
   ])("deny: %s", (_n, command) => {
     const d = decision(command);
     expect(d.decision).toBe("deny");
@@ -219,6 +303,11 @@ describe("P20: nejistý rozbor s cli.ts = deny, ostatní nejisté = allow", () =
     ["gh pr view", "gh pr view 96 --json title"],
     ["nejistý příkaz bez cli.ts zůstává allow", 'echo "abc'],
     ["nejistý grep bez cli.ts", "grep 'owner f"],
+    ["bash -c s nejistým vnitřkem bez cli.ts", `bash -c "echo 'abc"`],
+    [
+      "bash -c s cli.ts tick bez nejistoty",
+      `bash -c "npx tsx tars/orch/cli.ts tick"`,
+    ],
   ])("allow: %s", (_n, command) => {
     expect(decision(command).decision).toBe("allow");
   });

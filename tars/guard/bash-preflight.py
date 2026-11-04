@@ -12,7 +12,9 @@ a argument "-c" shellů (bash -c '...'), aby se kontrola nedala obejít.
 Když si parser není jistý (nedovřená uvozovka apod.), příkaz POVOLÍ a zaloguje to (UNSURE_ALLOW), aby se
 nerozbila běžná práce. Výjimka (P20): nejistý příkaz, který obsahuje cli.ts nebo tars/orch/cli, se ZAMÍTNE
 (UNSURE_DENY_CLI), protože u něj nejde vyloučit podpříkaz owner.
-Chyba hooku je fail-closed: neplatný JSON nebo pád skriptu skončí exit 2 (blokující) s hláškou na stderr.
+Nejistota vnořeného rozboru (bash -c, sh -c, eval) se počítá stejně jako na nejvyšší úrovni.
+Chyba hooku je fail-closed: neplatný JSON, prázdný stdin, payload, který není objekt, chybějící tool_name
+nebo u Bash chybějící tool_input.command a pád skriptu skončí exit 2 (blokující) s hláškou na stderr.
 
 DR-039: navíc zamítne každé spuštění tars/orch/cli.ts s podpříkazem `owner` (npx tsx, node --import,
 tsx, npm exec, cesta relativní i absolutní, uvozovky, proměnné před příkazem, env, bash -c, $(...)),
@@ -48,20 +50,67 @@ REASONS = {
 
 OWNER_REASON = "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)"
 # P20: nejistý rozbor + cli.ts / tars/orch/cli = nejde vyloučit podpříkaz owner -> deny.
-UNSURE_CLI_REASON = OWNER_REASON + ": příkaz s cli.ts nejde bezpečně rozebrat (P20). Napiš ho bez nedovřených uvozovek."
+UNSURE_CLI_REASON = (
+    OWNER_REASON
+    + ": příkaz s cli.ts nejde bezpečně rozebrat (P20). Napiš ho bez nedovřených uvozovek."
+)
 UNSURE_CLI_RE = re.compile(r"cli\.[cm]?[jt]s\b|tars/orch/cli\b")
 # Zástupná hodnota za $(...) a `...` (obsah se kontroluje zvlášť); pro podpříkaz cli.ts znamená "nejde určit".
 SUB = "\x00sub"
 CLI_NAMES = {"cli.ts", "cli.js", "cli.mjs", "cli.cjs"}
-RUNNERS = {"npx", "tsx", "node", "npm", "pnpm", "pnpx", "yarn", "bun", "bunx", "deno", "ts-node", "vite-node"}
+RUNNERS = {
+    "npx",
+    "tsx",
+    "node",
+    "npm",
+    "pnpm",
+    "pnpx",
+    "yarn",
+    "bun",
+    "bunx",
+    "deno",
+    "ts-node",
+    "vite-node",
+}
 # Interprety, které spouštějí kód z argumentu (node -e, python -c ...): jejich argument se prohledá jako text.
-EVAL_RUNNERS = {"node", "python", "python3", "perl", "ruby", "deno", "bun", "osascript", "php"}
+EVAL_RUNNERS = {
+    "node",
+    "python",
+    "python3",
+    "perl",
+    "ruby",
+    "deno",
+    "bun",
+    "osascript",
+    "php",
+}
 # Textový vzor nad celým surovým příkazem (i obsah uvozovek, heredoc, echo/printf, bash -c, eval, xargs):
 # cli.ts / tars/orch/cli, volitelně přepínače, pak token owner. `grep owner cli.ts` ani `cli.ts tick` nezachytí.
-OWNER_RAW_RE = re.compile(r"(?:cli\.[cm]?[jt]s|tars/orch/cli\b)(?:\W{1,6}-[\w-]+)*\W{0,6}owner\b")
+OWNER_RAW_RE = re.compile(
+    r"(?:cli\.[cm]?[jt]s|tars/orch/cli\b)(?:\W{1,6}-[\w-]+)*\W{0,6}owner\b"
+)
 
-NOVALUE_OPTS = {"-0", "--null", "--no-run-if-empty", "--verbose", "--interactive", "--open-tty"}
-WRAPPERS = {"sudo", "env", "command", "nohup", "time", "exec", "xargs", "nice", "stdbuf", "builtin", "timeout"}
+NOVALUE_OPTS = {
+    "-0",
+    "--null",
+    "--no-run-if-empty",
+    "--verbose",
+    "--interactive",
+    "--open-tty",
+}
+WRAPPERS = {
+    "sudo",
+    "env",
+    "command",
+    "nohup",
+    "time",
+    "exec",
+    "xargs",
+    "nice",
+    "stdbuf",
+    "builtin",
+    "timeout",
+}
 SHELLS = {"sh", "bash", "zsh", "dash"}
 OK_TARGETS = {"/dev/null", "/dev/stderr", "/dev/stdout"}
 META = set(" \t\n;&|<>()")
@@ -129,7 +178,9 @@ def log(event, detail=""):
     path = os.environ.get("TARS_PREFLIGHT_LOG", "/tmp/tars-bash-preflight.log")
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write("%s %s %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S%z"), event, detail))
+            f.write(
+                "%s %s %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S%z"), event, detail)
+            )
     except Exception:
         pass
 
@@ -139,6 +190,8 @@ class Parser:
         self.s = s
         self.level = level
         self.found = []
+        # první Unsure z vnořeného rozboru (bash -c, sh -c, eval), i z hlubších úrovní
+        self.nested_unsure = None
 
     def add(self, code):
         if code not in self.found:
@@ -193,7 +246,7 @@ class Parser:
                 j = s.find("'", i + 1)
                 if j < 0:
                     raise Unsure("nedovřená '")
-                cur.append(s[i + 1:j])
+                cur.append(s[i + 1 : j])
                 inword = True
                 i = j + 1
                 continue
@@ -225,7 +278,7 @@ class Parser:
                         j += 2 if s[j] == "\\" else 1
                     if j >= n:
                         raise Unsure("nedovřená $'")
-                    cur.append(ansi_c(s[i + 2:j]))
+                    cur.append(ansi_c(s[i + 2 : j]))
                     i = j + 1
                 else:
                     cur.append(c)
@@ -395,7 +448,7 @@ class Parser:
                 k = s.find(c, j + 1)
                 if k < 0:
                     raise Unsure("nedovřená uvozovka v cíli přesměrování")
-                chunk = s[j + 1:k]
+                chunk = s[j + 1 : k]
                 if c == '"' and ("$" in chunk or "`" in chunk):
                     dyn = True
                 out.append(chunk)
@@ -425,7 +478,7 @@ class Parser:
         if first == "find":
             for k in range(idx + 1, n):
                 if words[k] in ("-exec", "-execdir", "-ok", "-okdir") and k + 1 < n:
-                    self.check(words[k + 1:])
+                    self.check(words[k + 1 :])
             return
         if first == "command" and idx + 1 < n and words[idx + 1] in ("-v", "-V"):
             return
@@ -457,7 +510,7 @@ class Parser:
         cmd = os.path.basename(ws[0])
         rest = ws[1:]
         if "--" in rest:
-            opts = rest[:rest.index("--")]
+            opts = rest[: rest.index("--")]
         else:
             opts = rest
         if cmd == "tee":
@@ -484,14 +537,19 @@ class Parser:
         p = Parser(payload, self.level + 1)
         try:
             p.run()
-        except Unsure:
-            pass
+        except Unsure as e:
+            if self.nested_unsure is None:
+                self.nested_unsure = e
+        if self.nested_unsure is None and p.nested_unsure is not None:
+            self.nested_unsure = p.nested_unsure
         for code in p.found:
             self.add(code)
 
 
 def load_allow():
-    path = os.environ.get("TARS_PREFLIGHT_ALLOW", os.path.join(HERE, "bash-preflight.allow"))
+    path = os.environ.get(
+        "TARS_PREFLIGHT_ALLOW", os.path.join(HERE, "bash-preflight.allow")
+    )
     patterns = []
     try:
         with open(path, encoding="utf-8") as f:
@@ -508,20 +566,45 @@ def load_allow():
     return patterns
 
 
+def bad_input(what):
+    """Fail-closed: chybějící nebo neúplný payload PreToolUse = exit 2 (blok), nikdy 0."""
+    log("BAD_INPUT", what)
+    sys.stderr.write(
+        "bash-preflight: neplatný vstup hooku (%s), příkaz byl ZABLOKOVÁN (fail-closed).\n"
+        % what
+    )
+    return 2
+
+
 def main():
-    data = json.loads(sys.stdin.read() or "{}")
-    if data.get("tool_name") not in (None, "Bash"):
+    raw = sys.stdin.read()
+    if not raw.strip():
+        return bad_input("prázdný stdin")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        return bad_input("vstup není JSON objekt")
+    name = data.get("tool_name")
+    if not isinstance(name, str) or not name:
+        return bad_input("chybí tool_name")
+    if name != "Bash":
         return 0
-    cmd = (data.get("tool_input") or {}).get("command")
-    if not isinstance(cmd, str) or not cmd.strip():
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict) or not isinstance(
+        tool_input.get("command"), str
+    ):
+        return bad_input("chybí tool_input.command")
+    cmd = tool_input["command"].strip()
+    if not cmd:
         return 0
-    cmd = cmd.strip()
     parser = Parser(cmd)
     unsure = None
     try:
         parser.run()
     except Unsure as e:
         unsure = e
+    # Parser.sub polyká nejistotu vnořeného rozboru (bash -c, sh -c, eval); P20 ji musí vidět taky.
+    if unsure is None and parser.nested_unsure is not None:
+        unsure = parser.nested_unsure
     # DR-039 platí před allowlistem: žádná výjimka nepovolí agentovi zadat rozhodnutí vlastníka.
     # Textový vzor se kontroluje VŽDY nad surovým textem, bez ohledu na to, zda parser příkaz poznal
     # (printf '...cli.ts owner...' | bash, echo | sh, xargs, bash -c "$C"). Zakódované varianty (base64,
@@ -561,7 +644,12 @@ def deny(reason):
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:  # fail-closed: chyba hooku (i neplatný JSON) = exit 2, Claude Code volání zablokuje
+    except (
+        Exception
+    ) as e:  # fail-closed: chyba hooku (i neplatný JSON) = exit 2, Claude Code volání zablokuje
         log("HOOK_ERROR", type(e).__name__)
-        sys.stderr.write("bash-preflight: chyba hooku (%s), příkaz byl ZABLOKOVÁN (fail-closed).\n" % type(e).__name__)
+        sys.stderr.write(
+            "bash-preflight: chyba hooku (%s), příkaz byl ZABLOKOVÁN (fail-closed).\n"
+            % type(e).__name__
+        )
         sys.exit(2)
