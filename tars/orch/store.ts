@@ -167,9 +167,9 @@ export class Store {
         fence = this.lease.fence;
       }
       const next: Order = { ...order, version: current + 1, ...(fence !== undefined ? { fence } : {}) };
-      const tmp = `${file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(redactDeep(next), null, 2) + "\n"); // state.json never keeps a token either
-      fs.renameSync(tmp, file); // atomic replace: a crash never leaves half a state
+      // Etapa 4 PR 1 (§0 bod 4): tmp + fsync souboru + rename + fsync adresáře. Pád nikdy nenechá půl stavu
+      // a potvrzený zápis přežije i výpadek napájení. Formát state.json beze změny. Token se neuloží (redactDeep).
+      writeDurable(file, JSON.stringify(redactDeep(next), null, 2) + "\n");
       order.version = next.version;
       if (fence !== undefined) order.fence = fence;
       return true;
@@ -215,11 +215,33 @@ export class Store {
     return lines.slice(-limit).map((l) => JSON.parse(l) as LogEntry);
   }
 
+  /**
+   * Soubor zakázky (výstupy modelů: drafty, verdikty kontrol, zadání, snímky zdrojů). Etapa 4 PR 1 (§0 bod 4):
+   * trvale přes `writeDurable` (tmp + fsync + rename + fsync adresáře); obsah a cesta beze změny.
+   */
   writeFile(id: string, name: string, content: string): string {
     const p = path.join(this.orderDir(id), name);
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, content);
+    writeDurable(p, content);
     return p;
+  }
+
+  /** Etapa 4 PR 1: trvalý zápis malého souboru v kořeni runs/ (např. limit-warning.json). */
+  writeRunsFile(name: string, content: string): string {
+    const p = path.join(this.runsDir, name);
+    writeDurable(p, content);
+    return p;
+  }
+
+  /** Obsah souboru v kořeni runs/, undefined když neexistuje. */
+  readRunsFile(name: string): { text: string; mtimeMs: number } | undefined {
+    const p = path.join(this.runsDir, name);
+    try {
+      return { text: fs.readFileSync(p, "utf8"), mtimeMs: fs.statSync(p).mtimeMs };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw e;
+    }
   }
 
   readFile(id: string, name: string): string {

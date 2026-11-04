@@ -1,8 +1,10 @@
 // Deterministic driver. One tick = guard → lock → resume/advance one order step by step.
 // "Kód hlídá, LLM rozhoduje": every gate, limit and record lives here, not in a prompt.
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
+import { parseReset } from "./reset";
 import { artifactHash, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import {
@@ -48,7 +50,7 @@ import {
   type LoadedSource,
   type SourceLoader,
 } from "./sources";
-import { scanSecrets } from "./secret-scan";
+import { redactDeep, scanSecrets } from "./secret-scan";
 import {
   isActionable,
   isTerminal,
@@ -116,6 +118,8 @@ export interface OrchestratorDeps {
   mission?: string;
   now?: () => Date;
   pauseMinutes?: number;
+  /** Etapa 4 PR 1 (§10.3): IANA zóna pro čas resetu bez zóny v hlášce limitu (výchozí Europe/Prague). */
+  resetTz?: string;
   maxStepsPerTick?: number;
   /** How long `owner`/`abort`/the Notion decision wait for the short state lock (default 5000 ms). */
   stateLockWaitMs?: number;
@@ -131,6 +135,11 @@ export interface OrchestratorDeps {
   panelHoldRetryMs?: number;
 }
 
+/** Q4-A (§10.2): rezerva po doloženém resetu limitu. */
+export const RESET_MARGIN_MS = 60_000;
+/** Q4-B: trvalý záznam posledního doloženého varování CLI o blížícím se limitu (runs/). */
+export const LIMIT_WARNING_FILE = "limit-warning.json";
+
 /** Výchozí ochranná doba po nejasném POST nového řádku (nález 4). */
 export const PANEL_CREATE_GUARD_MS = 10 * 60_000;
 /** Výchozí odstup dalšího dohledání řádku v HOLD (nález 2). */
@@ -142,6 +151,8 @@ export type TickResult =
   | { status: "locked" }
   | { status: "paused"; order: string; resume_after: string }
   | { status: "waiting_owner"; order: string }
+  /** Etapa 4 PR 1, Q4-B: doložené varování CLI o blížícím se limitu; nová zakázka nezačne do `until`. */
+  | { status: "limit_warning"; until: string }
   | { status: "waiting_review"; order: string; reason?: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
@@ -1402,6 +1413,9 @@ export class Orchestrator {
         const waiting = orders.find((o) => o.state === "WAITING_OWNER");
         // WIP limit 1: no new order while the owner has an undecided card.
         if (waiting) return { status: "waiting_owner", order: waiting.id };
+        // Q4-B: po doloženém varování CLI o blížícím se limitu nezačínat novou zakázku (rozpracovaná pokračuje výše).
+        const warn = this.activeLimitWarning();
+        if (warn) return { status: "limit_warning", until: warn };
         order = this.newOrder();
       }
       if (order.state === "PAUSED") {
@@ -2205,6 +2219,7 @@ export class Orchestrator {
     r: StepOutcome,
     role: LogEntry["role"],
   ): Order | undefined {
+    this.noteLimitWarning(order, r, role);
     if (r.ok) return undefined;
     if (r.waiting_review && role === "checker" && order.state === "CHECKING")
       return this.waitForReview(
@@ -2223,13 +2238,20 @@ export class Orchestrator {
       );
     }
     if (r.limit) {
-      const resume = new Date(
-        this.now().getTime() + (this.d.pauseMinutes ?? 60) * 60_000,
-      ).toISOString();
+      const { resume_after, meta } = this.resumeAfterLimit(r);
+      // Údaje o resetu z dřívější pauzy se nepřenášejí: platí jen doklad z této hlášky.
+      const kept = Object.fromEntries(
+        Object.entries(order.meta).filter(([k]) => !k.startsWith("reset_")),
+      );
       return this.apply(
-        order,
-        { type: "limit", resume_after: resume },
-        { role, model: r.model, reason: r.error },
+        { ...order, meta: { ...kept, ...meta } },
+        { type: "limit", resume_after },
+        {
+          role,
+          model: r.model,
+          reason: r.error,
+          result: `reset: ${meta.reset_source}`,
+        },
       );
     }
     this.log({
@@ -2245,6 +2267,116 @@ export class Orchestrator {
       { type: "fail", reason: `${role}: ${r.error ?? "unknown error"}` },
       { role, model: r.model },
     );
+  }
+
+  /**
+   * Etapa 4 PR 1 (§10.2 Q4-A, §10.3): `resume_after` po limitu. Doložený reset z hlášky → reset + 1 min.
+   * Nedoloženo → dnešní `pauseMinutes` od teď a `meta.reset_source = "nedoloženo"`.
+   */
+  private resumeAfterLimit(r: StepOutcome): {
+    resume_after: string;
+    meta: Record<string, string>;
+  } {
+    const now = this.now();
+    const text = r.limit_text ?? r.error ?? "";
+    const p = parseReset(
+      text,
+      r.received_at ?? now.toISOString(),
+      this.d.resetTz ?? "Europe/Prague",
+    );
+    if (p.ok) {
+      const resume = new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS);
+      if (resume > now)
+        return {
+          resume_after: resume.toISOString(),
+          meta: {
+            reset_source: p.source,
+            reset_at_utc: p.at_utc,
+            reset_at_local: p.at_local,
+            ...(p.raw_zone ? { reset_raw_zone: p.raw_zone } : {}),
+            reset_evidence: p.evidence_hash,
+          },
+        };
+    }
+    return {
+      resume_after: new Date(
+        now.getTime() + (this.d.pauseMinutes ?? 60) * 60_000,
+      ).toISOString(),
+      meta: {
+        reset_source: "nedoloženo",
+        reset_reason: (p.ok ? "reset + 1 min už uplynul" : p.reason).slice(
+          0,
+          200,
+        ),
+        reset_evidence: p.evidence_hash,
+      },
+    };
+  }
+
+  /**
+   * Q4-B: doložené varování CLI o blížícím se limitu se zapíše trvale do runs/limit-warning.json (jen pod lease ticku).
+   * Platí do doloženého resetu z varování + 1 min, jinak `pauseMinutes` od přijetí. Tick do té doby nezačne novou
+   * zakázku; rozpracovaná zakázka pokračuje.
+   */
+  private noteLimitWarning(
+    order: Order,
+    r: StepOutcome,
+    role: LogEntry["role"],
+  ): void {
+    if (!r.limit_warning || r.limit) return;
+    if (!this.d.store.holdsLease()) return;
+    const now = this.now();
+    const received = r.received_at ?? now.toISOString();
+    const p = parseReset(
+      r.limit_warning,
+      received,
+      this.d.resetTz ?? "Europe/Prague",
+    );
+    const until = p.ok
+      ? new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS)
+      : new Date(Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000);
+    const rec = {
+      observed_at: now.toISOString(),
+      received_at: received,
+      order: order.id,
+      role,
+      model: r.model,
+      until: until.toISOString(),
+      reset_source: p.ok ? p.source : "nedoloženo",
+      evidence_hash: createHash("sha256").update(r.limit_warning).digest("hex"),
+      excerpt: r.limit_warning.slice(0, 300),
+    };
+    this.d.store.writeRunsFile(
+      LIMIT_WARNING_FILE,
+      JSON.stringify(redactDeep(rec), null, 2) + "\n",
+    );
+    this.log({
+      order: order.id,
+      kind: "info",
+      role,
+      model: r.model,
+      result: `varování CLI o blížícím se limitu, nová zakázka nezačne do ${rec.until}`,
+      reason: rec.excerpt,
+    });
+  }
+
+  /** Q4-B: ISO `until` platného varování, jinak undefined. Nečitelný záznam platí `pauseMinutes` od jeho zápisu. */
+  private activeLimitWarning(): string | undefined {
+    const f = this.d.store.readRunsFile(LIMIT_WARNING_FILE);
+    if (!f) return undefined;
+    let until: number;
+    try {
+      until = Date.parse(
+        (JSON.parse(f.text) as { until?: string }).until ?? "",
+      );
+    } catch {
+      until = NaN;
+    }
+    if (!Number.isFinite(until))
+      until = f.mtimeMs + (this.d.pauseMinutes ?? 60) * 60_000;
+    return until > this.now().getTime()
+      ? new Date(until).toISOString()
+      : undefined;
   }
 
   async step(order: Order): Promise<Order> {
@@ -2344,17 +2476,17 @@ export class Orchestrator {
               result: r.ok ? "ok" : "error",
               reason: r.error,
             });
-            if (!r.ok)
-              return this.bad(
-                order,
-                {
-                  ok: false,
-                  limit: r.limit,
-                  error: r.error,
-                  model: this.d.supervisor.model,
-                },
-                "supervisor",
-              )!;
+            const supOutcome: StepOutcome = {
+              ok: r.ok,
+              limit: r.limit,
+              error: r.error,
+              model: this.d.supervisor.model,
+              received_at: r.received_at,
+              limit_text: r.limit_text,
+              limit_warning: r.limit_warning,
+            };
+            if (!r.ok) return this.bad(order, supOutcome, "supervisor")!;
+            this.noteLimitWarning(order, supOutcome, "supervisor");
             supMs = r.duration_ms;
             try {
               brief = parseBrief(r.text);
@@ -2430,17 +2562,17 @@ export class Orchestrator {
               this.d.briefChecker.model,
             );
           }
-          if (!c.ok)
-            return this.bad(
-              order,
-              {
-                ok: false,
-                limit: c.limit,
-                error: c.error,
-                model: this.d.briefChecker.model,
-              },
-              "checker",
-            )!;
+          const chkOutcome: StepOutcome = {
+            ok: c.ok,
+            limit: c.limit,
+            error: c.error,
+            model: this.d.briefChecker.model,
+            received_at: c.received_at,
+            limit_text: c.limit_text,
+            limit_warning: c.limit_warning,
+          };
+          if (!c.ok) return this.bad(order, chkOutcome, "checker")!;
+          this.noteLimitWarning(order, chkOutcome, "checker");
           this.d.store.writeFile(
             order.id,
             `brief-check-a${attempt}.md`,

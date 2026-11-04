@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { limitWarning } from "./reset";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
 
@@ -61,6 +62,12 @@ export interface AdapterResult {
   waitReview?: boolean;
   error?: string;
   duration_ms: number;
+  /** Etapa 4 PR 1: ISO okamžik konce runProcess; od něj se počítá relativní reset (§10.3). */
+  received_at?: string;
+  /** Etapa 4 PR 1: surový text hlášky limitu (jen při limit), vstup pro parseReset. */
+  limit_text?: string;
+  /** Etapa 4 PR 1, Q4-B: doložené varování CLI o blížícím se limitu (řádek ze stderr), jen když limit není. */
+  limit_warning?: string;
 }
 
 export interface TextAdapter {
@@ -73,10 +80,39 @@ export interface TextAdapter {
 }
 
 const LIMIT_RE =
-  /(usage limit|rate[ _-]?limit|limit reached|hit your (usage )?limit|out of (credits|messages)|quota exceeded|too many requests|\b429\b|resets? at \d)/i;
+  /(usage limit|rate[ _-]?limit|limit reached|hit your (usage )?limit|out of (credits|messages)|quota exceeded|too many requests|\b429\b|resets? at \d|try again (at|in)\b)/i;
+
+/**
+ * `system/api_retry` z claude stream-json s chybou rate_limit (§10.3): doklad, že jde o limit, ne čas resetu.
+ * Čas resetu z něj nikdy nebereme (parseReset jeho řádky ignoruje).
+ */
+export function isApiRetryRateLimit(streamJson: string): boolean {
+  for (const line of streamJson.split("\n")) {
+    if (!line.includes("api_retry")) continue;
+    let e: { type?: unknown; subtype?: unknown; error?: unknown; error_type?: unknown };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (e?.type !== "system" || e.subtype !== "api_retry") continue;
+    if (/rate[ _-]?limit/i.test(`${JSON.stringify(e.error ?? "")} ${JSON.stringify(e.error_type ?? "")}`)) return true;
+  }
+  return false;
+}
 
 export function looksLikeLimit(text: string): boolean {
-  return LIMIT_RE.test(text);
+  return LIMIT_RE.test(text) || isApiRetryRateLimit(text);
+}
+
+/** Pole limitu pro AdapterResult: hláška limitu pro parseReset, okamžik přijetí a doložené varování (Q4-B). */
+function limitFields(limit: boolean, limitText: string, cliStderr: string, receivedAt: string): Pick<AdapterResult, "limit_text" | "received_at" | "limit_warning"> {
+  const warning = limit ? undefined : limitWarning(cliStderr);
+  return {
+    received_at: receivedAt,
+    ...(limit ? { limit_text: limitText.slice(-4000) } : {}),
+    ...(warning ? { limit_warning: warning } : {}),
+  };
 }
 
 /** SQL/rows queries on Notion databases are rate-limited per workspace hour; no TARS call may ever make them. */
@@ -103,6 +139,8 @@ interface ProcResult {
   stderr: string;
   timedOut: boolean;
   duration_ms: number;
+  /** ISO okamžik konce procesu (§10.3: od něj se počítá relativní reset). */
+  received_at: string;
 }
 
 export function runProcess(
@@ -135,7 +173,8 @@ export function runProcess(
     p.stdin.on("error", () => undefined);
     p.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut, duration_ms: Date.now() - t0 });
+      const end = Date.now();
+      resolve({ code, stdout, stderr, timedOut, duration_ms: end - t0, received_at: new Date(end).toISOString() });
     });
     p.stdin.end(input);
   });
@@ -191,6 +230,7 @@ export class ClaudeCli implements TextAdapter {
           ? `exit ${r.code}: ${(text || r.stderr).slice(0, 300)}`
           : undefined,
       duration_ms: r.duration_ms,
+      ...limitFields(limit, `${text}\n${r.stderr}`, r.stderr, r.received_at),
     };
   }
 }
@@ -239,16 +279,18 @@ export class CodexCli implements TextAdapter {
     const m = /^model: (.+)$/m.exec(r.stderr + r.stdout);
     if (m && this.model === "codex-default") this.model = m[1].trim();
     const failed = r.code !== 0 || r.timedOut || text.trim().length === 0;
+    const limit = failed && looksLikeLimit(r.stderr + r.stdout);
     return {
       ok: !failed,
       text,
-      limit: failed && looksLikeLimit(r.stderr + r.stdout),
+      limit,
       error: failed
         ? r.timedOut
           ? "timeout"
           : `exit ${r.code}: ${lastErrorLine(r.stderr + r.stdout)}`
         : undefined,
       duration_ms: r.duration_ms,
+      ...limitFields(limit, `${r.stderr}\n${r.stdout}`, r.stderr, r.received_at),
     };
   }
 }
@@ -289,13 +331,15 @@ export class AiChain {
     const text = final ? fs.readFileSync(final, "utf8") : "";
     const status = (/^STATUS:\s*(.+)$/m.exec(text)?.[1] ?? "UNKNOWN").trim();
     const failed = r.code !== 0 || r.timedOut || !final;
+    const limit = failed && looksLikeLimit(r.stdout + r.stderr);
     return {
       ok: !failed,
       text,
       status,
-      limit: failed && looksLikeLimit(r.stdout + r.stderr),
+      limit,
       error: failed ? (r.timedOut ? "timeout" : `exit ${r.code}`) : undefined,
       duration_ms: r.duration_ms,
+      ...limitFields(limit, `${r.stdout}\n${r.stderr}`, r.stderr, r.received_at),
     };
   }
 }

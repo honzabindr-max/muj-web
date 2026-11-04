@@ -36,6 +36,10 @@ export interface StepOutcome {
   error?: string;
   model?: string;
   duration_ms?: number;
+  /** Etapa 4 PR 1 (§10.3): okamžik přijetí hlášky, hláška limitu a doložené varování z adaptéru. */
+  received_at?: string;
+  limit_text?: string;
+  limit_warning?: string;
 }
 
 export interface CheckOutcome extends StepOutcome {
@@ -189,7 +193,17 @@ export async function callChecker(
 }
 
 function fromAdapter(r: AdapterResult, model: string): StepOutcome {
-  return { ok: r.ok, limit: r.limit, error: r.error, model, duration_ms: r.duration_ms, ...(r.waitReview ? { waiting_review: true } : {}) };
+  return {
+    ok: r.ok,
+    limit: r.limit,
+    error: r.error,
+    model,
+    duration_ms: r.duration_ms,
+    ...(r.waitReview ? { waiting_review: true } : {}),
+    ...(r.received_at ? { received_at: r.received_at } : {}),
+    ...(r.limit_text ? { limit_text: r.limit_text } : {}),
+    ...(r.limit_warning ? { limit_warning: r.limit_warning } : {}),
+  };
 }
 
 // ───────────────────────────── Copy a kreativa ─────────────────────────────
