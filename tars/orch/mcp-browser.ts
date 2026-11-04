@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { ORCH_CLAUDE_SETTINGS, type TextAdapter } from "./adapters";
 import { actionAllowed, ALLOWED_HOSTS, hostAllowed, isBotChallenge, UI_MAX_ATTEMPTS, type PreflightResult } from "./ladder";
-import { BROWSER_MCP_TOOLS, MCP_SERVER, readState } from "./mcp-gate";
+import { BROWSER_MCP_TOOLS, MCP_SERVER, readState, typedTextSha } from "./mcp-gate";
 
 export { BOT_CHALLENGE_RE, isBotChallenge } from "./ladder";
 
@@ -30,8 +30,13 @@ export const TARS_PROFILE_DIR =
 export type BrowserStep =
   | { kind: "goto"; url: string }
   | { kind: "click"; text: string }
-  | { kind: "fill"; selector: string; value: string; submit?: boolean }
+  /** exact: the gate lets browser_type through only with exactly `value` (sha256), see mcp-gate.ts typeSha. */
+  | { kind: "fill"; selector: string; value: string; submit?: boolean; exact?: boolean }
   | { kind: "wait"; ms: number }
+  /** Choose in a picker (mode, model, intensity): `prefer`, or when it is missing, `fallback`. */
+  | { kind: "choose"; what: string; prefer: string; fallback: string }
+  /** Wait until `text` appears on the page (browser_wait_for text), at most `ms`; not found = RESULT UNKNOWN timeout. */
+  | { kind: "wait_text"; text: string; ms: number }
   | { kind: "read"; selector?: string };
 
 export class UiUnknownError extends Error {
@@ -54,6 +59,7 @@ export function checkStep(step: BrowserStep): void {
   if (step.kind === "goto" && step.url !== "about:blank" && !hostAllowed(step.url)) throw new RuleViolation(`host není povolen: ${step.url}`);
   if (step.kind === "click" && !actionAllowed(step.text)) throw new RuleViolation(`zakázaná akce: "${step.text}"`);
   if (step.kind === "fill" && step.submit && !actionAllowed(step.selector)) throw new RuleViolation(`zakázané odeslání: ${step.selector}`);
+  if (step.kind === "choose" && !actionAllowed(`${step.what} ${step.prefer} ${step.fallback}`)) throw new RuleViolation(`zakázaná volba: "${step.what}"`);
 }
 
 /** Page content is data, never instructions: wrap it so prompts treat it as quoted material. */
@@ -67,10 +73,12 @@ export function playwrightMcpConfig(script = BROWSER_SCRIPT, runsDir?: string) {
 }
 
 /** Inline --settings of the browser run: no codex gate; Pre (fail-closed) and Post hook on every Playwright tool call. */
-export function browserSettings(gate: string, statePath: string, filesDir?: string): string {
+export function browserSettings(gate: string, statePath: string, filesDir?: string, typeSha?: string): string {
   // filesDir = shots dir relative to the MCP workspace: the only place the model may name a snapshot/screenshot file.
   const files = filesDir ? `TARS_GATE_FILES="${filesDir}" ` : "";
-  const cmd = (mode: "pre" | "post") => `${files}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
+  // typeSha = sha256 hex of the one text that may be typed (exact fill), checked by the gate on every browser_type.
+  const typed = typeSha && /^[0-9a-f]{64}$/.test(typeSha) ? `TARS_GATE_TYPE_SHA="${typeSha}" ` : "";
+  const cmd = (mode: "pre" | "post") => `${files}${typed}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
   const matcher = `mcp__${MCP_SERVER}__.*`;
   return JSON.stringify({
     ...JSON.parse(ORCH_CLAUDE_SETTINGS),
@@ -98,6 +106,10 @@ export function buildTask(steps: BrowserStep[], rel: string): string {
         return `${n}. Do textového pole (nápověda selektoru: ${s.selector}) vlož přesně tento text pomocí browser_type${s.submit ? " a odešli (submit: true)" : ""}:\n<<<TEXT\n${s.value}\nTEXT>>>`;
       case "wait":
         return `${n}. Počkej celkem ${Math.ceil(s.ms / 1000)} s (browser_wait_for, time nejvýš 30, opakuj do součtu).`;
+      case "choose":
+        return `${n}. Otevři výběr „${s.what}“ (nejdřív browser_snapshot) a vyber „${s.prefer}“. Když přesně tato volba není, vyber: ${s.fallback}. Nic jiného v nastavení neměň.`;
+      case "wait_text":
+        return `${n}. Opakuj browser_wait_for s parametrem text "${s.text}", dokud se text na stránce neobjeví, celkem nejvýš ${Math.ceil(s.ms / 1000)} s. Když se neobjeví, skonči s RESULT: UNKNOWN timeout.`;
       case "read":
         return `${n}. browser_snapshot s filename "${rel}/reads/read-${pad(n)}.md"${s.selector ? ` (cíl: ${s.selector})` : ""}. Obsah souboru nevypisuj.`;
     }
@@ -111,6 +123,7 @@ Pravidla:
 - Smíš být jen na hostech: ${ALLOWED_HOSTS.join(", ")}. Žádný nákup, platba, sdílení, pozvánky, nastavení účtu ani odhlášení.
 - Krok, který selže, zkus nejvýš ${UI_MAX_ATTEMPTS}×; pak skonči s RESULT: UNKNOWN. Odeslání textu (submit) nikdy neopakuj.
 - Ověření proti botům (Cloudflare, „Verify you are human“) neobcházej: skonči s RESULT: UNKNOWN bot-challenge.
+- Když stránka chce přihlášení (Log in, Sign up, Přihlásit se), nepřihlašuj se: skonči s RESULT: UNKNOWN nepřihlášeno.
 
 KROKY:
 ${lines.join("\n")}
@@ -164,7 +177,7 @@ export class McpBrowser {
   }
 
   /** Runs the step plan through Playwright MCP. Returns texts of "read" steps (wrapped as data), screenshots, final URL. */
-  async run(steps: BrowserStep[], shotsDir: string): Promise<{ reads: string[]; screenshots: string[]; finalUrl: string }> {
+  async run(steps: BrowserStep[], shotsDir: string): Promise<{ reads: string[]; rawReads: string[]; screenshots: string[]; finalUrl: string }> {
     steps.forEach(checkStep);
     // Fresh artifacts for every run: nothing left by an earlier run (reads, screenshots, gate state) may pass as new.
     fs.mkdirSync(shotsDir, { recursive: true });
@@ -173,7 +186,8 @@ export class McpBrowser {
     fs.mkdirSync(path.join(shotsDir, "reads"), { recursive: true });
     const cfg = path.join(shotsDir, "playwright.mcp.json");
     fs.writeFileSync(cfg, JSON.stringify(playwrightMcpConfig(this.script, this.runsDir), null, 2));
-    const waitMs = steps.reduce((a, s) => a + (s.kind === "wait" ? s.ms : 0), 0);
+    const waitMs = steps.reduce((a, s) => a + (s.kind === "wait" || s.kind === "wait_text" ? s.ms : 0), 0);
+    const exact = steps.find((s): s is Extract<BrowserStep, { kind: "fill" }> => s.kind === "fill" && s.exact === true);
     // Gate state lives outside the MCP workspace (cwd = parent of shotsDir), so the browser tools cannot write it.
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gate-"));
     const statePath = path.join(stateDir, "state.json");
@@ -187,7 +201,7 @@ export class McpBrowser {
         allowedTools: BROWSER_ALLOWED_TOOLS,
         noBuiltinTools: true,
         mcpConfig: cfg,
-        settings: browserSettings(this.gate, statePath, path.basename(shotsDir)),
+        settings: browserSettings(this.gate, statePath, path.basename(shotsDir), exact ? typedTextSha(exact.value) : undefined),
         // The same runs dir as for Chrome and the MCP server: the SessionStart hook of this claude -p looks for the lock there.
         env: this.runsDir ? { TARS_RUNS_DIR: this.runsDir } : undefined,
       });
@@ -221,6 +235,7 @@ export class McpBrowser {
     if (!result) throw new UiUnknownError("ovladač prohlížeče nevrátil RESULT", screenshots);
     if (result[1].toUpperCase() === "UNKNOWN") throw new UiUnknownError(`krok selhal: ${result[2].trim() || "bez důvodu"}`, screenshots);
     const reads: string[] = [];
+    const rawReads: string[] = [];
     steps.forEach((s, i) => {
       if (s.kind !== "read") return;
       const f = path.join(shotsDir, "reads", `read-${pad(i + 1)}.md`);
@@ -228,8 +243,9 @@ export class McpBrowser {
       const text = fs.readFileSync(f, "utf8");
       if (isBotChallenge(text)) throw new UiUnknownError("stránka vyžaduje ověření proti botům (Cloudflare); TARS ho neobchází", screenshots);
       reads.push(asData(text));
+      rawReads.push(text); // whole page text for callers that parse it as data themselves (ChatGptWebChecker)
     });
     if (finalUrl !== "about:blank" && !hostAllowed(finalUrl)) throw new RuleViolation(`stránka skončila mimo povolené hosty: ${finalUrl || "bez URL"}`);
-    return { reads, screenshots, finalUrl };
+    return { reads, rawReads, screenshots, finalUrl };
   }
 }

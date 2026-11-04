@@ -10,7 +10,7 @@ executor: Claude Design (webová aplikace Claude)
 family: claude
 adapter: browser
 rung: 3
-checker: brana (GPT fresh-context přes codex exec)
+checker: brana (GPT v prohlížeči, nové vlákno; P16 v2)
 checker_family: gpt
 sources: handoff, capsule, buildos, funnel, ui_build_brief, design_handoff
 max_fix_rounds: 1
@@ -63,7 +63,7 @@ Odkaz na projekt v Claude Design + screenshoty v `runs/<order-id>/`; po PASS Not
 
 ## 6. Kontrolor
 
-Brána (GPT fresh-context přes `codex exec`, karta `brana` (`.claude/agents/gpt/brana.md`)), jiná rodina než tvůrce. Checklist: funnel fidelity, clarity, trust, mobile usability, promise mismatch (Build OS P1.6), drží směr 3.2, nic z bodu 3 neporušeno. Verdikt brány se mapuje na PASS / FIX / BLOCK; jedno kolo + patch confirmation (max 1 oprava).
+Brána (GPT v prohlížeči, každá kontrola nové vlákno v projektu TARS · Analýzy (P16 v2), karta `brana` (`.claude/agents/gpt/brana.md`)), jiná rodina než tvůrce. Checklist: funnel fidelity, clarity, trust, mobile usability, promise mismatch (Build OS P1.6), drží směr 3.2, nic z bodu 3 neporušeno. Verdikt brány se mapuje na PASS / FIX / BLOCK; jedno kolo + patch confirmation (max 1 oprava).
 
 ## 7. Eskalace na vlastníka
 

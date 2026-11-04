@@ -43,7 +43,22 @@ because they run inside this repo and would otherwise trigger a GPT review per c
 ## Lifecycle
 
 `NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE`,
-plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`.
+plus `PAUSED` (subscription limit, resumes on a later tick), `WAITING_REVIEW` („čeká na kontrolu“, P16 v2), `FAILED`, `UNKNOWN`.
+
+### Kontroly mimo kód přes GPT v prohlížeči (P16 v2)
+
+Pravidlo vlastníka (4. 11.): kontrolu zadání supervizora, kontrolu copy, vizuální bránu a oponenta Konzilia Lite dělá
+GPT v prohlížeči (`chatgpt-web.ts`, `ChatGptWebChecker`, rodina `gpt`): chatgpt.com → režim Work → projekt TARS ·
+Analýzy → GPT-6.1 Sol, intenzita Max. (když není, nejvyšší dostupná; skutečný model ze stránky se zapíše do
+`runs/<zakázka>/check-gptweb-*.md` a do logu) → jedno odeslání promptu → čekání na koncovou značku → odpověď se čte ze
+stránky jako data a v kódu se ověří podle JSON schématu. Žádný nový prohlížečový kód: `McpBrowser` + `mcp-gate.ts`
+(host allowlist, one submit, vkládaný text musí sedět na sha256 promptu). Nikdy se nepřihlašuje.
+Kontrola kódu (oddělení dev) zůstává Codex. Tvůrce copy je kvůli tomu Claude Opus (kontroluje jiná rodina).
+
+Nepřihlášený profil, selhání prohlížeče, limit, timeout nebo odpověď mimo schéma = `waitReview`: zakázka přejde do
+`WAITING_REVIEW` se stejným artefaktem (`review_hash` = sha256 zadání v `meta.pending_brief`, nebo draftu). Další tick
+to zkusí znovu nejvýš jednou; změněný artefakt = `UNKNOWN`. Bez skutečné odpovědi nikdy PASS.
+Živý neškodný test: `npx tsx tars/orch/cli.ts gpt-smoke` (prompt „Odpověz jen slovem OK.“).
 
 - State: `runs/<order-id>/state.json` (atomic write). Episodic log: `runs/log.jsonl`. Both are gitignored.
 - One owner of the state (DR-039, etapa 2): every state carries a monotonic `version`; `Store.save` writes only over

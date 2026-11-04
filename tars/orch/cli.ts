@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | konzilium <vstup.json>
+// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | konzilium <vstup.json> | gpt-smoke
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
 import { CardRegistry } from "./cards";
+import { ChatGptWebChecker } from "./chatgpt-web";
 import { CopyDepartment, DevDepartment, VizualDepartment, type DepartmentRunner } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import { McpBrowser } from "./mcp-browser";
 import { runGuardWithI8 } from "./guard";
-import { codexConfigModel, exitCodeFor, runKonzilium } from "./konzilium-lite";
+import { exitCodeFor, runKonzilium } from "./konzilium-lite";
 import { checkRestAccess, makeNotionStack, NotionRestApi, NO_TOKEN_MESSAGE, RestNotion } from "./notion";
 import { readNotionToken } from "./notion-token";
 import { onlyEnabled, Orchestrator, SecretScanningAdapter, tickScopeError } from "./orchestrator";
@@ -47,6 +48,8 @@ function browserReady(): PreflightResult {
 
 /** Rung 3 = Playwright MCP driven by Claude (sonnet), Chrome TARS-agent started and closed by guard/tars-browser.sh. */
 const makeBrowser = () => new McpBrowser(new SecretScanningAdapter(new ClaudeCli("sonnet")), { runsDir });
+/** P16 v2: every non-code check = ChatGPT in the browser (Work, projekt TARS · Analýzy, nejvyšší přemýšlení). */
+const makeGptWeb = () => new ChatGptWebChecker(makeBrowser());
 
 async function refreshBrowserStatus(): Promise<PreflightResult> {
   const b = makeBrowser();
@@ -83,6 +86,7 @@ function build(): Orchestrator {
   const opus = wrap(new ClaudeCli("opus"));
   const sonnet = wrap(new ClaudeCli("sonnet"));
   const codex = wrap(new CodexCli());
+  const gptWeb = wrap(makeGptWeb());
   const cards = new CardRegistry(cardsDir);
   const cardText = (role: string) => (cards.check(role).ok ? cards.text(role) : "");
   const desktop = new NotImplementedDesktop();
@@ -95,11 +99,11 @@ function build(): Orchestrator {
     ladder: { browserReady, desktopReady: () => desktop.preflight(), hasCli: defaultHasCli },
     store,
     supervisor: opus,
-    briefChecker: codex, // karta supervizor.md bod 6: GPT kontroluje zadání
+    briefChecker: gptWeb, // karta supervizor.md bod 6 + P16 v2: zadání kontroluje GPT v prohlížeči
     departments: onlyEnabled<DepartmentRunner>(enabledDepartments, {
-      copy: new CopyDepartment(codex, opus, cardText("copy-studio")), // GPT creates, Claude checks
-      dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "invariant-sentinel.md")), // Claude chain creates, GPT reviews
-      vizual: new VizualDepartment(makeBrowser(), codex, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate checks
+      copy: new CopyDepartment(opus, gptWeb, cardText("copy-studio")), // P16 v2: Claude creates, GPT (prohlížeč) checks
+      dev: new DevDepartment(new AiChain(aiChain), codex, path.join(cardsDir, "invariant-sentinel.md")), // Claude chain creates, Codex reviews code
+      vizual: new VizualDepartment(makeBrowser(), gptWeb, cardText("vizual"), cardText("brana"), sonnet), // Claude Design creates, GPT gate (prohlížeč) checks
     }),
     notion,
     cardAdapter: sonnet, // data vizuální karty rozhodnutí (card-data.ts)
@@ -130,6 +134,22 @@ async function main() {
       const r = await build().tick();
       console.log(JSON.stringify(r));
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;
+      return;
+    }
+    case "gpt-smoke": {
+      // Harmless live check of the P16 v2 path: one prompt "Odpověz jen slovem OK." in the project TARS · Analýzy.
+      const lock = new Store(runsDir);
+      if (!lock.acquireLock()) throw new Error("běží jiná zakázka (lock)");
+      try {
+        const dir = path.join(runsDir, "gpt-smoke");
+        fs.mkdirSync(dir, { recursive: true });
+        const gpt = makeGptWeb();
+        const r = await gpt.run("Odpověz jen slovem OK.", { cwd: dir });
+        console.log(JSON.stringify({ ok: r.ok, said_ok: r.ok && /\bOK\b/.test(r.text), model: gpt.model, model_matches: gpt.lastRecord?.model_matches ?? false, reason: gpt.lastRecord?.reason }));
+        process.exitCode = r.ok ? 0 : 3;
+      } finally {
+        lock.releaseLock();
+      }
       return;
     }
     case "status":
@@ -203,17 +223,27 @@ async function main() {
         return;
       }
       const api = new NotionRestApi(token);
-      const r = await runKonzilium(path.resolve(file), {
-        creator: new ClaudeCli("opus"),
-        // Izolovaný codex nečte config.toml, model z něj se proto předá přes -m.
-        checker: new CodexCli(codexConfigModel(path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "config.toml")) ?? "codex-default"),
-        runsDir,
-        notion: new RestNotion(api),
-        panel: new RestPanelSink(api),
-        cardParentId: konziliumParentId,
-      });
-      console.log(JSON.stringify(r));
-      process.exitCode = exitCodeFor(r.status);
+      // P16 v2: oponent = GPT v prohlížeči. Chrome TARS-agent smí běžet jen pod zámkem běhu (I8).
+      const lock = new Store(runsDir);
+      if (!lock.acquireLock()) {
+        console.log("Konzilium Lite: běží jiná zakázka (lock), GPT v prohlížeči teď nejde; nic nespuštěno.");
+        process.exitCode = 3;
+        return;
+      }
+      try {
+        const r = await runKonzilium(path.resolve(file), {
+          creator: new ClaudeCli("opus"),
+          checker: makeGptWeb(),
+          runsDir,
+          notion: new RestNotion(api),
+          panel: new RestPanelSink(api),
+          cardParentId: konziliumParentId,
+        });
+        console.log(JSON.stringify(r));
+        process.exitCode = exitCodeFor(r.status);
+      } finally {
+        lock.releaseLock();
+      }
       return;
     }
     case "owner": {
@@ -228,7 +258,7 @@ async function main() {
       return;
     }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id> | konzilium <vstup.json>");
+      console.log("usage: cli.ts tick | status | cards | browser-check | gpt-smoke | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id> | konzilium <vstup.json>");
       process.exitCode = 1;
   }
 }

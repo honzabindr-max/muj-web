@@ -1,0 +1,557 @@
+// P16 v2: non-code checks through ChatGPT in the browser (fake browser, no model, no Chrome).
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  ClaudeCli,
+  CodexCli,
+  type AdapterResult,
+  type TextAdapter,
+} from "../adapters";
+import { artifactHash } from "../approval";
+import { CardRegistry } from "../cards";
+import {
+  answerRegion,
+  CHATGPT_MODEL,
+  CHATGPT_PROJECT,
+  ChatGptWebChecker,
+  chatGptSteps,
+  detectModel,
+  END_WORD,
+  verdictFromAnswer,
+  type WebBrowser,
+} from "../chatgpt-web";
+import { CopyDepartment, VizualDepartment } from "../departments";
+import { NotImplementedDesktop } from "../desktop";
+import { assertKonziliumFamilies } from "../konzilium-lite";
+import { hostAllowed } from "../ladder";
+import { UiUnknownError, type BrowserStep } from "../mcp-browser";
+import { emptyState, gateMcpCall, typedTextSha } from "../mcp-gate";
+import type { NotionClient } from "../notion";
+import { assertFamilies, Orchestrator } from "../orchestrator";
+import { lastStepSentence, queueOf } from "../panel";
+import { isActionable, transition } from "../state-machine";
+import { Store } from "../store";
+import type { ModelFamily, Order } from "../types";
+import { REVIEW_SCHEMA } from "../verdict";
+
+const CARDS_DIR = path.join(__dirname, "..", "..", "..", ".claude", "agents");
+const NONCE = "n0nce42";
+const MARKER = `${END_WORD}${NONCE}`;
+const PASS_JSON = '{"verdict":"PASS","findings":[]}';
+const FIX_JSON =
+  '{"verdict":"FIX","findings":[{"severity":"medium","file":null,"line":null,"text":"zkrátit úvod"}]}';
+
+/** Page snapshot as ChatGPT would show it: model picker, the sent prompt, the answer, the end marker. */
+function page(
+  prompt: string,
+  answer: string,
+  model = 'button "GPT-6.1 Sol Max." [ref=e3]',
+): string {
+  return [
+    "- banner:",
+    `  - ${model}`,
+    "- main:",
+    `  - paragraph: ${JSON.stringify(prompt)}`,
+    `  - paragraph: '${answer}'`,
+    `  - paragraph: ${MARKER}`,
+  ].join("\n");
+}
+
+type Script = (steps: BrowserStep[]) => string | Error;
+class FakeBrowser implements WebBrowser {
+  calls: BrowserStep[][] = [];
+  constructor(public script: Script) {}
+  async run(steps: BrowserStep[]) {
+    this.calls.push(steps);
+    const out = this.script(steps);
+    if (out instanceof Error) throw out;
+    return {
+      rawReads: [out],
+      screenshots: [],
+      finalUrl: "https://chatgpt.com/c/x",
+    };
+  }
+}
+const sentPrompt = (steps: BrowserStep[]) =>
+  (
+    steps.find((s) => s.kind === "fill") as Extract<
+      BrowserStep,
+      { kind: "fill" }
+    >
+  ).value;
+const answering =
+  (answer: string, model?: string): Script =>
+  (steps) =>
+    page(sentPrompt(steps), answer, model);
+
+let dir: string;
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+});
+
+const checker = (b: WebBrowser) =>
+  new ChatGptWebChecker(b, { nonce: () => NONCE });
+
+describe("ChatGptWebChecker (fake prohlížeč)", () => {
+  it("úspěšná kontrola PASS: jeden běh, jedno odeslání přesně zadaného promptu, skutečný model ze stránky, záznam check-*.md", async () => {
+    const b = new FakeBrowser(answering(PASS_JSON));
+    const c = checker(b);
+    const r = await c.run("Posuď zadání.", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: true, text: PASS_JSON, limit: false });
+    expect(r.waitReview).toBeUndefined();
+    expect(b.calls).toHaveLength(1);
+    const steps = b.calls[0];
+    expect(steps[0]).toEqual({ kind: "goto", url: "https://chatgpt.com/" });
+    expect(steps).toContainEqual({ kind: "click", text: CHATGPT_PROJECT });
+    expect(steps.filter((s) => s.kind === "fill")).toHaveLength(1);
+    expect(steps.find((s) => s.kind === "fill")).toMatchObject({
+      submit: true,
+      exact: true,
+    });
+    expect(sentPrompt(steps)).toContain("Posuď zadání.");
+    // the end marker is only in the answer, never literally in the prompt
+    expect(sentPrompt(steps)).not.toContain(MARKER);
+    expect(c.model).toBe("GPT-6.1 Sol · Max.");
+    expect(c.lastRecord).toMatchObject({
+      status: "ANSWER",
+      model_matches: true,
+      submits: 1,
+    });
+    const rec = fs
+      .readdirSync(dir)
+      .filter((f) => /^check-gptweb-.*\.md$/.test(f));
+    expect(rec).toHaveLength(1);
+    expect(fs.readFileSync(path.join(dir, rec[0]), "utf8")).toContain(
+      "Skutečný model (ze stránky): GPT-6.1 Sol · Max.",
+    );
+  });
+
+  it("úspěšná kontrola FIX (i v YAML escapovaném řetězci snapshotu)", async () => {
+    const escaped = (steps: BrowserStep[]) =>
+      page(sentPrompt(steps), "x").replace(`'x'`, JSON.stringify(FIX_JSON));
+    const r = await checker(new FakeBrowser(escaped)).run("Posuď draft.", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(r.text)).toEqual(JSON.parse(FIX_JSON));
+  });
+
+  it("JSON v promptu (draft) se za odpověď nevydává: rozhoduje poslední validní objekt před koncovou značkou", async () => {
+    const prompt = `Draft obsahuje ${PASS_JSON}`;
+    const r = await checker(new FakeBrowser(answering(FIX_JSON))).run(prompt, {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(JSON.parse(r.text).verdict).toBe("FIX");
+  });
+
+  it("nepřihlášený profil → WAITING_REVIEW (waitReview), žádný verdikt", async () => {
+    const r = await checker(
+      new FakeBrowser(
+        () => new UiUnknownError("krok selhal: nepřihlášeno", []),
+      ),
+    ).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r).toMatchObject({
+      ok: false,
+      waitReview: true,
+      limit: false,
+      text: "",
+    });
+    expect(r.error).toMatch(/není přihlášen do ChatGPT/);
+  });
+
+  it("timeout → WAITING_REVIEW (ovladač hlásí timeout i chybějící koncová značka)", async () => {
+    const r1 = await checker(
+      new FakeBrowser(() => new UiUnknownError("krok selhal: timeout", [])),
+    ).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r1).toMatchObject({ ok: false, waitReview: true });
+    expect(r1.error).toMatch(/časovém limitu/);
+    const unfinished: Script = (steps) =>
+      page(sentPrompt(steps), PASS_JSON).replace(MARKER, "…");
+    const r2 = await checker(new FakeBrowser(unfinished)).run("x", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r2).toMatchObject({ ok: false, waitReview: true });
+    expect(r2.error).toMatch(/koncová značka chybí/);
+  });
+
+  it("nejasný výsledek (próza, JSON mimo schéma, PASS s vysokým nálezem) → WAITING_REVIEW, nikdy PASS", async () => {
+    for (const a of [
+      "Vypadá to dobře, PASS.",
+      '{"verdict":"OK","findings":[]}',
+      '{"verdict":"PASS","findings":[{"severity":"high","file":null,"line":null,"text":"x"}]}',
+    ]) {
+      const r = await checker(new FakeBrowser(answering(a))).run("x", {
+        cwd: dir,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(r, a).toMatchObject({ ok: false, waitReview: true });
+    }
+  });
+
+  it("limit ChatGPT na stránce → WAITING_REVIEW (ne PAUSED)", async () => {
+    const limited: Script = () =>
+      "- main:\n  - paragraph: You've reached your limit for reasoning messages";
+    const r = await checker(new FakeBrowser(limited)).run("x", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true, limit: false });
+    expect(r.error).toMatch(/limitu/);
+  });
+
+  it("jiný model než požadovaný → zapsán skutečný model, odpověď platí, záznam říká NEODPOVÍDÁ", async () => {
+    const c = checker(
+      new FakeBrowser(
+        answering(PASS_JSON, 'button "GPT-5.5 Thinking Heavy" [ref=e3]'),
+      ),
+    );
+    const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r.ok).toBe(true);
+    expect(c.model).toBe("GPT-5.5 Thinking · Heavy");
+    expect(c.lastRecord).toMatchObject({
+      model_matches: false,
+      actual_model: "GPT-5.5 Thinking · Heavy",
+      requested_model: `${CHATGPT_MODEL} · Max.`,
+    });
+    const rec = fs.readdirSync(dir).find((f) => f.startsWith("check-gptweb-"))!;
+    expect(fs.readFileSync(path.join(dir, rec), "utf8")).toMatch(/NEODPOVÍDÁ/);
+    // page without any model label: never pretended
+    const c2 = checker(
+      new FakeBrowser(answering(PASS_JSON, 'button "Nový chat" [ref=e3]')),
+    );
+    await c2.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(c2.model).toMatch(/^neověřeno/);
+  });
+
+  it("pomocné funkce: detectModel, answerRegion, verdictFromAnswer", () => {
+    expect(detectModel('- button "GPT-6.1 Sol Max."')).toEqual({
+      model: "GPT-6.1 Sol",
+      intensity: "Max.",
+    });
+    expect(answerRegion("bez značky", MARKER)).toBeUndefined();
+    expect(verdictFromAnswer(`a ${PASS_JSON} b`, REVIEW_SCHEMA)).toBe(
+      PASS_JSON,
+    );
+    expect(verdictFromAnswer("nic", REVIEW_SCHEMA)).toBeUndefined();
+  });
+});
+
+describe("žádné druhé odeslání a jen povolený host", () => {
+  it("plán má právě jedno odeslání; brána po odeslání nic dalšího nevpíše ani neodešle; text musí odpovídat sha256", () => {
+    const steps = chatGptSteps("prompt", MARKER);
+    expect(steps.filter((s) => s.kind === "fill" && s.submit)).toHaveLength(1);
+    expect(hostAllowed("https://chatgpt.com/")).toBe(true);
+    const st = {
+      ...emptyState(),
+      submits: 1,
+      refs: {
+        e5: { label: 'textbox "Ask"', ok: true, submit: false },
+        e6: { label: 'button "Send"', ok: true, submit: true },
+      },
+    };
+    expect(
+      gateMcpCall(
+        "mcp__playwright__browser_type",
+        { ref: "e5", text: "prompt", submit: true },
+        st,
+      ),
+    ).toMatch(/po odeslání/);
+    expect(
+      gateMcpCall("mcp__playwright__browser_click", { ref: "e6" }, st),
+    ).toMatch(/po odeslání/);
+    const fresh = { ...st, submits: 0 };
+    const sha = typedTextSha("prompt");
+    expect(
+      gateMcpCall(
+        "mcp__playwright__browser_type",
+        { ref: "e5", text: "prompt\r\n", submit: true },
+        fresh,
+        undefined,
+        sha,
+      ),
+    ).toBeUndefined();
+    expect(
+      gateMcpCall(
+        "mcp__playwright__browser_type",
+        { ref: "e5", text: "jiný prompt", submit: true },
+        fresh,
+        undefined,
+        sha,
+      ),
+    ).toMatch(/sha256/);
+  });
+
+  it("jedna kontrola = jeden běh prohlížeče, i když selže", async () => {
+    const b = new FakeBrowser(() => new Error("chrome spadl"));
+    const r = await checker(b).run("x", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r.waitReview).toBe(true);
+    expect(b.calls).toHaveLength(1);
+  });
+});
+
+describe("rodiny: kontroly mimo kód = GPT v prohlížeči, kód = Codex", () => {
+  it("copy Claude → GPT projde, GPT → GPT je odmítnuto; vizuál a Konzilium s webovým GPT projdou", () => {
+    const web = checker(new FakeBrowser(answering(PASS_JSON)));
+    expect(() =>
+      assertFamilies({ copy: new CopyDepartment(new ClaudeCli("opus"), web) }),
+    ).not.toThrow();
+    expect(() =>
+      assertFamilies({ copy: new CopyDepartment(new CodexCli(), web) }),
+    ).toThrow(/tvůrce ≠ kontrolor/);
+    expect(() =>
+      assertFamilies({
+        vizual: new VizualDepartment(
+          new FakeVizBrowser(),
+          web,
+          "",
+          "",
+          new ClaudeCli("sonnet"),
+        ),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertKonziliumFamilies(new ClaudeCli("opus"), web),
+    ).not.toThrow();
+  });
+
+  it("karta copy-studio: tvůrce Claude, kontrolor GPT; zapojení v cli.ts: dev review dál Codex, ostatní kontroly GPT v prohlížeči", () => {
+    const card = new CardRegistry(CARDS_DIR).creatorFor("copy").card!;
+    expect(card).toMatchObject({
+      role: "copy-studio",
+      family: "claude",
+      checker_family: "gpt",
+    });
+    const cli = fs.readFileSync(path.join(__dirname, "..", "cli.ts"), "utf8");
+    expect(cli).toMatch(/briefChecker: gptWeb\b/);
+    expect(cli).toMatch(/copy: new CopyDepartment\(opus, gptWeb\b/);
+    expect(cli).toMatch(
+      /vizual: new VizualDepartment\(makeBrowser\(\), gptWeb\b/,
+    );
+    expect(cli).toMatch(
+      /dev: new DevDepartment\(new AiChain\(aiChain\), codex\b/,
+    );
+    expect(cli).toMatch(/checker: makeGptWeb\(\)/); // Konzilium Lite oponent
+  });
+});
+
+class FakeVizBrowser {
+  async run() {
+    return {
+      reads: [],
+      screenshots: [],
+      finalUrl: "https://claude.ai/design/p/x",
+    };
+  }
+}
+
+// ─── WAITING_REVIEW v orchestrátoru ───
+const BRIEF =
+  "```json\n" +
+  JSON.stringify({
+    title: "Návrh mikrocopy formuláře",
+    department: "copy",
+    milestone: "3.1",
+    why: "DALŠÍ KROK",
+    goal: "Navrhnout texty chybových stavů",
+    inputs: ["fakt A"],
+    acceptance: ["kritérium 1"],
+    owner_decisions: [],
+    sources: [
+      "handoff",
+      "capsule",
+      "buildos",
+      "funnel",
+      "ui_build_brief",
+      "copy_handoff",
+    ],
+  }) +
+  "\n```";
+const DRAFT = `# Draft\n\n${"Tichý, sebejistý text. ".repeat(30)}\n\n## Kontrola kritérií\n- ok`;
+
+class Mock implements TextAdapter {
+  calls: string[] = [];
+  name = "mock";
+  constructor(
+    public family: ModelFamily,
+    public model: string,
+    private text: string,
+  ) {}
+  async run(prompt: string): Promise<AdapterResult> {
+    this.calls.push(prompt);
+    return { ok: true, text: this.text, limit: false, duration_ms: 1 };
+  }
+}
+class Pages implements NotionClient {
+  pages: string[] = [];
+  async createPage(_p: string, _t: string, md: string) {
+    this.pages.push(md);
+    return { url: `https://app.notion.com/p/mock${this.pages.length}` };
+  }
+}
+
+function setup(o: { briefBrowser?: FakeBrowser; copyBrowser?: FakeBrowser }) {
+  const store = new Store(dir);
+  const supervisor = new Mock("claude", "opus", BRIEF);
+  const creator = new Mock("claude", "opus", DRAFT);
+  const okBrowser = () => new FakeBrowser(answering(PASS_JSON));
+  const briefChecker = checker(o.briefBrowser ?? okBrowser());
+  const copyChecker = checker(o.copyBrowser ?? okBrowser());
+  const notion = new Pages();
+  const orch = new Orchestrator({
+    store,
+    supervisor,
+    briefChecker,
+    departments: { copy: new CopyDepartment(creator, copyChecker) },
+    cards: new CardRegistry(CARDS_DIR),
+    ladder: {
+      hasCli: () => true,
+      browserReady: () => ({ ok: false, reasons: ["x"] }),
+      desktopReady: () => new NotImplementedDesktop().preflight(),
+    },
+    notion,
+    guard: () => ({ alarm: false, summary: "TARS-GUARD OK (8/8)" }),
+    draftParentId: "parent",
+    repoRoot: dir,
+    capsulePath: path.join(dir, "capsule.md"),
+  });
+  return { store, orch, supervisor, creator, notion };
+}
+
+describe("WAITING_REVIEW (orchestrátor, fake prohlížeč)", () => {
+  it("kontrola zadání bez GPT → WAITING_REVIEW se stejným zadáním a hashem; další tick nejvýš 1 pokus, supervizor se neopakuje; po odpovědi dál až DONE", async () => {
+    let fail = true;
+    const bb = new FakeBrowser((steps) =>
+      fail
+        ? new UiUnknownError("krok selhal: nepřihlášeno", [])
+        : page(sentPrompt(steps), PASS_JSON),
+    );
+    const { store, orch, supervisor } = setup({ briefBrowser: bb });
+    expect(await orch.tick()).toMatchObject({ status: "waiting_review" });
+    let [o] = store.listOrders();
+    expect(o.state).toBe("WAITING_REVIEW");
+    expect(o.review_from).toBe("NEW");
+    expect(o.review_hash).toBe(artifactHash(o.meta.pending_brief!));
+    expect(queueOf(o)).toBe("2 · Čeká na kontrolu");
+    expect(lastStepSentence(o)).toMatch(
+      /Čeká na kontrolu \(GPT v prohlížeči\)/,
+    );
+    expect(supervisor.calls).toHaveLength(1);
+    expect(bb.calls).toHaveLength(1);
+
+    expect(await orch.tick()).toMatchObject({ status: "waiting_review" });
+    expect(bb.calls).toHaveLength(2); // exactly one retry in this tick
+    expect(supervisor.calls).toHaveLength(1); // the same brief, not rewritten
+    [o] = store.listOrders();
+    expect(o.state).toBe("WAITING_REVIEW");
+
+    fail = false;
+    expect(await orch.tick()).toMatchObject({
+      status: "advanced",
+      state: "DONE",
+    });
+    [o] = store.listOrders();
+    expect(o.meta.pending_brief).toBeUndefined();
+    expect(o.review_hash).toBeUndefined();
+    expect(o.history.map((h) => h.to)).toEqual([
+      "WAITING_REVIEW",
+      "NEW",
+      "WAITING_REVIEW",
+      "NEW",
+      "PLANNED",
+      "DOING",
+      "CHECKING",
+      "DELIVERED",
+      "DONE",
+    ]);
+  });
+
+  it("kontrola copy bez GPT (timeout) → WAITING_REVIEW z CHECKING s hashem draftu; po odpovědi PASS → DONE, nikdy PASS bez odpovědi", async () => {
+    let fail = true;
+    const cb = new FakeBrowser((steps) =>
+      fail
+        ? new UiUnknownError("krok selhal: timeout", [])
+        : page(sentPrompt(steps), PASS_JSON),
+    );
+    const { store, orch, notion } = setup({ copyBrowser: cb });
+    expect(await orch.tick()).toMatchObject({ status: "waiting_review" });
+    let [o] = store.listOrders();
+    expect(o).toMatchObject({
+      state: "WAITING_REVIEW",
+      review_from: "CHECKING",
+      review_hash: artifactHash(DRAFT),
+    });
+    expect(notion.pages).toHaveLength(0); // nothing delivered
+    expect(isActionable(o.state)).toBe(true);
+    fail = false;
+    expect(await orch.tick()).toMatchObject({
+      status: "advanced",
+      state: "DONE",
+    });
+    [o] = store.listOrders();
+    expect(cb.calls).toHaveLength(2);
+    expect(notion.pages).toHaveLength(1);
+  });
+
+  it("artefakt změněný během čekání → UNKNOWN (GPT by kontroloval jiný obsah)", async () => {
+    const cb = new FakeBrowser(
+      () => new UiUnknownError("krok selhal: timeout", []),
+    );
+    const { store, orch } = setup({ copyBrowser: cb });
+    await orch.tick();
+    const [o] = store.listOrders();
+    store.writeFile(o.id, o.draft_file!, `${DRAFT}\nzměna`);
+    await orch.tick();
+    const [after] = store.listOrders();
+    expect(after.state).toBe("UNKNOWN");
+    expect(after.failure_reason).toMatch(/změnil/);
+    expect(cb.calls).toHaveLength(1);
+  });
+
+  it("stavový automat: wait_review jen z NEW/CHECKING, retry vrací review_from, abort z WAITING_REVIEW jde", () => {
+    const base: Order = {
+      id: "x",
+      mission: "m",
+      state: "CHECKING",
+      created_at: "t",
+      updated_at: "t",
+      fix_rounds: 0,
+      manual_interventions: 0,
+      history: [],
+      meta: {},
+    };
+    const w = transition(
+      base,
+      { type: "wait_review", reason: "r", hash: "h" },
+      "t",
+    );
+    expect(w).toMatchObject({
+      state: "WAITING_REVIEW",
+      review_from: "CHECKING",
+      review_hash: "h",
+    });
+    expect(transition(w, { type: "retry_review" }, "t").state).toBe("CHECKING");
+    expect(
+      transition(w, { type: "fail", reason: "manual abort" }, "t").state,
+    ).toBe("FAILED");
+    expect(() =>
+      transition(
+        { ...base, state: "DOING" },
+        { type: "wait_review", reason: "r", hash: "h" },
+        "t",
+      ),
+    ).toThrow();
+  });
+});

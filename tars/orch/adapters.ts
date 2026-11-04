@@ -49,6 +49,11 @@ export interface AdapterResult {
   text: string;
   /** Subscription/usage limit detected → orchestrator PAUSEs instead of failing. */
   limit: boolean;
+  /**
+   * P16 v2: the review could not happen (browser, login, limit, timeout, unclear answer). The orchestrator moves the
+   * order to WAITING_REVIEW with the same artifact; nothing is ever PASS without a real answer.
+   */
+  waitReview?: boolean;
   error?: string;
   duration_ms: number;
 }

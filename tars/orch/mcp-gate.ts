@@ -11,6 +11,7 @@
 //         call budget; tool allowlist.
 // Hooks run concurrently, so every read-modify-write of the state is under a lock. Exit 2 = deny (stderr is shown to
 // the model). Any crash or unreadable state in `pre` is a deny (the hook command adds `|| exit 2`).
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -57,8 +58,17 @@ export function filenameAllowed(filename: unknown, filesDir: string | undefined)
   return !n.split("/").includes("..") && n.startsWith(`${filesDir}/`);
 }
 
-/** Returns the reason a tool call is denied, or undefined when it is allowed (pure; the caller counts the call). */
-export function gateMcpCall(toolName: string, input: Record<string, unknown> = {}, state: GateState = emptyState(), filesDir?: string): string | undefined {
+/** sha256 of a text to type, normalized (CRLF → LF, trimmed) the same way on both sides of the comparison. */
+export function typedTextSha(text: string): string {
+  return createHash("sha256").update(text.replace(/\r\n?/g, "\n").trim()).digest("hex");
+}
+
+/**
+ * Returns the reason a tool call is denied, or undefined when it is allowed (pure; the caller counts the call).
+ * `typeSha` (P16 v2): when set, every browser_type must type exactly the planned text (sha256), so the driving model
+ * cannot change the prompt a reviewer answers.
+ */
+export function gateMcpCall(toolName: string, input: Record<string, unknown> = {}, state: GateState = emptyState(), filesDir?: string, typeSha?: string): string | undefined {
   const prefix = `mcp__${MCP_SERVER}__`;
   if (!toolName.startsWith(prefix)) return undefined; // not ours (matcher keeps this from happening)
   const tool = toolName.slice(prefix.length);
@@ -85,6 +95,7 @@ export function gateMcpCall(toolName: string, input: Record<string, unknown> = {
     if (typeof input.element === "string" && !actionAllowed(input.element)) return `zakázaná akce: "${input.element.slice(0, 80)}"`;
     if (state.submits >= 1 && (tool === "browser_type" || ref.submit)) return "po odeslání se už nepíše ani neodesílá";
     if (tool === "browser_click" && input.doubleClick === true && ref.submit) return "dvojklik na odesílací prvek se nepovoluje";
+    if (tool === "browser_type" && typeSha && typedTextSha(String(input.text ?? "")) !== typeSha) return "vkládaný text se liší od zadaného (sha256); vlož ho přesně beze změny";
   }
   return undefined;
 }
@@ -253,7 +264,7 @@ async function main() {
       state = s;
     } else state = emptyState();
     if (mode === "pre") {
-      const why = gateMcpCall(name, input, state, process.env.TARS_GATE_FILES || undefined);
+      const why = gateMcpCall(name, input, state, process.env.TARS_GATE_FILES || undefined, process.env.TARS_GATE_TYPE_SHA || undefined);
       if (why) {
         process.stderr.write(`TARS: ${why}\n`);
         process.exitCode = 2;
