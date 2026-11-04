@@ -128,11 +128,19 @@ export function panelRow(o: Order, creator: string, checker: string): PanelRow {
   };
 }
 
+/** Rozhodnutí vlastníka z řádku panelu a čas poslední změny řádku (undefined = neznámý). */
+export interface OwnerRow {
+  decision?: string;
+  last_edited_time?: string;
+}
+
 export interface PanelSink {
   /** Creates or updates the row; returns the row page id. Throws on failure. */
   upsert(row: PanelRow, existingPageId?: string): Promise<string>;
   /** Raw value of the owner-only select „Rozhodnutí vlastníka“ of a row (undefined = empty). Read-only. */
   readOwnerDecision?(pageId: string): Promise<string | undefined>;
+  /** Totéž i s časem poslední změny řádku (`last_edited_time`, Notion REST); potřeba pro GO po znovuvydání karty. */
+  readOwnerRow?(pageId: string): Promise<OwnerRow>;
   /**
    * Finds the row of an order by its „ID zakázky“ (REST data source query with a filter, never SQL/rows through MCP).
    * Used after a create of unknown outcome, before any new row is created. Returns the page id or undefined.
@@ -347,9 +355,13 @@ export class RestPanelSink implements PanelSink {
   }
 
   async readOwnerDecision(pageId: string): Promise<string | undefined> {
-    const j = await this.api.request<{ in_trash?: boolean; properties?: Record<string, { select?: { name?: string } | null }> }>("GET", `/v1/pages/${pageId}`);
-    if (j.in_trash) return undefined;
-    return j.properties?.[OWNER_DECISION_PROPERTY]?.select?.name ?? undefined;
+    return (await this.readOwnerRow(pageId)).decision;
+  }
+
+  async readOwnerRow(pageId: string): Promise<OwnerRow> {
+    const j = await this.api.request<{ in_trash?: boolean; last_edited_time?: string; properties?: Record<string, { select?: { name?: string } | null }> }>("GET", `/v1/pages/${pageId}`);
+    if (j.in_trash) return {};
+    return { decision: j.properties?.[OWNER_DECISION_PROPERTY]?.select?.name ?? undefined, last_edited_time: typeof j.last_edited_time === "string" ? j.last_edited_time : undefined };
   }
 }
 
@@ -378,6 +390,11 @@ export class HybridPanelSink implements PanelSink {
 
   readOwnerDecision(pageId: string): Promise<string | undefined> {
     return this.rest.readOwnerDecision!(pageId);
+  }
+
+  async readOwnerRow(pageId: string): Promise<OwnerRow> {
+    if (this.rest.readOwnerRow) return this.rest.readOwnerRow(pageId);
+    return { decision: await this.rest.readOwnerDecision!(pageId) }; // bez času: po znovuvydání se GO nepřijme
   }
 
   findRowByOrderId(orderId: string): Promise<string | undefined> {
@@ -420,6 +437,13 @@ export class PanelIndex {
   isUncertain(orderId: string): boolean {
     return this.read()[`${UNCERTAIN_PREFIX}${orderId}`] === "1";
   }
+  /** Čas posledního vlastního zápisu řádku (jen u znovuvydaných zakázek): změna řádku orchestrátorem není nové GO. */
+  writtenAt(orderId: string): string | undefined {
+    return this.read()[`${WRITTEN_PREFIX}${orderId}`];
+  }
+  setWrittenAt(orderId: string, iso: string): void {
+    this.write({ ...this.read(), [`${WRITTEN_PREFIX}${orderId}`]: iso });
+  }
   clearUncertain(orderId: string): void {
     const all = this.read();
     delete all[`${UNCERTAIN_PREFIX}${orderId}`];
@@ -428,3 +452,4 @@ export class PanelIndex {
 }
 
 const UNCERTAIN_PREFIX = "uncertain:";
+const WRITTEN_PREFIX = "written:";

@@ -172,6 +172,7 @@ const OWNER_ALLOW: Array<[string, string]> = [
   ["cli.ts tick", "npx tsx tars/orch/cli.ts tick"],
   ["cli.ts status", "npx tsx tars/orch/cli.ts status"],
   ["cli.ts konzilium", "npx tsx tars/orch/cli.ts konzilium vstup.json"],
+  ["cli.ts reissue (znovuvydání karty není rozhodnutí vlastníka)", "npx tsx tars/orch/cli.ts reissue wo-20261103-223902"],
   ["grep owner cli.ts", "grep owner cli.ts"],
   ["grep -n owner tars/orch/cli.ts", "grep -n owner tars/orch/cli.ts"],
   ["git log cli.ts", "git log --oneline -- tars/orch/cli.ts"],
@@ -191,6 +192,14 @@ describe("bash-preflight: cli.ts owner (DR-039)", () => {
 
   it.each(OWNER_ALLOW)("povolit: %s", (_name, command) => {
     expect(decide(command).decision).toBe("allow");
+  });
+
+  it("reissue není rozhodnutí vlastníka: `cli.ts reissue x` projde, `cli.ts owner x GO` je pořád blokované", () => {
+    expect(decide("npx tsx tars/orch/cli.ts reissue x").decision).toBe("allow");
+    expect(decide("cli.ts reissue x").decision).toBe("allow");
+    const d = decide("npx tsx tars/orch/cli.ts owner x GO");
+    expect(d.decision).toBe("deny");
+    expect(d.reason).toBe("Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)");
   });
 
   it("allowlist owner blok nepřebije", () => {

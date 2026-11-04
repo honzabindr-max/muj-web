@@ -1,0 +1,420 @@
+// Znovuvydání karty pro zakázky bez otisku (`cli.ts reissue`) a přijetí GO až po znovuvydání. Žádný model se nevolá.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { beforeEach, describe, expect, it } from "vitest";
+
+import type { AdapterResult, TextAdapter } from "../adapters";
+import { artifactHash, decisionFresh } from "../approval";
+import { CardRegistry } from "../cards";
+import {
+  CopyDepartment,
+  VizualDepartment,
+  type BrowserRunner,
+} from "../departments";
+import { NotImplementedDesktop } from "../desktop";
+import { asData } from "../mcp-browser";
+import type { NotionClient } from "../notion";
+import { NotionRestApi, NotionRestError } from "../notion";
+import { Orchestrator, SecretScanningAdapter } from "../orchestrator";
+import {
+  PanelIndex,
+  RestPanelSink,
+  type OwnerRow,
+  type PanelRow,
+  type PanelSink,
+} from "../panel";
+import { SourceLoader } from "../sources";
+import { transition, TransitionError } from "../state-machine";
+import { Store } from "../store";
+import type { ModelFamily, Order } from "../types";
+
+const CARDS_DIR = path.join(__dirname, "..", "..", "..", ".claude", "agents");
+const DRAFT = `# Draft\n\n${"Tichý, sebejistý text. ".repeat(30)}\n\n## Kontrola kritérií\n- ok`;
+const PASS = '```json\n{"verdict":"PASS","issues":[]}\n```';
+const BRIEF =
+  "```json\n" +
+  JSON.stringify({
+    title: "Návrh mikrocopy formuláře",
+    department: "copy",
+    milestone: "3.1",
+    why: "DALŠÍ KROK: paralelně běží 3.1",
+    goal: "Navrhnout texty chybových stavů",
+    inputs: ["fakt A"],
+    acceptance: ["kritérium 1"],
+    owner_decisions: ["cena"],
+    sources: [
+      "handoff",
+      "capsule",
+      "buildos",
+      "funnel",
+      "ui_build_brief",
+      "copy_handoff",
+    ],
+  }) +
+  "\n```";
+
+class Mock implements TextAdapter {
+  name = "mock";
+  constructor(
+    public family: ModelFamily,
+    public model: string,
+    private text: string,
+  ) {}
+  async run(): Promise<AdapterResult> {
+    return { ok: true, text: this.text, limit: false, duration_ms: 1 };
+  }
+}
+
+class Browser implements BrowserRunner {
+  async run() {
+    return {
+      reads: [asData("x")],
+      screenshots: [],
+      finalUrl: "https://claude.ai/design/p/mock",
+    };
+  }
+}
+
+class Notion implements NotionClient {
+  pages: Array<{ title: string; md: string }> = [];
+  readFails = false;
+  async createPage(_p: string, title: string, md: string) {
+    this.pages.push({ title, md });
+    return { url: `https://app.notion.com/p/mock${this.pages.length}` };
+  }
+  async readPage(url: string) {
+    if (this.readFails) throw new NotionRestError(503, "service_unavailable");
+    const p = this.pages[Number(/mock(\d+)$/.exec(url)?.[1]) - 1];
+    if (!p) throw new NotionRestError(404, "object_not_found");
+    return p.md;
+  }
+}
+
+/** Panel s rozhodnutím vlastníka a časem poslední změny řádku (oboje nastavuje jen test). */
+class Panel implements PanelSink {
+  rows: PanelRow[] = [];
+  decision: string | undefined;
+  lastEdited: string | undefined;
+  async upsert(row: PanelRow, page?: string) {
+    this.rows.push(row);
+    return page ?? "page1";
+  }
+  async readOwnerDecision() {
+    return this.decision;
+  }
+  async readOwnerRow(): Promise<OwnerRow> {
+    return { decision: this.decision, last_edited_time: this.lastEdited };
+  }
+}
+
+let dir: string;
+let store: Store;
+let clock: string;
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-reissue-"));
+  store = new Store(dir);
+  clock = "2026-11-03T22:39:02.000Z";
+});
+
+function build(panel: Panel = new Panel()) {
+  const notion = new Notion();
+  const o = new Orchestrator({
+    store,
+    supervisor: new Mock("claude", "opus", BRIEF),
+    briefChecker: new Mock("gpt", "gpt-brief", PASS),
+    departments: {
+      copy: new CopyDepartment(
+        new SecretScanningAdapter(new Mock("gpt", "gpt", DRAFT)),
+        new Mock("claude", "opus", PASS),
+      ),
+      vizual: new VizualDepartment(
+        new Browser(),
+        new Mock("gpt", "gpt-gate", PASS),
+      ),
+    },
+    cards: new CardRegistry(CARDS_DIR),
+    ladder: {
+      hasCli: () => true,
+      browserReady: () => ({ ok: false, reasons: ["ne"] }),
+      desktopReady: () => new NotImplementedDesktop().preflight(),
+    },
+    notion,
+    guard: () => ({ alarm: false, summary: "TARS-GUARD OK" }),
+    draftParentId: "parent",
+    repoRoot: dir,
+    capsulePath: path.join(dir, "capsule.md"),
+    now: () => new Date(clock),
+    panel: { sink: panel, index: new PanelIndex(dir) },
+    sources: new SourceLoader(notion, dir, path.join(dir, "sources-cache")),
+  });
+  return { o, notion, panel };
+}
+
+/** Zakázka jako wo-20261103-223902: WAITING_OWNER s kartou ve staré verzi (bez approved_hash/artifact_hash) a starým GO. */
+async function oldCardOrder(panel = new Panel()) {
+  const x = build(panel);
+  const r = (await x.o.tick()) as { order: string; status: string };
+  expect(r.status).toBe("waiting_owner");
+  const cur = store.load(r.order);
+  const meta = { ...cur.meta };
+  delete meta.approved_hash;
+  delete meta.artifact_hash;
+  store.save({ ...cur, meta: { ...meta, owner_ping: "1" } });
+  return { ...x, id: r.order };
+}
+
+const log = () => store.readLog(500);
+
+describe("cli.ts reissue: znovuvydání karty bez otisku", () => {
+  it("odmítne zakázku, jejíž karta už má approved_hash (stav beze změny)", async () => {
+    const x = build();
+    const r = (await x.o.tick()) as { order: string };
+    const before = store.load(r.order);
+    expect(before.meta.approved_hash).toBeTruthy();
+    expect(() => x.o.reissue(r.order)).toThrow(TransitionError);
+    expect(() => x.o.reissue(r.order)).toThrow(/už má otisk \(approved_hash\)/);
+    expect(store.load(r.order)).toEqual(before);
+  });
+
+  it("odmítne zakázku v jiném stavu než WAITING_OWNER", async () => {
+    const x = build();
+    for (const state of ["DELIVERED", "DONE", "FAILED", "NEW"] as const) {
+      const id = `wo-${state.toLowerCase()}`;
+      store.save({
+        id,
+        mission: "m",
+        state,
+        created_at: clock,
+        updated_at: clock,
+        fix_rounds: 0,
+        manual_interventions: 0,
+        history: [],
+        meta: {},
+      });
+      expect(() => x.o.reissue(id)).toThrow(
+        /znovuvydání odmítnuto: .* ve stavu .*, ne WAITING_OWNER/,
+      );
+      expect(store.load(id).state).toBe(state);
+    }
+    // Ani stavový automat přechod jinde nepustí.
+    const withHash: Order = {
+      id: "x",
+      mission: "m",
+      state: "WAITING_OWNER",
+      created_at: clock,
+      updated_at: clock,
+      fix_rounds: 0,
+      manual_interventions: 0,
+      history: [],
+      meta: { approved_hash: "a".repeat(64) },
+    };
+    expect(() => transition(withHash, { type: "reissue" }, clock)).toThrow(
+      TransitionError,
+    );
+  });
+
+  it("reissue → DELIVERED (reissued_at, owner-pole a stará karta pryč, log) → tick vydá novou kartu s otiskem", async () => {
+    const { o, notion, id } = await oldCardOrder();
+    const oldCard = store.load(id).owner_card_url;
+    expect(oldCard).toBeTruthy();
+    clock = "2026-11-04T08:40:00.000Z";
+    const r = o.reissue(id);
+    expect(r.state).toBe("DELIVERED");
+    const s = store.load(id);
+    expect(s.state).toBe("DELIVERED");
+    expect(s.meta.reissued_at).toBe(clock);
+    expect(Object.keys(s.meta).filter((k) => k.startsWith("owner_"))).toEqual(
+      [],
+    );
+    expect(s.owner_card_url).toBeUndefined();
+    expect(s.delivered_url).toBeTruthy(); // výstup se znovu nedoručuje
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          e.kind === "info" &&
+          e.result === "karta znovuvydána",
+      ),
+    ).toBe(true);
+    expect(s.manual_interventions).toBe(0);
+
+    clock = "2026-11-04T08:45:00.000Z";
+    const t = (await o.tick()) as { status: string; order: string };
+    expect(t).toMatchObject({ status: "waiting_owner", order: id });
+    const w = store.load(id);
+    expect(w.state).toBe("WAITING_OWNER");
+    const seen = artifactHash(notion.pages[0].md);
+    expect(w.meta.approved_hash).toBe(seen);
+    expect(w.meta.artifact_hash).toBe(seen);
+    expect(w.owner_card_url).toBeTruthy();
+    expect(w.owner_card_url).not.toBe(oldCard);
+    expect(notion.pages.at(-1)!.title).toMatch(/^KARTA GO\/REJECT/);
+    expect(notion.pages.at(-1)!.md).toContain(seen.slice(0, 16));
+  });
+});
+
+describe("GO po znovuvydání karty: jen nové, s read-backem", () => {
+  async function reissued() {
+    const panel = new Panel();
+    const x = await oldCardOrder(panel);
+    // Vlastník dal GO na starou kartu (8:31); orchestrátor ho správně odmítl.
+    panel.decision = "GO";
+    panel.lastEdited = "2026-11-04T08:31:00.000Z";
+    clock = "2026-11-04T08:32:00.000Z";
+    await x.o.pollOwnerDecisions();
+    expect(store.load(x.id).meta.owner_go).toBeUndefined();
+    expect(
+      log().some((e) =>
+        /GO nepřijato.*chybí approved_hash/.test(e.result ?? ""),
+      ),
+    ).toBe(true);
+    clock = "2026-11-04T08:40:00.000Z";
+    x.o.reissue(x.id);
+    await x.o.flushPanel();
+    clock = "2026-11-04T08:45:00.000Z";
+    await x.o.tick(); // nová karta s otiskem, zápis řádku v 8:45
+    expect(store.load(x.id).state).toBe("WAITING_OWNER");
+    expect(store.load(x.id).meta.approved_hash).toBeTruthy();
+    clock = "2026-11-04T08:50:00.000Z";
+    return x;
+  }
+  const WAIT = /nepřijato \(Notion GO\): čeká na nové GO po znovuvydání karty/;
+
+  it("staré GO v panelu (last_edited před reissued_at) se nepřijme, zakázka čeká", async () => {
+    const { o, panel, id } = await reissued();
+    expect(panel.lastEdited).toBe("2026-11-04T08:31:00.000Z");
+    const r = await o.tick();
+    expect(r).toMatchObject({ status: "waiting_owner", order: id });
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    expect(log().some((e) => e.order === id && WAIT.test(e.result ?? ""))).toBe(
+      true,
+    );
+  });
+
+  it("změna řádku po reissued_at, ale jen vlastním zápisem orchestrátoru (před ním), se za nové GO nepočítá", async () => {
+    const { o, panel, id } = await reissued();
+    panel.lastEdited = "2026-11-04T08:44:00.000Z"; // po reissue (8:40), před vlastním zápisem řádku (8:45)
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    panel.lastEdited = "2026-11-04T08:45:00.000Z"; // přesně vlastní zápis
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+  });
+
+  it("neznámý last_edited (chybí čas nebo sink bez readOwnerRow) → nepřijato, čeká", async () => {
+    const { o, panel, id } = await reissued();
+    panel.lastEdited = undefined;
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    panel.lastEdited = "není čas";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    // Sink, který umí jen hodnotu bez času (žádný readOwnerRow).
+    (panel as Partial<Panel>).readOwnerRow = undefined;
+    panel.lastEdited = "2026-11-04T08:49:00.000Z";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+  });
+
+  it("nové GO (po reissued_at i po vlastním zápisu) → zaznamenáno, DONE až po read-backu", async () => {
+    const { o, panel, notion, id } = await reissued();
+    panel.decision = "GO A";
+    panel.lastEdited = "2026-11-04T08:49:00.000Z";
+    notion.readFails = true;
+    await o.tick();
+    let s = store.load(id);
+    expect(s.state).toBe("WAITING_OWNER");
+    expect(s.meta.owner_go).toBe(clock);
+    expect(s.meta.readback).toBeUndefined();
+    notion.readFails = false;
+    clock = "2026-11-04T08:55:00.000Z";
+    await o.tick();
+    s = store.load(id);
+    expect(s.state).toBe("DONE");
+    expect(s.meta.owner_option).toBe("A");
+    expect(JSON.parse(s.meta.readback).hash).toBe(s.meta.approved_hash);
+  });
+
+  it("staré REJECT v panelu po znovuvydání také neplatí", async () => {
+    const { o, panel, id } = await reissued();
+    panel.decision = "REJECT";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+  });
+
+  it("programové owner(): rozhodnutí v čase ≤ reissued_at se nepřijme, pozdější ano (a DONE až po read-backu)", async () => {
+    const { o, id } = await reissued();
+    clock = store.load(id).meta.reissued_at;
+    expect(o.owner(id, "GO").meta.owner_go).toBeUndefined();
+    expect(
+      log().some((e) =>
+        /nepřijato \(owner GO\): čeká na nové GO po znovuvydání karty/.test(
+          e.result ?? "",
+        ),
+      ),
+    ).toBe(true);
+    clock = "2026-11-04T08:51:00.000Z";
+    const go = o.owner(id, "GO");
+    expect(go.state).toBe("WAITING_OWNER");
+    expect(go.meta.owner_go).toBe(clock);
+    await o.verifyApprovals();
+    expect(store.load(id).state).toBe("DONE");
+  });
+});
+
+describe("decisionFresh a RestPanelSink.readOwnerRow", () => {
+  it("decisionFresh: jen čas striktně po reissued_at a po vlastním zápisu; neznámý čas = false", () => {
+    const at = "2026-11-04T08:40:00.000Z";
+    expect(decisionFresh(at, "2026-11-04T08:41:00.000Z")).toBe(true);
+    expect(decisionFresh(at, at)).toBe(false);
+    expect(decisionFresh(at, "2026-11-04T08:31:00.000Z")).toBe(false);
+    expect(decisionFresh(at, undefined)).toBe(false);
+    expect(decisionFresh(at, "nesmysl")).toBe(false);
+    expect(decisionFresh("nesmysl", "2026-11-04T08:41:00.000Z")).toBe(false);
+    expect(
+      decisionFresh(at, "2026-11-04T08:41:00.000Z", "2026-11-04T08:45:00.000Z"),
+    ).toBe(false);
+    expect(
+      decisionFresh(at, "2026-11-04T08:46:00.000Z", "2026-11-04T08:45:00.000Z"),
+    ).toBe(true);
+  });
+
+  it("RestPanelSink.readOwnerRow vrátí hodnotu i last_edited_time; řádek v koši = nic", async () => {
+    const pages: Record<string, unknown> = {
+      a: {
+        last_edited_time: "2026-11-04T08:49:00.000Z",
+        properties: { "Rozhodnutí vlastníka": { select: { name: "GO" } } },
+      },
+      b: {
+        in_trash: true,
+        last_edited_time: "2026-11-04T08:49:00.000Z",
+        properties: { "Rozhodnutí vlastníka": { select: { name: "GO" } } },
+      },
+      c: { properties: { "Rozhodnutí vlastníka": { select: null } } },
+    };
+    const fn = async (url: string) => {
+      const id = /\/v1\/pages\/(\w+)$/.exec(url)![1];
+      return { ok: true, status: 200, json: async () => pages[id] };
+    };
+    const token = [
+      "ntn",
+      "_",
+      "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2H1g0F9e8D7",
+    ].join("");
+    const sink = new RestPanelSink(new NotionRestApi(token, fn as never));
+    expect(await sink.readOwnerRow("a")).toEqual({
+      decision: "GO",
+      last_edited_time: "2026-11-04T08:49:00.000Z",
+    });
+    expect(await sink.readOwnerRow("b")).toEqual({});
+    expect(await sink.readOwnerRow("c")).toEqual({
+      decision: undefined,
+      last_edited_time: undefined,
+    });
+    expect(await sink.readOwnerDecision("a")).toBe("GO");
+  });
+});

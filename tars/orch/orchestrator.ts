@@ -3,7 +3,7 @@
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
-import { artifactHash, goBlocker } from "./approval";
+import { artifactHash, decisionFresh, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
@@ -167,6 +167,8 @@ export class Orchestrator {
         creating = !existing;
         const id = await panel.sink.upsert(row, existing);
         panel.index.set(o.id, id);
+        // Po znovuvydání karty: vlastní zápis řádku mění last_edited_time, za nové GO se proto počítá jen pozdější změna.
+        if (o.meta.reissued_at) panel.index.setWrittenAt(o.id, this.iso());
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
         await this.pingOwner(o, id);
       } catch (e) {
@@ -380,14 +382,16 @@ export class Orchestrator {
           pageId = panel.index.get(waiting.id);
           if (!pageId) continue;
         }
-        const value = await panel.sink.readOwnerDecision(pageId);
+        const row = panel.sink.readOwnerRow ? await panel.sink.readOwnerRow(pageId) : { decision: await panel.sink.readOwnerDecision(pageId), last_edited_time: undefined };
+        const value = row.decision;
         const ev = ownerEventFor(value);
         if (!ev) continue;
+        const notBefore = panel.index.writtenAt(waiting.id);
         // The read took a while and `cli owner` may have decided meanwhile: read-check-write the stored state under the state lock.
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(waiting.id);
           if (fresh.state !== "WAITING_OWNER") return;
-          this.acceptOwner(fresh, ev, `Notion ${value}`);
+          this.acceptOwner(fresh, ev, `Notion ${value}`, row.last_edited_time, notBefore);
         }, this.d.stateLockWaitMs);
       } catch (e) {
         this.log({ order: waiting.id, kind: "error", role: "transport", result: "owner decision read failed", reason: (e as Error).message.slice(0, 300) });
@@ -401,7 +405,12 @@ export class Orchestrator {
    * `meta.approved_hash` and `meta.artifact_hash === meta.approved_hash`; then it is recorded in `meta.owner_go`
    * and the order STAYS in WAITING_OWNER until `verifyApprovals` reads the target back. A stale GO is logged, nothing else.
    */
-  private acceptOwner(o: Order, ev: Extract<OrderEvent, { type: "owner" }>, source: string): Order {
+  private acceptOwner(o: Order, ev: Extract<OrderEvent, { type: "owner" }>, source: string, decidedAt?: string, notBefore?: string): Order {
+    // Po znovuvydání karty platí jen rozhodnutí novější než `reissued_at` (a než vlastní zápis řádku); neznámý čas = čekat.
+    if (o.meta.reissued_at && !decisionFresh(o.meta.reissued_at, decidedAt, notBefore)) {
+      this.logOnce({ order: o.id, kind: "info", role: "orchestrator", result: `${ev.decision} nepřijato (${source}): čeká na nové GO po znovuvydání karty` });
+      return o;
+    }
     if (ev.decision === "REJECT") return this.apply(o, ev, { role: "orchestrator", result: `owner REJECT (${source})` });
     if (o.meta.owner_go) return o; // already recorded, waits for the read-back
     const why = !o.meta.approved_hash
@@ -724,7 +733,25 @@ export class Orchestrator {
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
       if (o.state !== "WAITING_OWNER") throw new TransitionError(`illegal transition: ${o.state} --owner-->`);
-      return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`);
+      return this.acceptOwner(o, { type: "owner", decision, option }, `owner ${decision}${option ? ` ${option}` : ""}`, this.iso());
+    }, this.d.stateLockWaitMs);
+  }
+
+  /**
+   * Znovuvydání karty (`cli.ts reissue`). Není to rozhodnutí vlastníka: jen zakázka ve WAITING_OWNER, jejíž karta nemá
+   * `meta.approved_hash` (stará verze před DR-039), se pod stavovým zámkem a CAS vrátí do DELIVERED. Přechod smaže
+   * starou kartu a owner-pole a uloží `meta.reissued_at`; další tick vydá standardní cestou (read-back DRAFTu) novou
+   * kartu s otiskem. GO pak platí jen tehdy, když vzniklo po `reissued_at` (`decisionFresh`).
+   */
+  reissue(id: string): Order {
+    return this.d.store.withStateLock(() => {
+      const o = this.d.store.load(id);
+      if (o.state !== "WAITING_OWNER") throw new TransitionError(`znovuvydání odmítnuto: zakázka ${id} je ve stavu ${o.state}, ne WAITING_OWNER`);
+      if (o.meta.approved_hash) throw new TransitionError(`znovuvydání odmítnuto: karta zakázky ${id} už má otisk (approved_hash)`);
+      const next = this.apply(o, { type: "reissue" }, { role: "orchestrator", result: "karta znovuvydána" });
+      if (next.state !== "DELIVERED") throw new TransitionError(`znovuvydání odmítnuto: stav zakázky ${id} se mezitím změnil`);
+      this.log({ order: id, kind: "info", role: "orchestrator", result: "karta znovuvydána", reason: "stará karta bez otisku; nová karta s otiskem v příštím ticku, GO musí přijít znovu" });
+      return next;
     }, this.d.stateLockWaitMs);
   }
 }

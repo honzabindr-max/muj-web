@@ -85,6 +85,18 @@ startu, nebo živý, ale zaseknutý držitel = HOLD. TARS ho sám nikdy neodstra
   (LOCK, price, brand, payments, legal, CTE). A GO/REJECT card is created in Notion.
 - WIP limit 1: no new order starts while a card waits for the owner.
 
+### Znovuvydání karty (`cli.ts reissue <order-id>`)
+
+Zakázka, která dostala kartu ještě před DR-039 (ve `WAITING_OWNER`, bez `meta.approved_hash`), GO nikdy nepřijme
+(„chybí approved_hash“). `npx tsx tars/orch/cli.ts reissue <order-id>` ji pod stavovým zámkem a CAS vrátí do
+`DELIVERED`: smaže starou kartu (`owner_card_url`) i všechna `owner_*` pole v `meta`, uloží `meta.reissued_at` a zapíše
+„karta znovuvydána“ do `runs/log.jsonl`. Jiný stav nebo karta s otiskem = odmítnuto (exit 1). Další tick projde
+standardní cestou: read-back DRAFTu → nová karta s `approved_hash`/`artifact_hash`. Staré GO se nikdy nepřebírá:
+z Notionu platí rozhodnutí jen tehdy, když se řádek panelu změnil po `reissued_at` i po posledním vlastním zápisu řádku
+orchestrátorem (`last_edited_time`, Notion ho zaokrouhluje na minuty; neznámý čas = nepřijmout). Do té doby zakázka čeká
+ve `WAITING_OWNER` („čeká na nové GO po znovuvydání karty“) a vlastník musí v panelu rozhodnout znovu (případně hodnotu
+přepnout a vrátit). Stejně tak `owner()`. `reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání.
+
 ## Safety
 
 - TARS-GUARD runs at the start of every tick and again before delivery. ALARM = stop.
@@ -100,6 +112,7 @@ npx tsx tars/orch/cli.ts status
 npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile (Playwright MCP)
 npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP
 npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
+npx tsx tars/orch/cli.ts reissue <order-id>       # znovuvydání karty bez otisku, viz Lifecycle
 npx vitest run tars
 tars/orch/launchd/install.sh
 ```

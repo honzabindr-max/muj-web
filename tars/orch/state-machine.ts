@@ -15,6 +15,8 @@ export type OrderEvent =
   | { type: "revised" }
   | { type: "delivered"; owner_needed: boolean }
   | { type: "owner"; decision: "GO" | "REJECT"; option?: "A" | "B" }
+  /** Znovuvydání karty (`cli.ts reissue`): karta bez otisku se vrací do DELIVERED, další tick vydá novou s otiskem. */
+  | { type: "reissue" }
   | { type: "limit"; resume_after: string }
   | { type: "resume" }
   | { type: "fail"; reason: string }
@@ -65,6 +67,10 @@ function target(order: Order, ev: OrderEvent): OrderState {
         if (blocker) throw new TransitionError(`GO → DONE zamítnuto: ${blocker}`);
         return "DONE";
       }
+      break;
+    case "reissue":
+      // Jen karta bez otisku (stará verze před DR-039): karta s approved_hash se znovu nevydává.
+      if (s === "WAITING_OWNER" && !order.meta.approved_hash) return "DELIVERED";
       break;
     case "limit":
       if (ACTIVE.includes(s)) return "PAUSED";
@@ -121,6 +127,13 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
     case "owner":
       if (ev.decision === "REJECT") next.failure_reason = "owner REJECT";
       if (ev.option) next.meta = { ...order.meta, owner_option: ev.option };
+      break;
+    case "reissue":
+      // Stará karta a všechna owner-pole zmizí (staré GO se nikdy nepřebírá); `reissued_at` je hranice pro nové GO.
+      next.meta = { ...Object.fromEntries(Object.entries(order.meta).filter(([k]) => !k.startsWith("owner_") && k !== "readback")), reissued_at: now };
+      next.owner_card_url = undefined;
+      next.owner_reasons = undefined;
+      next.owner_needed = undefined;
       break;
     case "fail":
     case "unknown":

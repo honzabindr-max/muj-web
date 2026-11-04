@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | konzilium <vstup.json>
+// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | reissue <order-id> | konzilium <vstup.json>
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -227,8 +227,18 @@ async function main() {
       console.log(`${o.id} → ${o.state}${o.state === "WAITING_OWNER" ? (o.meta.owner_go ? " (GO přijato, DONE po read-backu v příštím ticku)" : " (GO nepřijato, důvod v runs/log.jsonl)") : ""}`);
       return;
     }
+    case "reissue": {
+      // Znovuvydání karty bez otisku (ne rozhodnutí vlastníka): WAITING_OWNER bez approved_hash → DELIVERED, nová karta v příštím ticku.
+      const [id] = args;
+      if (!id) throw new Error("usage: reissue <order-id>");
+      const orch = build();
+      const o = orch.reissue(id);
+      await orch.flushPanel();
+      console.log(`${o.id} → ${o.state} (karta znovuvydána; nová karta s otiskem v příštím ticku, GO musí přijít znovu)`);
+      return;
+    }
     default:
-      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | notion-check | panel-sync <id> | konzilium <vstup.json>");
+      console.log("usage: cli.ts tick | status | cards | browser-check | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>");
       process.exitCode = 1;
   }
 }
