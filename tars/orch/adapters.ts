@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { currentAttempt, killGroup } from "./attempts";
 import { limitWarning } from "./reset";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
@@ -168,19 +169,38 @@ export function runProcess(
   extraEnv: Record<string, string> = {},
 ): Promise<ProcResult> {
   const t0 = Date.now();
+  // Etapa 4 / PR 4a (§7): dítě je vedoucí vlastní skupiny (`detached`), timeout zabije celou skupinu (-pgid), takže
+  // nepřežijí ani vnuci (bash run.sh → claude). Pod pokusem (runInAttempt) dítě dědí TARS_ATTEMPT_ID a hned po spawn
+  // se zapíše STARTED (pid, pgid, lstart). Kill se nikdy nevolá při pid 0 / undefined (killGroup). Každé volání
+  // `claude -p` (i vnuk z run.sh) běží s CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1: žádná úloha na pozadí mimo skupinu.
+  const attempt = currentAttempt();
   return new Promise((resolve) => {
     const p = spawn(cmd, args, {
       cwd,
-      env: { ...childEnv(), ...extraEnv },
+      env: { ...childEnv(), CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", ...extraEnv, ...(attempt ? { TARS_ATTEMPT_ID: attempt.id } : {}) },
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
     });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    if (attempt && p.pid) {
+      try {
+        attempt.onSpawn(p.pid, cmd);
+      } catch (e) {
+        // Bez trvalého STARTED nejde pokus sledovat: skupina se hned ukončí.
+        stderr += `TARS: STARTED nezapsán (${String((e as Error)?.message ?? e).slice(0, 200)}), proces ukončen\n`;
+        killGroup(p.pid, "SIGKILL");
+      }
+    }
+    let closed = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      p.kill("SIGTERM");
-      setTimeout(() => p.kill("SIGKILL"), 5000).unref();
+      killGroup(p.pid, "SIGTERM");
+      // Po `close` už skupina nemusí existovat a její ID by mohlo patřit jinému procesu: SIGKILL jen dokud běží.
+      setTimeout(() => {
+        if (!closed) killGroup(p.pid, "SIGKILL");
+      }, 5000).unref();
     }, timeoutMs);
     p.stdout.on("data", (d) => (stdout += d));
     p.stderr.on("data", (d) => (stderr += d));
@@ -188,6 +208,7 @@ export function runProcess(
     // A child that exits without reading stdin (e.g. codex failing fast) must not crash us with EPIPE.
     p.stdin.on("error", () => undefined);
     p.on("close", (code) => {
+      closed = true;
       clearTimeout(timer);
       const end = Date.now();
       resolve({ code, stdout, stderr, timedOut, duration_ms: end - t0, received_at: new Date(end).toISOString() });

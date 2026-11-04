@@ -7,12 +7,27 @@ import os from "node:os";
 import path from "node:path";
 
 import type { AdapterResult, AiChain, TextAdapter } from "./adapters";
+import { artifactHash } from "./approval";
+import { RetryRefusedError, sha256, type AttemptJournal, type AttemptRecord, type RetryDecision } from "./attempts";
+import {
+  aggregateVerdict,
+  CHUNK_LIMIT,
+  invokeChecker,
+  MAX_CHUNKS,
+  planDiffChunks,
+  readReviewReceipt,
+  reviewerInfo,
+  reviewId,
+  writeReviewReceipt,
+  type ReceiptRef,
+  type ReviewChunk,
+} from "./reviews";
 import { DriverLimitError, RuleViolation, UiUnknownError, type BrowserStep } from "./mcp-browser";
 import { stripFrontmatter } from "./cards";
 import { bodyCarriesMarker, lookupNotionMarker, titleWithMarker, type EffectLookup, type EffectTag } from "./effects";
 import type { NotionClient } from "./notion";
 import { scanSecrets } from "./secret-scan";
-import type { Store } from "./store";
+import { writeDurable, type Store } from "./store";
 import type { ModelFamily, Order, OrderBrief, Verdict } from "./types";
 import {
   type Finding,
@@ -33,6 +48,8 @@ export interface StepOutcome {
   limit?: boolean;
   /** P16 v2: the review did not happen (GPT in the browser unavailable) → WAITING_REVIEW, never PASS. */
   waiting_review?: boolean;
+  /** Etapa 4 / PR 4a: krok nesmí pokračovat ani selhat naslepo (DIFF_TOO_LARGE, BODY_MISMATCH, …) → HOLD (UNKNOWN). */
+  hold?: string;
   error?: string;
   model?: string;
   duration_ms?: number;
@@ -82,7 +99,12 @@ export interface CheckOutcome extends StepOutcome {
   issues?: string[];
   /** true when deterministic checks failed and no model was called. */
   deterministic?: boolean;
+  /** Etapa 4 / PR 4a (§6.2): review receipt, který zapsal kód (ne model); orchestrátor na něj odkáže ze state.json. */
+  review_receipt?: ReceiptRef;
 }
+
+/** Krok modelu, který běží jako pokus (§7). */
+export type StepKind = "create" | "check" | "revise";
 
 export interface DeliverOutcome extends StepOutcome {
   url?: string;
@@ -100,6 +122,8 @@ export interface DeptContext {
   notion: NotionClient;
   draftParentId: string;
   repoRoot: string;
+  /** Etapa 4 / PR 4a: journal pokusů; každé volání kontrolora je samostatný pokus (invocation_id receiptu). */
+  attempts?: AttemptJournal;
 }
 
 export interface DepartmentRunner {
@@ -126,6 +150,18 @@ export interface DepartmentRunner {
    * Absent = the orchestrator reads a Notion page through `NotionClient.readPage`.
    */
   readback?(order: Order, ctx: DeptContext): Promise<string>;
+  /**
+   * Etapa 4 / PR 4a (§6.2.1): jedno neměnné finální tělo (obálka TARS + draft), sestavené hned po create/revise, před
+   * kontrolou. Kontrolor ho vidí celé a deliver odešle přesně jeho bajty. Bez metody = oddělení finální tělo nemá.
+   */
+  finalBody?(order: Order, ctx: DeptContext): string;
+  /**
+   * Etapa 4 / PR 4a (§8): reconcile před opakováním kroku, jehož předchozí pokus skončil bez použitelného výsledku
+   * (ABANDONED, nebo FINISHED s chybou). Throw = opakování odmítnuto (fail-closed). Bez metody = UNKNOWN (HOLD).
+   */
+  reconcileRetry?(kind: StepKind, order: Order, ctx: DeptContext, prev: AttemptRecord): { result: RetryDecision; reason: string };
+  /** Etapa 4 / PR 4a (§7): deadline pokusu kroku (pak ho reconciler smí ukončit). Výchozí 40 min. */
+  attemptDeadlineMs?(kind: StepKind): number;
   /** Department-level rule: does delivery always need the owner (e.g. PR into main)? */
   alwaysOwner: boolean;
   /** Creator specialist role (definition in .claude/agents/**). */
@@ -245,6 +281,65 @@ function fromAdapter(r: AdapterResult, model: string): StepOutcome {
 
 export const COPY_MIN_CHARS = 400;
 
+/**
+ * Etapa 4 / PR 4a (§6.2.1): hlavička DRAFTu (obálka TARS), přesunutá z `deliver()` beze změny textu. Čistá funkce:
+ * všechny vstupy jsou známé před kontrolou (zakázka, milník, rozhodnutí Sponzora, modely z konfigurace, kolo oprav).
+ */
+export function copyEnvelope(order: Order, creatorModel: string, checkerModel: string, fix_rounds: number): string {
+  return [
+    `**DRAFT — není schváleno.** Vytvořeno orchestrátorem TARS-ORCH v0, zakázka \`${order.id}\`, milník ${order.brief!.milestone}.`,
+    `Tvůrce: ${creatorModel} · Kontrolor: ${checkerModel} · Kol oprav: ${fix_rounds}.`,
+    `Rozhodnutí vyhrazená Sponzorovi: ${order.brief!.owner_decisions.join("; ") || "žádná"}.`,
+    "",
+    "---",
+    "",
+  ].join("\n");
+}
+
+/** Pokyn kontrolorovi, když posuzuje celé finální tělo (§6.2.1 bod 3). */
+export const FINAL_BODY_NOTE =
+  "Text mezi <<<DRAFT a DRAFT>>> je celé finální tělo, které se odešle beze změny. Jeho první blok (do řádku ---) je obálka TARS; posuzuj ji také (např. zda „Rozhodnutí vyhrazená Sponzorovi“ odpovídá zakázce).";
+
+/** Odkaz na finální tělo ze state.json (`meta.final_body_file` + `meta.final_body_sha256` = artifactHash). */
+export function finalBodyRef(order: Pick<Order, "meta">): { file: string; sha256: string } | undefined {
+  const file = order.meta?.final_body_file;
+  const h = order.meta?.final_body_sha256;
+  if (!file || !h) return undefined;
+  return { file, sha256: h };
+}
+
+/**
+ * §6.2.1 bod 5: smí deliver odeslat finální tělo? Obsah souboru musí mít otisk ze stavu a receipt, na který stav
+ * odkazuje, musí být PASS přesně nad tímto tělem (artifactHash i sha256 souboru). Jinak důvod (BODY_MISMATCH).
+ */
+export function finalBodyProblem(order: Order, store: Store): string | undefined {
+  const fb = finalBodyRef(order);
+  if (!fb) return undefined;
+  let body: string;
+  try {
+    body = store.readFile(order.id, fb.file);
+  } catch {
+    return `BODY_MISMATCH: ${fb.file} nejde přečíst`;
+  }
+  if (artifactHash(body) !== fb.sha256) return `BODY_MISMATCH: ${fb.file} se po sestavení změnil`;
+  const rc = readReviewReceipt(store.orderDir(order.id), { review_id: order.meta.review_receipt_id, sha256: order.meta.review_receipt_sha256 });
+  if (!rc) return "BODY_MISMATCH: chybí review receipt, na který odkazuje stav";
+  if (rc.verdict !== "PASS") return `BODY_MISMATCH: receipt má verdikt ${rc.verdict}`;
+  if (rc.reviewed_artifact_kind !== "content" || rc.reviewed_artifact_hash !== fb.sha256) return "BODY_MISMATCH: receipt patří k jinému tělu";
+  if (rc.reviewed_body_file?.file !== fb.file || rc.reviewed_body_file.sha256 !== sha256(body)) return "BODY_MISMATCH: sha256 souboru ≠ receipt";
+  return undefined;
+}
+
+/** §8: soubor výstupu kroku bez FINISHED se nemaže, jen přejmenuje na orphan-a<n>.md. */
+function renameOrphan(dir: string, name: string, attempt: number): string | undefined {
+  const f = path.join(dir, name);
+  if (!fs.existsSync(f)) return undefined;
+  let dst = path.join(dir, `orphan-a${attempt}.md`);
+  for (let i = 2; fs.existsSync(dst); i++) dst = path.join(dir, `orphan-a${attempt}-${i}.md`);
+  fs.renameSync(f, dst);
+  return path.basename(dst);
+}
+
 export function copyDeterministicIssues(draft: string): string[] {
   const issues: string[] = [];
   if (draft.trim().length < COPY_MIN_CHARS) issues.push(`text je kratší než ${COPY_MIN_CHARS} znaků`);
@@ -298,8 +393,21 @@ ${sources}
 ${extra}`;
   }
 
+  finalBody(order: Order, ctx: DeptContext): string {
+    return copyEnvelope(order, this.creatorModel(), this.checkerModel(), order.fix_rounds) + ctx.store.readFile(order.id, order.draft_file!);
+  }
+
+  reconcileRetry(kind: StepKind, order: Order, ctx: DeptContext, prev: AttemptRecord): { result: RetryDecision; reason: string } {
+    if (kind === "check")
+      return { result: "RETRY_SAFE", reason: `kontrola ${this.checker.name}: lokálně jen diagnostika; GPT v prohlížeči hlídá vlastní journal odeslaných promptů (blockingAttempt, grant gpt-retry)` };
+    const name = kind === "create" ? "draft-v0.md" : `draft-v${order.fix_rounds}.md`;
+    const orphan = prev.phase === "FINISHED" ? undefined : renameOrphan(ctx.store.orderDir(order.id), name, prev.attempt);
+    return { result: "RETRY_SAFE", reason: orphan ? `${name} bez FINISHED přejmenován na ${orphan}` : `${kind}: bez výstupu, bez externích účinků` };
+  }
+
   async create(order: Order, ctx: DeptContext) {
-    const r = await this.creator.run(this.creatorPrompt(order.brief!, "", orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id) });
+    // §8: fable/copy tvůrce bez vestavěných nástrojů (nečte, nepíše, nespouští), takže nezapíše nic mimo svůj výstup.
+    const r = await this.creator.run(this.creatorPrompt(order.brief!, "", orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id), noBuiltinTools: true });
     if (!r.ok) return fromAdapter(r, this.creatorModel());
     const name = "draft-v0.md";
     ctx.store.writeFile(order.id, name, r.text);
@@ -308,8 +416,14 @@ ${extra}`;
 
   async check(order: Order, ctx: DeptContext): Promise<CheckOutcome> {
     const draft = ctx.store.readFile(order.id, order.draft_file!);
-    const det = copyDeterministicIssues(draft);
+    // PR 4a (§6.2.1): kontrolor vidí celé finální tělo, přesně bajty, které deliver odešle. Zakázka sestavená před
+    // PR 4a finální tělo nemá: kontroluje se draft jako dřív.
+    const fb = finalBodyRef(order);
+    const body = fb ? ctx.store.readFile(order.id, fb.file) : undefined;
+    if (fb && body !== undefined && artifactHash(body) !== fb.sha256) return { ok: false, hold: `BODY_MISMATCH: ${fb.file} se po sestavení změnil`, model: "deterministic" };
+    const det = [...new Set([...copyDeterministicIssues(draft), ...(body !== undefined ? copyDeterministicIssues(body) : [])])];
     if (det.length) return { ok: true, verdict: "FIX", issues: det, deterministic: true, model: "deterministic" };
+    const reviewed = body ?? draft;
     const prompt = `Jsi KONTROLOR oddělení "Copy a kreativa" (jiná rodina modelů než tvůrce). Netvoříš, jen hodnotíš.
 Posuď DRAFT proti zakázce a jejím akceptačním kritériím. Hlídej zvlášť:
 - nedomyšlená fakta (vše musí vycházet ze vstupů zakázky, jinak UNKNOWN),
@@ -326,22 +440,41 @@ ${briefMarkdown(order.brief!)}
 KANONICKÉ ZDROJE (povinné podle karty; posuzuj draft proti nim, zvlášť zamčenou architekturu obrazovek a rozsah P1.2):
 ${orderSources(ctx, order)}
 
-<<<DRAFT
-${draft}
+${body !== undefined ? `${FINAL_BODY_NOTE}\n\n` : ""}<<<DRAFT
+${reviewed}
 DRAFT>>>
 
 ${verdictFormatFor(this.checker)}`;
-    const { r, v } = await callChecker(this.checker, prompt, ctx.store.orderDir(order.id));
+    const inv = await invokeChecker(ctx.attempts, order.id, 0, () => callChecker(this.checker, prompt, ctx.store.orderDir(order.id)), prompt);
+    const { r, v } = inv;
     if (!r.ok) return fromAdapter(r, this.checkerModel());
     ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
     if (!v) return carryWarnings({ ok: false, error: "checker verdict unparseable", model: this.checkerModel(), duration_ms: r.duration_ms }, warningsOf(r, this.checkerModel()));
-    return { ...fromAdapter(r, this.checkerModel()), verdict: v.verdict, issues: v.issues };
+    // §6.2: receipt zapisuje kód; otisk je z téhož bufferu, který šel do promptu (§6.2.3).
+    const reviewedFile = body !== undefined ? fb!.file : order.draft_file!;
+    const step_id = `check/r${order.fix_rounds}`;
+    const review_receipt = writeReviewReceipt(ctx.store.orderDir(order.id), {
+      v: 1,
+      review_id: reviewId(order.id, step_id, [inv.invocation_id]),
+      order_id: order.id,
+      step_id,
+      invocation_id: inv.invocation_id,
+      ...reviewerInfo(this.checker),
+      verdict: v.verdict,
+      reviewed_artifact_kind: "content",
+      reviewed_artifact_hash: artifactHash(reviewed),
+      reviewed_body_file: { file: reviewedFile, sha256: sha256(reviewed) },
+      prompt_sha256: inv.prompt_sha256,
+      output_sha256: inv.output_sha256,
+      created_at: new Date().toISOString(),
+    });
+    return { ...fromAdapter(r, this.checkerModel()), verdict: v.verdict, issues: v.issues, review_receipt };
   }
 
   async revise(order: Order, ctx: DeptContext) {
     const draft = ctx.store.readFile(order.id, order.draft_file!);
     const extra = `\nPŘEDCHOZÍ DRAFT (oprav ho, nepiš od nuly, pokud to není nutné):\n<<<DRAFT\n${draft}\nDRAFT>>>\n\nPŘIPOMÍNKY KONTROLORA (všechny vypořádej):\n${(order.last_issues ?? []).map((x) => `- ${x}`).join("\n")}`;
-    const r = await this.creator.run(this.creatorPrompt(order.brief!, extra, orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id) });
+    const r = await this.creator.run(this.creatorPrompt(order.brief!, extra, orderSources(ctx, order)), { cwd: ctx.store.orderDir(order.id), noBuiltinTools: true });
     if (!r.ok) return fromAdapter(r, this.creatorModel());
     const name = `draft-v${order.fix_rounds}.md`;
     ctx.store.writeFile(order.id, name, r.text);
@@ -349,16 +482,16 @@ ${verdictFormatFor(this.checker)}`;
   }
 
   async deliver(order: Order, ctx: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
-    const draft = ctx.store.readFile(order.id, order.draft_file!);
-    const header = [
-      `**DRAFT — není schváleno.** Vytvořeno orchestrátorem TARS-ORCH v0, zakázka \`${order.id}\`, milník ${order.brief!.milestone}.`,
-      `Tvůrce: ${this.creatorModel()} · Kontrolor: ${this.checkerModel()} · Kol oprav: ${order.fix_rounds}.`,
-      `Rozhodnutí vyhrazená Sponzorovi: ${order.brief!.owner_decisions.join("; ") || "žádná"}.`,
-      "",
-      "---",
-      "",
-    ].join("\n");
-    const content = header + draft;
+    let content: string;
+    if (finalBodyRef(order)) {
+      // §6.2.1 bod 5: hlavička se znovu nesestavuje; odejdou přesně bajty `final-body-r<n>.md`, ověřené proti stavu
+      // a review receiptu. Nesoulad = nic se neodešle (orchestrátor ho zachytí dřív jako HOLD).
+      const problem = finalBodyProblem(order, ctx.store);
+      if (problem) return { ok: false, error: problem, effect_absent: true, model: "notion" };
+      content = ctx.store.readFile(order.id, finalBodyRef(order)!.file);
+    } else {
+      content = copyEnvelope(order, this.creatorModel(), this.checkerModel(), order.fix_rounds) + ctx.store.readFile(order.id, order.draft_file!);
+    }
     const title = `DRAFT — ${order.brief!.title} (${order.id})`;
     const page = await ctx.notion.createPage(ctx.draftParentId, effect ? titleWithMarker(title, effect.operationId) : title, content);
     return { ok: true, url: page.url, model: "notion", content };
@@ -376,6 +509,115 @@ function git(cwd: string, args: string[]): { ok: boolean; out: string } {
   return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
+/** Jen stdout (OID, diff): stderr se do výsledku nemíchá. */
+function gitOut(cwd: string, args: string[]): { ok: boolean; out: string } {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+  return { ok: r.status === 0, out: r.stdout ?? "" };
+}
+
+const OID = /^[0-9a-f]{40}$/;
+
+/**
+ * Etapa 4 / PR 4a (§8, §14): interní záznam a reconcile STÁVAJÍCÍHO push v `deliver` — journal `<wo>/push/r<n>`,
+ * soubor runs/<wo>/push/r<n>-a<k>.json (writeDurable, nic se nepřepisuje). Receipt = OID z `git ls-remote`. Záznam
+ * nemění, kdy a jak se push volá (rozhodování o push a brána zápisu na GitHub jsou PR 4b, třída B).
+ */
+export interface PushRecord {
+  v: 1;
+  operation_id: string;
+  attempt: number;
+  branch: string;
+  expected_git_commit_oid: string | null;
+  /** vzdálená větev před push: OID, null = neexistuje, undefined = ls-remote selhal */
+  remote_before?: string | null;
+  state: "PREPARED" | "EFFECT_DONE" | "EFFECT_ABSENT" | "EFFECT_UNKNOWN";
+  reconcile: { result: RetryDecision; reason: string };
+  push_ok?: boolean;
+  remote_after?: string | null;
+  receipt?: { git_oid: string };
+  prepared_at: string;
+  updated_at: string;
+}
+
+/** `git ls-remote origin refs/heads/<branch>`: OID, null = větev neexistuje, undefined = nelze zjistit. */
+export function lsRemoteHead(wt: string, branch: string): string | null | undefined {
+  const r = gitOut(wt, ["ls-remote", "origin", `refs/heads/${branch}`]);
+  if (!r.ok) return undefined;
+  const lines = r.out.split("\n").filter((l) => l.trim());
+  if (!lines.length) return null;
+  const hit = lines.filter((l) => l.endsWith(`\trefs/heads/${branch}`));
+  const oid = hit.length === 1 ? hit[0].split("\t")[0] : "";
+  return OID.test(oid) ? oid : undefined;
+}
+
+export class PushJournal {
+  constructor(private runsDir: string) {}
+  dir(orderId: string): string {
+    return path.join(this.runsDir, orderId, "push");
+  }
+  list(orderId: string, round: number): PushRecord[] {
+    const d = this.dir(orderId);
+    if (!fs.existsSync(d)) return [];
+    return fs
+      .readdirSync(d)
+      .filter((f) => new RegExp(`^r${round}-a\\d+\\.json$`).test(f))
+      .map((f) => JSON.parse(fs.readFileSync(path.join(d, f), "utf8")) as PushRecord)
+      .sort((a, b) => a.attempt - b.attempt);
+  }
+  private write(orderId: string, round: number, r: PushRecord): void {
+    fs.mkdirSync(this.dir(orderId), { recursive: true });
+    writeDurable(path.join(this.dir(orderId), `r${round}-a${r.attempt}.json`), JSON.stringify(r, null, 2) + "\n");
+  }
+
+  /** PREPARED před push, s reconcile proti předchozímu záznamu stejného kola (§8: shoda OID → RESUME). */
+  begin(orderId: string, round: number, wt: string, branch: string): PushRecord {
+    const head = gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
+    const expected = OID.test(head) ? head : null;
+    const remote = lsRemoteHead(wt, branch);
+    const prev = this.list(orderId, round).at(-1);
+    let reconcile: PushRecord["reconcile"];
+    if (!prev) reconcile = { result: "RETRY_SAFE", reason: "první push kola" };
+    else if (remote === undefined) reconcile = { result: "UNKNOWN", reason: "ls-remote selhal" };
+    else if (expected && remote === expected) reconcile = { result: "RESUME", reason: `vzdálená větev už nese ${expected} (push je no-op)` };
+    else if (prev.state === "EFFECT_ABSENT" || (prev.state !== "EFFECT_DONE" && remote === (prev.remote_before ?? null))) reconcile = { result: "RETRY_SAFE", reason: "předchozí pokus nic nezapsal" };
+    else reconcile = { result: "UNKNOWN", reason: `vzdálená větev ${remote ?? "neexistuje"} ≠ HEAD ${expected ?? "?"} po předchozím pokusu ${prev.state}` };
+    const at = new Date().toISOString();
+    const rec: PushRecord = {
+      v: 1,
+      operation_id: `${orderId}/push/r${round}`,
+      attempt: (prev?.attempt ?? 0) + 1,
+      branch,
+      expected_git_commit_oid: expected,
+      ...(remote !== undefined ? { remote_before: remote } : {}),
+      state: "PREPARED",
+      reconcile,
+      prepared_at: at,
+      updated_at: at,
+    };
+    this.write(orderId, round, rec);
+    return rec;
+  }
+
+  /** Po push: receipt z `git ls-remote` (shoda s HEAD = EFFECT_DONE), nic nového = EFFECT_ABSENT, jinak UNKNOWN. */
+  end(orderId: string, round: number, rec: PushRecord, pushOk: boolean, wt: string): PushRecord {
+    const after = lsRemoteHead(wt, rec.branch);
+    let state: PushRecord["state"];
+    if (after !== undefined && rec.expected_git_commit_oid && after === rec.expected_git_commit_oid) state = "EFFECT_DONE";
+    else if (!pushOk && after !== undefined && "remote_before" in rec && after === rec.remote_before) state = "EFFECT_ABSENT";
+    else state = "EFFECT_UNKNOWN";
+    const next: PushRecord = {
+      ...rec,
+      state,
+      push_ok: pushOk,
+      ...(after !== undefined ? { remote_after: after } : {}),
+      ...(state === "EFFECT_DONE" ? { receipt: { git_oid: after! } } : {}),
+      updated_at: new Date().toISOString(),
+    };
+    this.write(orderId, round, next);
+    return next;
+  }
+}
+
 export class DevDepartment implements DepartmentRunner {
   name = "Vývoj";
   cardRole = "vyvojar";
@@ -388,9 +630,25 @@ export class DevDepartment implements DepartmentRunner {
     private reviewer: TextAdapter,
     /** MEZI VÁMI invariant-sentinel spec (replaces the suggest-db rules, run.sh unchanged). */
     private sentinelSpec?: string,
+    /** Etapa 4 / PR 4a (§6.2.2): limity vícedílného review (výchozí CHUNK_LIMIT 150 000 znaků, MAX_CHUNKS 4). */
+    private review: { chunkLimit?: number; maxChunks?: number } = {},
   ) {
     this.creatorFamily = chain.family;
     this.checkerFamily = reviewer.family;
+  }
+
+  /**
+   * §8 + §14 PR 4a: do PR 4b chybí dvojice snímků vzdálených zápisů (§8.2), takže retry dev create/revise se vždy
+   * odmítne (throw, fail-closed: žádné nové volání AI Chain, žádný push). Kontrola (codex read-only) je RETRY_SAFE.
+   */
+  reconcileRetry(kind: StepKind, order: Order, _ctx: DeptContext, prev: AttemptRecord): { result: RetryDecision; reason: string } {
+    if (kind === "check") return { result: "RETRY_SAFE", reason: `review ${this.reviewer.name} (read-only): bez účinků` };
+    throw new RetryRefusedError(`retry dev kroku ${kind} (${order.id}, ${prev.attempt_id}) odmítnut: chybí dvojice snímků vzdálených zápisů (§8.2, PR 4b)`);
+  }
+
+  attemptDeadlineMs(kind: StepKind): number {
+    // AI Chain má timeout 90 min; review až MAX_CHUNKS částí po 30 min.
+    return kind === "check" ? ((this.review.maxChunks ?? MAX_CHUNKS) * 30 + 5) * 60_000 : 95 * 60_000;
   }
   creatorModel() {
     return `${this.chain.name} (${this.chain.model})`;
@@ -435,31 +693,86 @@ export class DevDepartment implements DepartmentRunner {
 
   async check(order: Order, ctx: DeptContext): Promise<CheckOutcome> {
     const { wt } = this.worktree(order);
-    const diff = git(wt, ["diff", "origin/main...HEAD"]).out;
+    // PR 4a (§6.2.2): pevná báze (merge-base s origin/main) a celý diff `<base>..HEAD`. Model vidí celý diff po
+    // částech (hranice souborů, pak hunků), nic se tiše nezkracuje. Přes limit = HOLD DIFF_TOO_LARGE, 0 volání.
+    const head = gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
+    const base = gitOut(wt, ["merge-base", "origin/main", "HEAD"]).out.trim();
+    if (!OID.test(head) || !OID.test(base)) return { ok: false, hold: "REVIEW_BASE: HEAD nebo merge-base s origin/main nejde určit", model: "deterministic" };
+    const range = `${base}..${head}`;
+    const d = gitOut(wt, ["diff", range]);
+    if (!d.ok) return { ok: false, hold: `REVIEW_BASE: git diff ${range} selhal`, model: "deterministic" };
+    const diff = d.out;
     const issues: string[] = [];
     if (!diff.trim()) issues.push("žádná změna oproti origin/main");
     const s = scanSecrets(diff);
     if (!s.clean) issues.push(`secret-scan diffu: ${s.kinds.join(", ")}`);
-    const ws = git(wt, ["diff", "--check", "origin/main...HEAD"]);
+    const ws = git(wt, ["diff", "--check", range]);
     if (!ws.ok) issues.push("git diff --check: whitespace chyby");
     const status = order.meta.chain_status ?? "UNKNOWN";
     if (!/^PASS/.test(status)) issues.push(`AI Chain 05-final STATUS je "${status}", vyžadováno PASS nebo PASS s výhradami`);
+    const plan = planDiffChunks(diff, this.review.chunkLimit ?? CHUNK_LIMIT, this.review.maxChunks ?? MAX_CHUNKS);
+    if (!plan.ok) return { ok: false, hold: plan.reason, model: "deterministic" };
     if (issues.length) return { ok: true, verdict: "FIX", issues, deterministic: true, model: "deterministic" };
-    const prompt = `Jsi KONTROLOR (code review) oddělení Vývoj — jiná rodina modelů než tvůrce. Neměň soubory.
+    const n = plan.chunks.length;
+    const outs: string[] = [];
+    const chunks: ReviewChunk[] = [];
+    const verdicts: Array<Verdict | undefined> = [];
+    const allIssues: string[] = [];
+    const prompts: string[] = [];
+    const outputs: string[] = [];
+    const notes: LimitWarningNote[] = [];
+    for (const c of plan.chunks) {
+      const prompt = `Jsi KONTROLOR (code review) oddělení Vývoj — jiná rodina modelů než tvůrce. Neměň soubory.
 Posuď diff proti zakázce a jejím akceptačním kritériím: správnost, bezpečnost, rozsah (nic navíc), zákazy (merge/deploy/DB/secrets).
 
 ${briefMarkdown(order.brief!)}
 
+Část ${c.index + 1} z ${n} celého diffu (znaky ${c.start}–${c.end} z ${diff.length}), soubory: ${c.files.join(", ")}. Každou část posuzuje samostatné volání; verdikt dej jen za tuto část.
+
 <<<DIFF
-${diff.slice(0, 150_000)}
+${c.text}
 DIFF>>>
 
 ${verdictFormatFor(this.reviewer)}`;
-    const { r, v } = await callChecker(this.reviewer, prompt, wt);
-    if (!r.ok) return fromAdapter(r, this.checkerModel());
-    ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, r.text);
-    if (!v) return carryWarnings({ ok: false, error: "reviewer verdict unparseable", model: this.checkerModel() }, warningsOf(r, this.checkerModel()));
-    return { ...fromAdapter(r, this.checkerModel()), verdict: v.verdict, issues: v.issues };
+      const inv = await invokeChecker(ctx.attempts, order.id, c.index, () => callChecker(this.reviewer, prompt, wt), prompt);
+      notes.push(...warningsOf(inv.r, this.checkerModel()));
+      if (!inv.r.ok) return carryWarnings(fromAdapter(inv.r, this.checkerModel()), notes);
+      outs.push(n > 1 ? `## Část ${c.index + 1} z ${n}\n\n${inv.r.text}` : inv.r.text);
+      // Nečitelný verdikt části = chyba, ne PASS (§6.2.2 bod 5).
+      if (!inv.v) {
+        ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, outs.join("\n\n"));
+        return carryWarnings({ ok: false, error: `reviewer verdict unparseable (část ${c.index + 1} z ${n})`, model: this.checkerModel() }, notes);
+      }
+      verdicts.push(inv.v.verdict);
+      allIssues.push(...inv.v.issues.map((x) => (n > 1 ? `část ${c.index + 1}/${n}: ${x}` : x)));
+      chunks.push({ index: c.index, start: c.start, end: c.end, sha256: c.sha256, invocation_id: inv.invocation_id, verdict: inv.v.verdict });
+      prompts.push(inv.prompt_sha256);
+      outputs.push(inv.output_sha256);
+    }
+    ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, outs.join("\n\n"));
+    const verdict = aggregateVerdict(verdicts);
+    if (!verdict) return carryWarnings({ ok: false, error: "reviewer verdict unparseable", model: this.checkerModel() }, notes);
+    const step_id = `check/r${order.fix_rounds}`;
+    const review_receipt = writeReviewReceipt(ctx.store.orderDir(order.id), {
+      v: 1,
+      review_id: reviewId(order.id, step_id, chunks.map((c) => c.invocation_id)),
+      order_id: order.id,
+      step_id,
+      invocation_id: chunks[0]?.invocation_id ?? null,
+      ...reviewerInfo(this.reviewer),
+      verdict,
+      reviewed_artifact_kind: "git",
+      reviewed_git_commit_oid: head,
+      reviewed_base_oid: base,
+      full_diff_sha256: sha256(diff),
+      full_diff_chars: diff.length,
+      chunks,
+      coverage: "full",
+      prompt_sha256: sha256(prompts.join("")),
+      output_sha256: sha256(outputs.join("")),
+      created_at: new Date().toISOString(),
+    });
+    return carryWarnings({ ok: true, model: this.checkerModel(), verdict, issues: verdict === "PASS" ? allIssues : allIssues.length ? allIssues : [`verdikt ${verdict}`], review_receipt }, notes);
   }
 
   async revise(order: Order, ctx: DeptContext) {
@@ -468,7 +781,11 @@ ${verdictFormatFor(this.reviewer)}`;
 
   async deliver(order: Order, _ctx?: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
     const { wt, branch } = this.worktree(order);
+    // PR 4a: jen záznam a reconcile kolem stávajícího push (journal <wo>/push/r<n>); volání push je beze změny.
+    const pj = _ctx ? new PushJournal(_ctx.store.runsDir) : undefined;
+    const pushRec = pj?.begin(order.id, order.fix_rounds, wt, branch);
     const push = git(wt, ["push", "-q", "-u", "origin", branch]);
+    if (pj && pushRec) pj.end(order.id, order.fix_rounds, pushRec, push.ok, wt);
     if (!push.ok) return { ok: false, error: "git push failed", effect_absent: true }; // no PR exists before the push
     const op = effect ? `\nOperace TARS: \`${effect.marker}\`` : "";
     const body = `${briefMarkdown(order.brief!)}\n\n---\nVytvořeno TARS-ORCH v0, zakázka \`${order.id}\`. Tvůrce: ${this.creatorModel()}. Kontrolor: ${this.checkerModel()}. Kol oprav: ${order.fix_rounds}.${op}\n**DRAFT — NEMERGOVAT bez GO vlastníka.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
@@ -673,6 +990,11 @@ ZADÁNÍ:\n${briefMarkdown(order.brief!)}\n\nVERDIKT BRÁNY:\n${r.text}\n\n${VER
 
   findEffect(_order: Order, ctx: DeptContext, operationId: string): Promise<EffectLookup> {
     return lookupNotionMarker(ctx.notion, ctx.draftParentId, operationId);
+  }
+
+  /** §8: vizuál není v tabulce §8; chování beze změny (UI selhání po 2 pokusech je UNKNOWN už dnes). */
+  reconcileRetry(kind: StepKind): { result: RetryDecision; reason: string } {
+    return { result: "RETRY_SAFE", reason: `vizuál ${kind}: mimo tabulku §8, chování beze změny (UI_UNKNOWN po 2 pokusech)` };
   }
 }
 
