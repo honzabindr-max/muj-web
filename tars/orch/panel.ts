@@ -468,15 +468,44 @@ export class PanelIndex {
     return this.read()[orderId];
   }
   /**
-   * Setting the page id also clears the „unknown outcome“ mark. Refused (false) for a row retired by a card reissue and
-   * for an older card round: a delayed write of the old row can never point the index back at it. Call under the state lock.
+   * Setting the page id also clears the „unknown outcome“ mark. Refused ("stale") for a row retired by a card reissue
+   * and for an older card round: a delayed write of the old row can never point the index back at it. Refused
+   * ("conflict", kolo oprav 5) when the same round already holds ANOTHER row: never a silent replacement, the caller
+   * HOLDs and logs. Call under the state lock and the order's panel lock.
    */
-  set(orderId: string, pageId: string, round = 0): boolean {
+  set(orderId: string, pageId: string, round = 0): IndexSetResult {
     const all = this.read();
-    if (round < roundOf(all, orderId) || supersededOf(all, orderId).includes(norm(pageId))) return false;
+    if (round < roundOf(all, orderId) || supersededOf(all, orderId).includes(norm(pageId))) return "stale";
+    const have = all[orderId];
+    if (have && norm(have) !== norm(pageId) && round === roundOf(all, orderId)) return "conflict";
     delete all[`${UNCERTAIN_PREFIX}${orderId}`];
     this.write({ ...all, [orderId]: pageId, ...(round > 0 ? { [`${ROUND_PREFIX}${orderId}`]: String(round) } : {}) });
-    return true;
+    return "ok";
+  }
+  /**
+   * Poslední zápis řádku pod zámkem panelu (kolo oprav 5): který řádek, pro které kolo, s jakou kartou a s jakým fence.
+   * Rozhodnutí po znovuvydání se přijme jen z řádku, jehož poslední zápis nesl aktuální kartu.
+   */
+  recordWrite(orderId: string, w: PanelWrite): void {
+    this.write({ ...this.read(), [`${WRITTEN_PREFIX}${orderId}`]: JSON.stringify({ ...w, row: norm(w.row) }) });
+  }
+  /** Nečitelný záznam vyhodí chybu: volající pak nepřijímá (čeká), nikdy naopak. */
+  lastWrite(orderId: string): PanelWrite | undefined {
+    const raw = this.read()[`${WRITTEN_PREFIX}${orderId}`];
+    if (raw === undefined) return undefined;
+    const v = JSON.parse(raw) as PanelWrite;
+    if (!v || typeof v.row !== "string" || !Number.isInteger(v.round) || !Number.isInteger(v.fence)) throw new Error("panel-index: poškozený záznam posledního zápisu");
+    return v;
+  }
+  /** Řádek, do kterého po vydání karty zapsal jinou kartu někdo jiný: jeho rozhodnutí se už nikdy nepřijme (HOLD). */
+  taint(orderId: string, pageId: string): void {
+    const all = this.read();
+    const list = listOf(all[`${TAINTED_PREFIX}${orderId}`]);
+    if (!list.includes(norm(pageId))) list.push(norm(pageId));
+    this.write({ ...all, [`${TAINTED_PREFIX}${orderId}`]: JSON.stringify(list) });
+  }
+  tainted(orderId: string): string[] {
+    return listOf(this.read()[`${TAINTED_PREFIX}${orderId}`]);
   }
   /** Kolo karty, ke kterému patří řádek v indexu (0 = zakázka nikdy znovuvydaná). */
   round(orderId: string): number {
@@ -539,6 +568,19 @@ const UNCERTAIN_PREFIX = "uncertain:";
 const ROUND_PREFIX = "round:";
 const SUPERSEDED_PREFIX = "superseded:";
 const MARKED_PREFIX = "superseded-marked:";
+const WRITTEN_PREFIX = "written:";
+const TAINTED_PREFIX = "tainted:";
+
+export type IndexSetResult = "ok" | "stale" | "conflict";
+
+/** Záznam posledního zápisu řádku pod zámkem panelu (`PanelIndex.recordWrite`). */
+export interface PanelWrite {
+  row: string;
+  round: number;
+  /** odkaz „Karta rozhodnutí“, který zápis nesl (null = bez karty) */
+  card: string | null;
+  fence: number;
+}
 
 const norm = (id: string) => id.replace(/-/g, "");
 

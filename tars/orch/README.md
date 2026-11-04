@@ -106,9 +106,25 @@ Každé kolo karty má **vlastní řádek panelu** (starý řádek se nepřepisu
   „karta znovuvydána → nový řádek <id>“, bez odkazu na kartu. Selhání se zkusí znovu při dalším zápisu.
 - Všechny zápisy (tick, `panel-sync`, oprava karty) cílí na row id, které index drží pro kolo uloženého stavu.
 
+**Zámek panelu zakázky** (kolo oprav 5): všechno, co čte nebo zapisuje řádek panelu, jeho index nebo journal efektu
+(zápis v ticku, `cli.ts panel-sync`, `reissue`, vytvoření nového řádku, oprava karty, poll rozhodnutí, opakované
+upozornění), běží pod `runs/<id>/.panel.lock`. Zámek se drží i přes síťový zápis; pravidla jako lease etapy 2: token +
+PID + čas startu, monotónní fence `runs/<id>/.panel-fence`, převzetí jen po prokázaném konci držitele, nikdy podle
+stáří; čekání nejdéle `panelLockWaitMs` (30 s), pak HOLD („zámek .panel.lock, HOLD“ v logu, nic se nezapíše). Kolo karty,
+row id i odkaz karty se čtou až pod zámkem těsně před zápisem; před každým zápisem se ověří fence (neplatný fence = zápis
+se neodešle). PREPARED, POST, receipt i zápis do indexu nového řádku proběhnou pod jedním zámkem, takže souběžný proces
+PREPARED bez receiptu neuvidí, dokud POST běží. Po převzetí zámku: nejdřív dohledání, jistě nenalezeno = nový pokus se
+stejným operation_id, chyba dohledání = HOLD. `PanelIndex.set` pro stejné kolo nepřepíše existující řádek jiným ID
+(„panel HOLD: index kola … už drží jiný řádek“ v logu). Každý zápis řádku se zaznamená (`written:<id>`: řádek, kolo,
+karta, fence). Visící zámek: stejný postup jako u `.state.lock` výš (zjistit PID z `.panel.lock`; jen když proces
+prokazatelně neběží a TARS ho sám nepřevzal, smazat `runs/<id>/.panel.lock`).
+
 Rozhodnutí se čte **jen** z řádku aktuálního kola a přijme se, když je řádek spolehlivě přečtený (ne koš, sloupec
-existuje) a jeho odkaz „Karta rozhodnutí“ je přesně aktuální karta s otiskem (jinak se řádek přepíše a zakázka čeká).
-Rozhodnutí na řádku SUPERSEDED se ignoruje navždy. Orchestrátor do pole „Rozhodnutí vlastníka“ nikdy nezapisuje (P20).
+existuje), jeho odkaz „Karta rozhodnutí“ je přesně aktuální karta s otiskem a poslední zápis pod zámkem panelu šel do
+tohoto řádku, v tomto kole, s touto kartou. Když řádek ukazuje jinou kartu (zapsal ji tam kdokoli mimo zámek) nebo
+záznam posledního zápisu nesedí, řádek se znehodnotí (`tainted:<id>`), odkaz se přepíše a rozhodnutí z něj se už nikdy
+nepřijme (HOLD; vlastník rozhodne přes `cli.ts owner`). Rozhodnutí na řádku SUPERSEDED se ignoruje navždy. Orchestrátor
+do pole „Rozhodnutí vlastníka“ nikdy nezapisuje (P20).
 `reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání; `cli.ts owner` zůstává pro agenta blokované.
 
 ## Safety
