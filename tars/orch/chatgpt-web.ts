@@ -33,8 +33,14 @@ export const CHATGPT_MODE = "Chat";
 export const CHATGPT_FORBIDDEN_MODE = "Work";
 export const CHATGPT_MODEL = "GPT-6";
 export const CHATGPT_MODEL_FALLBACK = "GPT-5.6 Sol";
-/** Intensity slider in Chat: Nízká / Střední / Vysoká; Vysoká is the top for both Chat models. */
+/**
+ * Intensity slider in Chat: Nízká / Střední / Vysoká (English UI: Low / Medium / High); the top step (Vysoká = High)
+ * is the target for both Chat models. A top step with another label is a mismatch; Max exists only in Work.
+ */
 export const CHATGPT_INTENSITY = "Vysoká";
+export const CHATGPT_INTENSITY_EN = "High";
+/** The picker in the composer that holds the intensity slider and (behind "Medium ›" / "Vysoká ›") the model list. */
+export const CHATGPT_PICKER = "Vybrat model ChatGPT";
 /** Models the check accepts (both exist only in Chat). */
 export const CHAT_MODELS: readonly string[] = [
   CHATGPT_MODEL,
@@ -77,7 +83,8 @@ export interface WebCheckRecord {
  * Vysoká before the send and after the answer; then the attempt is "answered" with the answer and both models stored.
  * Anything else (timeout, mismatch, crash, any doubt) makes the attempt "burned" for good: its chat is never opened
  * again and its answer is never accepted, not even by a later read. A provably unsent attempt is removed.
- * After a crash between "answered" and storing the result, the next run finishes from the stored answer without a send.
+ * Codex review PR #101 kolo 3: a stored answer is never restored. An "answered" attempt found by a later run (crash
+ * between "answered" and storing the result) is burned like any interrupted attempt; nothing is sent automatically.
  * Codex review kolo 3, nález 1: a burned attempt is never followed by an automatic one. While the last attempt of the
  * dir is burned, nothing is sent; the order stays in WAITING_REVIEW with the reason. A new attempt (new chat, new
  * nonce, one send) needs an explicit grant from `cli.ts gpt-retry` (RETRY_FILE).
@@ -96,6 +103,13 @@ export interface SentEntry {
   model_before?: string;
   model_after?: string;
 }
+/**
+ * Codex review PR #101 kolo 3: an answer is accepted only in the browser run that sent and read it (the control is
+ * verified live in that run). A stored "answered" attempt is never restored from the journal (the journal is written
+ * by the same order dir and proves nothing): after a restart it is burned with this reason, nothing is sent.
+ */
+export const INTERRUPTED_ATTEMPT =
+  "přerušený pokus, obnova z deníku se nepovoluje";
 const isFinal = (e: SentEntry) =>
   e.state === "answered" || e.state === "burned";
 /** Only a real ChatGPT conversation URL is recorded (diagnostics; a chat is never opened again). */
@@ -294,19 +308,24 @@ export function chatGptSteps(
     },
     {
       kind: "choose",
-      what: "model",
+      what: `model (výběr „${CHATGPT_PICKER}“ v poli pro zadání; seznam modelů otevře položka s intenzitou, např. „Medium ›“ nebo „Vysoká ›“)`,
       prefer: CHATGPT_MODEL,
       fallback: `„${CHATGPT_MODEL_FALLBACK}“; nikdy nepřepínej do režimu „${CHATGPT_FORBIDDEN_MODE}“`,
     },
     {
       kind: "choose",
-      what: "intenzita přemýšlení (posuvník Nízká / Střední / Vysoká)",
+      what: `intenzita přemýšlení (posuvník „Výkon“ ve výběru „${CHATGPT_PICKER}“; popisky Nízká / Střední / Vysoká nebo Low / Medium / High)`,
       prefer: CHATGPT_INTENSITY,
-      fallback: "nejvyšší stupeň posuvníku",
+      fallback: `„${CHATGPT_INTENSITY_EN}“; vždy nejvyšší stupeň posuvníku: klikni na „Výkon“ a stiskni klávesu End (browser_press_key), popř. šipku vpravo až na konec; nikdy „Max“`,
     },
     // Codex review kolo 2, nález 1: the page before the send is read in the same run; the answer counts only when this
-    // read AND the read after the answer show Chat + an allowed model + Vysoká.
+    // read AND the read after the answer show Chat + an allowed model + Vysoká/High. Smoke 4. 11.: model and intensity
+    // are visible only in the open picker, so it is open for the read. PR #101 kolo 1: open + read are mandatory and
+    // checked in code (detectModel reads only the open picker; a closed one = WAITING_REVIEW).
+    { kind: "open", text: CHATGPT_PICKER },
     { kind: "read" },
+    // Smoke 4. 11.: the open picker stayed over the composer; every popover is closed before the field is filled.
+    { kind: "close_popups" },
     {
       kind: "fill",
       selector: 'div[contenteditable="true"]#prompt-textarea, textarea',
@@ -315,6 +334,7 @@ export function chatGptSteps(
       exact: true,
     },
     { kind: "wait_text", text: marker, ms: timeoutMs },
+    { kind: "open", text: CHATGPT_PICKER },
     { kind: "read" },
   ];
 }
@@ -607,31 +627,107 @@ export function verdictFromAnswer(
 }
 
 /**
- * Model and intensity as the page shows them (model picker in the header comes first in the snapshot). The version is
- * read whole and only a known name word may follow, so "GPT-6" is never "GPT-6.1 Sol" or "GPT-5.6 Sol" and an
- * intensity word ("GPT-6 Vysoká") is never part of the model name.
+ * Model and intensity as the open picker shows them, and ONLY from it (Codex review PR #101 kolo 1, nález high): the
+ * model is the checked `menuitemradio` of the open `menu "Vybrat model ChatGPT"`, the intensity is the label and step
+ * of its slider status. No text of the page counts (a chat titled "GPT-6 High" in the history, the prompt or the
+ * answer never decides). The version is read whole and only a known name word may follow, so "GPT-6" is never
+ * "GPT-6.1 Sol" or "GPT-5.6 Sol". {} = the picker is not open or not readable (see controlVerified).
  */
-export function detectModel(page: string): {
+export function detectModel(page: string): ShownModel {
+  return pickerModel(page) ?? {};
+}
+
+/**
+ * true when the state was read from the control: the open picker showed exactly one checked model and the slider
+ * status (label + step). Anything else is an unverified UI state → WAITING_REVIEW, never a match.
+ */
+export const controlVerified = (seen: ShownModel): boolean =>
+  seen.model !== undefined &&
+  seen.intensity !== undefined &&
+  seen.level !== undefined &&
+  seen.levels !== undefined;
+
+/** Reason of WAITING_REVIEW when the open picker was not read (closed, missing or ambiguous). */
+export const CONTROL_UNVERIFIED = "stav modelu neověřen z ovládacího prvku";
+
+export interface ShownModel {
   model?: string;
   intensity?: string;
-} {
-  const head = page.slice(0, 30_000);
-  const m =
-    /(?<![\p{L}\d])((?:Chat)?GPT[- ]?\d+(?:\.\d+)*(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini)(?![\p{L}\d]))?)(?![\p{L}\d.]*\d)/u.exec(
-      head,
-    );
-  if (!m) return {};
-  const near = head.slice(m.index, m.index + 300);
-  const i =
-    /(?<![\p{L}\d])(Max\.?|Maximální|Maximum|Heavy|Extended|Vysoká|High|Střední|Medium|Standard|Light|Nízká|Low)(?=[\s"'\]):,·]|$)/u.exec(
-      near.slice(m[1].length),
-    );
-  return { model: m[1], intensity: i?.[1] };
+  /** Step of the intensity slider and the number of steps, when the page says them ("Medium, 2 z(e) 3."). */
+  level?: number;
+  levels?: number;
+}
+
+const MODEL_NAME_RE =
+  /(?<![\p{L}\d])((?:Chat)?GPT[- ]?\d+(?:\.\d+)*(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini)(?![\p{L}\d]))?)(?![\p{L}\d.]*\d)/u;
+/** The slider's live status in the picker: "Medium, 2 z(e) 3." (cs) / "High, 3 of 3." (en). */
+const SLIDER_STATUS_RE =
+  /^\s*-\s*status(?:\s*\[[^\]\n]*\])*:\s*['"]?([^,'"\n]+),\s*(\d+)\s*(?:z\(e\)|ze|z|of|\/)\s*(\d+)\.?['"]?\s*$/iu;
+/** A checked radio of the model list: `- menuitemradio [checked]:` (also `[checked=true]`), never by text. */
+const CHECKED_RADIO_RE =
+  /^\s*-\s*'?menuitemradio(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*?\s*\[checked(?:=true)?\]/i;
+/** The line of the open picker: `- menu "Vybrat model ChatGPT" [ref=…]:` (role menu, exactly this accessible name). */
+const PICKER_MENU_RE = new RegExp(
+  `^\\s*-\\s*'?menu\\s+"${CHATGPT_PICKER}"(?:\\s*\\[[^\\]\\n]*\\])*:?'?\\s*$`,
+);
+
+/**
+ * Model and intensity from the open picker, and only from it (smoke 4. 11.; Codex review PR #101 kolo 1): exactly one
+ * element `menu "Vybrat model ChatGPT"`, and only its own subtree (by indentation) is parsed, so nothing of the chat
+ * history, the prompt or the answer can be taken for it. In that subtree the model is the text of the one checked
+ * `menuitemradio` (`- menuitemradio [checked]: - generic: GPT-6`: its own name, else the first text below it), the
+ * intensity is the label of the slider `status` line ("Medium, 2 z(e) 3.") with its step. Two pickers, two checked
+ * radios or two status lines are ambiguous. undefined = no open picker, or it is ambiguous.
+ */
+function pickerModel(page: string): ShownModel | undefined {
+  const lines = page.split("\n");
+  const menus = lines
+    .map((l, i) => (PICKER_MENU_RE.test(l) ? i : -1))
+    .filter((i) => i >= 0);
+  if (menus.length !== 1) return undefined;
+  const i = menus[0];
+  const ind = indentOf(lines[i]);
+  let end = i + 1;
+  while (
+    end < lines.length &&
+    (!lines[end].trim() || indentOf(lines[end]) > ind)
+  )
+    end++;
+  const statuses: RegExpExecArray[] = [];
+  const models: (string | undefined)[] = [];
+  for (let j = i + 1; j < end; j++) {
+    const l = lines[j];
+    const st = SLIDER_STATUS_RE.exec(l);
+    if (st) {
+      statuses.push(st);
+      continue;
+    }
+    if (!CHECKED_RADIO_RE.test(l)) continue;
+    let text =
+      /"([^"\n]+)"/.exec(l)?.[1] ??
+      snapshotValue(l).replace(/^\[[^\]]*\]\s*:?/, "");
+    for (
+      let k = j + 1;
+      !text.trim() && k < end && indentOf(lines[k]) > indentOf(l);
+      k++
+    )
+      text = snapshotValue(lines[k]);
+    models.push(MODEL_NAME_RE.exec(text)?.[1]);
+  }
+  if (statuses.length > 1 || models.length > 1) return undefined;
+  const out: ShownModel = {};
+  if (models[0] !== undefined) out.model = models[0];
+  if (statuses[0]) {
+    out.intensity = statuses[0][1].trim();
+    out.level = Number(statuses[0][2]);
+    out.levels = Number(statuses[0][3]);
+  }
+  return out;
 }
 
 /** Intensity "Vysoká" (High) as the page shows it. */
 export const isHighIntensity = (intensity?: string): boolean =>
-  intensity === "Vysoká" || intensity === "High";
+  intensity === CHATGPT_INTENSITY || intensity === CHATGPT_INTENSITY_EN;
 
 /** A selected "Work" in the mode switch (snapshot state), not the mere label (the switch always shows both modes). */
 const WORK_SELECTED_RE =
@@ -808,31 +904,27 @@ export class ChatGptWebChecker implements TextAdapter {
       return waiting("deník pokusů nejde přečíst; nový prompt se neposílá");
     entries = journal;
 
-    // 1) A crash after "answered" and before the caller stored the result: finish from the stored answer, no send.
-    const done = [...journal]
-      .reverse()
-      .find(
-        (e) =>
-          e.prompt_sha256 === promptSha &&
-          e.state === "answered" &&
-          storedAnswerValid(e, opts.outputSchema),
+    // 1) Codex review PR #101 kolo 3: an "answered" attempt of this prompt means a run was interrupted between the
+    //    answer and storing the result. The stored answer is never restored (no proof outside the live run): the
+    //    attempt is burned and moved to the end of the journal (so it blocks like any burned attempt), the order waits,
+    //    nothing is sent; a new attempt only by gpt-retry.
+    const answered = journal.filter(
+      (e) => e.prompt_sha256 === promptSha && e.state === "answered",
+    );
+    if (answered.length) {
+      const next: SentEntry[] = [
+        ...journal.filter((e) => !answered.includes(e)),
+        ...answered.map((e) => ({
+          ...e,
+          state: "burned" as const,
+          reason: INTERRUPTED_ATTEMPT,
+        })),
+      ];
+      if (!save(next))
+        return waiting("deník pokusů nejde zapsat; nic neodesláno");
+      return waiting(
+        `${INTERRUPTED_ATTEMPT}: uložená odpověď se nepoužije, pokus je spálený a znovu se automaticky neposílá. Nový pokus jen příkazem: ${retryCommand(path.basename(jdir))}`,
       );
-    if (done) {
-      chatUrl = done.chat_url;
-      this.model = done.model_after!;
-      const kinds = record({
-        status: "ANSWER",
-        actual_model: done.model_after!,
-        model_matches: true,
-        answer: done.answer,
-      });
-      if (kinds.length) return rejected(kinds, done.model_after!);
-      return {
-        ok: true,
-        text: done.answer!,
-        limit: false,
-        duration_ms: Date.now() - t0,
-      };
     }
 
     // 2) An attempt left unfinished by an earlier run (crash): burned, its chat is never opened, its answer never taken.
@@ -844,8 +936,7 @@ export class ChatGptWebChecker implements TextAdapter {
           : {
               ...e,
               state: "burned" as const,
-              reason:
-                "pokus nedokončen v běhu, který ho odeslal (pád nebo přerušení); odpověď se nikdy nepřijme",
+              reason: `${INTERRUPTED_ATTEMPT} (pokus nedokončen v běhu, který ho odeslal, pád nebo přerušení; odpověď se nikdy nepřijme)`,
             },
       );
       if (!save(burned))
@@ -989,17 +1080,28 @@ export class ChatGptWebChecker implements TextAdapter {
       );
     // Codex review kolo 1, nález 1 + kolo 2, nález 1: only the requested Chat model at intensity Vysoká counts, shown
     // by THIS run before the send and after the answer (the same model both times). Anything else = burned, waits.
+    // Codex review PR #101 kolo 1: model and intensity count only from the open picker (both reads); a closed or
+    // unreadable picker is an unverified UI state, never a match and never a fallback to the page text.
+    if (!controlVerified(seen))
+      return waiting(
+        `${CONTROL_UNVERIFIED} (po odpovědi: výběr „${CHATGPT_PICKER}“ není otevřený nebo čitelný)`,
+        actual,
+      );
+    const seenBefore = before === undefined ? {} : detectModel(before);
+    if (!controlVerified(seenBefore))
+      return waiting(
+        `${CONTROL_UNVERIFIED} (před odesláním: výběr „${CHATGPT_PICKER}“ ${before === undefined ? "nepřečten" : "není otevřený nebo čitelný"})`,
+        actual,
+      );
     if (!modelOk(seen))
       return waiting(
         `model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka po odpovědi: ${actual})`,
         actual,
       );
-    const seenBefore = before === undefined ? {} : detectModel(before);
     if (
       before === undefined ||
       ranInWork(before, seenBefore) ||
-      !modelOk(seenBefore) ||
-      seenBefore.model !== seen.model
+      !pickerPairOk(seenBefore, seen)
     )
       return waiting(
         `model nebo intenzita před odesláním neodpovídá požadovanému ${this.requestedModel} nebo modelu po odpovědi (před odesláním: ${before === undefined ? "nepřečteno" : shownModel(seenBefore)}, po odpovědi: ${actual})`,
@@ -1056,37 +1158,36 @@ export class ChatGptWebChecker implements TextAdapter {
 }
 
 /** Model and intensity as text ("GPT-6 · Vysoká"); "neověřeno …" when the page does not show them. */
-function shownModel(seen: { model?: string; intensity?: string }): string {
+function shownModel(seen: ShownModel): string {
+  // the slider step only when it is not the top (a top step "High" reads as before: "GPT-6 · High")
+  const step =
+    seen.levels !== undefined && seen.level !== seen.levels
+      ? ` (stupeň ${seen.level}/${seen.levels})`
+      : "";
   return seen.model
-    ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
-    : "neověřeno (stránka model neukazuje)";
+    ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}${step}` : ""}`
+    : `neověřeno (výběr modelu není otevřený nebo neukazuje označený model${seen.intensity ? `; intenzita ${seen.intensity}${step}` : ""})`;
 }
 
-/** An allowed Chat model at intensity Vysoká. */
-const modelOk = (seen: { model?: string; intensity?: string }): boolean =>
+/**
+ * An allowed Chat model at intensity Vysoká / High; when the page shows the slider step, it must be the top one
+ * (a top step with another label, e.g. Medium of a two-step slider, is a mismatch).
+ */
+const modelOk = (seen: ShownModel): boolean =>
   seen.model !== undefined &&
   CHAT_MODELS.includes(seen.model) &&
-  isHighIntensity(seen.intensity);
-
-/** A stored "answered" attempt is used only when it holds an answer and both models of its run were valid. */
-function storedAnswerValid(
-  e: SentEntry,
-  schema?: Record<string, unknown>,
-): boolean {
-  if (typeof e.answer !== "string" || !e.answer.trim()) return false;
-  const parse = (s?: string) => {
-    const m = /^(.+?) · (.+)$/.exec(s ?? "");
-    return m ? { model: m[1], intensity: m[2] } : {};
-  };
-  const b = parse(e.model_before);
-  const a = parse(e.model_after);
-  if (!modelOk(b) || !modelOk(a) || b.model !== a.model) return false;
-  if (!schema) return true;
-  const allowed = ((
-    schema.properties as Record<string, { enum?: string[] }> | undefined
-  )?.verdict?.enum ?? []) as string[];
-  return parseStructuredVerdict(e.answer, allowed) !== undefined;
-}
+  isHighIntensity(seen.intensity) &&
+  (seen.levels === undefined || seen.level === seen.levels);
+/**
+ * The match of the two picker reads (before the send, after the answer): both read from the control, both an allowed
+ * Chat model at the top intensity, the same model. Used only by the live run.
+ */
+const pickerPairOk = (before: ShownModel, after: ShownModel): boolean =>
+  controlVerified(before) &&
+  controlVerified(after) &&
+  modelOk(before) &&
+  modelOk(after) &&
+  before.model === after.model;
 
 export function recordMarkdown(r: WebCheckRecord): string {
   return [
