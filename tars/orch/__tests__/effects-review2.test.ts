@@ -113,33 +113,30 @@ describe("nález 1 [medium]: a late answer of an earlier-sent write never clears
       return real(row, existing);
     };
 
-    // 1) A sends WAITING_OWNER
+    // Merge PR #99 + etapa 3: zápisy řádku jedné zakázky běží pod zámkem panelu `.panel.lock` (PR #99, kolo oprav 5).
+    // B se proto nemůže odeslat, dokud A drží zámek: souběh „B zapíše dřív, odpoví pozdě“ už nenastane. Ověřuje se
+    // serializace a stejný konec: řádek FAILED, značka dirty smazaná jen zápisem odeslaným po ní, jediný řádek.
+    // 1) A sends WAITING_OWNER (holds the panel lock)
     const pA = catchUp(o);
     await until(() => aSent);
-    // 2) the owner's REJECT (CLI): FAILED saved locally, B writes FAILED to the panel, answer delayed
+    // 2) the owner's REJECT (CLI): FAILED saved locally; B waits for the panel lock, nothing sent yet
     cli.owner(ORDER_ID, "REJECT");
-    await until(() => bSent);
     expect(store.load(ORDER_ID).state).toBe("FAILED");
-    expect(sink.rows.get("row-1")!.Stav).toBe("FAILED");
-    // 3) A overwrites the panel with WAITING_OWNER, gets its answer and marks dirty
+    await new Promise((r) => setTimeout(r, 100));
+    expect(bSent).toBe(false);
+    expect(sink.rows.get("row-1")!.Stav).toBe("WAITING_OWNER");
+    // 3) A lands WAITING_OWNER, sees the newer state.json and marks dirty
     a.resolve();
     await pA;
-    expect(sink.rows.get("row-1")!.Stav).toBe("WAITING_OWNER");
     expect(index.isDirty(ORDER_ID)).toBe(true);
-    // 4) B's late answer: its version equals state.json, but it was sent before the mark → the mark stays
+    // 4) B gets the lock only now: sent after the mark, it writes FAILED and may clear it
+    await until(() => bSent);
+    expect(sink.rows.get("row-1")!.Stav).toBe("FAILED");
     b.resolve();
     await cli.flushPanel();
-    expect(index.isDirty(ORDER_ID)).toBe(true);
-    expect(
-      store
-        .readLog(200)
-        .some(
-          (e) =>
-            typeof e.result === "string" && e.result.includes("značka zůstává"),
-        ),
-    ).toBe(true);
+    expect(index.isDirty(ORDER_ID)).toBe(false);
 
-    // next tick: the catch-up writes FAILED and only that write clears the mark
+    // next tick: nothing to catch up, the row stays FAILED, still one row
     await catchUp(o);
     expect(sink.rows.get("row-1")!.Stav).toBe("FAILED");
     expect(index.isDirty(ORDER_ID)).toBe(false);

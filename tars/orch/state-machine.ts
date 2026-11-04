@@ -15,6 +15,8 @@ export type OrderEvent =
   | { type: "revised" }
   | { type: "delivered"; owner_needed: boolean }
   | { type: "owner"; decision: "GO" | "REJECT"; option?: "A" | "B" }
+  /** Znovuvydání karty (`cli.ts reissue`): karta bez otisku se vrací do DELIVERED, další tick vydá novou s otiskem. */
+  | { type: "reissue" }
   | { type: "limit"; resume_after: string }
   | { type: "resume" }
   /** P16 v2: the non-code review (GPT in the browser) did not happen; the same artifact waits with its hash. */
@@ -68,6 +70,10 @@ function target(order: Order, ev: OrderEvent): OrderState {
         if (blocker) throw new TransitionError(`GO → DONE zamítnuto: ${blocker}`);
         return "DONE";
       }
+      break;
+    case "reissue":
+      // Jen karta bez otisku (stará verze před DR-039): karta s approved_hash se znovu nevydává.
+      if (s === "WAITING_OWNER" && !order.meta.approved_hash) return "DELIVERED";
       break;
     case "limit":
       if (ACTIVE.includes(s)) return "PAUSED";
@@ -146,6 +152,18 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       if (ev.decision === "REJECT") next.failure_reason = "owner REJECT";
       if (ev.option) next.meta = { ...order.meta, owner_option: ev.option };
       break;
+    case "reissue":
+      // Stará karta a všechna owner-pole zmizí (staré GO se nikdy nepřebírá). `reissue_round` je kolo karty: zakázka
+      // dostane pro toto kolo nový řádek panelu a rozhodnutí se čte jen z něj (starý řádek je SUPERSEDED).
+      next.meta = {
+        ...Object.fromEntries(Object.entries(order.meta).filter(([k]) => !k.startsWith("owner_") && !k.startsWith("reissue_") && k !== "readback")),
+        reissued_at: now,
+        reissue_round: String(reissueRound(order) + 1),
+      };
+      next.owner_card_url = undefined;
+      next.owner_reasons = undefined;
+      next.owner_needed = undefined;
+      break;
     case "fail":
     case "unknown":
       next.failure_reason = ev.reason.slice(0, 500);
@@ -172,6 +190,15 @@ export function ownerEventFor(value: unknown): Extract<OrderEvent, { type: "owne
     default:
       return undefined;
   }
+}
+
+/** Kolo karty (`meta.reissue_round`): 0 = karta nikdy znovuvydaná. Nečitelná hodnota vyhodí chybu (nic se nepřijme). */
+export function reissueRound(order: Order): number {
+  const raw = order.meta.reissue_round;
+  if (raw === undefined) return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new TransitionError(`neplatné meta.reissue_round: ${String(raw).slice(0, 20)}`);
+  return n;
 }
 
 export function maxFix(order: Order): number {

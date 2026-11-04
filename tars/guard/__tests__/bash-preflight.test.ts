@@ -256,6 +256,10 @@ const OWNER_ALLOW: Array<[string, string]> = [
   ["cli.ts tick", "npx tsx tars/orch/cli.ts tick"],
   ["cli.ts status", "npx tsx tars/orch/cli.ts status"],
   ["cli.ts konzilium", "npx tsx tars/orch/cli.ts konzilium vstup.json"],
+  [
+    "cli.ts reissue (znovuvydání karty není rozhodnutí vlastníka)",
+    "npx tsx tars/orch/cli.ts reissue wo-20261103-223902",
+  ],
   // Codex review kolo 3 (PR #98), nález 1: nový pokus kontroly GPT není rozhodnutí vlastníka (owner zůstává blokovaný).
   [
     "cli.ts gpt-retry (Fable)",
@@ -296,6 +300,16 @@ describe("bash-preflight: cli.ts owner (DR-039)", () => {
 
   it.each(OWNER_ALLOW)("povolit: %s", (_name, command) => {
     expect(decide(command).decision).toBe("allow");
+  });
+
+  it("reissue není rozhodnutí vlastníka: `cli.ts reissue x` projde, `cli.ts owner x GO` je pořád blokované", () => {
+    expect(decide("npx tsx tars/orch/cli.ts reissue x").decision).toBe("allow");
+    expect(decide("cli.ts reissue x").decision).toBe("allow");
+    const d = decide("npx tsx tars/orch/cli.ts owner x GO");
+    expect(d.decision).toBe("deny");
+    expect(d.reason).toBe(
+      "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)",
+    );
   });
 
   it("allowlist owner blok nepřebije", () => {

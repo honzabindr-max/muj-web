@@ -129,6 +129,50 @@ startu, nebo živý, ale zaseknutý držitel = HOLD. TARS ho sám nikdy neodstra
   (LOCK, price, brand, payments, legal, CTE). A GO/REJECT card is created in Notion.
 - WIP limit 1: no new order starts while a card waits for the owner.
 
+### Znovuvydání karty (`cli.ts reissue <order-id>`)
+
+Zakázka, která dostala kartu ještě před DR-039 (ve `WAITING_OWNER`, bez `meta.approved_hash`), GO nikdy nepřijme
+(„chybí approved_hash“). `npx tsx tars/orch/cli.ts reissue <order-id>` ji pod stavovým zámkem a CAS vrátí do
+`DELIVERED`: smaže starou kartu (`owner_card_url`) i všechna `owner_*` pole v `meta`, zvýší kolo karty
+`meta.reissue_round` (uloží i `meta.reissued_at`) a zapíše „karta znovuvydána“ do `runs/log.jsonl`. Jiný stav nebo karta
+s otiskem = odmítnuto (exit 1). Staré GO se nikdy nepřebírá.
+
+Každé kolo karty má **vlastní řádek panelu** (starý řádek se nepřepisuje):
+- Ve stejném zámku `PanelIndex.retire` vyřadí dosavadní řádek (`superseded:<id>` v `runs/panel-index.json`) a index
+  patří novému kolu (`round:<id>`), zatím bez řádku. Index na vyřazený řádek už nikdy neukáže: `PanelIndex.set` odmítne
+  vyřazený řádek i zápis staršího kola, takže pozastavený `cli.ts panel-sync` ani opožděný REST PATCH staré karty
+  (po MCP fallbacku) nemůže index vrátit; jejich zápis skončí jen ve starém řádku.
+- Další tick projde standardní cestou: read-back DRAFTu → nová karta s `approved_hash`/`artifact_hash`. Teprve s ní
+  vznikne nový řádek (karta je v něm od prvního zápisu, „Rozhodnutí vlastníka“ prázdné). Vytvoření jde přes stejný
+  journal efektů etapy 3 jako řádek kola 0: operace `<id>/panel-row/r<n>` (n = kolo karty) v `runs/<id>/effects/`
+  (PREPARED před zápisem, EFFECT_DONE s receiptem po něm; pokus bez odpovědi se nejdřív dohledá podle „ID zakázky“ a
+  odkazu na aktuální kartu, vyřazené řádky se vynechají; MCP hledání to ověřit neumí, takže tam = HOLD). Karta
+  znovuvydaného kola je v journalu samostatný efekt `<id>/owner-card-k<n>/r<fix>`, receipt staré karty se nepřevezme.
+- Potom se starý řádek označí Stav `SUPERSEDED`, Fronta „3 · Hotové“, Čeká na vlastníka = ne, Poslední krok
+  „karta znovuvydána → nový řádek <id>“, bez odkazu na kartu. Selhání se zkusí znovu při dalším zápisu.
+- Všechny zápisy (tick, `panel-sync`, oprava karty) cílí na row id, které index drží pro kolo uloženého stavu.
+
+**Zámek panelu zakázky** (kolo oprav 5): všechno, co čte nebo zapisuje řádek panelu, jeho index nebo journal efektu
+(zápis v ticku, `cli.ts panel-sync`, `reissue`, vytvoření nového řádku, oprava karty, poll rozhodnutí, opakované
+upozornění), běží pod `runs/<id>/.panel.lock`. Zámek se drží i přes síťový zápis; pravidla jako lease etapy 2: token +
+PID + čas startu, monotónní fence `runs/<id>/.panel-fence`, převzetí jen po prokázaném konci držitele, nikdy podle
+stáří; čekání nejdéle `panelLockWaitMs` (30 s), pak HOLD („zámek .panel.lock, HOLD“ v logu, nic se nezapíše). Kolo karty,
+row id i odkaz karty se čtou až pod zámkem těsně před zápisem; před každým zápisem se ověří fence (neplatný fence = zápis
+se neodešle). PREPARED, POST, receipt i zápis do indexu nového řádku proběhnou pod jedním zámkem, takže souběžný proces
+PREPARED bez receiptu neuvidí, dokud POST běží. Po převzetí zámku: nejdřív dohledání, jistě nenalezeno = nový pokus se
+stejným operation_id, chyba dohledání = HOLD. `PanelIndex.set` pro stejné kolo nepřepíše existující řádek jiným ID
+(„panel HOLD: index kola … už drží jiný řádek“ v logu). Každý zápis řádku se zaznamená (`written:<id>`: řádek, kolo,
+karta, fence). Visící zámek: stejný postup jako u `.state.lock` výš (zjistit PID z `.panel.lock`; jen když proces
+prokazatelně neběží a TARS ho sám nepřevzal, smazat `runs/<id>/.panel.lock`).
+
+Rozhodnutí se čte **jen** z řádku aktuálního kola a přijme se, když je řádek spolehlivě přečtený (ne koš, sloupec
+existuje), jeho odkaz „Karta rozhodnutí“ je přesně aktuální karta s otiskem a poslední zápis pod zámkem panelu šel do
+tohoto řádku, v tomto kole, s touto kartou. Když řádek ukazuje jinou kartu (zapsal ji tam kdokoli mimo zámek) nebo
+záznam posledního zápisu nesedí, řádek se znehodnotí (`tainted:<id>`), odkaz se přepíše a rozhodnutí z něj se už nikdy
+nepřijme (HOLD; vlastník rozhodne přes `cli.ts owner`). Rozhodnutí na řádku SUPERSEDED se ignoruje navždy. Orchestrátor
+do pole „Rozhodnutí vlastníka“ nikdy nezapisuje (P20).
+`reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání; `cli.ts owner` zůstává pro agenta blokované.
+
 ## Safety
 
 - TARS-GUARD runs at the start of every tick and again before delivery. ALARM = stop.
@@ -145,6 +189,7 @@ npx tsx tars/orch/cli.ts browser-check   # login check of the TARS-agent profile
 npx tsx tars/orch/cli.ts browser-smoke   # about:blank in the TARS-agent profile through Playwright MCP, dir runs/shots-browser-smoke
 npx tsx tars/orch/cli.ts gpt-retry <id> fable|vlastnik <proč>   # one new GPT check attempt after a burned one (never automatic)
 npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
+npx tsx tars/orch/cli.ts reissue <order-id>       # znovuvydání karty bez otisku, viz Lifecycle
 npx vitest run tars
 tars/orch/launchd/install.sh
 ```

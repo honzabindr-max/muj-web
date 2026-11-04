@@ -87,6 +87,22 @@ export interface StateLockHolder {
 /** The next fence cannot be determined safely (damaged counter and an unreadable state.json): HOLD. */
 export class FenceHoldError extends Error {}
 
+/** Obsah runs/<id>/.panel.lock (PR #99, kolo oprav 5): jedno udělení zámku panelu zakázky. */
+export interface PanelLease {
+  order: string;
+  token: string;
+  /** monotónní číslo udělení (runs/<id>/.panel-fence); každý zápis řádku se proti němu kontroluje */
+  fence: number;
+  pid: number;
+  started: string;
+  acquired_at: string;
+  /** token předchozího držitele, když byl zámek převzat po jeho prokázaném konci */
+  took_over?: string;
+}
+
+/** Zámek panelu zakázky drží živý (nebo neprokazatelný) držitel, nebo náš fence už neplatí: HOLD, nic se nezapíše. */
+export class PanelLockHoldError extends Error {}
+
 /** Atomic, durable replace of a small file: unique tmp + fsync + rename + fsync of the directory. */
 export function writeDurable(file: string, content: string): void {
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
@@ -269,6 +285,87 @@ export class Store {
         /* already gone */
       }
     }
+  }
+
+  /**
+   * Zámek panelu zakázky (PR #99, kolo oprav 5): `runs/<id>/.panel.lock` serializuje všechno, co čte nebo zapisuje řádek
+   * panelu, jeho index a journal efektu (tick, `cli.ts panel-sync`, reissue, poll rozhodnutí). Na rozdíl od krátkého
+   * `.state.lock` se drží i přes síťový zápis (async). Stejná pravidla jako lease etapy 2: token + PID + čas startu,
+   * monotónní fence (`runs/<id>/.panel-fence`), převzetí jen po prokázaném konci držitele (nikdy podle stáří), cokoli
+   * neprokazatelného = čekat, po `waitMs` HOLD (PanelLockHoldError, nic se nezapíše). Získání, kontrola fence i uvolnění
+   * běží pod `.state.lock`. Není re-entrantní: `fn` nesmí znovu žádat o zámek panelu téže zakázky.
+   */
+  async withPanelLock<T>(id: string, fn: (lease: PanelLease) => Promise<T>, waitMs = 30_000, stateLockWaitMs = 5000): Promise<T> {
+    const t0 = Date.now();
+    let lease: PanelLease | undefined;
+    for (;;) {
+      lease = this.withStateLock(() => this.tryPanelLease(id), stateLockWaitMs);
+      if (lease) break;
+      if (Date.now() - t0 >= waitMs) throw new PanelLockHoldError(`panel zakázky ${id} právě zapisuje jiný proces (zámek .panel.lock, HOLD), zkus to za chvíli`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const mine = lease;
+    try {
+      return await fn(mine);
+    } finally {
+      try {
+        this.withStateLock(() => {
+          if (this.readPanelLease(id)?.token === mine.token) fs.rmSync(this.panelLockFile(id), { force: true });
+        }, 2000);
+      } catch {
+        /* .state.lock zaneprázdněný: zámek panelu zůstane a převezme ho až další proces po prokázaném konci tohoto */
+      }
+    }
+  }
+
+  /**
+   * Fence check před každým zápisem panelu (volat pod `.state.lock`): zámek panelu musí pořád nést náš token i fence a
+   * čítač nesmí znát novější udělení. Jinak PanelLockHoldError a zápis se neprovede.
+   */
+  assertPanelLease(lease: PanelLease): void {
+    const cur = this.readPanelLease(lease.order);
+    if (cur?.token !== lease.token || cur.fence !== lease.fence || this.readPanelFence(lease.order) !== lease.fence)
+      throw new PanelLockHoldError(`fence panelu ${lease.fence} už neplatí (zámek .panel.lock drží jiné udělení), zápis se neprovede`);
+  }
+
+  private panelLockFile(id: string): string {
+    return path.join(this.orderDir(id), ".panel.lock");
+  }
+
+  /** undefined = žádný zámek; null = nečitelný zámek (nikdy důkaz: HOLD). */
+  private readPanelLease(id: string): PanelLease | null | undefined {
+    const f = this.panelLockFile(id);
+    if (!fs.existsSync(f)) return undefined;
+    try {
+      const v = JSON.parse(fs.readFileSync(f, "utf8")) as PanelLease;
+      return v && typeof v === "object" && typeof v.token === "string" && Number.isInteger(v.fence) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Čítač fence panelu zakázky; poškozený čítač = HOLD (nikdy 0). */
+  private readPanelFence(id: string): number {
+    const f = path.join(this.orderDir(id), ".panel-fence");
+    if (!fs.existsSync(f)) return 0;
+    const n = Number(fs.readFileSync(f, "utf8").trim());
+    if (!Number.isInteger(n) || n < 0) throw new PanelLockHoldError(`čítač runs/${id}/.panel-fence je poškozený, fence panelu nelze bezpečně určit (HOLD)`);
+    return n;
+  }
+
+  /** Pod `.state.lock`: volný zámek nebo prokazatelně skončený držitel → nové udělení s fence + 1; jinak undefined. */
+  private tryPanelLease(id: string): PanelLease | undefined {
+    const cur = this.readPanelLease(id);
+    if (cur === null) return undefined; // nečitelný zámek: čekat (HOLD), nikdy převzít
+    if (cur && holderStatus(cur) !== "dead") return undefined;
+    const started = Store.ownStartTime();
+    if (!started) return undefined; // bez vlastního času startu by nás nikdo nemohl prokázat skončené: HOLD
+    const fence = Math.max(this.readPanelFence(id), cur?.fence ?? 0) + 1;
+    writeDurable(path.join(this.orderDir(id), ".panel-fence"), `${fence}\n`);
+    const lease: PanelLease = { order: id, token: randomUUID(), fence, pid: process.pid, started, acquired_at: new Date().toISOString(), ...(cur ? { took_over: cur.token } : {}) };
+    writeDurable(this.panelLockFile(id), JSON.stringify(lease) + "\n");
+    if (cur) this.log({ ts: lease.acquired_at, order: id, kind: "error", role: "transport", result: "zámek panelu převzat po skončeném procesu (journal: nejdřív dohledání, nejasný stav = HOLD)", reason: `pid ${cur.pid}, fence ${cur.fence} → ${fence}` });
+    return lease;
   }
 
   /** Holder of `.state.lock`: null = the file vanished, undefined = unreadable / not this format (never a proof). */

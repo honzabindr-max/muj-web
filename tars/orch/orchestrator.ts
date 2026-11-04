@@ -33,7 +33,10 @@ import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import {
   panelRow,
   PanelRowUnclear,
+  supersededRow,
+  type IndexSetResult,
   type PanelIndex,
+  type PanelRow,
   type PanelSink,
 } from "./panel";
 import {
@@ -45,12 +48,14 @@ import {
 import { scanSecrets } from "./secret-scan";
 import {
   isActionable,
+  isTerminal,
   ownerEventFor,
+  reissueRound,
   transition,
   TransitionError,
   type OrderEvent,
 } from "./state-machine";
-import type { Store } from "./store";
+import { PanelLockHoldError, type PanelLease, type Store } from "./store";
 import {
   acceptableCheckNotes,
   BriefError,
@@ -91,6 +96,8 @@ export interface OrchestratorDeps {
   maxStepsPerTick?: number;
   /** How long `owner`/`abort`/the Notion decision wait for the short state lock (default 5000 ms). */
   stateLockWaitMs?: number;
+  /** How long a panel write, reissue or decision poll waits for the order's panel lock (default 30000 ms), then HOLD. */
+  panelLockWaitMs?: number;
 }
 
 export type TickResult =
@@ -188,6 +195,8 @@ export class Orchestrator {
       repoRoot: d.repoRoot,
     };
     this.effects = new EffectJournal(d.store.runsDir, () => this.iso());
+    // Merge PR #99 + etapa 3: index pod stejným (re-entrantním) stavovým zámkem jako fence zámku panelu.
+    d.panel?.index.bindStore(d.store);
   }
 
   private iso() {
@@ -237,6 +246,12 @@ export class Orchestrator {
    * Rewrites the order's panel row from state.json. Serialized; errors are logged, never thrown.
    * Every sync writes the full current row, so a missed update is caught up by the next one.
    *
+   * PR #99, kolo oprav 5: runs under the order's panel lock (`Store.withPanelLock`), shared with `cli.ts panel-sync`,
+   * reissue and the decision poll. Card round, row id and card link are read only under that lock, right before the
+   * write; every write is fenced (`Store.assertPanelLease`), a write whose fence is no longer valid is not sent.
+   * Merge s etapou 3: jeden mechanismus vytvoření řádku pro kolo 0 i pro každé kolo znovuvydané karty — journal efektů
+   * (`<order>/panel-row/r<kolo karty>`, `resolvePanelRow`), index pod stavovým zámkem, dirty a sekvence zápisů.
+   *
    * Review kolo 1:
    * - Creating the row is a journaled effect (`<order>/panel-row/r0`: PREPARED → create → receipt). A row without a known
    *   page id is ALWAYS looked up by „ID zakázky“ first (`resolvePanelRow`), so a crash between the create and
@@ -250,104 +265,19 @@ export class Orchestrator {
     if (!panel) return;
     this.panelQueue = this.panelQueue.then(async () => {
       const t0 = Date.now();
-      let o = snapshot;
-      if (opts.fresh) {
-        try {
-          o = this.d.store.load(snapshot.id);
-        } catch {
-          /* the order is gone locally: the snapshot is all we have */
-        }
-      }
-      const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
-      const row = panelRow(
-        o,
-        dept?.creatorModel() ?? "—",
-        dept?.checkerModel() ?? "—",
-      );
-      const op = operationId(o.id, "panel-row", 0);
-      let creating = false;
       try {
-        const existing =
-          panel.index.get(o.id) ?? (await this.resolvePanelRow(o.id, op));
-        if (!existing) {
-          this.effects.prepare(op); // durable BEFORE the create: a crash after it is found by the lookup above
-          creating = true;
-        }
-        // Review kolo 2: send order of this write; a late answer of an older or concurrent write never clears dirty.
-        const seq = panel.index.beginWrite(o.id);
-        const id = await panel.sink.upsert(row, existing);
-        if (creating)
-          this.effects.done(op, { url: `https://www.notion.so/${id}` });
-        panel.index.set(o.id, id);
-        if (this.panelRowStale(o)) {
-          panel.index.markDirty(o.id);
-          this.log({
-            order: o.id,
-            kind: "info",
-            role: "transport",
-            result: `panel ${o.state} (stav se mezitím změnil, dorovnám v příštím ticku)`,
-            duration_ms: Date.now() - t0,
-          });
-        } else if (!panel.index.clearDirty(o.id, seq)) {
-          this.log({
-            order: o.id,
-            kind: "info",
-            role: "transport",
-            result: `panel ${o.state} (řádek byl označen k dorovnání až po odeslání tohoto zápisu, značka zůstává)`,
-            duration_ms: Date.now() - t0,
-          });
-        } else {
-          this.log({
-            order: o.id,
-            kind: "info",
-            role: "transport",
-            result: `panel ${o.state}`,
-            duration_ms: Date.now() - t0,
-          });
-        }
-        await this.pingOwner(o, id);
+        await this.panelLock(snapshot.id, (lease) =>
+          this.writePanel(snapshot, opts, lease, t0),
+        );
       } catch (e) {
-        if (e instanceof PanelRowHold) {
-          // Nothing to catch up: any create could duplicate the row. Logged once; the next transition logs again.
-          try {
-            panel.index.clearDirty(o.id);
-          } catch {
-            /* ignore */
-          }
-          this.logOnce({
-            order: o.id,
-            kind: "error",
-            role: "transport",
-            result: `EFFECT_UNKNOWN / HOLD: ${op}`,
-            reason: e.message.slice(0, 300),
-          });
-          return;
-        }
+        // Zámek panelu nezískán (HOLD) nebo chyba před zápisem: řádek je za state.json, dorovná ho další tick (etapa 3).
         try {
-          if (creating) {
-            // Clean refusal → certainly no row; anything else may have created one: stays PREPARED, looked up first next time.
-            if (isUncertainOutcome(e))
-              this.effects.note(op, (e as Error).message ?? String(e));
-            else this.effects.absent(op, (e as Error).message ?? String(e));
-          }
-          // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
-          if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e))
-            panel.index.markUncertain(o.id);
-          // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
-          // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
-          // exist, so the operation stays PREPARED and every later sync of this order is a HOLD (`resolvePanelRow`).
-          if (
-            !creating ||
-            !isUncertainOutcome(e) ||
-            panel.sink.findRowByOrderId
-          )
-            panel.index.markDirty(o.id);
-          else panel.index.clearDirty(o.id);
+          panel.index.markDirty(snapshot.id);
         } catch {
-          /* the index or the journal is unwritable: the next transition still rewrites the row */
+          /* index nezapisovatelný: řádek dorovná další přechod */
         }
         this.log({
-          order: o.id,
+          order: snapshot.id,
           kind: "error",
           role: "transport",
           result: "panel sync failed",
@@ -356,6 +286,297 @@ export class Orchestrator {
         });
       }
     });
+  }
+
+  /**
+   * Jeden zápis řádku pod zámkem panelu zakázky (`syncPanel`). Kolo 0 (zakázka nikdy znovuvydaná) i každé kolo karty
+   * po znovuvydání (PR #99) jdou stejnou cestou etapy 3: row id z indexu (u znovuvydané jen řádek aktuálního kola,
+   * `PanelIndex.current`), jinak `resolvePanelRow` (receipt z journalu, dohledání podle „ID zakázky“, HOLD), vytvoření
+   * jako efekt `<id>/panel-row/r<kolo karty>` (PREPARED → POST → receipt), sekvence zápisu a dirty. Znovuvydaná
+   * zakázka navíc: nový řádek vznikne až s novou kartou s otiskem (nebo v koncovém stavu), každý zápis se zaznamená
+   * (`recordWrite`), vyřazené řádky se označí SUPERSEDED. „Rozhodnutí vlastníka“ se nikdy nezapisuje (P20).
+   */
+  private async writePanel(
+    snapshot: Order,
+    opts: { fresh?: boolean },
+    lease: PanelLease,
+    t0: number,
+  ): Promise<void> {
+    const panel = this.d.panel!;
+    // Kolo karty až pod zámkem panelu, těsně před zápisem (ne snímek z doby, kdy byl zápis zařazen).
+    const snap = this.fenced(lease, () => ({
+      latest: this.tryLoad(snapshot.id),
+      indexRound: panel.index.round(snapshot.id),
+    }));
+    const reissued =
+      reissueRound(snap.latest ?? snapshot) > 0 || snap.indexRound > 0;
+    // Znovuvydaná zakázka píše vždy aktuální stav; kolo 0 jako dřív (snímek přechodu, `fresh` = aktuální stav).
+    const o = (reissued || opts.fresh) && snap.latest ? snap.latest : snapshot;
+    const round = reissued ? reissueRound(o) : 0;
+    const row = this.rowOf(o);
+    const card =
+      o.owner_card_url && o.meta.approved_hash ? o.owner_card_url : undefined;
+    const op = operationId(o.id, "panel-row", round);
+    let creating = false;
+    try {
+      let existing = reissued
+        ? this.fenced(lease, () => panel.index.current(o.id, round))
+        : panel.index.get(o.id);
+      if (!existing && reissued && !card && !isTerminal(o.state)) {
+        this.logOnce({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result:
+            "panel: nový řádek po znovuvydání vznikne až s novou kartou s otiskem",
+        });
+        panel.index.clearDirty(o.id);
+        return;
+      }
+      if (!existing) {
+        const found = await this.resolvePanelRow(
+          o.id,
+          op,
+          lease,
+          reissued ? { round, card } : { round: 0 },
+        );
+        existing = found?.id;
+        // Oprava po review sloučení: dohledaný řádek nikdy nezapíše `lastWrite.card = null` před následným PATCH.
+        // - Řádek dohledaný podle odkazu na aktuální kartu (čtením ověřeno, že ji nese): zápis se zaznamená rovnou
+        //   s touto kartou, takže selhání následného PATCH (např. 409) na přijetí rozhodnutí nic nemění.
+        // - Jinak (receipt z journalu, kolo 0): jen index, záznam zápisu až po úspěšném PATCH níže. Při chybě zůstane
+        //   řádek dirty a poll čeká (netaintuje), další úspěšná synchronizace záznam doplní.
+        if (
+          found &&
+          this.setIndex(lease, o.id, found.id, round, found.card) !== "ok"
+        )
+          return;
+      }
+      if (!existing) {
+        // durable BEFORE the create: a crash after it is found by the lookup above
+        this.fenced(lease, () => this.effects.prepare(op));
+        creating = true;
+      }
+      // Review kolo 2: send order of this write; a late answer of an older or concurrent write never clears dirty.
+      const seq = panel.index.beginWrite(o.id);
+      const id = await this.writeRow(lease, row, existing);
+      if (creating)
+        this.fenced(lease, () =>
+          this.effects.done(op, { url: `https://www.notion.so/${id}` }),
+        );
+      if (
+        this.setIndex(lease, o.id, id, round, row["Karta rozhodnutí"]) !== "ok"
+      )
+        return;
+      if (reissued) await this.markSupersededRows(o, id, lease);
+      if (this.panelRowStale(o)) {
+        panel.index.markDirty(o.id);
+        this.log({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result: `panel ${o.state} (stav se mezitím změnil, dorovnám v příštím ticku)`,
+          duration_ms: Date.now() - t0,
+        });
+      } else if (!panel.index.clearDirty(o.id, seq)) {
+        this.log({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result: `panel ${o.state} (řádek byl označen k dorovnání až po odeslání tohoto zápisu, značka zůstává)`,
+          duration_ms: Date.now() - t0,
+        });
+      } else {
+        this.log({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result: `panel ${o.state}${reissued && creating ? " (nový řádek po znovuvydání karty)" : ""}`,
+          duration_ms: Date.now() - t0,
+        });
+      }
+      await this.pingOwner(o, id);
+    } catch (e) {
+      if (e instanceof PanelRowHold) {
+        // Nothing to catch up: any create could duplicate the row. Logged once; the next transition logs again.
+        try {
+          panel.index.clearDirty(o.id);
+        } catch {
+          /* ignore */
+        }
+        this.logOnce({
+          order: o.id,
+          kind: "error",
+          role: "transport",
+          result: `EFFECT_UNKNOWN / HOLD: ${op}`,
+          reason: e.message.slice(0, 300),
+        });
+        return;
+      }
+      try {
+        // PR #99: journal a značky jen s platným fence (jinak je zapíše až platný držitel zámku panelu).
+        this.fenced(lease, () => {
+          if (creating) {
+            // Clean refusal → certainly no row; anything else may have created one: stays PREPARED, looked up first next time.
+            // A stale fence (PanelLockHoldError) sent nothing, but the record stays PREPARED: the next attempt looks up first.
+            if (isUncertainOutcome(e) || e instanceof PanelLockHoldError)
+              this.effects.note(op, (e as Error).message ?? String(e));
+            else this.effects.absent(op, (e as Error).message ?? String(e));
+          }
+          // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
+          if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e))
+            panel.index.markUncertain(o.id);
+        });
+      } catch {
+        /* fence neplatí nebo journal nezapisovatelný */
+      }
+      try {
+        // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
+        // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
+        // exist, so the operation stays PREPARED and every later sync of this order is a HOLD (`resolvePanelRow`).
+        if (!creating || !isUncertainOutcome(e) || panel.sink.findRowByOrderId)
+          panel.index.markDirty(o.id);
+        else panel.index.clearDirty(o.id);
+      } catch {
+        /* the index or the journal is unwritable: the next transition still rewrites the row */
+      }
+      this.log({
+        order: o.id,
+        kind: "error",
+        role: "transport",
+        result: "panel sync failed",
+        reason: (e as Error).message.slice(0, 300),
+        duration_ms: Date.now() - t0,
+      });
+    }
+  }
+
+  private panelLock<T>(
+    id: string,
+    fn: (lease: PanelLease) => Promise<T>,
+  ): Promise<T> {
+    return this.d.store.withPanelLock(
+      id,
+      fn,
+      this.d.panelLockWaitMs,
+      this.d.stateLockWaitMs,
+    );
+  }
+
+  /** Under `.state.lock`: fence check of our panel lease, then `fn` (index / journal read-modify-write). */
+  private fenced<T>(lease: PanelLease, fn: () => T): T {
+    return this.d.store.withStateLock(() => {
+      this.d.store.assertPanelLease(lease);
+      return fn();
+    }, this.d.stateLockWaitMs);
+  }
+
+  /** Every row write: fence check right before the request leaves; a stale fence throws and nothing is sent. */
+  private async writeRow(
+    lease: PanelLease,
+    row: PanelRow,
+    page?: string,
+  ): Promise<string> {
+    this.fenced(lease, () => undefined);
+    return this.d.panel!.sink.upsert(row, page);
+  }
+
+  /**
+   * Index set + record of the write in one fenced step; anything but "ok" is logged (conflict = HOLD).
+   * `card` undefined = index only, no record of a write (the row's card is not known yet, e.g. a row recovered from the
+   * journal receipt before its PATCH): an older record is never replaced by a guess.
+   */
+  private setIndex(
+    lease: PanelLease,
+    id: string,
+    pageId: string,
+    round: number,
+    card: string | null | undefined,
+  ): IndexSetResult {
+    const panel = this.d.panel!;
+    const r = this.fenced(lease, () => {
+      const res = panel.index.set(id, pageId, round);
+      if (res === "ok" && card !== undefined)
+        panel.index.recordWrite(id, {
+          row: pageId,
+          round,
+          card,
+          fence: lease.fence,
+        });
+      return res;
+    });
+    if (r === "conflict")
+      this.log({
+        order: id,
+        kind: "error",
+        role: "transport",
+        result: `panel HOLD: index kola ${round} už drží jiný řádek, řádek ${pageId} ho nenahradí`,
+        reason: `v indexu ${this.fenced(lease, () => panel.index.get(id)) ?? "?"}`,
+      });
+    else if (r === "stale")
+      this.log({
+        order: id,
+        kind: "info",
+        role: "transport",
+        result:
+          "panel: zápis doběhl do řádku vyřazeného znovuvydáním karty, index se nemění",
+      });
+    return r;
+  }
+
+  private rowOf(x: Order): PanelRow {
+    const dept = x.brief ? this.d.departments[x.brief.department] : undefined;
+    return panelRow(
+      x,
+      dept?.creatorModel() ?? "—",
+      dept?.checkerModel() ?? "—",
+    );
+  }
+
+  /** Vyřazené řádky označí SUPERSEDED s odkazem na nový řádek. Selhání se zaloguje a zkusí se při dalším zápisu. */
+  private async markSupersededRows(
+    o: Order,
+    newRowId: string,
+    lease: PanelLease,
+  ): Promise<void> {
+    const panel = this.d.panel!;
+    const todo = this.fenced(lease, () => {
+      const done = panel.index.supersededMarked(o.id);
+      return panel.index.superseded(o.id).filter((x) => !done.includes(x));
+    });
+    for (const old of todo) {
+      try {
+        const dept = o.brief
+          ? this.d.departments[o.brief.department]
+          : undefined;
+        await this.writeRow(
+          lease,
+          supersededRow(
+            o,
+            dept?.creatorModel() ?? "—",
+            dept?.checkerModel() ?? "—",
+            newRowId,
+          ),
+          old,
+        );
+        this.fenced(lease, () => panel.index.markSuperseded(o.id, old));
+        this.log({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result: `panel: starý řádek ${old} označen SUPERSEDED → nový řádek ${newRowId}`,
+        });
+      } catch (e) {
+        this.log({
+          order: o.id,
+          kind: "error",
+          role: "transport",
+          result:
+            "panel: označení starého řádku SUPERSEDED selhalo, zkusí se znovu",
+          reason: (e as Error).message.slice(0, 300),
+        });
+      }
+    }
   }
 
   /** True when state.json holds a newer version than the one the row was written from (or the order is gone: false). */
@@ -374,19 +595,23 @@ export class Orchestrator {
    * certain: a receipt in the journal is reused; otherwise the row is looked up by „ID zakázky“ (the sink's chain, review kolo 2: REST query, then the MCP lookup when REST cannot answer; an error
    * throws, so nothing is created). Without a lookup, a create of unclear outcome (PREPARED / UNKNOWN in the journal, or
    * the old uncertain mark) throws `PanelRowHold`: never a second create without a lookup.
+   *
+   * Merge PR #99 + etapa 3: stejná cesta pro každé kolo karty (`sel.round`, operace `<id>/panel-row/r<kolo>`). U
+   * znovuvydané zakázky dohledání vynechá řádky vyřazené znovuvydáním a (s kartou) vezme jen řádek s odkazem na aktuální
+   * kartu; přes MCP to ověřit nejde, takže tam platí jen „nic dřív neodešlo“ (vytvořit) nebo HOLD. Zápis do indexu dělá
+   * volající (`setIndex`, s kolem karty). Journal se mění jen s platným fence zámku panelu.
    */
   private async resolvePanelRow(
     orderId: string,
     op: string,
-  ): Promise<string | undefined> {
+    lease: PanelLease,
+    sel: { round: number; card?: string },
+  ): Promise<{ id: string; card: string | undefined } | undefined> {
     const panel = this.d.panel!;
     const prev = this.effects.get(op);
     if (prev?.state === "EFFECT_DONE" && prev.receipt) {
       const id = pageIdFromUrl(prev.receipt.url);
-      if (id) {
-        panel.index.set(orderId, id);
-        return id;
-      }
+      if (id) return { id, card: undefined }; // karta řádku nečtena
     }
     if (panel.sink.findRowByOrderId) {
       // Review kolo 3: nothing of unclear outcome was ever sent for this row (no PREPARED / UNKNOWN, no uncertain mark):
@@ -395,27 +620,37 @@ export class Orchestrator {
       const newRow =
         (!prev || prev.state === "EFFECT_ABSENT") &&
         !panel.index.isUncertain(orderId);
+      const exclude =
+        sel.round > 0
+          ? this.fenced(lease, () => panel.index.superseded(orderId))
+          : undefined;
       let found: string | undefined;
       try {
         found = await panel.sink.findRowByOrderId(orderId, {
           consistentOnly: newRow,
+          ...(exclude ? { exclude } : {}),
+          ...(sel.round > 0 && sel.card !== undefined
+            ? { card: sel.card }
+            : {}),
         });
       } catch (e) {
         if (!(e instanceof PanelRowUnclear)) throw e;
         if (newRow) return undefined; // nothing sent before: create it
-        if (prev?.state === "PREPARED") this.effects.unknown(op, e.message);
+        if (prev?.state === "PREPARED")
+          this.fenced(lease, () => this.effects.unknown(op, e.message));
         throw new PanelRowHold(
           `řádek panelu nejasný, ruční kontrola: ${e.message} (${op})`,
         );
       }
       if (found) {
         if (prev && prev.state !== "EFFECT_DONE")
-          this.effects.done(
-            op,
-            { url: `https://www.notion.so/${found}` },
-            { recovered: true },
+          this.fenced(lease, () =>
+            this.effects.done(
+              op,
+              { url: `https://www.notion.so/${found}` },
+              { recovered: true },
+            ),
           );
-        panel.index.set(orderId, found);
         if (prev)
           this.log({
             order: orderId,
@@ -423,11 +658,22 @@ export class Orchestrator {
             role: "transport",
             result: `panel: řádek nalezen podle ID zakázky, druhý se nevytváří (${op})`,
           });
-        return found;
+        // Dohledání s `card` vrací jen řádek, jehož odkaz „Karta rozhodnutí“ je tato karta (REST čtení; přes MCP to
+        // ověřit nejde a dohledání s `card` tam končí `PanelRowUnclear`): karta řádku je tím ověřená.
+        return {
+          id: found,
+          card: sel.round > 0 && sel.card !== undefined ? sel.card : undefined,
+        };
       }
-      if (prev && prev.state !== "EFFECT_ABSENT")
-        this.effects.absent(op, "dohledání podle ID zakázky: řádek neexistuje");
-      if (panel.index.isUncertain(orderId)) panel.index.clearUncertain(orderId);
+      this.fenced(lease, () => {
+        if (prev && prev.state !== "EFFECT_ABSENT")
+          this.effects.absent(
+            op,
+            "dohledání podle ID zakázky: řádek neexistuje",
+          );
+        if (panel.index.isUncertain(orderId))
+          panel.index.clearUncertain(orderId);
+      });
       return undefined;
     }
     if (
@@ -436,9 +682,11 @@ export class Orchestrator {
       panel.index.isUncertain(orderId)
     ) {
       if (prev?.state === "PREPARED")
-        this.effects.unknown(
-          op,
-          "vytvoření řádku má nejasný výsledek a nejde dohledat (sink bez dohledání)",
+        this.fenced(lease, () =>
+          this.effects.unknown(
+            op,
+            "vytvoření řádku má nejasný výsledek a nejde dohledat (sink bez dohledání)",
+          ),
         );
       throw new PanelRowHold(
         `dřívější vytvoření řádku má nejasný výsledek a nejde dohledat podle ID zakázky, nové vytvoření zakázáno (${op})`,
@@ -605,6 +853,14 @@ export class Orchestrator {
     }
   }
 
+  private tryLoad(id: string): Order | undefined {
+    try {
+      return this.d.store.load(id);
+    } catch {
+      return undefined;
+    }
+  }
+
   /**
    * Běžný tick zkusí znovu upozornění u zakázek ve WAITING_OWNER, kterým komentář neodešel (chybělo oprávnění, stránka
    * nebyla sdílena, jiné odmítnutí). Značku `meta.owner_ping` má jen odeslaný nebo nejasný (`uncertain`) pokus, takže
@@ -618,8 +874,13 @@ export class Orchestrator {
         for (const w of this.d.store
           .listOrders()
           .filter((x) => x.state === "WAITING_OWNER")) {
-          const pageId = panel.index.get(w.id);
-          if (pageId) await this.pingOwner(w, pageId);
+          // Row id jen pod zámkem panelu zakázky (PR #99, kolo oprav 5): jen řádek aktuálního kola karty.
+          await this.panelLock(w.id, async (lease) => {
+            const pageId = this.fenced(lease, () =>
+              panel.index.current(w.id, reissueRound(this.d.store.load(w.id))),
+            );
+            if (pageId) await this.pingOwner(w, pageId);
+          });
         }
       } catch (e) {
         this.log({
@@ -866,22 +1127,43 @@ export class Orchestrator {
     }
     for (const waiting of waitingOrders) {
       try {
-        let pageId = panel.index.get(waiting.id);
-        if (!pageId) {
-          // Every earlier write of this row failed (or its outcome is unknown): sync it now, otherwise the tap could never be read.
+        // Jen řádek aktuálního kola karty (po znovuvydání nový řádek; vyřazený řádek se nikdy nečte).
+        const round = reissueRound(waiting);
+        // Every earlier write of this row failed (or its outcome is unknown): sync it now, otherwise the tap could never be read.
+        if (!panel.index.current(waiting.id, round))
           await this.resyncPanel(waiting.id);
-          pageId = panel.index.get(waiting.id);
-          if (!pageId) continue;
-        }
-        const value = await panel.sink.readOwnerDecision(pageId);
-        const ev = ownerEventFor(value);
-        if (!ev) continue;
-        // The read took a while and `cli owner` may have decided meanwhile: read-check-write the stored state under the state lock.
-        this.d.store.withStateLock(() => {
-          const fresh = this.d.store.load(waiting.id);
-          if (fresh.state !== "WAITING_OWNER") return;
-          this.acceptOwner(fresh, ev, `Notion ${value}`);
-        }, this.d.stateLockWaitMs);
+        let resync = false;
+        // Kolo oprav 5: row id, čtení řádku i přijetí rozhodnutí pod zámkem panelu zakázky (žádný souběžný zápis řádku).
+        await this.panelLock(waiting.id, async (lease) => {
+          const pageId = this.fenced(lease, () =>
+            panel.index.current(waiting.id, round),
+          );
+          if (!pageId) return;
+          if (round > 0) {
+            resync = await this.readReissuedDecision(
+              waiting,
+              round,
+              pageId,
+              lease,
+            );
+            return;
+          }
+          const value = await panel.sink.readOwnerDecision!(pageId);
+          const ev = ownerEventFor(value);
+          if (!ev) return;
+          // The read took a while and `cli owner` may have decided meanwhile: read-check-write the stored state under the state lock.
+          this.fenced(lease, () => {
+            const fresh = this.d.store.load(waiting.id);
+            if (
+              fresh.state !== "WAITING_OWNER" ||
+              reissueRound(fresh) !== round ||
+              panel.index.current(fresh.id, round) !== pageId
+            )
+              return;
+            this.acceptOwner(fresh, ev, `Notion ${value}`);
+          });
+        });
+        if (resync) await this.resyncPanel(waiting.id);
       } catch (e) {
         this.log({
           order: waiting.id,
@@ -892,6 +1174,119 @@ export class Orchestrator {
         });
       }
     }
+  }
+
+  /**
+   * Rozhodnutí z panelu u znovuvydané zakázky (PR #99, kola oprav 4–5). Běží pod zámkem panelu zakázky. Čte se jen
+   * řádek kola karty `round`, který drží index (nový řádek vznikl s prázdným rozhodnutím a s novou kartou). Přijme se
+   * jen, když:
+   *  - zakázka je pořád ve WAITING_OWNER ve stejném kole a index pořád ukazuje na tento řádek (vyřazený řádek nikdy),
+   *  - existuje nová karta s otiskem (`approved_hash`),
+   *  - poslední zápis řádku pod zámkem panelu (`PanelIndex.lastWrite`) šel do tohoto řádku, v tomto kole, s aktuální kartou,
+   *  - řádek je spolehlivě přečtený a jeho odkaz „Karta rozhodnutí“ je přesně aktuální karta.
+   * Rozhodnutí na řádku, který ukazuje jinou kartu, než jakou do něj naposledy zapsal držitel zámku (zapsal ji tam
+   * kdokoli jiný), se nepřijme ani později: řádek se znehodnotí (`PanelIndex.taint`, HOLD), přepíše se aktuální kartou
+   * a rozhodnutí musí přijít jinou cestou (`cli.ts owner`). Vrátí true, když se má řádek přepsat (po uvolnění zámku).
+   * Orchestrátor do pole „Rozhodnutí vlastníka“ nikdy nezapisuje (P20).
+   */
+  private async readReissuedDecision(
+    waiting: Order,
+    round: number,
+    pageId: string,
+    lease: PanelLease,
+  ): Promise<boolean> {
+    const panel = this.d.panel!;
+    if (!panel.sink.readOwnerRow) {
+      this.logOnce({
+        order: waiting.id,
+        kind: "info",
+        role: "transport",
+        result:
+          "rozhodnutí po znovuvydání karty čeká na REST čtení řádku (readOwnerRow)",
+      });
+      return false;
+    }
+    const row = await panel.sink.readOwnerRow(pageId);
+    let resync = false;
+    this.fenced(lease, () => {
+      const fresh = this.d.store.load(waiting.id);
+      if (fresh.state !== "WAITING_OWNER" || reissueRound(fresh) !== round)
+        return;
+      if (panel.index.current(fresh.id, round) !== pageId) return; // řádek mezitím přestal být aktuální
+      const card =
+        fresh.owner_card_url && fresh.meta.approved_hash
+          ? fresh.owner_card_url
+          : undefined;
+      const cardDiffers =
+        row.readable === true && card !== undefined && row.card !== card;
+      if (cardDiffers) resync = true; // odkaz se opraví i bez rozhodnutí
+      const value = row.decision ?? "";
+      const ev = ownerEventFor(value || undefined);
+      if (!ev) return;
+      const wait = (reason: string) =>
+        this.logOnce({
+          order: fresh.id,
+          kind: "info",
+          role: "orchestrator",
+          result: `${ev.decision} nepřijato (Notion ${value}): čeká na rozhodnutí na nové kartě`,
+          reason,
+        });
+      if (!card) return wait("nová karta s otiskem ještě není vydaná");
+      const norm = pageId.replace(/-/g, "");
+      if (panel.index.tainted(fresh.id).includes(norm))
+        return this.logOnce({
+          order: fresh.id,
+          kind: "error",
+          role: "orchestrator",
+          result: `${ev.decision} nepřijato (Notion ${value}): řádek panelu je znehodnocený (HOLD)`,
+          reason:
+            "do řádku po vydání karty zapsal jinou kartu někdo jiný; rozhodnutí z něj se nepřijme, vlastník rozhodne přes cli.ts owner",
+        });
+      if (row.readable !== true)
+        return wait(
+          "řádek panelu nejde spolehlivě přečíst (koš, chybějící sloupec)",
+        );
+      const last = panel.index.lastWrite(fresh.id);
+      const lastOk =
+        last !== undefined &&
+        last.row === norm &&
+        last.round === round &&
+        last.card === card;
+      // Oprava po review sloučení: `tainted` jen s důkazem, že řádek nesl JINOU kartu (čtení řádku, nebo záznam
+      // posledního zápisu do tohoto řádku v tomto kole s jinou kartou). Chybějící záznam, záznam jiného řádku nebo bez
+      // karty (dohledaný řádek, jehož PATCH selhal) důkaz není: nepřijmout, řádek dorovnat a po úspěšném zápisu přijmout.
+      const otherCardWritten =
+        last !== undefined &&
+        last.row === norm &&
+        last.round === round &&
+        typeof last.card === "string" &&
+        last.card !== card;
+      if (!cardDiffers && !otherCardWritten && !lastOk) {
+        resync = true;
+        return wait(
+          "záznam posledního zápisu řádku pod zámkem panelu nenese aktuální kartu; řádek se dorovná, rozhodnutí se přijme po úspěšném zápisu",
+        );
+      }
+      if (cardDiffers || !lastOk) {
+        // Vlastník mohl rozhodovat nad jinou kartou, než jakou do řádku naposledy zapsal držitel zámku: nikdy nepřijmout.
+        panel.index.taint(fresh.id, pageId);
+        resync = true;
+        this.log({
+          order: fresh.id,
+          kind: "error",
+          role: "orchestrator",
+          result: cardDiffers
+            ? "odkaz „Karta rozhodnutí“ v řádku není aktuální karta s otiskem, řádek se přepíše; rozhodnutí z řádku se nepřijme (HOLD)"
+            : "poslední zápis řádku pod zámkem panelu nenesl aktuální kartu; rozhodnutí z řádku se nepřijme (HOLD)",
+          reason: `v řádku ${String(row.card ?? "nic").slice(0, 80)}; poslední zápis ${last ? `${last.row} kolo ${last.round} fence ${last.fence}` : "žádný"}`,
+        });
+        return wait(
+          "řádek panelu ukazoval jinou kartu; rozhodnout se musí na aktuální kartě",
+        );
+      }
+      this.acceptOwner(fresh, ev, `Notion ${value}`);
+    });
+    return resync;
   }
 
   /**
@@ -1236,23 +1631,57 @@ export class Orchestrator {
     return o.draft_file ? this.d.store.readFile(o.id, o.draft_file) : "";
   }
 
-  private waitForReview(order: Order, reason: string, role: LogEntry["role"], model?: string): Order {
+  private waitForReview(
+    order: Order,
+    reason: string,
+    role: LogEntry["role"],
+    model?: string,
+  ): Order {
     const hash = artifactHash(this.reviewArtifact(order, order.state));
-    return this.apply(order, { type: "wait_review", reason, hash }, { role, model, result: "čeká na kontrolu", reason });
+    return this.apply(
+      order,
+      { type: "wait_review", reason, hash },
+      { role, model, result: "čeká na kontrolu", reason },
+    );
   }
 
   /** Back to the review step, unless the artifact changed while waiting (then UNKNOWN: GPT would check something else). */
   private retryReview(order: Order): Order {
     const from = order.review_from;
-    if (!from) return this.apply(order, { type: "unknown", reason: "WAITING_REVIEW bez review_from" }, { role: "orchestrator" });
+    if (!from)
+      return this.apply(
+        order,
+        { type: "unknown", reason: "WAITING_REVIEW bez review_from" },
+        { role: "orchestrator" },
+      );
     let now: string;
     try {
       now = artifactHash(this.reviewArtifact(order, from));
     } catch (e) {
-      return this.apply(order, { type: "unknown", reason: `artefakt čekající na kontrolu nejde přečíst: ${(e as Error).message}` }, { role: "orchestrator" });
+      return this.apply(
+        order,
+        {
+          type: "unknown",
+          reason: `artefakt čekající na kontrolu nejde přečíst: ${(e as Error).message}`,
+        },
+        { role: "orchestrator" },
+      );
     }
-    if (order.review_hash && now !== order.review_hash) return this.apply(order, { type: "unknown", reason: "artefakt se během čekání na kontrolu změnil (hash ≠ review_hash)" }, { role: "orchestrator" });
-    return this.apply(order, { type: "retry_review" }, { role: "orchestrator", result: "znovu kontrola GPT v prohlížeči" });
+    if (order.review_hash && now !== order.review_hash)
+      return this.apply(
+        order,
+        {
+          type: "unknown",
+          reason:
+            "artefakt se během čekání na kontrolu změnil (hash ≠ review_hash)",
+        },
+        { role: "orchestrator" },
+      );
+    return this.apply(
+      order,
+      { type: "retry_review" },
+      { role: "orchestrator", result: "znovu kontrola GPT v prohlížeči" },
+    );
   }
 
   /** Common handling of a model step outcome: review unavailable → WAITING_REVIEW, limit → PAUSED, error → FAILED. */
@@ -1262,7 +1691,13 @@ export class Orchestrator {
     role: LogEntry["role"],
   ): Order | undefined {
     if (r.ok) return undefined;
-    if (r.waiting_review && role === "checker" && order.state === "CHECKING") return this.waitForReview(order, r.error ?? "kontrola neproběhla", role, r.model);
+    if (r.waiting_review && role === "checker" && order.state === "CHECKING")
+      return this.waitForReview(
+        order,
+        r.error ?? "kontrola neproběhla",
+        role,
+        r.model,
+      );
     if (r.ui_unknown) {
       // §2b: UI failure after 2 attempts → UNKNOWN + owner card, never blind retry.
       this.unknownCard(order, r.error);
@@ -1370,10 +1805,41 @@ export class Orchestrator {
             }
           }
           if (!brief) {
-            const prompt = buildSupervisorPrompt(capsule, this.d.store.readLog(200), open, avail, card, handoff, issues, supSources, requiredByDept);
-            const r = await this.d.supervisor.run(prompt, { cwd: this.d.store.orderDir(order.id) });
-            this.log({ order: order.id, kind: "call", role: "supervisor", model: this.d.supervisor.model, family: this.d.supervisor.family, duration_ms: r.duration_ms, result: r.ok ? "ok" : "error", reason: r.error });
-            if (!r.ok) return this.bad(order, { ok: false, limit: r.limit, error: r.error, model: this.d.supervisor.model }, "supervisor")!;
+            const prompt = buildSupervisorPrompt(
+              capsule,
+              this.d.store.readLog(200),
+              open,
+              avail,
+              card,
+              handoff,
+              issues,
+              supSources,
+              requiredByDept,
+            );
+            const r = await this.d.supervisor.run(prompt, {
+              cwd: this.d.store.orderDir(order.id),
+            });
+            this.log({
+              order: order.id,
+              kind: "call",
+              role: "supervisor",
+              model: this.d.supervisor.model,
+              family: this.d.supervisor.family,
+              duration_ms: r.duration_ms,
+              result: r.ok ? "ok" : "error",
+              reason: r.error,
+            });
+            if (!r.ok)
+              return this.bad(
+                order,
+                {
+                  ok: false,
+                  limit: r.limit,
+                  error: r.error,
+                  model: this.d.supervisor.model,
+                },
+                "supervisor",
+              )!;
             supMs = r.duration_ms;
             try {
               brief = parseBrief(r.text);
@@ -1409,20 +1875,76 @@ export class Orchestrator {
             loaded.filter((l) => required.includes(l.key)),
           );
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const { r: c, v, findings: cFindings } = await callChecker(this.d.briefChecker, buildBriefCheckPrompt(brief, handoff, card, capsule, required, deptSources, Boolean(this.d.briefChecker.supportsOutputSchema)), this.d.store.orderDir(order.id));
-          this.log({ order: order.id, kind: "call", role: "checker", model: this.d.briefChecker.model, family: this.d.briefChecker.family, duration_ms: c.duration_ms, result: v?.verdict ?? "error", reason: c.error ?? v?.issues.join(" | ").slice(0, 500) });
+          const {
+            r: c,
+            v,
+            findings: cFindings,
+          } = await callChecker(
+            this.d.briefChecker,
+            buildBriefCheckPrompt(
+              brief,
+              handoff,
+              card,
+              capsule,
+              required,
+              deptSources,
+              Boolean(this.d.briefChecker.supportsOutputSchema),
+            ),
+            this.d.store.orderDir(order.id),
+          );
+          this.log({
+            order: order.id,
+            kind: "call",
+            role: "checker",
+            model: this.d.briefChecker.model,
+            family: this.d.briefChecker.family,
+            duration_ms: c.duration_ms,
+            result: v?.verdict ?? "error",
+            reason: c.error ?? v?.issues.join(" | ").slice(0, 500),
+          });
           if (!c.ok && c.waitReview) {
             // The brief is kept as it is (same hash); the next tick checks exactly this brief again.
-            const held = { ...order, meta: { ...order.meta, pending_brief: JSON.stringify(brief) } };
-            return this.waitForReview(held, c.error ?? "kontrola zadání neproběhla", "checker", this.d.briefChecker.model);
+            const held = {
+              ...order,
+              meta: { ...order.meta, pending_brief: JSON.stringify(brief) },
+            };
+            return this.waitForReview(
+              held,
+              c.error ?? "kontrola zadání neproběhla",
+              "checker",
+              this.d.briefChecker.model,
+            );
           }
-          if (!c.ok) return this.bad(order, { ok: false, limit: c.limit, error: c.error, model: this.d.briefChecker.model }, "checker")!;
-          this.d.store.writeFile(order.id, `brief-check-a${attempt}.md`, c.text);
+          if (!c.ok)
+            return this.bad(
+              order,
+              {
+                ok: false,
+                limit: c.limit,
+                error: c.error,
+                model: this.d.briefChecker.model,
+              },
+              "checker",
+            )!;
+          this.d.store.writeFile(
+            order.id,
+            `brief-check-a${attempt}.md`,
+            c.text,
+          );
           const { pending_brief: _done, ...meta } = order.meta;
           void _done;
           if (v?.verdict === "PASS") {
             this.d.store.writeFile(order.id, "brief.md", briefMarkdown(brief));
-            return this.apply({ ...order, meta, brief }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: supMs, result: `${brief.department}: ${brief.title}` });
+            return this.apply(
+              { ...order, meta, brief },
+              { type: "planned" },
+              {
+                role: "supervisor",
+                model: this.d.supervisor.model,
+                duration_ms: supMs,
+                result: `${brief.department}: ${brief.title}`,
+              },
+            );
           }
           // DR-031 b. 2: poslední pokus s FIX jen medium/low/info = známá rizika, zadání se přijme s výhradami.
           const notes =
@@ -1431,8 +1953,22 @@ export class Orchestrator {
               : undefined;
           if (notes) {
             const accepted = { ...brief, check_notes: notes };
-            this.d.store.writeFile(order.id, "brief.md", briefMarkdown(accepted));
-            return this.apply({ ...order, meta, brief: accepted }, { type: "planned" }, { role: "supervisor", model: this.d.supervisor.model, duration_ms: supMs, result: `PASS s výhradami (DR-031): ${brief.department}: ${brief.title}`, reason: notes.join(" | ").slice(0, 500) });
+            this.d.store.writeFile(
+              order.id,
+              "brief.md",
+              briefMarkdown(accepted),
+            );
+            return this.apply(
+              { ...order, meta, brief: accepted },
+              { type: "planned" },
+              {
+                role: "supervisor",
+                model: this.d.supervisor.model,
+                duration_ms: supMs,
+                result: `PASS s výhradami (DR-031): ${brief.department}: ${brief.title}`,
+                reason: notes.join(" | ").slice(0, 500),
+              },
+            );
           }
           issues = v?.issues ?? ["verdikt kontrolora nečitelný"];
           lastErr = `brief check ${v?.verdict ?? "unparseable"}: ${issues.join("; ")}`;
@@ -1656,9 +2192,12 @@ export class Orchestrator {
           const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
           // Etapa 3: the card is journaled like the delivery; the marker sits in the page title (the body, which the
           // read-back hash covers, and the panel row stay unchanged). The PREPARED record keeps the hash the card shows.
+          // Merge PR #99 + etapa 3: karta znovuvydaného kola je jiný efekt než karta kola 0 (`owner-card-k<kolo>`), takže
+          // receipt staré karty z journalu se nikdy nepřevezme za novou kartu s otiskem.
+          const cardRound = reissueRound(cardOrder);
           const run = await this.runEffect(
             cardOrder,
-            "owner-card",
+            cardRound > 0 ? `owner-card-k${cardRound}` : "owner-card",
             (op) => lookupNotionMarker(this.d.notion, this.d.draftParentId, op),
             async (op) => {
               const title = titleWithMarker(cardTitle, op);
@@ -1821,6 +2360,51 @@ export class Orchestrator {
         `owner ${decision}${option ? ` ${option}` : ""}`,
       );
     }, this.d.stateLockWaitMs);
+  }
+
+  /**
+   * Znovuvydání karty (`cli.ts reissue`). Není to rozhodnutí vlastníka: jen zakázka ve WAITING_OWNER, jejíž karta nemá
+   * `meta.approved_hash` (stará verze před DR-039), se pod stavovým zámkem a CAS vrátí do DELIVERED. Přechod smaže
+   * starou kartu a owner-pole a zvýší `meta.reissue_round`. Ve stejném zámku index panelu vyřadí dosavadní řádek
+   * (`PanelIndex.retire`): starý řádek se už nikdy nečte ani nepřepisuje daty nové karty. Další tick vydá standardní
+   * cestou (read-back DRAFTu) novou kartu s otiskem a s ní nový řádek s prázdným rozhodnutím; starý řádek dostane
+   * Stav SUPERSEDED. „Rozhodnutí vlastníka“ orchestrátor nikdy nezapisuje (P20).
+   */
+  async reissue(id: string): Promise<Order> {
+    const refusal = (o: Order) =>
+      o.state !== "WAITING_OWNER"
+        ? `znovuvydání odmítnuto: zakázka ${id} je ve stavu ${o.state}, ne WAITING_OWNER`
+        : o.meta.approved_hash
+          ? `znovuvydání odmítnuto: karta zakázky ${id} už má otisk (approved_hash)`
+          : undefined;
+    // Kolo oprav 5: pod zámkem panelu zakázky, takže žádný zápis řádku nemůže běžet mezi kontrolou kola a zápisem.
+    return this.panelLock(id, async (lease) =>
+      this.fenced(lease, () => {
+        const o = this.d.store.load(id);
+        const why = refusal(o);
+        if (why) throw new TransitionError(why);
+        const next = this.apply(
+          o,
+          { type: "reissue" },
+          { role: "orchestrator", result: "karta znovuvydána" },
+        );
+        if (next.state !== "DELIVERED")
+          throw new TransitionError(
+            `znovuvydání odmítnuto: stav zakázky ${id} se mezitím změnil`,
+          );
+        // Zápis řádku zařazený v `apply` poběží až po tomto zámku, tedy už s vyřazeným starým řádkem.
+        this.d.panel?.index.retire(id, reissueRound(next));
+        this.log({
+          order: id,
+          kind: "info",
+          role: "orchestrator",
+          result: "karta znovuvydána",
+          reason:
+            "stará karta bez otisku; nová karta s otiskem v příštím ticku, GO musí přijít znovu",
+        });
+        return next;
+      }),
+    );
   }
 }
 
