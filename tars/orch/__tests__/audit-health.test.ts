@@ -884,6 +884,142 @@ describe("audit-health: review kolo 1", () => {
   });
 });
 
+// ---- Codex review kolo 2 (PR #103): nálezy 1-3 ----
+
+describe("audit-health: review kolo 2", () => {
+  const TOKEN = "ghp_" + "Z9y8X7w6".repeat(5); // built at runtime: no literal token in the repo
+  const guardLine = (ts: string, result: string) =>
+    JSON.stringify({ ts, order: "-", kind: "guard", result });
+  const writeLog = (runs: string, lines: string[]) => {
+    fs.mkdirSync(runs, { recursive: true });
+    fs.writeFileSync(path.join(runs, "log.jsonl"), lines.join("\n") + "\n");
+  };
+
+  it("1: token za podtržítkem v id (wo-copy_ghp_…) se nikdy neobjeví v blocked.id, byOrder ani v textu", () => {
+    const runs = path.join(dir, "runs");
+    const id = `wo-copy_${TOKEN}`;
+    fs.mkdirSync(path.join(runs, id), { recursive: true });
+    fs.writeFileSync(
+      path.join(runs, id, "state.json"),
+      JSON.stringify({
+        id,
+        state: "WAITING_OWNER",
+        manual_interventions: 2,
+        owner_reasons: [`viz větev x_${TOKEN}`],
+        history: [],
+        meta: {},
+        updated_at: "2026-11-03T20:00:00Z",
+      }),
+    );
+    writeLog(runs, [guardLine("2026-11-03T20:50:00Z", "OK")]);
+    const x = auditHealth(
+      collectSnapshot(runs, { now: () => new Date(now), launchd: null }),
+      now,
+    );
+    expect(x.blocked).toHaveLength(1);
+    expect(x.blocked[0].kind).toBe("WAITING_OWNER");
+    expect(x.manualInterventions.byOrder).toHaveLength(1);
+    const out = JSON.stringify(x) + formatHealth(x);
+    expect(out).not.toContain(TOKEN);
+    expect(out).not.toContain(TOKEN.slice(4)); // not even the token body without its prefix
+    expect(x.blocked[0].id).toMatch(/^wo-copy_\[skryto: citlivý údaj\]$/);
+    expect(x.manualInterventions.byOrder[0].id).toBe(x.blocked[0].id);
+  });
+
+  it('2: guard s neplatným ts ("broken") po čerstvém OK = poškozený řádek okna, nikdy NO_FINDINGS', () => {
+    const runs = path.join(dir, "runs");
+    writeLog(runs, [
+      guardLine("2026-11-03T20:50:00Z", "OK"),
+      guardLine("broken", "ALARM"),
+    ]);
+    const x = auditHealth(
+      collectSnapshot(runs, { now: () => new Date(now), launchd: null }),
+      now,
+    );
+    expect(x.logCompleteness).toMatchObject({
+      status: "UNKNOWN",
+      badLinesInWindow: 1,
+      badLinesAfterLastGuard: 1,
+    });
+    expect(x.guard.status).toBe("UNKNOWN");
+    expect(x.overall).toBe("UNKNOWN");
+    // a broken guard line is in the window even before the first valid guard
+    writeLog(runs, [
+      guardLine("broken", "ALARM"),
+      guardLine("2026-11-03T20:50:00Z", "OK"),
+    ]);
+    const y = auditHealth(
+      collectSnapshot(runs, { now: () => new Date(now), launchd: null }),
+      now,
+    );
+    expect(y.logCompleteness.status).toBe("UNKNOWN");
+    expect(y.overall).not.toBe("NO_FINDINGS");
+    // pure projection: an invalid ts in the snapshot guard list is counted too, never skipped
+    const p = auditHealth(
+      fullSnap({
+        log: {
+          readable: true,
+          mtime: stamp,
+          ticks: ["2026-11-03T20:50:00Z"],
+          guards: [
+            { ts: "2026-11-03T20:50:00Z", result: "OK" },
+            { ts: "broken", result: "ALARM" },
+          ],
+          bad_lines: 0,
+          bad_lines_in_window: 0,
+          bad_lines_after_last_guard: 0,
+        },
+      }),
+      now,
+    );
+    expect(p.guard.status).toBe("UNKNOWN");
+    expect(p.logCompleteness.status).toBe("UNKNOWN");
+    expect(p.overall).toBe("UNKNOWN");
+  });
+
+  it("3: poslední guard podle pořadí zápisu; posun hodin zpět = guard UNKNOWN s důvodem, ne NO_FINDINGS", () => {
+    const runs = path.join(dir, "runs");
+    const nowNoon = Date.parse("2026-11-03T12:00:00Z");
+    const run = () =>
+      auditHealth(
+        collectSnapshot(runs, { now: () => new Date(nowNoon), launchd: null }),
+        nowNoon,
+      );
+    // review scenario: OK 11:50, then (clock set back) ALARM 11:40
+    writeLog(runs, [
+      guardLine("2026-11-03T11:50:00Z", "OK"),
+      guardLine("2026-11-03T11:40:00Z", "ALARM"),
+    ]);
+    const x = run();
+    expect(x.guard.status).toBe("UNKNOWN");
+    expect(x.guard.reason).toMatch(/posun hodin/);
+    expect(x.guard.at).toBe("2026-11-03T11:40:00Z");
+    expect(x.overall).not.toBe("NO_FINDINGS");
+    expect(formatHealth(x)).toMatch(
+      /Guard při posledním ticku: UNKNOWN.*posun hodin/,
+    );
+    // round 1 scenario: ALARM 11:50, OK 12:30 from the future → ALARM, future reported
+    writeLog(runs, [
+      guardLine("2026-11-03T11:50:00Z", "ALARM"),
+      guardLine("2026-11-03T12:30:00Z", "OK"),
+    ]);
+    const y = run();
+    expect(y.guard).toMatchObject({
+      status: "ALARM",
+      at: "2026-11-03T11:50:00Z",
+      futureEntries: 1,
+      reason: null,
+    });
+    expect(y.overall).toBe("ATTENTION");
+    // monotonic write order: the last line wins
+    writeLog(runs, [
+      guardLine("2026-11-03T11:20:00Z", "ALARM"),
+      guardLine("2026-11-03T11:50:00Z", "OK"),
+    ]);
+    expect(run().guard).toMatchObject({ status: "OK", reason: null });
+  });
+});
+
 describe("cli.ts health", () => {
   const cli = (args: string[], runs: string) =>
     spawnSync(

@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { EffectRecord } from "./effects";
-import { redactSecrets } from "./secret-scan";
+import { redactSecrets, redactSecretsUnbounded } from "./secret-scan";
 import { STATES, type LogEntry, type Order } from "./types";
 
 type Obj = Record<string, unknown>;
@@ -29,13 +29,17 @@ const age = (v: unknown, now: number): number | null => {
   const n = time(v);
   return Number.isFinite(n) && n <= now ? now - n : null;
 };
-/** Free text from state/log goes out shortened and redacted; unknown fields are never echoed. */
+/** Free text from state/log goes out shortened and redacted; unknown fields are never echoed.
+ *  Redaction without word boundaries: a token glued to other characters (e.g. "x_ghp_…") is still hidden. */
 const text = (v: unknown, max = 200): string | undefined => {
   const s = str(v);
   return s
-    ? redactSecrets(s.replace(/\s+/g, " ").trim()).slice(0, max)
+    ? redactSecretsUnbounded(s.replace(/\s+/g, " ").trim()).slice(0, max)
     : undefined;
 };
+/** A raw string from data (timestamps of log lines) goes out only redacted; null stays null. */
+const safe = (v: string | null): string | null =>
+  v === null ? null : redactSecretsUnbounded(v);
 
 /** Default launchd StartInterval of work.good-inventions.tars-orch (plist). */
 export const TICK_INTERVAL_S = 1800;
@@ -48,9 +52,12 @@ const KNOWN_STATES = new Set<string>([...STATES, "SUPERSEDED"]);
 const ORDER_ID_RE = /^wo-[A-Za-z0-9_-]{1,100}$/;
 export const INVALID_ID = "<neplatné id>";
 export const INVALID_STATE = "<neplatný stav>";
-/** An id goes out only when it matches the order id pattern, and even then redacted. */
+/** An id goes out only when it matches the order id pattern, and even then redacted (without word boundaries:
+ *  "wo-copy_ghp_…" passes the pattern, and "_" before the token would defeat a \b-anchored pattern). */
 const orderId = (v: unknown): string =>
-  typeof v === "string" && ORDER_ID_RE.test(v) ? redactSecrets(v) : INVALID_ID;
+  typeof v === "string" && ORDER_ID_RE.test(v)
+    ? redactSecretsUnbounded(v)
+    : INVALID_ID;
 
 /** Effect journal states of the runtime (effects.ts EffectState). Anything else = unreadable journal record. */
 const EFFECT_STATES = new Set<string>([
@@ -127,7 +134,7 @@ export interface HealthSnapshot {
     /** timestamps of guard lines (order "-"): the first thing every real tick writes */
     ticks?: string[];
     ticks_alarm?: number;
-    /** every guard line (ts, result); the projection picks the newest one not in the future */
+    /** every guard line (ts, result) in write order; the projection picks the last one not in the future */
     guards?: { ts?: string; result?: string }[];
     /** positionally last guard line; used only when `guards` is absent */
     last_guard?: { ts?: string; result?: string };
@@ -247,7 +254,7 @@ export function auditHealth(
         kind,
         state,
         reason,
-        since: sinceAge === null ? null : (since ?? null),
+        since: sinceAge === null ? null : safe(since ?? null),
         ageMs: sinceAge,
         ...(panel ? { panel } : {}),
         ...extra,
@@ -324,7 +331,7 @@ export function auditHealth(
         reason: doneNoReceipt
           ? `EFFECT_DONE bez receiptu ${text(e.operation_id, 80) ?? "?"}: výsledek zápisu nelze doložit`
           : `EFFECT_UNKNOWN ${text(e.operation_id, 80) ?? "?"}: ${text(e.reason) ?? "důvod nezapsán"}`,
-        since: a === null ? null : at!,
+        since: a === null ? null : safe(at!),
         ageMs: a,
         ...(panel ? { panel } : {}),
       });
@@ -369,15 +376,18 @@ export function auditHealth(
     const d = tickTimes[i].t - tickTimes[i - 1].t;
     if (d > gapMs)
       gaps.push({
-        from: tickTimes[i - 1].s,
-        to: tickTimes[i].s,
+        from: safe(tickTimes[i - 1].s)!,
+        to: safe(tickTimes[i].s),
         durationMs: d,
       });
   }
   if (last && heartbeatAgeMs !== null && heartbeatAgeMs > gapMs)
-    gaps.push({ from: last.s, to: null, durationMs: heartbeatAgeMs });
+    gaps.push({ from: safe(last.s)!, to: null, durationMs: heartbeatAgeMs });
 
-  // Guard: the newest guard line with the same time filter as the heartbeat (future entries ignored and reported).
+  // Guard: the last guard line in write order among those not in the future (future entries ignored and reported).
+  // Write order, not the highest timestamp: after the clock was set back, a later ALARM carries an older time.
+  // Times that go backwards in write order mean the clock moved: the guard result is then UNKNOWN.
+  // A guard line without a parsable time is a corrupted line of the tick window (never silently skipped).
   const guardLines = (
     Array.isArray(log.guards)
       ? log.guards
@@ -386,45 +396,63 @@ export function auditHealth(
         : []
   ).map(obj);
   let lastGuard: Obj = {};
-  let lastGuardT = -Infinity;
-  let futureGuards = 0;
+  let prevGuardT = -Infinity;
+  let futureGuards = 0,
+    invalidGuards = 0,
+    invalidAfterGuard = 0,
+    clockBack = false;
   for (const g of guardLines) {
     const t = time(g.ts);
-    if (!Number.isFinite(t)) continue;
+    if (!Number.isFinite(t)) {
+      invalidGuards++;
+      invalidAfterGuard++;
+      continue;
+    }
     if (t > now) {
       futureGuards++;
       continue;
     }
-    if (t >= lastGuardT) {
-      lastGuard = g;
-      lastGuardT = t;
-    }
+    if (t < prevGuardT) clockBack = true;
+    prevGuardT = t;
+    lastGuard = g;
+    invalidAfterGuard = 0;
   }
   const futureEntries = Math.max(futureTicks, futureGuards);
 
   // Log completeness: unparsable lines inside the tick window may hide a tick or a newer guard result.
-  const badInWindow =
+  // Guard lines with an unparsable time in the snapshot count as corrupted lines on top of the collector counters.
+  const badInWindowRaw =
     typeof log.bad_lines_in_window === "number"
       ? log.bad_lines_in_window
       : typeof log.bad_lines === "number"
         ? log.bad_lines
         : null;
-  const badAfterGuard =
+  const badInWindow =
+    badInWindowRaw === null ? null : badInWindowRaw + invalidGuards;
+  const badAfterGuardRaw =
     typeof log.bad_lines_after_last_guard === "number"
       ? log.bad_lines_after_last_guard
-      : badInWindow;
+      : badInWindowRaw;
+  const badAfterGuard =
+    badAfterGuardRaw === null ? null : badAfterGuardRaw + invalidAfterGuard;
   const logCompleteness =
     log.readable !== true
       ? "UNKNOWN"
       : badInWindow === 0
         ? "COMPLETE"
         : "UNKNOWN";
+  const guardReason =
+    badAfterGuard === null
+      ? "počet poškozených řádků logu neměřen"
+      : badAfterGuard > 0
+        ? "za posledním guardem jsou poškozené řádky (novější výsledek může být mezi nimi)"
+        : clockBack
+          ? "časy guardů jdou v pořadí zápisu zpět (posun hodin), poslední výsledek nelze časově doložit"
+          : lastGuard.result === "OK" || lastGuard.result === "ALARM"
+            ? null
+            : "žádný použitelný guard záznam";
   const guardStatus =
-    badAfterGuard === null || badAfterGuard > 0
-      ? "UNKNOWN"
-      : lastGuard.result === "OK" || lastGuard.result === "ALARM"
-        ? (lastGuard.result as "OK" | "ALARM")
-        : "UNKNOWN";
+    guardReason === null ? (lastGuard.result as "OK" | "ALARM") : "UNKNOWN";
 
   const launchdStatus =
     launchd.readable === true
@@ -483,7 +511,7 @@ export function auditHealth(
     heartbeat: {
       status: heartbeatStatus,
       source: 'runs/log.jsonl (záznam guard, order "-")',
-      lastTick: last?.s ?? null,
+      lastTick: safe(last?.s ?? null),
       ageMs: heartbeatAgeMs,
       intervalS,
       ticksInLog: tickTimes.length,
@@ -499,7 +527,9 @@ export function auditHealth(
     },
     guard: {
       status: guardStatus,
-      at: str(lastGuard.ts) ?? null,
+      at: safe(str(lastGuard.ts) ?? null),
+      /** why the guard is UNKNOWN; null when the result is known */
+      reason: guardReason,
       alarms: typeof log.ticks_alarm === "number" ? log.ticks_alarm : null,
       futureEntries,
     },
@@ -517,7 +547,7 @@ export function auditHealth(
     launchd: {
       status: launchdStatus,
       note: "konfigurace a čítač launchd, ne heartbeat",
-      state: str(launchd.state) ?? null,
+      state: text(launchd.state, 60) ?? null,
       runs: typeof launchd.runs === "number" ? launchd.runs : null,
       lastExitCode:
         typeof launchd.last_exit_code === "number"
@@ -712,19 +742,23 @@ export function collectSnapshot(
           }
           continue;
         }
-        if (e.kind === "guard" && e.order === "-" && typeof e.ts === "string") {
-          ticks.push(e.ts);
+        if (
+          e.kind === "guard" &&
+          e.order === "-" &&
+          Number.isFinite(time(e.ts))
+        ) {
+          const ts = e.ts as string; // time() is finite only for a string
+          ticks.push(ts);
           if (e.result === "ALARM") alarms++;
-          lastGuard = { ts: e.ts, result: e.result };
+          lastGuard = { ts, result: e.result };
           guards.push(lastGuard);
           badAfterGuard = 0;
         } else if (e.kind === "guard" && e.order === "-") {
-          // a guard line without a usable timestamp is as unusable as an unparsable line
+          // A guard line without a parsable timestamp (missing, "broken") is a corrupted line of the tick window,
+          // even before the first valid guard: it is itself a guard line and may carry the newest result (ALARM).
           bad++;
-          if (lastGuard) {
-            badInWindow++;
-            badAfterGuard++;
-          }
+          badInWindow++;
+          badAfterGuard++;
         } else if (
           typeof e.order === "string" &&
           e.order !== "-" &&
@@ -882,7 +916,7 @@ export function formatHealth(r: HealthReport): string {
     `Heartbeat (poslední skutečný tick z logu): ${hb.status === "UNKNOWN" ? "UNKNOWN" : `${local(hb.lastTick)}, před ${formatDuration(hb.ageMs)}`}${hb.status === "STALE" ? " — STOJÍ (déle než 2 intervaly)" : ""}`,
   );
   L.push(
-    `Guard při posledním ticku: ${r.guard.status}${r.guard.at ? ` (${local(r.guard.at)})` : ""}; ALARM v logu celkem: ${r.guard.alarms ?? "UNKNOWN"}${r.guard.futureEntries ? `; záznamy z budoucnosti ignorovány: ${r.guard.futureEntries}` : ""}`,
+    `Guard při posledním ticku: ${r.guard.status}${r.guard.at ? ` (${local(r.guard.at)})` : ""}${r.guard.reason ? ` — ${r.guard.reason}` : ""}; ALARM v logu celkem: ${r.guard.alarms ?? "UNKNOWN"}${r.guard.futureEntries ? `; záznamy z budoucnosti ignorovány: ${r.guard.futureEntries}` : ""}`,
   );
   const lc = r.logCompleteness;
   L.push(
