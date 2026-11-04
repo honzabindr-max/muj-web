@@ -1078,7 +1078,13 @@ describe("kolo oprav 5: zápisy panelu jedné zakázky pod jedním zámkem", () 
     expect(sent).toBe(1);
     expect(panel.writes.length).toBe(before + 1);
     expect(new PanelIndex(dir).supersededMarked(id)).toEqual([]);
-    expect(new PanelIndex(dir).lastWrite(id)).toEqual(lastBefore);
+    // Opravný PR „panel“, kolo 2: před PATCH (ještě s platným fence) záznam „zápis běží, karta neprokázaná“; záznam
+    // s aktuální kartou po zápisu už držitel se ztraceným fence nezapíše.
+    expect(new PanelIndex(dir).lastWrite(id)).toEqual({
+      ...lastBefore,
+      card: null,
+      fence: expect.any(Number),
+    });
     expect(
       log().some(
         (e) =>
@@ -1173,8 +1179,10 @@ describe("oprava po review sloučení: dohledaný řádek a PATCH, který selže
     expect(new PanelIndex(dir).tainted(id)).toEqual([]);
   });
 
-  it("chybějící záznam zápisu (řádek z receiptu, PATCH selhal) není důkaz cizí karty: čeká, netaintuje, po úspěšném syncu přijme", async () => {
-    const { o, panel, id } = await reissued();
+  // Opravný PR „panel“, kolo 2, bod 1 (záměrná změna): rozhodnutí v řádku bez důkazu, že jeho karta byla od vydání
+  // aktuální karty pořád aktuální (chybí záznam zápisu), se nepřijme ani po úspěšném zápisu. Řádek se vyřadí, nový řádek.
+  it("chybějící záznam zápisu + rozhodnutí v řádku: nepřijme se, řádek se vyřadí a rozhodnutí platí až na novém řádku", async () => {
+    const { o, panel, id, card } = await reissued();
     const f = path.join(dir, "panel-index.json");
     const all = JSON.parse(fs.readFileSync(f, "utf8")) as Record<
       string,
@@ -1187,13 +1195,19 @@ describe("oprava po review sloučení: dohledaný řádek a PATCH, který selže
     await o.pollOwnerDecisions();
     await o.flushPanel();
     expect(store.load(id).state).toBe("WAITING_OWNER");
-    expect(new PanelIndex(dir).tainted(id)).toEqual([]);
-    expect(new PanelIndex(dir).lastWrite(id)).toBeUndefined();
+    expect(new PanelIndex(dir).tainted(id)).toEqual(["page2"]);
+    expect(store.load(id).meta.reissue_round).toBe("2");
     panel.failUpsert = undefined;
     await o.resyncPanel(id);
     await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    const cur = new PanelIndex(dir).current(id, 2)!;
+    expect(cur).toBe("page3");
+    expect(panel.page(cur).row["Karta rozhodnutí"]).toBe(card);
+    expect(panel.page("page2").row.Stav).toBe(SUPERSEDED_STATE);
+    panel.page(cur).decision = "REJECT";
+    await o.pollOwnerDecisions();
     expect(store.load(id).state).toBe("FAILED");
-    expect(new PanelIndex(dir).tainted(id)).toEqual([]);
   });
 
   it("skutečně cizí stará karta v dohledaném řádku dál vede na tainted (HOLD), ani REJECT se nepřijme", async () => {
@@ -1439,5 +1453,307 @@ describe("opravný PR „panel“: zbylé nálezy etapy 3 (#97) a znovuvydání 
     expect(store.load(id).meta.owner_go).toBeUndefined();
     expect(panel.creates).toBe(3); // žádný další POST
     expect(new PanelIndex(dir).isDirty(id)).toBe(true); // HOLD čeká na vyřešení, značka zůstává
+  });
+});
+
+describe("opravný PR „panel“, kolo 2 (Codex review kolo 1)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Pád mezi receiptem POST a uložením indexu: index kola karty bez řádku a bez záznamu zápisu. */
+  function dropIndexRow(id: string) {
+    const f = path.join(dir, "panel-index.json");
+    const all = JSON.parse(fs.readFileSync(f, "utf8")) as Record<
+      string,
+      string
+    >;
+    delete all[id];
+    delete all[`written:${id}`];
+    fs.writeFileSync(f, JSON.stringify(all));
+  }
+
+  /**
+   * Receipt nese skutečné (hex) ID stránky; testovací panel čísluje „pageN“, které `pageIdFromUrl` nepřečte. Řádek page2
+   * se proto přesune pod hex ID a receipt journalu na něj ukáže (jako u skutečného POST).
+   */
+  const HEX2 = "2".padStart(32, "0");
+  function receiptRowToHex(panel: Panel, id: string) {
+    panel.pages.set(HEX2, panel.page("page2"));
+    panel.pages.delete("page2");
+    const f = path.join(dir, id, "effects", "panel-row-r1.json");
+    const rec = JSON.parse(fs.readFileSync(f, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    fs.writeFileSync(f, JSON.stringify({ ...rec, receipt: rowReceipt(HEX2) }));
+  }
+
+  /** Nový řádek kola 2 (page3) s aktuální kartou; starý řádek vyřazený a označený SUPERSEDED; REJECT na page3 se přijme. */
+  async function expectNewRow(
+    o: Orchestrator,
+    panel: Panel,
+    id: string,
+    card: string,
+    old = "page2",
+  ) {
+    expect(store.load(id).meta.owner_go).toBeUndefined();
+    expect(store.load(id).state).toBe("WAITING_OWNER");
+    expect(new PanelIndex(dir).tainted(id)).toContain(old);
+    expect(store.load(id).meta.reissue_round).toBe("2");
+    expect(new PanelIndex(dir).current(id, 2)).toBe("page3");
+    expect(panel.page("page3").row["Karta rozhodnutí"]).toBe(card);
+    expect(panel.page("page3").decision).toBeUndefined();
+    expect(panel.page(old).row.Stav).toBe(SUPERSEDED_STATE);
+    panel.page("page3").decision = "REJECT";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).state).toBe("FAILED");
+    for (const w of panel.writes)
+      expect(Object.keys(w.row)).not.toContain(OWNER_DECISION_PROPERTY); // P20
+  }
+
+  it("bod 1: řádek obnovený z receiptu (pád před indexem), mezitím stará karta a GO → GO se nepřijme, řádek se vyřadí, nový řádek", async () => {
+    const { panel, id, oldCard, card } = await reissued();
+    expect(rowEffect(id)).toMatchObject({
+      state: "EFFECT_DONE",
+      receipt: rowReceipt("page2"),
+    });
+    dropIndexRow(id);
+    receiptRowToHex(panel, id);
+    const p2 = panel.page(HEX2);
+    panel.land(HEX2, { ...p2.row, "Karta rozhodnutí": oldCard }); // cizí zápis staré karty
+    p2.decision = "GO"; // vlastník nad starou kartou
+    const restarted = build(panel, new Store(dir));
+    await restarted.o.pollOwnerDecisions();
+    await restarted.o.pollOwnerDecisions();
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          /řádek panelu 0+2 je neplatný/.test(e.result ?? "") &&
+          /jinou kartu/.test(e.reason ?? ""),
+      ),
+    ).toBe(true);
+    await expectNewRow(restarted.o, panel, id, card, HEX2);
+  });
+
+  it("bod 1: řádek z receiptu ukazuje aktuální kartu, ale už nese GO (karta od vydání neprokázaná) → nepřijme se, nový řádek", async () => {
+    const { panel, id, card } = await reissued();
+    dropIndexRow(id);
+    receiptRowToHex(panel, id);
+    panel.page(HEX2).decision = "GO";
+    const restarted = build(panel, new Store(dir));
+    await restarted.o.pollOwnerDecisions();
+    await restarted.o.pollOwnerDecisions();
+    expect(
+      log().some(
+        (e) => e.order === id && /receiptu journalu/.test(e.reason ?? ""),
+      ),
+    ).toBe(true);
+    await expectNewRow(restarted.o, panel, id, card, HEX2);
+  });
+
+  it("bod 1: řádek z dohledání (pád před indexem) ukazuje aktuální kartu, ale už nese GO → nepřijme se, nový řádek", async () => {
+    const { panel, id, card } = await reissued();
+    dropIndexRow(id);
+    panel.page("page2").decision = "GO";
+    const restarted = build(panel, new Store(dir));
+    await restarted.o.pollOwnerDecisions();
+    await restarted.o.pollOwnerDecisions();
+    // receipt „pageN“ testovacího panelu nejde přečíst → řádek se dohledá podle ID zakázky a karty
+    expect(
+      log().some(
+        (e) => e.order === id && /řádek z dohledání\)/.test(e.reason ?? ""),
+      ),
+    ).toBe(true);
+    await expectNewRow(restarted.o, panel, id, card);
+  });
+
+  it("bod 1: cizí zápis staré karty a GO v okně mezi čtením řádku a PATCH → GO se nepřijme, nový řádek", async () => {
+    const { o, panel, id, oldCard, card } = await reissued();
+    const p2 = panel.page("page2");
+    const orig = panel.upsert.bind(panel);
+    let armed = true;
+    panel.upsert = async (row, page) => {
+      if (page === "page2" && armed) {
+        armed = false; // čtení před zápisem už proběhlo a ukázalo aktuální kartu bez rozhodnutí
+        panel.land("page2", { ...p2.row, "Karta rozhodnutí": oldCard });
+        p2.decision = "GO";
+      }
+      return orig(row, page); // náš PATCH odkaz „opraví“ a GO by zůstalo
+    };
+    await o.resyncPanel(id);
+    await o.pollOwnerDecisions();
+    await o.pollOwnerDecisions();
+    await expectNewRow(o, panel, id, card);
+  });
+
+  it("bod 2: pád mezi zvýšením kola řádku a vyřazením v indexu → po restartu se vyřazení dokončí podle journalu, jeden platný řádek", async () => {
+    const { o, panel, id, oldCard, card } = await reissued();
+    const f = path.join(dir, "panel-index.json");
+    const all = JSON.parse(fs.readFileSync(f, "utf8")) as Record<
+      string,
+      string
+    >;
+    // Poslední zápis pod zámkem nesl starou kartu, řádek ukazuje aktuální → vyřazení řádku.
+    all[`written:${id}`] = JSON.stringify({
+      row: "page2",
+      round: 1,
+      card: oldCard,
+      fence: 1,
+    });
+    fs.writeFileSync(f, JSON.stringify(all));
+    panel.page("page2").decision = "REJECT";
+    let crashed = 0;
+    vi.spyOn(PanelIndex.prototype, "retire").mockImplementation(() => {
+      crashed++;
+      throw new Error("SIGKILL: proces ukončen uprostřed vyřazení řádku");
+    });
+    await o.pollOwnerDecisions();
+    expect(crashed).toBe(1);
+    expect(store.load(id).meta.reissue_round).toBe("2"); // stav už v novém kole
+    expect(new PanelIndex(dir).superseded(id)).not.toContain("page2"); // index ještě ne
+    vi.restoreAllMocks();
+    const restarted = build(panel, new Store(dir));
+    await restarted.o.pollOwnerDecisions();
+    await restarted.o.pollOwnerDecisions();
+    expect(new PanelIndex(dir).superseded(id)).toContain("page2");
+    expect(
+      new EffectJournal(dir).get(operationId(id, "row-invalidate", 1)),
+    ).toMatchObject({ state: "EFFECT_DONE", subject: "page2" });
+    expect(store.load(id).state).toBe("WAITING_OWNER"); // REJECT ze znehodnoceného řádku nepřijat
+    await expectNewRow(restarted.o, panel, id, card);
+  });
+
+  it("bod 2: pád po záznamu v journalu, před zvýšením kola řádku → po restartu se vyřazení dokončí, jeden platný řádek", async () => {
+    const { o, panel, id, oldCard, card } = await reissued();
+    const p2 = panel.page("page2");
+    panel.land("page2", { ...p2.row, "Karta rozhodnutí": oldCard });
+    const real = Store.prototype.save;
+    let crashed = 0;
+    vi.spyOn(Store.prototype, "save").mockImplementation(function (
+      this: Store,
+      x: Order,
+    ) {
+      if (x.meta.row_invalidated_at && crashed++ === 0)
+        throw new Error("SIGKILL: proces ukončen před zápisem stavu");
+      return real.call(this, x);
+    });
+    await o.pollOwnerDecisions();
+    expect(crashed).toBe(1);
+    expect(store.load(id).meta.reissue_round).toBe("1");
+    expect(
+      new EffectJournal(dir).get(operationId(id, "row-invalidate", 1)),
+    ).toMatchObject({ state: "PREPARED", subject: "page2" });
+    vi.restoreAllMocks();
+    const restarted = build(panel, new Store(dir));
+    await restarted.o.pollOwnerDecisions();
+    await restarted.o.pollOwnerDecisions();
+    await expectNewRow(restarted.o, panel, id, card);
+  });
+
+  it("bod 3: HybridPanelSink předá `unique` i MCP hledání; dva řádky z MCP = PanelRowDuplicate", async () => {
+    const rest: PanelSink = {
+      upsert: async () => "x",
+      findRowByOrderId: async () => {
+        throw new NotionRestError(503, "service_unavailable");
+      },
+    };
+    const find = vi.fn(async (_id: string, opts?: { unique?: boolean }) => {
+      if (opts?.unique) throw new PanelRowDuplicate(["pageA", "pageB"]);
+      return "pageA";
+    });
+    const sink = new HybridPanelSink(rest, rest, () => {}, { find });
+    await expect(
+      sink.findRowByOrderId("wo-1", { unique: true }),
+    ).rejects.toBeInstanceOf(PanelRowDuplicate);
+    expect(find).toHaveBeenCalledWith("wo-1", { unique: true });
+  });
+
+  it("bod 3: dva řádky stejného kola nalezené přes MCP fallback → HOLD, žádný se nepoužije, žádný další POST", async () => {
+    const panel = new Panel();
+    panel.createLandsThenFails = true; // POST kola 0 dorazí, odpověď se ztratí
+    panel.lookupBlind = true; // dohledání zatím nic neprokáže → EFFECT_UNKNOWN (HOLD)
+    const x = build(panel);
+    const r = (await x.o.tick()) as { order: string; status: string };
+    const id = r.order;
+    panel.lookupBlind = false;
+    // Pozdě doběhl i souběžný druhý POST: dva řádky téže zakázky.
+    panel.land("page9", { ...panel.page("page1").row });
+    const rest: PanelSink = {
+      upsert: (row, page) => panel.upsert(row, page),
+      findRowByOrderId: async () => {
+        throw new NotionRestError(503, "service_unavailable");
+      },
+    };
+    const lookup = {
+      find: async (orderId: string, opts?: { unique?: boolean }) =>
+        panel.findRowByOrderId(orderId, { unique: opts?.unique }),
+    };
+    const hybrid = new HybridPanelSink(rest, rest, () => {}, lookup);
+    const restarted = build(hybrid, new Store(dir));
+    new PanelIndex(dir).markDirty(id);
+    clock = new Date(Date.parse(clock) + 20 * 60_000).toISOString();
+    await restarted.o.resyncPanel(id);
+    expect(new PanelIndex(dir).get(id)).toBeUndefined();
+    expect(panel.creates).toBe(1);
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          /dva řádky stejného kola 0 \(page1, page9\).*konflikt řeší Fable/.test(
+            e.result ?? "",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("bod 3: POST řádku přes MCP fallback s nejasným výsledkem, REST dohledání nedostupné → HOLD s logem, MCP hledání ani další POST", async () => {
+    const panel = new Panel();
+    let mcpCreates = 0;
+    let lookups = 0;
+    const rest: PanelSink = {
+      upsert: async (row, page) => {
+        if (!page) throw new NotionRestError(429, "rate_limited"); // REST odmítne před zápisem → fallback
+        return panel.upsert(row, page);
+      },
+      findRowByOrderId: async () => {
+        throw new NotionRestError(503, "service_unavailable");
+      },
+      readOwnerDecision: (p) => panel.readOwnerDecision(p),
+    };
+    const mcp: PanelSink = {
+      upsert: async (row, page) => {
+        if (page) return panel.upsert(row, page);
+        mcpCreates++;
+        panel.land(`page${++panel.creates}`, row); // řádek vznikl …
+        throw new Error("claude -p: proces ukončen (timeout)"); // … ale výsledek nevíme
+      },
+    };
+    const lookup = {
+      find: async (orderId: string, opts?: { unique?: boolean }) => {
+        lookups++;
+        return panel.findRowByOrderId(orderId, { unique: opts?.unique });
+      },
+    };
+    const x = build(new HybridPanelSink(rest, mcp, () => {}, lookup));
+    const r = (await x.o.tick()) as { order: string };
+    await x.o.flushPanel();
+    const id = r.order;
+    expect(mcpCreates).toBe(1);
+    expect(lookups).toBe(0); // zpožděné MCP hledání se po POST přes MCP neptá
+    expect(new EffectJournal(dir).get(rowOp(id, 0))).toMatchObject({
+      transport: "mcp",
+      state: "EFFECT_UNKNOWN",
+      attempts: 1,
+    });
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          /přes MCP fallback s nejasným výsledkem.*další POST se neposílá/.test(
+            e.result ?? "",
+          ),
+      ),
+    ).toBe(true);
+    expect(new PanelIndex(dir).get(id)).toBeUndefined();
   });
 });

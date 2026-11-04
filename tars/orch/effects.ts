@@ -40,6 +40,10 @@ export interface EffectRecord {
   /** true when the receipt was found by the marker lookup after a crash */
   recovered?: boolean;
   reason?: string;
+  /** Opravný PR „panel“, kolo 2: řádek panelu, kterého se operace týká (vyřazení řádku `row-invalidate`). */
+  subject?: string;
+  /** Opravný PR „panel“, kolo 2: zápis odešel přes MCP fallback (claude -p); zaznamenáno PŘED jeho odesláním. */
+  transport?: "mcp";
 }
 
 /** Deterministic: the same order, step and round always give the same id (a retry keeps it). */
@@ -141,12 +145,13 @@ export class EffectJournal {
   }
 
   /** Durable PREPARED before the write starts; a retry keeps the operation_id and counts the attempt. */
-  prepare(op: string, extra: { content_hash?: string } = {}): EffectRecord {
+  prepare(op: string, extra: { content_hash?: string; subject?: string } = {}): EffectRecord {
     const { order, step, round } = this.parts(op);
     const prev = this.get(op);
     if (prev?.state === "EFFECT_DONE" || prev?.state === "EFFECT_UNKNOWN") throw new Error(`operace ${op} je ve stavu ${prev.state}, nový zápis zakázán`);
     const at = this.now();
     const hash = extra.content_hash ?? prev?.content_hash;
+    const subject = extra.subject ?? prev?.subject;
     return this.write({
       operation_id: op,
       order,
@@ -157,6 +162,7 @@ export class EffectJournal {
       prepared_at: prev?.prepared_at ?? at,
       updated_at: at,
       ...(hash ? { content_hash: hash } : {}),
+      ...(subject ? { subject } : {}),
     });
   }
 
@@ -183,6 +189,11 @@ export class EffectJournal {
   /** The attempt failed but may have written: stays PREPARED (the next attempt looks it up first), reason recorded. */
   note(op: string, reason: string): EffectRecord {
     return this.write({ ...this.require(op), updated_at: this.now(), reason: reason.slice(0, 300) });
+  }
+
+  /** Opravný PR „panel“, kolo 2: zápis právě odchází přes MCP fallback (durable před odesláním); stav se nemění. */
+  markTransport(op: string, transport: "mcp"): EffectRecord {
+    return this.write({ ...this.require(op), transport, updated_at: this.now() });
   }
 
   private require(op: string): EffectRecord {
