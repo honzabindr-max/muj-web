@@ -44,6 +44,22 @@ export const LAUNCHD_LABEL = "work.good-inventions.tars-orch";
 /** Order states the projection knows: runtime STATES plus SUPERSEDED (written by hand into old orders). */
 const KNOWN_STATES = new Set<string>([...STATES, "SUPERSEDED"]);
 
+/** Order id pattern (wo-…): no path, no whitespace, no control characters, bounded length. */
+const ORDER_ID_RE = /^wo-[A-Za-z0-9_-]{1,100}$/;
+export const INVALID_ID = "<neplatné id>";
+export const INVALID_STATE = "<neplatný stav>";
+/** An id goes out only when it matches the order id pattern, and even then redacted. */
+const orderId = (v: unknown): string =>
+  typeof v === "string" && ORDER_ID_RE.test(v) ? redactSecrets(v) : INVALID_ID;
+
+/** Effect journal states of the runtime (effects.ts EffectState). Anything else = unreadable journal record. */
+const EFFECT_STATES = new Set<string>([
+  "PREPARED",
+  "EFFECT_DONE",
+  "EFFECT_ABSENT",
+  "EFFECT_UNKNOWN",
+]);
+
 /** Blocking states shown with reason and age. HOLD comes from the effect journal, not from the order state. */
 export type BlockKind =
   | "WAITING_OWNER"
@@ -62,6 +78,8 @@ export interface SnapshotEffect {
   state?: string;
   reason?: string;
   updated_at?: string;
+  /** EFFECT_DONE only: the record carries a receipt with a URL (the URL itself is not copied). */
+  has_receipt?: boolean;
 }
 
 export interface SnapshotOrder extends Partial<
@@ -84,6 +102,8 @@ export interface SnapshotOrder extends Partial<
   effects?: SnapshotEffect[];
   /** effects/ exists but a record could not be read: HOLD state of the order is UNKNOWN. */
   effects_unreadable?: number;
+  /** runs/wo-… exists but has no state.json: the order is incomplete, its state UNKNOWN */
+  missing_state?: boolean;
   /** last log line of this order (result), for the reason of a block */
   last_log?: { ts?: string; result?: string };
   panel?: {
@@ -107,8 +127,15 @@ export interface HealthSnapshot {
     /** timestamps of guard lines (order "-"): the first thing every real tick writes */
     ticks?: string[];
     ticks_alarm?: number;
+    /** every guard line (ts, result); the projection picks the newest one not in the future */
+    guards?: { ts?: string; result?: string }[];
+    /** positionally last guard line; used only when `guards` is absent */
     last_guard?: { ts?: string; result?: string };
     bad_lines?: number;
+    /** unparsable lines at or after the first guard line (inside the measured tick window) */
+    bad_lines_in_window?: number;
+    /** unparsable lines after the positionally last guard line (a newer guard result may be among them) */
+    bad_lines_after_last_guard?: number;
   };
   launchd?: {
     readable?: boolean;
@@ -182,6 +209,7 @@ export function auditHealth(
     duePause = 0,
     pauseResetUnknown = 0,
     malformedOrders = 0,
+    missingState = 0,
     manualTotal = 0,
     manualUnknown = 0;
   const manualByOrder: { id: string; count: number }[] = [];
@@ -189,13 +217,16 @@ export function auditHealth(
   for (const value of orders) {
     const order = obj(value) as SnapshotOrder & Obj;
     const state =
-      typeof order.state === "string" && KNOWN_STATES.has(order.state)
-        ? order.state
-        : "INVALID";
+      order.missing_state === true
+        ? "MISSING_STATE"
+        : typeof order.state === "string" && KNOWN_STATES.has(order.state)
+          ? order.state
+          : "INVALID";
     counts[state] = (counts[state] ?? 0) + 1;
     if (state === "INVALID") malformedOrders++;
+    if (state === "MISSING_STATE") missingState++;
     if (state === "WAITING_OWNER") waitingOwner++;
-    const id = str(order.id) ?? "?";
+    const id = orderId(order.id);
     const mi = order.manual_interventions;
     if (typeof mi === "number" && Number.isInteger(mi) && mi >= 0) {
       manualTotal += mi;
@@ -222,17 +253,31 @@ export function auditHealth(
         ...extra,
       });
 
-    if (state === "PAUSED") {
+    if (state === "MISSING_STATE") {
+      push(
+        "UNKNOWN",
+        "adresář zakázky bez state.json (missing_state): stav zakázky UNKNOWN",
+      );
+    } else if (state === "PAUSED") {
       const reset = time(order.resume_after);
       if (!Number.isFinite(reset)) pauseResetUnknown++;
       else if (reset <= now) duePause++;
+      // paused_from is an order state: only a known state goes out (redacted), anything else is replaced.
+      const pausedFrom =
+        order.paused_from === undefined
+          ? "?"
+          : typeof order.paused_from === "string" &&
+              KNOWN_STATES.has(order.paused_from)
+            ? redactSecrets(order.paused_from)
+            : INVALID_STATE;
+      const resetText = text(order.resume_after, 40);
       push(
         "PAUSED",
         Number.isFinite(reset)
-          ? `pauza z ${str(order.paused_from) ?? "?"}; reset ${str(order.resume_after)}${reset <= now ? " (už měl proběhnout)" : ""}`
+          ? `pauza z ${pausedFrom}; reset ${resetText}${reset <= now ? " (už měl proběhnout)" : ""}`
           : "pauza bez doloženého resetu (resume_after chybí): UNKNOWN",
         {
-          resumeAfter: Number.isFinite(reset) ? str(order.resume_after)! : null,
+          resumeAfter: Number.isFinite(reset) ? resetText! : null,
           resumeDue: Number.isFinite(reset) ? reset <= now : null,
         },
       );
@@ -259,28 +304,42 @@ export function auditHealth(
     }
 
     // HOLD: an external write of this order whose outcome is not known (effect journal, etapa 3).
+    // Runtime parity (orchestrator.ts runEffect): EFFECT_UNKNOWN and EFFECT_DONE without a receipt are both HOLD.
+    // A record whose state is not a known journal state counts as unreadable (HOLD), never as "nothing pending".
     const effects = Array.isArray(order.effects) ? order.effects : [];
+    let invalidEffects = 0;
     for (const e of effects.map(obj)) {
-      if (e.state !== "EFFECT_UNKNOWN") continue;
+      if (typeof e.state !== "string" || !EFFECT_STATES.has(e.state)) {
+        invalidEffects++;
+        continue;
+      }
+      const doneNoReceipt = e.state === "EFFECT_DONE" && e.has_receipt !== true;
+      if (e.state !== "EFFECT_UNKNOWN" && !doneNoReceipt) continue;
       const at = str(e.updated_at);
       const a = age(at, now);
       blocked.push({
         id,
         kind: "HOLD",
         state,
-        reason: `EFFECT_UNKNOWN ${text(e.operation_id, 80) ?? "?"}: ${text(e.reason) ?? "důvod nezapsán"}`,
+        reason: doneNoReceipt
+          ? `EFFECT_DONE bez receiptu ${text(e.operation_id, 80) ?? "?"}: výsledek zápisu nelze doložit`
+          : `EFFECT_UNKNOWN ${text(e.operation_id, 80) ?? "?"}: ${text(e.reason) ?? "důvod nezapsán"}`,
         since: a === null ? null : at!,
         ageMs: a,
         ...(panel ? { panel } : {}),
       });
     }
-    const unreadableEffects = order.effects_unreadable;
-    if (typeof unreadableEffects === "number" && unreadableEffects > 0)
+    const unreadableEffects =
+      (typeof order.effects_unreadable === "number" &&
+      order.effects_unreadable > 0
+        ? order.effects_unreadable
+        : 0) + invalidEffects;
+    if (unreadableEffects > 0)
       blocked.push({
         id,
         kind: "HOLD",
         state,
-        reason: `journal efektů: ${unreadableEffects} záznam(y) nečitelné, stav zápisu UNKNOWN`,
+        reason: `journal efektů: ${unreadableEffects} záznam(y) nečitelné nebo neplatné, stav zápisu UNKNOWN`,
         since: null,
         ageMs: null,
       });
@@ -317,7 +376,55 @@ export function auditHealth(
   }
   if (last && heartbeatAgeMs !== null && heartbeatAgeMs > gapMs)
     gaps.push({ from: last.s, to: null, durationMs: heartbeatAgeMs });
-  const lastGuard = obj(log.last_guard);
+
+  // Guard: the newest guard line with the same time filter as the heartbeat (future entries ignored and reported).
+  const guardLines = (
+    Array.isArray(log.guards)
+      ? log.guards
+      : log.last_guard !== undefined
+        ? [log.last_guard]
+        : []
+  ).map(obj);
+  let lastGuard: Obj = {};
+  let lastGuardT = -Infinity;
+  let futureGuards = 0;
+  for (const g of guardLines) {
+    const t = time(g.ts);
+    if (!Number.isFinite(t)) continue;
+    if (t > now) {
+      futureGuards++;
+      continue;
+    }
+    if (t >= lastGuardT) {
+      lastGuard = g;
+      lastGuardT = t;
+    }
+  }
+  const futureEntries = Math.max(futureTicks, futureGuards);
+
+  // Log completeness: unparsable lines inside the tick window may hide a tick or a newer guard result.
+  const badInWindow =
+    typeof log.bad_lines_in_window === "number"
+      ? log.bad_lines_in_window
+      : typeof log.bad_lines === "number"
+        ? log.bad_lines
+        : null;
+  const badAfterGuard =
+    typeof log.bad_lines_after_last_guard === "number"
+      ? log.bad_lines_after_last_guard
+      : badInWindow;
+  const logCompleteness =
+    log.readable !== true
+      ? "UNKNOWN"
+      : badInWindow === 0
+        ? "COMPLETE"
+        : "UNKNOWN";
+  const guardStatus =
+    badAfterGuard === null || badAfterGuard > 0
+      ? "UNKNOWN"
+      : lastGuard.result === "OK" || lastGuard.result === "ALARM"
+        ? (lastGuard.result as "OK" | "ALARM")
+        : "UNKNOWN";
 
   const launchdStatus =
     launchd.readable === true
@@ -330,6 +437,7 @@ export function auditHealth(
     s.runs_readable === true &&
     Array.isArray(s.orders) &&
     malformedOrders === 0 &&
+    missingState === 0 &&
     unreadable === 0 &&
     manualUnknown === 0;
 
@@ -338,13 +446,23 @@ export function auditHealth(
   ).length;
   // Never a PASS: at best "no findings" when everything was measured.
   const overall =
-    !inputComplete || heartbeatStatus === "UNKNOWN"
+    !inputComplete ||
+    heartbeatStatus === "UNKNOWN" ||
+    logCompleteness !== "COMPLETE" ||
+    guardStatus === "UNKNOWN"
       ? "UNKNOWN"
       : heartbeatStatus === "STALE" ||
           activeBlocks > 0 ||
-          lastGuard.result === "ALARM"
+          guardStatus === "ALARM"
         ? "ATTENTION"
         : "NO_FINDINGS";
+  // The manual-intervention counter is only measured when every order was read and valid.
+  const manualMeasured =
+    Array.isArray(s.orders) &&
+    manualUnknown === 0 &&
+    unreadable === 0 &&
+    malformedOrders === 0 &&
+    missingState === 0;
 
   return {
     schema: "tars-audit-health/v2",
@@ -354,6 +472,8 @@ export function auditHealth(
     inputStatus: inputComplete ? "VALID_ORDER_LIST" : "INCOMPLETE",
     orderCount: orders.length,
     unreadableOrders: unreadable,
+    missingStateOrders: missingState,
+    malformedOrders,
     counts,
     waitingOwner,
     duePause,
@@ -378,16 +498,18 @@ export function auditHealth(
       list: gaps,
     },
     guard: {
-      status:
-        lastGuard.result === "OK" || lastGuard.result === "ALARM"
-          ? lastGuard.result
-          : "UNKNOWN",
+      status: guardStatus,
       at: str(lastGuard.ts) ?? null,
       alarms: typeof log.ticks_alarm === "number" ? log.ticks_alarm : null,
+      futureEntries,
+    },
+    logCompleteness: {
+      status: logCompleteness,
+      badLinesInWindow: badInWindow,
+      badLinesAfterLastGuard: badAfterGuard,
     },
     manualInterventions: {
-      status:
-        Array.isArray(s.orders) && manualUnknown === 0 ? "MEASURED" : "UNKNOWN",
+      status: manualMeasured ? "MEASURED" : "UNKNOWN",
       total: manualTotal,
       byOrder: manualByOrder,
       ordersWithoutField: manualUnknown,
@@ -507,6 +629,45 @@ function readJson(file: string): { ok: true; value: unknown } | { ok: false } {
   }
 }
 
+/** Effect journal of one order. A record with an unknown state counts as unreadable (HOLD), like a broken file. */
+function readEffects(effDir: string): {
+  effects: SnapshotEffect[];
+  effectsUnreadable: number;
+} {
+  const effects: SnapshotEffect[] = [];
+  let effectsUnreadable = 0;
+  if (!fs.existsSync(effDir)) return { effects, effectsUnreadable };
+  let files: string[] = [];
+  try {
+    files = fs
+      .readdirSync(effDir)
+      .filter((x) => x.endsWith(".json"))
+      .sort();
+  } catch {
+    effectsUnreadable++;
+  }
+  for (const ef of files) {
+    const er = readJson(path.join(effDir, ef));
+    const rec = er.ok ? (obj(er.value) as Partial<EffectRecord>) : undefined;
+    if (
+      !rec ||
+      typeof rec.state !== "string" ||
+      !EFFECT_STATES.has(rec.state)
+    ) {
+      effectsUnreadable++;
+      continue;
+    }
+    effects.push({
+      operation_id: rec.operation_id,
+      state: rec.state,
+      reason: rec.reason,
+      updated_at: rec.updated_at,
+      has_receipt: str(obj(rec.receipt).url) !== undefined,
+    });
+  }
+  return { effects, effectsUnreadable };
+}
+
 export function collectSnapshot(
   runsDir: string,
   opts: CollectOptions = {},
@@ -533,8 +694,11 @@ export function collectSnapshot(
         .split("\n")
         .filter(Boolean);
       const ticks: string[] = [];
+      const guards: { ts?: string; result?: string }[] = [];
       let alarms = 0,
-        bad = 0;
+        bad = 0,
+        badInWindow = 0,
+        badAfterGuard = 0;
       let lastGuard: { ts?: string; result?: string } | undefined;
       for (const line of lines) {
         let e: Partial<LogEntry>;
@@ -542,12 +706,25 @@ export function collectSnapshot(
           e = obj(JSON.parse(line)) as Partial<LogEntry>;
         } catch {
           bad++;
+          if (lastGuard) {
+            badInWindow++;
+            badAfterGuard++;
+          }
           continue;
         }
         if (e.kind === "guard" && e.order === "-" && typeof e.ts === "string") {
           ticks.push(e.ts);
           if (e.result === "ALARM") alarms++;
           lastGuard = { ts: e.ts, result: e.result };
+          guards.push(lastGuard);
+          badAfterGuard = 0;
+        } else if (e.kind === "guard" && e.order === "-") {
+          // a guard line without a usable timestamp is as unusable as an unparsable line
+          bad++;
+          if (lastGuard) {
+            badInWindow++;
+            badAfterGuard++;
+          }
         } else if (
           typeof e.order === "string" &&
           e.order !== "-" &&
@@ -560,8 +737,11 @@ export function collectSnapshot(
         mtime: st.mtime.toISOString(),
         ticks,
         ticks_alarm: alarms,
+        guards,
         last_guard: lastGuard,
         bad_lines: bad,
+        bad_lines_in_window: badInWindow,
+        bad_lines_after_last_guard: badAfterGuard,
       };
     } catch {
       snap.log = { readable: false };
@@ -590,41 +770,25 @@ export function collectSnapshot(
     const unreadable: string[] = [];
     for (const d of entries.filter((x) => x.startsWith("wo-")).sort()) {
       const f = path.join(runsDir, d, "state.json");
-      if (!fs.existsSync(f)) continue;
+      const { effects, effectsUnreadable } = readEffects(
+        path.join(runsDir, d, "effects"),
+      );
+      const effectFields = {
+        effects,
+        ...(effectsUnreadable ? { effects_unreadable: effectsUnreadable } : {}),
+      };
+      if (!fs.existsSync(f)) {
+        // An order directory without state.json (interrupted first save, lost state) is an incomplete order,
+        // never silently skipped; its effect journal is still read.
+        orders.push({ id: d, missing_state: true, ...effectFields });
+        continue;
+      }
       const r = readJson(f);
       if (!r.ok) {
         unreadable.push(d);
         continue;
       }
       const o = obj(r.value);
-      const effDir = path.join(runsDir, d, "effects");
-      const effects: SnapshotEffect[] = [];
-      let effectsUnreadable = 0;
-      if (fs.existsSync(effDir)) {
-        let files: string[] = [];
-        try {
-          files = fs
-            .readdirSync(effDir)
-            .filter((x) => x.endsWith(".json"))
-            .sort();
-        } catch {
-          effectsUnreadable++;
-        }
-        for (const ef of files) {
-          const er = readJson(path.join(effDir, ef));
-          if (!er.ok) {
-            effectsUnreadable++;
-            continue;
-          }
-          const rec = obj(er.value) as Partial<EffectRecord>;
-          effects.push({
-            operation_id: rec.operation_id,
-            state: rec.state,
-            reason: rec.reason,
-            updated_at: rec.updated_at,
-          });
-        }
-      }
       orders.push({
         id: str(o.id) ?? d,
         state: o.state,
@@ -638,8 +802,7 @@ export function collectSnapshot(
         owner_reasons: o.owner_reasons,
         manual_interventions: o.manual_interventions,
         meta: { ...(str(obj(o.meta).owner_go) ? { owner_go: "1" } : {}) },
-        effects,
-        ...(effectsUnreadable ? { effects_unreadable: effectsUnreadable } : {}),
+        ...effectFields,
         last_log: lastLogByOrder.get(d),
         ...(panel
           ? {
@@ -719,7 +882,11 @@ export function formatHealth(r: HealthReport): string {
     `Heartbeat (poslední skutečný tick z logu): ${hb.status === "UNKNOWN" ? "UNKNOWN" : `${local(hb.lastTick)}, před ${formatDuration(hb.ageMs)}`}${hb.status === "STALE" ? " — STOJÍ (déle než 2 intervaly)" : ""}`,
   );
   L.push(
-    `Guard při posledním ticku: ${r.guard.status}${r.guard.at ? ` (${local(r.guard.at)})` : ""}; ALARM v logu celkem: ${r.guard.alarms ?? "UNKNOWN"}`,
+    `Guard při posledním ticku: ${r.guard.status}${r.guard.at ? ` (${local(r.guard.at)})` : ""}; ALARM v logu celkem: ${r.guard.alarms ?? "UNKNOWN"}${r.guard.futureEntries ? `; záznamy z budoucnosti ignorovány: ${r.guard.futureEntries}` : ""}`,
+  );
+  const lc = r.logCompleteness;
+  L.push(
+    `Úplnost logu: ${lc.status === "COMPLETE" ? "úplný" : `UNKNOWN${lc.badLinesInWindow ? ` (${lc.badLinesInWindow} neplatných řádků v okně ticků)` : ""}`}`,
   );
   const ld = r.launchd;
   L.push(
@@ -748,10 +915,10 @@ export function formatHealth(r: HealthReport): string {
   L.push("");
   const mi = r.manualInterventions;
   L.push(
-    `Ruční zásahy: ${mi.status === "UNKNOWN" ? `UNKNOWN (${mi.ordersWithoutField} zakázek bez údaje; známých ${mi.total})` : mi.total}${mi.byOrder.length ? ` (${mi.byOrder.map((x) => `${x.id}: ${x.count}`).join(", ")})` : ""}`,
+    `Ruční zásahy: ${mi.status === "UNKNOWN" ? `UNKNOWN (${mi.ordersWithoutField} zakázek bez údaje, ${r.unreadableOrders + r.malformedOrders + r.missingStateOrders} nečitelných nebo neúplných; známých ${mi.total})` : mi.total}${mi.byOrder.length ? ` (${mi.byOrder.map((x) => `${x.id}: ${x.count}`).join(", ")})` : ""}`,
   );
   L.push(
-    `Zakázky: ${r.orderCount}${r.unreadableOrders ? `, nečitelné ${r.unreadableOrders}` : ""} · ${
+    `Zakázky: ${r.orderCount}${r.unreadableOrders ? `, nečitelné ${r.unreadableOrders}` : ""}${r.missingStateOrders ? `, bez state.json ${r.missingStateOrders}` : ""} · ${
       Object.entries(r.counts)
         .map(([k, v]) => `${k} ${v}`)
         .join(", ") || "žádné"
