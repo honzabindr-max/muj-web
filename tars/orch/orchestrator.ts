@@ -10,6 +10,7 @@ import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder
 import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { buildCardData, cardDataSection } from "./card-data";
+import { EffectJournal, effectSurelyAbsent, effectTag, lookupNotionMarker, operationId, titleWithMarker, type EffectLookup } from "./effects";
 import { isUncertainOutcome, NotionRestError } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
@@ -58,6 +59,23 @@ export type TickResult =
   | { status: "waiting_owner"; order: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
+/** Etapa 3: outcome of one journaled external write (`runEffect`). */
+type EffectRun =
+  | { kind: "done"; url: string; content_hash?: string; recovered: boolean }
+  | { kind: "hold"; op: string; reason: string }
+  | { kind: "failed"; error: unknown }
+  | { kind: "stale" };
+
+/** A delivery that returned ok:false; carries the outcome for `bad()` and whether it certainly wrote nothing. */
+class DeliverFailure extends Error {
+  constructor(
+    public readonly outcome: StepOutcome,
+    public readonly effect_absent: boolean,
+  ) {
+    super(outcome.error ?? "deliver failed");
+  }
+}
+
 /** Wraps any adapter: output containing a secret is dropped, never stored (§6). */
 export class SecretScanningAdapter implements TextAdapter {
   constructor(private inner: TextAdapter) {}
@@ -96,11 +114,14 @@ export class Orchestrator {
   /** Přechody, na které už v právě běžícím ticku odešel pokus o komentář (jen během ticku). */
   private tickPingKeys: Set<string> | undefined;
   private ctx: DeptContext;
+  /** Etapa 3: durable PREPARED / receipt of every external write (runs/<id>/effects/). */
+  private effects: EffectJournal;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family) throw new Error("brief checker must be another model family than the supervisor");
     this.now = d.now ?? (() => new Date());
     this.ctx = { store: d.store, notion: d.notion, draftParentId: d.draftParentId, repoRoot: d.repoRoot };
+    this.effects = new EffectJournal(d.store.runsDir, () => this.iso());
   }
 
   private iso() {
@@ -167,14 +188,50 @@ export class Orchestrator {
         creating = !existing;
         const id = await panel.sink.upsert(row, existing);
         panel.index.set(o.id, id);
+        panel.index.clearDirty(o.id);
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
         await this.pingOwner(o, id);
       } catch (e) {
-        // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
-        if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
+        try {
+          // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
+          if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
+          // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
+          panel.index.markDirty(o.id);
+        } catch {
+          /* the index itself is unwritable: the next transition still rewrites the row */
+        }
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
+  }
+
+  /**
+   * Etapa 3: rows whose last write failed („dirty“) are rewritten from the current state.json at the start of a tick.
+   * Idempotent by order id: the row's page id comes from the index (or the lookup by „ID zakázky“ after an uncertain
+   * create), so catching up never adds a second row. A failure leaves the mark for the next tick.
+   */
+  private catchUpPanel(): Promise<void> {
+    const panel = this.d.panel;
+    if (!panel) return Promise.resolve();
+    let dirty: string[];
+    try {
+      dirty = panel.index.dirtyOrders();
+    } catch (e) {
+      this.log({ order: "-", kind: "error", role: "transport", result: "panel: seznam nedorovnaných řádků nečitelný", reason: (e as Error).message.slice(0, 300) });
+      return Promise.resolve();
+    }
+    for (const id of dirty) {
+      let o: Order;
+      try {
+        o = this.d.store.load(id);
+      } catch {
+        panel.index.clearDirty(id); // the order no longer exists locally: nothing to project
+        continue;
+      }
+      this.log({ order: id, kind: "info", role: "transport", result: "panel: dorovnávám řádek po chybě zápisu" });
+      this.syncPanel(o);
+    }
+    return this.flushPanel();
   }
 
   /**
@@ -195,16 +252,32 @@ export class Orchestrator {
       if (this.tickPingKeys?.has(key)) return;
       this.tickPingKeys?.add(key);
       const title = current.brief?.title ?? `Nová zakázka ${current.id}`;
-      const t0 = Date.now();
-      const r = await ping.send(pageId, title);
-      const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
-      if (r.outcome === "sent" || r.outcome === "uncertain") {
+      const markPinged = () =>
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(o.id);
           if (fresh.state !== "WAITING_OWNER" || waitingOwnerTransitions(fresh) !== n) return;
           this.d.store.save({ ...fresh, meta: { ...fresh.meta, owner_ping: String(n) } });
         }, this.d.stateLockWaitMs);
+      // Etapa 3: the comment is journaled like every external write. An attempt without a receipt (the process died
+      // while sending) is never repeated: a comment cannot be looked up by marker, so its outcome stays unknown.
+      const op = operationId(o.id, "owner-ping", n);
+      const prev = this.effects.get(op);
+      if (prev && prev.state !== "EFFECT_ABSENT") {
+        if (prev.state === "PREPARED") {
+          this.effects.unknown(op, "komentář odeslán bez potvrzení (pád během odesílání), neopakuje se");
+          this.log({ order: o.id, kind: "error", role: "transport", result: `EFFECT_UNKNOWN: ${op}`, reason: "upozornění na iPhone: výsledek dřívějšího pokusu neznámý, neopakuje se" });
+        }
+        markPinged();
+        return;
       }
+      this.effects.prepare(op);
+      const t0 = Date.now();
+      const r = await ping.send(pageId, title);
+      const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
+      if (r.outcome === "sent") this.effects.done(op, { url: `https://www.notion.so/${pageId}` });
+      else if (r.outcome === "uncertain") this.effects.unknown(op, r.detail ?? "výsledek nejasný");
+      else this.effects.absent(op, r.detail ?? r.outcome);
+      if (r.outcome === "sent" || r.outcome === "uncertain") markPinged();
       if (r.outcome === "sent") this.log({ ...base, kind: "info", result: "upozornění na iPhone: komentář se zmínkou odeslán" });
       else if (r.outcome === "uncertain") this.log({ ...base, kind: "error", result: r.detail ?? "upozornění na iPhone: výsledek nejasný" });
       else if (r.outcome === "failed") this.logOnce({ order: o.id, kind: "error", role: "transport", result: r.detail ?? "upozornění na iPhone selhalo" }); // opakuje se každý tick, hláška se nezdvojuje
@@ -314,6 +387,7 @@ export class Orchestrator {
     if (!this.d.store.acquireLock()) return { status: "locked" };
     this.tickPingKeys = new Set();
     try {
+      await this.catchUpPanel();
       await this.pollOwnerDecisions();
       await this.retryOwnerPings();
       const orders = this.d.store.listOrders();
@@ -491,14 +565,97 @@ export class Orchestrator {
     this.log(e);
   }
 
+  /**
+   * Etapa 3: one external write under the effect journal. Order of events: a receipt already in the journal is reused
+   * (the crash hit after the write and its receipt, before state.json); PREPARED without a receipt → `lookup` by marker
+   * first: found once → receipt recovered, certainly absent → a new attempt with the same operation_id, anything else →
+   * EFFECT_UNKNOWN (hold, no write). Then durable PREPARED, the write (`call`), the receipt (EFFECT_DONE). A failed write
+   * stays PREPARED (looked up before any retry) unless it certainly wrote nothing (EFFECT_ABSENT).
+   */
+  private async runEffect(
+    o: Order,
+    step: string,
+    lookup: (op: string) => Promise<EffectLookup>,
+    call: (op: string) => Promise<{ url: string; content_hash?: string }>,
+    opts: { content_hash?: string } = {},
+  ): Promise<EffectRun> {
+    const op = operationId(o.id, step, o.fix_rounds);
+    const prev = this.effects.get(op);
+    if (prev?.state === "EFFECT_DONE" && prev.receipt) {
+      this.log({ order: o.id, kind: "info", role: "orchestrator", result: `obnova účinku ${op}: receipt z journalu, nový zápis se nespouští`, reason: prev.receipt.url });
+      return { kind: "done", url: prev.receipt.url, content_hash: prev.content_hash, recovered: true };
+    }
+    if (prev?.state === "EFFECT_UNKNOWN" || prev?.state === "EFFECT_DONE") return { kind: "hold", op, reason: prev.reason ?? "výsledek dřívějšího zápisu je neznámý" };
+    if (prev?.state === "PREPARED") {
+      this.log({ order: o.id, kind: "info", role: "orchestrator", result: `obnova účinku ${op}: PREPARED bez receiptu, dohledávám podle značky` });
+      let l: EffectLookup;
+      try {
+        l = await lookup(op);
+      } catch (e) {
+        l = { status: "uncertain", reason: `dohledání selhalo: ${String((e as Error)?.message ?? e).slice(0, 200)}` };
+      }
+      if (l.status === "found") {
+        this.effects.done(op, { url: l.url }, { recovered: true });
+        this.log({ order: o.id, kind: "info", role: "orchestrator", result: `obnova účinku ${op}: nalezen právě jednou, receipt doplněn`, reason: l.url });
+        return { kind: "done", url: l.url, content_hash: prev.content_hash, recovered: true };
+      }
+      if (l.status === "uncertain") {
+        this.effects.unknown(op, l.reason);
+        return { kind: "hold", op, reason: l.reason };
+      }
+      this.log({ order: o.id, kind: "info", role: "orchestrator", result: `obnova účinku ${op}: s jistotou neproběhl, nový pokus se stejným operation_id` });
+    }
+    // Etapa 2: a tick that lost its lease starts no external write.
+    if (this.d.store.fence !== undefined && !this.d.store.holdsLease()) {
+      this.log({ order: o.id, kind: "error", role: "orchestrator", result: `zápis ${op} nespuštěn: tick lock už nedrží tento běh` });
+      return { kind: "stale" };
+    }
+    this.effects.prepare(op, { content_hash: opts.content_hash });
+    let res: { url: string; content_hash?: string };
+    try {
+      res = await call(op);
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if ((e instanceof DeliverFailure && e.effect_absent) || (!(e instanceof DeliverFailure) && effectSurelyAbsent(e))) this.effects.absent(op, msg);
+      else this.effects.note(op, msg);
+      return { kind: "failed", error: e };
+    }
+    const content_hash = res.content_hash ?? opts.content_hash;
+    this.effects.done(op, { url: res.url }, { content_hash });
+    return { kind: "done", url: res.url, content_hash, recovered: false };
+  }
+
+  /** Etapa 3: the outcome of an external write cannot be established → UNKNOWN with the reason (log + panel), no write. */
+  private hold(o: Order, op: string, reason: string): Order {
+    this.log({ order: o.id, kind: "error", role: "orchestrator", result: `EFFECT_UNKNOWN / HOLD: ${op}`, reason });
+    return this.apply(o, { type: "unknown", reason: `EFFECT_UNKNOWN (${op}): ${reason}` }, { role: "orchestrator", result: "EFFECT_UNKNOWN / HOLD" });
+  }
+
+  /** §2b UNKNOWN card, best effort and journaled: written at most once per order and round, never retried. */
+  private unknownCard(order: Order, error: string | undefined): void {
+    const op = operationId(order.id, "unknown-card", order.fix_rounds);
+    try {
+      if (this.effects.get(op)) return;
+      this.effects.prepare(op);
+    } catch {
+      return; // without a durable PREPARED there is no write
+    }
+    const title = titleWithMarker(`KARTA UNKNOWN — ${order.brief?.title ?? order.id} (${order.id})`, op);
+    void this.d.notion
+      .createPage(this.d.draftParentId, title, `## Co\nAdaptér prohlížeče selhal po 2 pokusech.\n\n## Důkaz\n- ${error}\n- screenshoty: runs/${order.id}/shots-*\n\n## Rozhodnutí\nZkontroluj UI a zakázku zopakuj nebo zahoď.`)
+      .then(
+        (p) => this.effects.done(op, { url: p.url }),
+        (e) => (effectSurelyAbsent(e) ? this.effects.absent(op, String((e as Error)?.message ?? e)) : this.effects.note(op, String((e as Error)?.message ?? e))),
+      )
+      .catch(() => undefined);
+  }
+
   /** Common handling of a model step outcome: limit → PAUSED, error → FAILED. */
   private bad(order: Order, r: StepOutcome, role: LogEntry["role"]): Order | undefined {
     if (r.ok) return undefined;
     if (r.ui_unknown) {
       // §2b: UI failure after 2 attempts → UNKNOWN + owner card, never blind retry.
-      void this.d.notion
-        .createPage(this.d.draftParentId, `KARTA UNKNOWN — ${order.brief?.title ?? order.id} (${order.id})`, `## Co\nAdaptér prohlížeče selhal po 2 pokusech.\n\n## Důkaz\n- ${r.error}\n- screenshoty: runs/${order.id}/shots-*\n\n## Rozhodnutí\nZkontroluj UI a zakázku zopakuj nebo zahoď.`)
-        .catch(() => undefined);
+      this.unknownCard(order, r.error);
       return this.apply(order, { type: "unknown", reason: `${role}: ${r.error}` }, { role, model: r.model });
     }
     if (r.limit) {
@@ -615,18 +772,36 @@ export class Orchestrator {
       case "DELIVERED": {
         let o = order;
         if (!o.delivered_url) {
-          let r;
-          try {
-            r = await dept!.deliver(o, this.ctx);
-          } catch (e) {
-            r = { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit), model: "deliver" };
+          // Etapa 3: the delivery is journaled (PREPARED → write → receipt); after a crash it is looked up by its marker.
+          const del = o;
+          const run = await this.runEffect(
+            del,
+            "deliver",
+            (op) => (dept!.findEffect ? dept!.findEffect(del, this.ctx, op) : Promise.resolve({ status: "uncertain" as const, reason: `oddělení ${dept!.name} neumí dohledat doručení podle značky` })),
+            async (op) => {
+              let r: Awaited<ReturnType<DepartmentRunner["deliver"]>>;
+              let absent = false;
+              try {
+                r = await dept!.deliver(del, this.ctx, effectTag(op));
+              } catch (e) {
+                absent = effectSurelyAbsent(e);
+                r = { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit), model: "deliver" };
+              }
+              this.log({ order: del.id, kind: "call", role: "transport", model: r.model, duration_ms: r.duration_ms, result: r.ok ? r.url : "error", reason: r.error });
+              if (r.ok && !r.url) r = { ...r, ok: false, error: "doručení bez URL" };
+              if (!r.ok) throw new DeliverFailure(r, absent || Boolean(r.effect_absent));
+              // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
+              return { url: r.url!, content_hash: r.content !== undefined ? artifactHash(r.content) : undefined };
+            },
+          );
+          if (run.kind === "stale") return this.current(o.id);
+          if (run.kind === "hold") return this.hold(o, run.op, run.reason);
+          if (run.kind === "failed") {
+            const e = run.error;
+            const r: StepOutcome = e instanceof DeliverFailure ? e.outcome : { ok: false, error: String((e as Error)?.message ?? e), limit: Boolean((e as { limit?: boolean }).limit), model: "deliver" };
+            return this.bad(o, r, "transport")!;
           }
-          this.log({ order: o.id, kind: "call", role: "transport", model: r.model, duration_ms: r.duration_ms, result: r.ok ? r.url : "error", reason: r.error });
-          const b = this.bad(o, r, "transport");
-          if (b) return b;
-          // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
-          const sent = r.content !== undefined ? artifactHash(r.content) : undefined;
-          o = { ...o, delivered_url: r.url, meta: sent ? { ...o.meta, delivered_hash: sent } : o.meta };
+          o = { ...o, delivered_url: run.url, meta: run.content_hash ? { ...o.meta, delivered_hash: run.content_hash } : o.meta };
           if (!this.persist(o)) return this.current(o.id);
         }
         const reasons = [
@@ -648,26 +823,45 @@ export class Orchestrator {
             return this.current(o.id); // etapa 2: the stored state (it may have moved on during the read)
           }
           o = { ...o, meta: { ...o.meta, approved_hash: seen, artifact_hash: seen } };
-          try {
-            const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
-            const text = ownerCard(o, reasons, dept!);
-            const dataSection = await this.cardDataSection(o);
-            let card;
-            try {
-              card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text + dataSection);
-            } catch (e) {
-              // Čisté odmítnutí (REST 4xx, nic se nezapsalo) kvůli sekci s daty karty: stránka vznikne bez ní.
-              if (!dataSection || !(e instanceof NotionRestError) || e.status < 400 || e.status >= 500 || e.status === 408 || e.status === 429) throw e;
-              this.safeLog({ order: o.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
-              card = await this.d.notion.createPage(this.d.draftParentId, cardTitle, text);
-            }
-            // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
-            // Etapa 2: a refused save (newer state on disk) stops here, nothing follows from an outdated order.
-            o = { ...o, owner_card_url: card.url, owner_reasons: reasons };
-            if (!this.persist(o)) return this.current(o.id);
-          } catch (e) {
-            return this.bad(o, { ok: false, error: (e as Error).message, limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
+          const cardOrder = o;
+          const cardTitle = `KARTA GO/REJECT — ${o.brief!.title} (${o.id})`;
+          // Etapa 3: the card is journaled like the delivery; the marker sits in the page title (the body, which the
+          // read-back hash covers, and the panel row stay unchanged). The PREPARED record keeps the hash the card shows.
+          const run = await this.runEffect(
+            cardOrder,
+            "owner-card",
+            (op) => lookupNotionMarker(this.d.notion, this.d.draftParentId, op),
+            async (op) => {
+              const title = titleWithMarker(cardTitle, op);
+              const text = ownerCard(cardOrder, reasons, dept!);
+              const dataSection = await this.cardDataSection(cardOrder);
+              let card;
+              try {
+                card = await this.d.notion.createPage(this.d.draftParentId, title, text + dataSection);
+              } catch (e) {
+                // Čisté odmítnutí (REST 4xx, nic se nezapsalo) kvůli sekci s daty karty: stránka vznikne bez ní.
+                if (!dataSection || !(e instanceof NotionRestError) || e.status < 400 || e.status >= 500 || e.status === 408 || e.status === 429) throw e;
+                this.safeLog({ order: cardOrder.id, kind: "info", role: "orchestrator", result: "card-data: Notion zápis odmítnut, karta bez dat", reason: `notion REST ${e.status} ${e.code}` });
+                card = await this.d.notion.createPage(this.d.draftParentId, title, text);
+              }
+              return { url: card.url };
+            },
+            { content_hash: seen },
+          );
+          if (run.kind === "stale") return this.current(o.id);
+          if (run.kind === "hold") return this.hold(o, run.op, run.reason);
+          if (run.kind === "failed") {
+            const e = run.error;
+            return this.bad(o, { ok: false, error: String((e as Error)?.message ?? e), limit: Boolean((e as { limit?: boolean }).limit) }, "transport")!;
           }
+          // A recovered card shows the hash recorded when it was prepared; GO is bound to that one. If the DRAFT changed
+          // since, artifact_hash ≠ approved_hash and the GO on that card is refused (acceptOwner), never silently accepted.
+          const approved = run.recovered ? (run.content_hash ?? seen) : seen;
+          if (approved !== seen) this.log({ order: o.id, kind: "error", role: "orchestrator", result: "obnovená karta ukazuje jiný otisk než aktuální DRAFT, GO nebude přijato", reason: `${approved.slice(0, 12)} ≠ ${seen.slice(0, 12)}` });
+          // DR-039: approved_hash/artifact_hash from the read-back above are saved in the same write as the card URL.
+          // Etapa 2: a refused save (newer state on disk) stops here, nothing follows from an outdated order.
+          o = { ...o, owner_card_url: run.url, owner_reasons: reasons, meta: { ...o.meta, approved_hash: approved, artifact_hash: seen } };
+          if (!this.persist(o)) return this.current(o.id);
         }
         return this.apply(o, { type: "delivered", owner_needed: ownerNeeded }, { role: "orchestrator", result: o.delivered_url });
       }

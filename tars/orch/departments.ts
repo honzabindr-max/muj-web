@@ -9,6 +9,7 @@ import path from "node:path";
 import type { AdapterResult, AiChain, TextAdapter } from "./adapters";
 import { DriverLimitError, RuleViolation, UiUnknownError, type BrowserStep } from "./mcp-browser";
 import { stripFrontmatter } from "./cards";
+import { lookupNotionMarker, titleWithMarker, type EffectLookup, type EffectTag } from "./effects";
 import type { NotionClient } from "./notion";
 import { scanSecrets } from "./secret-scan";
 import type { Store } from "./store";
@@ -49,6 +50,8 @@ export interface DeliverOutcome extends StepOutcome {
    * owner's GO is bound to. Without it a GO can never reach DONE.
    */
   content?: string;
+  /** Etapa 3: the failed delivery certainly wrote nothing (e.g. the push was refused before any PR existed). */
+  effect_absent?: boolean;
 }
 
 export interface DeptContext {
@@ -67,7 +70,16 @@ export interface DepartmentRunner {
   create(order: Order, ctx: DeptContext): Promise<StepOutcome & { draft_file?: string; meta?: Record<string, string> }>;
   check(order: Order, ctx: DeptContext): Promise<CheckOutcome>;
   revise(order: Order, ctx: DeptContext): Promise<StepOutcome & { draft_file?: string }>;
-  deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome>;
+  /**
+   * Etapa 3: `effect` carries the operation_id of this delivery; the created object must contain `effect.marker`
+   * (Notion page title, PR body) so `findEffect` can tell after a crash whether the delivery happened.
+   */
+  deliver(order: Order, ctx: DeptContext, effect?: EffectTag): Promise<DeliverOutcome>;
+  /**
+   * Etapa 3: did the delivery with this operation_id happen? Looks for the marker in the target system. Absent = the
+   * department cannot tell, so a delivery of unknown outcome is held (EFFECT_UNKNOWN), never repeated.
+   */
+  findEffect?(order: Order, ctx: DeptContext, operationId: string): Promise<EffectLookup>;
   /**
    * DR-039 read-back of the delivered artifact at `order.delivered_url`, in the same form as `DeliverOutcome.content`.
    * Absent = the orchestrator reads a Notion page through `NotionClient.readPage`.
@@ -285,7 +297,7 @@ ${verdictFormatFor(this.checker)}`;
     return { ...fromAdapter(r, this.creatorModel()), draft_file: name };
   }
 
-  async deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome> {
+  async deliver(order: Order, ctx: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
     const draft = ctx.store.readFile(order.id, order.draft_file!);
     const header = [
       `**DRAFT — není schváleno.** Vytvořeno orchestrátorem TARS-ORCH v0, zakázka \`${order.id}\`, milník ${order.brief!.milestone}.`,
@@ -296,8 +308,13 @@ ${verdictFormatFor(this.checker)}`;
       "",
     ].join("\n");
     const content = header + draft;
-    const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, content);
+    const title = `DRAFT — ${order.brief!.title} (${order.id})`;
+    const page = await ctx.notion.createPage(ctx.draftParentId, effect ? titleWithMarker(title, effect.operationId) : title, content);
     return { ok: true, url: page.url, model: "notion", content };
+  }
+
+  findEffect(_order: Order, ctx: DeptContext, operationId: string): Promise<EffectLookup> {
+    return lookupNotionMarker(ctx.notion, ctx.draftParentId, operationId);
   }
 }
 
@@ -398,11 +415,12 @@ ${verdictFormatFor(this.reviewer)}`;
     return this.runChain(order, ctx, `\n## Připomínky kontrolora (vypořádat)\n${(order.last_issues ?? []).map((x) => `- ${x}`).join("\n")}`);
   }
 
-  async deliver(order: Order): Promise<DeliverOutcome> {
+  async deliver(order: Order, _ctx?: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
     const { wt, branch } = this.worktree(order);
     const push = git(wt, ["push", "-q", "-u", "origin", branch]);
-    if (!push.ok) return { ok: false, error: "git push failed" };
-    const body = `${briefMarkdown(order.brief!)}\n\n---\nVytvořeno TARS-ORCH v0, zakázka \`${order.id}\`. Tvůrce: ${this.creatorModel()}. Kontrolor: ${this.checkerModel()}. Kol oprav: ${order.fix_rounds}.\n**DRAFT — NEMERGOVAT bez GO vlastníka.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
+    if (!push.ok) return { ok: false, error: "git push failed", effect_absent: true }; // no PR exists before the push
+    const op = effect ? `\nOperace TARS: \`${effect.marker}\`` : "";
+    const body = `${briefMarkdown(order.brief!)}\n\n---\nVytvořeno TARS-ORCH v0, zakázka \`${order.id}\`. Tvůrce: ${this.creatorModel()}. Kontrolor: ${this.checkerModel()}. Kol oprav: ${order.fix_rounds}.${op}\n**DRAFT — NEMERGOVAT bez GO vlastníka.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
     const r = spawnSync("gh", ["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", `feat(tars): ${order.brief!.title}`, "--body", body], {
       cwd: wt,
       encoding: "utf8",
@@ -412,6 +430,29 @@ ${verdictFormatFor(this.reviewer)}`;
     // DR-039: the artifact the owner's GO is bound to is the pushed head commit of the PR.
     const head = git(wt, ["rev-parse", "HEAD"]);
     return { ok: true, url, model: "gh", content: head.ok && /^[0-9a-f]{40}\s*$/.test(head.out) ? head.out.trim() : undefined };
+  }
+
+  /**
+   * Etapa 3: PRs of the order's branch (`gh pr list --head`, all states) whose body carries the marker. The branch is
+   * unique per order; 0 → absent, 1 → found, more or a failed/unreadable `gh` → uncertain.
+   */
+  async findEffect(order: Order, _ctx: DeptContext, operationId: string): Promise<EffectLookup> {
+    const { branch } = this.worktree(order);
+    const marker = `[op:${operationId}]`;
+    const r = spawnSync("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "50", "--json", "url,body"], { encoding: "utf8", timeout: 60_000 });
+    if (r.status !== 0) return { status: "uncertain", reason: "gh pr list selhal" };
+    let prs: Array<{ url?: unknown; body?: unknown }>;
+    try {
+      prs = JSON.parse(r.stdout ?? "") as Array<{ url?: unknown; body?: unknown }>;
+      if (!Array.isArray(prs)) throw new Error("not an array");
+    } catch {
+      return { status: "uncertain", reason: "gh pr list: nečitelná odpověď" };
+    }
+    if (prs.length >= 50) return { status: "uncertain", reason: "gh pr list: neúplný výsledek" };
+    const hits = prs.filter((p) => typeof p.body === "string" && p.body.includes(marker));
+    if (hits.length === 0) return { status: "absent" };
+    if (hits.length > 1 || typeof hits[0].url !== "string" || !/^https:\/\/github\.com\/\S+\/pull\/\d+$/.test(hits[0].url)) return { status: "uncertain", reason: `PR se značkou ${marker}: ${hits.length}` };
+    return { status: "found", url: hits[0].url };
   }
 
   /** Read-back: the PR's current head commit as GitHub reports it (`gh pr view --json headRefOid`). */
@@ -566,11 +607,16 @@ ZADÁNÍ:\n${briefMarkdown(order.brief!)}\n\nVERDIKT BRÁNY:\n${r.text}\n\n${VER
     return { ...fromAdapter(r, this.checkerModel()), verdict: m.verdict, issues: m.owner ? [`CONTROL TOWER EXCEPTION: ${g.issues.join("; ")}`] : g.issues };
   }
 
-  async deliver(order: Order, ctx: DeptContext): Promise<DeliverOutcome> {
+  async deliver(order: Order, ctx: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
     const draft = ctx.store.readFile(order.id, order.draft_file!);
     const content = `**DRAFT — není schváleno.** Tvůrce: ${this.creatorModel()} · Kontrolor: ${this.checkerModel()}.\n\n${draft}`;
-    const page = await ctx.notion.createPage(ctx.draftParentId, `DRAFT — ${order.brief!.title} (${order.id})`, content);
+    const title = `DRAFT — ${order.brief!.title} (${order.id})`;
+    const page = await ctx.notion.createPage(ctx.draftParentId, effect ? titleWithMarker(title, effect.operationId) : title, content);
     return { ok: true, url: page.url, model: "notion", content };
+  }
+
+  findEffect(_order: Order, ctx: DeptContext, operationId: string): Promise<EffectLookup> {
+    return lookupNotionMarker(ctx.notion, ctx.draftParentId, operationId);
   }
 }
 

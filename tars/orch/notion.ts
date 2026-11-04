@@ -22,6 +22,12 @@ export interface NotionClient {
    * API (no model in the path). Absent = no read-back available, so an owner GO never reaches DONE.
    */
   readPage?(url: string): Promise<string>;
+  /**
+   * Etapa 3 (effect journal): every child page of `parentPageId` whose title contains `marker`, read from the REST block
+   * children listing in full (strongly consistent, unlike search). Throws when the listing cannot be read completely.
+   * Absent = pages cannot be looked up (no token), so an attempt of unknown outcome is held, never repeated.
+   */
+  findChildPagesByMarker?(parentPageId: string, marker: string): Promise<Array<{ url: string; in_trash?: boolean }>>;
   /** Create a child page with markdown content; returns its URL. */
   createPage(
     parentPageId: string,
@@ -286,7 +292,36 @@ export class RestNotion implements NotionClient {
     if (j.truncated === true || (Array.isArray(j.unknown_block_ids) && j.unknown_block_ids.length > 0)) throw new NotionRestError(200, "incomplete");
     return j.markdown;
   }
+
+  /**
+   * Etapa 3: `GET /v1/blocks/{parent}/children`, every page of the listing (at most CHILDREN_MAX_PAGES × 100 blocks),
+   * child pages whose title contains the marker. A listing that cannot be read to its end throws (never „not found“).
+   */
+  async findChildPagesByMarker(parentPageId: string, marker: string): Promise<Array<{ url: string; in_trash?: boolean }>> {
+    const parent = parentPageId.replace(/-/g, "");
+    const hits: Array<{ url: string; in_trash?: boolean }> = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < CHILDREN_MAX_PAGES; page++) {
+      const j = await this.api.request<{ results?: unknown; has_more?: unknown; next_cursor?: unknown }>(
+        "GET",
+        `/v1/blocks/${parent}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      if (!Array.isArray(j.results)) throw new NotionRestError(200, "bad_response");
+      for (const b of j.results as Array<{ id?: unknown; type?: unknown; in_trash?: unknown; archived?: unknown; child_page?: { title?: unknown } }>) {
+        if (b.type !== "child_page" || typeof b.child_page?.title !== "string" || !b.child_page.title.includes(marker)) continue;
+        if (typeof b.id !== "string" || !COMMITTED_ID_RE.test(b.id)) throw new NotionRestError(200, "bad_response");
+        hits.push({ url: `https://www.notion.so/${b.id.replace(/-/g, "")}`, ...(b.in_trash === true || b.archived === true ? { in_trash: true } : {}) });
+      }
+      if (j.has_more !== true) return hits;
+      if (typeof j.next_cursor !== "string" || !j.next_cursor) break;
+      cursor = j.next_cursor;
+    }
+    throw new NotionRestError(200, "incomplete"); // the listing has more than we read: never answer „not found“
+  }
 }
+
+/** 50 × 100 child blocks under the DRAFT parent; beyond that the lookup reports „cannot tell“ (HOLD). */
+const CHILDREN_MAX_PAGES = 50;
 
 /**
  * Errors after which the old `claude -p` path may still do the job (not our bug, not a secret).
@@ -324,6 +359,11 @@ export class HybridNotion implements NotionClient {
   /** Read-back is REST only: a model in the path could not be trusted to report the page content (no MCP fallback). */
   readPage(url: string): Promise<string> {
     return this.rest.readPage(url);
+  }
+
+  /** Effect lookup is REST only (pages created through the MCP fallback are children of the same parent, so they are found too). */
+  findChildPagesByMarker(parentPageId: string, marker: string): Promise<Array<{ url: string; in_trash?: boolean }>> {
+    return this.rest.findChildPagesByMarker(parentPageId, marker);
   }
 
   async createPage(parentPageId: string, title: string, markdown: string): Promise<NotionPage> {

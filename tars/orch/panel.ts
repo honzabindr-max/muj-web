@@ -14,6 +14,7 @@ import path from "node:path";
 import { NOTION_QUERY_TOOLS_DENIED, ORCH_CLAUDE_SETTINGS, runProcess } from "./adapters";
 import { isFallbackEligible, NotionRestError, type NotionRestApi } from "./notion";
 import { redactDeep, redactSecrets } from "./secret-scan";
+import { writeDurable } from "./store";
 import type { Order } from "./types";
 
 export const PANEL_DATA_SOURCE_ID = "93d450d0-fabd-4e29-8f09-decda4ad45b6";
@@ -409,9 +410,7 @@ export class PanelIndex {
     this.write({ ...all, [orderId]: pageId });
   }
   private write(all: Record<string, string>): void {
-    const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n");
-    fs.renameSync(tmp, this.file);
+    writeDurable(this.file, JSON.stringify(all, null, 2) + "\n"); // etapa 3: page ids and dirty marks survive a crash
   }
   /** A create of this order's row may have been saved although we got no answer: look it up before creating again. */
   markUncertain(orderId: string): void {
@@ -425,6 +424,30 @@ export class PanelIndex {
     delete all[`${UNCERTAIN_PREFIX}${orderId}`];
     this.write(all);
   }
+  /**
+   * Etapa 3: the last write of this order's row failed; the next tick rewrites the row from state.json (same order id,
+   * so the same row: the page id from this index, or the lookup by order id after an uncertain create).
+   */
+  markDirty(orderId: string): void {
+    if (this.isDirty(orderId)) return;
+    this.write({ ...this.read(), [`${DIRTY_PREFIX}${orderId}`]: "1" });
+  }
+  isDirty(orderId: string): boolean {
+    return this.read()[`${DIRTY_PREFIX}${orderId}`] === "1";
+  }
+  clearDirty(orderId: string): void {
+    const all = this.read();
+    if (!(`${DIRTY_PREFIX}${orderId}` in all)) return;
+    delete all[`${DIRTY_PREFIX}${orderId}`];
+    this.write(all);
+  }
+  dirtyOrders(): string[] {
+    return Object.keys(this.read())
+      .filter((k) => k.startsWith(DIRTY_PREFIX))
+      .map((k) => k.slice(DIRTY_PREFIX.length))
+      .sort();
+  }
 }
 
 const UNCERTAIN_PREFIX = "uncertain:";
+const DIRTY_PREFIX = "dirty:";
