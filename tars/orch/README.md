@@ -63,6 +63,31 @@ plus `PAUSED` (subscription limit, resumes on a later tick), `FAILED`, `UNKNOWN`
   `runs/*/state.json`) + 1. If the counter is damaged and some `state.json` is unreadable too, the tick is HOLD
   („tick lock HOLD: fence nelze bezpečně určit“ in `runs/log.jsonl`).
 
+### Vedlejší účinky: journal a obnova po pádu (DR-039, etapa 3)
+
+- Každý externí zápis zakázky — DRAFT stránka (`deliver` copy/vizual), PR (`deliver` dev), karta GO/REJECT, karta
+  UNKNOWN, komentář s upozorněním na iPhone — má záznam v `runs/<id>/effects/<krok>-r<kolo>.json` (`effects.ts`),
+  zapsaný trvale jako `.fence` (tmp + fsync + rename + fsync adresáře). Pořadí: `PREPARED` → zápis → receipt
+  (`EFFECT_DONE`, URL objektu). `operation_id` = `<zakázka>/<krok>/r<kolo>` (kolo oprav, u komentáře číslo přechodu
+  do `WAITING_OWNER`); opakovaný pokus má stejné id a jen zvýší `attempts`.
+- Vytvářený objekt nese značku `[op:<operation_id>]`: u Notion stránek na konci titulku (tělo stránky, na které stojí
+  read-back hash, se nemění; řádek panelu titulek stránky nezobrazuje), u PR v těle.
+- Tick, který najde `PREPARED` bez receiptu (proces spadl mezi zápisem a uložením výsledku), nevolá znovu naslepo:
+  dohledá značku — Notion přes REST výpis potomků rodičovské stránky (`GET /v1/blocks/{parent}/children`, celý, ne
+  vyhledávání, které čerstvé stránky nevidí), PR přes `gh pr list --head tars/<id> --state all`. Právě jeden nález →
+  receipt se doplní a zakázka pokračuje. S jistotou nic → nový pokus se stejným `operation_id`. Cokoli nejasného
+  (chyba hledání, víc kopií, nalezený objekt v koši, neúplný výpis, dohledání není k dispozici — bez tokenu nebo
+  oddělení bez `findEffect`) → `EFFECT_UNKNOWN` / HOLD: zakázka `UNKNOWN` s důvodem „EFFECT_UNKNOWN (…)“ v logu i
+  v panelu (Poslední krok) a žádný další zápis. Receipt už v journalu (pád po receiptu, před `state.json`) se použije
+  bez dohledání. Zápis, který skončil chybou s nejasným výsledkem, zůstává `PREPARED` (příště se nejdřív dohledává);
+  čisté odmítnutí (REST 4xx kromě 408, secret-scan) je `EFFECT_ABSENT` a smí se opakovat.
+- Komentář s upozorněním nejde dohledat podle značky: pokus bez receiptu se neopakuje (`EFFECT_UNKNOWN`,
+  `meta.owner_ping` se označí), stejně jako dosud nejasný výsledek.
+- Panel: selhaný zápis řádku označí zakázku `dirty:` v `runs/panel-index.json`; další tick řádek přepíše ze
+  `state.json` (stejné ID zakázky → stejný řádek; po nejasném vytvoření se řádek nejdřív dohledá podle „ID zakázky“).
+- Nouzový postup u `EFFECT_UNKNOWN`: v Notionu (pod rodičovskou stránkou DRAFTů) nebo na GitHubu vyhledej značku
+  z důvodu v panelu. Zakázka zůstává `UNKNOWN`; rozhodnutí, zda ji zopakovat, je na vlastníkovi.
+
 ### Nouzový postup: zámek visí (HOLD)
 
 Známé riziko, záměrně neopraveno: zámek starého formátu (jen PID, z doby před etapou 2), zámek bez čitelného času
