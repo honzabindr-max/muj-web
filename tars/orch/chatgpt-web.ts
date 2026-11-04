@@ -36,7 +36,10 @@ export const CHATGPT_MODEL_FALLBACK = "GPT-5.6 Sol";
 /** Intensity slider in Chat: Nízká / Střední / Vysoká; Vysoká is the top for both Chat models. */
 export const CHATGPT_INTENSITY = "Vysoká";
 /** Models the check accepts (both exist only in Chat). */
-export const CHAT_MODELS: readonly string[] = [CHATGPT_MODEL, CHATGPT_MODEL_FALLBACK];
+export const CHAT_MODELS: readonly string[] = [
+  CHATGPT_MODEL,
+  CHATGPT_MODEL_FALLBACK,
+];
 /** How long one answer may take (Vysoká reasoning can think for many minutes). */
 export const CHATGPT_ANSWER_TIMEOUT_MS = 25 * 60_000;
 /** The end marker is the word + the nonce written together; the prompt holds them only apart. */
@@ -89,7 +92,10 @@ export function readJournal(dir: string): SentEntry[] | undefined {
   const f = path.join(dir, SENT_JOURNAL);
   if (!fs.existsSync(f)) return [];
   try {
-    const j = JSON.parse(fs.readFileSync(f, "utf8")) as { v?: unknown; entries?: unknown };
+    const j = JSON.parse(fs.readFileSync(f, "utf8")) as {
+      v?: unknown;
+      entries?: unknown;
+    };
     if (j.v !== 1 || !Array.isArray(j.entries)) return undefined;
     return j.entries as SentEntry[];
   } catch {
@@ -123,7 +129,11 @@ export function writeJournal(dir: string, entries: SentEntry[]): void {
 }
 
 /** Steps that only read the answer of an already sent prompt: open its chat, wait for the marker, read. No fill. */
-export function chatGptReadSteps(chatUrl: string, marker: string, timeoutMs = CHATGPT_ANSWER_TIMEOUT_MS): BrowserStep[] {
+export function chatGptReadSteps(
+  chatUrl: string,
+  marker: string,
+  timeoutMs = CHATGPT_ANSWER_TIMEOUT_MS,
+): BrowserStep[] {
   return [
     { kind: "goto", url: chatUrl },
     { kind: "wait", ms: 4000 },
@@ -284,7 +294,8 @@ export function answerRegion(
  * A line that is only snapshot structure: a role with optional attributes (`- paragraph [ref=e5]:`), quotes or nothing.
  * No accessible name in quotes and no text: those are content and may never be skipped.
  */
-const SNAPSHOT_ONLY_LINE = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:?)?\s*['"]?\s*$/i;
+const SNAPSHOT_ONLY_LINE =
+  /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:?)?\s*['"]?\s*$/i;
 /** The snapshot prefix of an element line (`  - paragraph [ref=e5]: `); the rest of the line is its value. */
 const SNAPSHOT_PREFIX = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:[ \t]*)?/i;
 
@@ -293,7 +304,10 @@ const SNAPSHOT_PREFIX = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:[ \t]*)?/i;
  * escapes (\" \\ \n \t \uXXXX), plain → as is. The closing quote may be missing (the end marker cut the line).
  */
 export function snapshotValue(line: string, withPrefix = true): string {
-  let v = (withPrefix ? line.replace(SNAPSHOT_PREFIX, "") : line).replace(/\s+$/, "");
+  let v = (withPrefix ? line.replace(SNAPSHOT_PREFIX, "") : line).replace(
+    /\s+$/,
+    "",
+  );
   if (v.startsWith("'")) {
     v = v.slice(1).replace(/'$/, "").replace(/''/g, "'");
   } else if (v.startsWith('"')) {
@@ -301,14 +315,22 @@ export function snapshotValue(line: string, withPrefix = true): string {
     try {
       v = JSON.parse(`"${v}"`) as string;
     } catch {
-      v = v.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      v = v
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
     }
   }
   return v.replace(/\s+$/, "");
 }
 
 /** true when `text` names a verdict of `allowed` other than `chosen` (whole words, upper case as in the schema). */
-export function otherVerdictWord(text: string, chosen: string, allowed: readonly string[]): boolean {
+export function otherVerdictWord(
+  text: string,
+  chosen: string,
+  allowed: readonly string[],
+): boolean {
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   for (const v of allowed) {
     if (v === chosen) continue;
@@ -319,12 +341,17 @@ export function otherVerdictWord(text: string, chosen: string, allowed: readonly
   return false;
 }
 
-const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
+const verdictOf = (v: unknown): unknown =>
+  v && typeof v === "object" && !Array.isArray(v)
+    ? (v as Record<string, unknown>).verdict
+    : undefined;
 
 /** A button with an accessible name but no text value (ChatGPT UI: copy, rate, "Přemýšlení trvalo 2 min"). */
-const UI_BUTTON_LINE = /^\s*-\s*button(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*:?\s*$/i;
+const UI_BUTTON_LINE =
+  /^\s*-\s*button(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*:?\s*$/i;
 /** The heading ChatGPT puts above an assistant message ("ChatGPT řekl:" / "ChatGPT said:"). */
-const ASSISTANT_HEADING = /^\s*-\s*heading\s+"ChatGPT(?:\s+(?:řekl|said))?:?"(?:\s*\[[^\]\n]*\])*:?\s*$/i;
+const ASSISTANT_HEADING =
+  /^\s*-\s*heading\s+"ChatGPT(?:\s+(?:řekl|said))?:?"(?:\s*\[[^\]\n]*\])*:?\s*$/i;
 
 /**
  * true when the end marker is the real end of the last assistant message (Codex review kolo 1, nález 3): on its line
@@ -337,7 +364,12 @@ export function markerEndsAnswer(page: string, marker: string): boolean {
   if (at < 0) return false;
   const lineStart = page.lastIndexOf("\n", at) + 1;
   const nl = page.indexOf("\n", at);
-  if (!/^\s*['"]?\s*$/.test(page.slice(at + marker.length, nl < 0 ? undefined : nl))) return false;
+  if (
+    !/^\s*['"]?\s*$/.test(
+      page.slice(at + marker.length, nl < 0 ? undefined : nl),
+    )
+  )
+    return false;
   if (nl < 0) return true;
   const indent = (l: string) => l.length - l.trimStart().length;
   const mi = indent(page.slice(lineStart, at));
@@ -346,7 +378,8 @@ export function markerEndsAnswer(page: string, marker: string): boolean {
     if (ASSISTANT_HEADING.test(l)) return false;
     if (!l.trim()) continue;
     if (indent(l) < mi) inBlock = false;
-    if (!inBlock || SNAPSHOT_ONLY_LINE.test(l) || UI_BUTTON_LINE.test(l)) continue;
+    if (!inBlock || SNAPSHOT_ONLY_LINE.test(l) || UI_BUTTON_LINE.test(l))
+      continue;
     return false;
   }
   return true;
@@ -377,21 +410,43 @@ function singleLineObject(line: string): unknown {
  *     sample, I did not check", a heading, a second JSON, a JSON pretty-printed over several lines) = unclear.
  * Unclear → undefined → WAITING_REVIEW.
  */
-export function verdictFromAnswer(region: string, schema: Record<string, unknown>): string | undefined {
-  const allowed = ((schema.properties as Record<string, { enum?: string[] }> | undefined)?.verdict?.enum ?? []) as string[];
+export function verdictFromAnswer(
+  region: string,
+  schema: Record<string, unknown>,
+): string | undefined {
+  const allowed = ((
+    schema.properties as Record<string, { enum?: string[] }> | undefined
+  )?.verdict?.enum ?? []) as string[];
   if (!allowed.length) return undefined;
   const lines = region.split("\n");
-  while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1])) lines.pop();
+  while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1]))
+    lines.pop();
   if (!lines.length) return undefined;
   const value = singleLineObject(lines[lines.length - 1]);
   if (value === undefined) return undefined;
   const found = JSON.stringify(value);
   if (!parseStructuredVerdict(found, allowed)) return undefined;
   const before = lines.slice(0, -1);
-  if (before.some((l) => !SNAPSHOT_ONLY_LINE.test(l) && !UI_BUTTON_LINE.test(l) && !ASSISTANT_HEADING.test(l))) return undefined;
+  if (
+    before.some(
+      (l) =>
+        !SNAPSHOT_ONLY_LINE.test(l) &&
+        !UI_BUTTON_LINE.test(l) &&
+        !ASSISTANT_HEADING.test(l),
+    )
+  )
+    return undefined;
   // Button names are UI, but none may carry another verdict or a JSON verdict object (no blocking finding gets lost).
-  for (const c of jsonObjectsIn(before.join("\n"))) if (verdictOf(c.value) !== undefined) return undefined;
-  if (otherVerdictWord(before.map((l) => snapshotValue(l)).join("\n"), String(verdictOf(value)), allowed)) return undefined;
+  for (const c of jsonObjectsIn(before.join("\n")))
+    if (verdictOf(c.value) !== undefined) return undefined;
+  if (
+    otherVerdictWord(
+      before.map((l) => snapshotValue(l)).join("\n"),
+      String(verdictOf(value)),
+      allowed,
+    )
+  )
+    return undefined;
   return found;
 }
 
@@ -419,16 +474,21 @@ export function detectModel(page: string): {
 }
 
 /** Intensity "Vysoká" (High) as the page shows it. */
-export const isHighIntensity = (intensity?: string): boolean => intensity === "Vysoká" || intensity === "High";
+export const isHighIntensity = (intensity?: string): boolean =>
+  intensity === "Vysoká" || intensity === "High";
 
 /** A selected "Work" in the mode switch (snapshot state), not the mere label (the switch always shows both modes). */
-const WORK_SELECTED_RE = /-\s*[a-z]+\s+"Work"[^\n]*\[(?:pressed|selected|checked)(?:=true)?\]/i;
+const WORK_SELECTED_RE =
+  /-\s*[a-z]+\s+"Work"[^\n]*\[(?:pressed|selected|checked)(?:=true)?\]/i;
 
 /**
  * true when the page shows that the check runs in Work instead of Chat (P16 v3): the mode switch has Work selected, or
  * the page shows a Work model or intensity (GPT-6.1 Sol, Max.), which do not exist in Chat.
  */
-export function ranInWork(page: string, seen: { model?: string; intensity?: string }): boolean {
+export function ranInWork(
+  page: string,
+  seen: { model?: string; intensity?: string },
+): boolean {
   if (WORK_SELECTED_RE.test(page.slice(0, 30_000))) return true;
   if (seen.model && /^(?:Chat)?GPT[- ]?6\.1\b/.test(seen.model)) return true;
   return Boolean(seen.intensity && /^Max/.test(seen.intensity));
@@ -484,14 +544,18 @@ export class ChatGptWebChecker implements TextAdapter {
     const shots = path.join(opts.cwd, `shots-gptweb-${stamp}`);
     const jdir = opts.journalDir ?? opts.cwd;
     // The prompt as the reviewer gets it, without the per-send nonce: the key of the journal of sent prompts.
-    const promptSha = createHash("sha256").update(`${prompt}\n${JSON.stringify(opts.outputSchema ?? null)}`).digest("hex");
+    const promptSha = createHash("sha256")
+      .update(`${prompt}\n${JSON.stringify(opts.outputSchema ?? null)}`)
+      .digest("hex");
     let submits: 0 | 1 = 0;
     let chatUrl: string | undefined;
     /**
      * Writes the record (diagnostics). Codex review kolo 1, nález 6: it is scanned for secrets BEFORE anything is
      * written; with a hit only the redacted record is written (no value) and the kinds are returned (the caller rejects).
      */
-    const record = (r: Omit<WebCheckRecord, "at" | "requested_model" | "submits">): string[] => {
+    const record = (
+      r: Omit<WebCheckRecord, "at" | "requested_model" | "submits">,
+    ): string[] => {
       let rec: WebCheckRecord = {
         at: now().toISOString(),
         requested_model: this.requestedModel,
@@ -503,7 +567,10 @@ export class ChatGptWebChecker implements TextAdapter {
       if (!sc.clean) rec = redactDeep(rec);
       this.lastRecord = rec;
       try {
-        fs.writeFileSync(path.join(opts.cwd, `check-gptweb-${stamp}.md`), recordMarkdown(rec));
+        fs.writeFileSync(
+          path.join(opts.cwd, `check-gptweb-${stamp}.md`),
+          recordMarkdown(rec),
+        );
       } catch {
         /* the record is diagnostics; the caller stores the verdict and logs the call */
       }
@@ -517,7 +584,13 @@ export class ChatGptWebChecker implements TextAdapter {
         model_matches: false,
         reason: `secret-scan: ${kinds.join(",")} (hodnota skryta, odpověď se nepoužije)`,
       });
-      return { ok: false, text: "", limit: false, error: `secret-scan: ${kinds.join(",")}`, duration_ms: Date.now() - t0 };
+      return {
+        ok: false,
+        text: "",
+        limit: false,
+        error: `secret-scan: ${kinds.join(",")}`,
+        duration_ms: Date.now() - t0,
+      };
     };
     const waiting = (reason: string, actual = "neověřeno"): AdapterResult => {
       const kinds = record({
@@ -539,13 +612,21 @@ export class ChatGptWebChecker implements TextAdapter {
     // Codex review kolo 1, nález 5: a prompt is sent at most once per order dir. An entry that is not answered yet
     // means: never send again; open its chat and only read, or wait when there is no chat URL.
     const journal = readJournal(jdir);
-    if (!journal) return waiting("deník odeslaných promptů nejde přečíst; nový prompt se neposílá");
+    if (!journal)
+      return waiting(
+        "deník odeslaných promptů nejde přečíst; nový prompt se neposílá",
+      );
     const open = journal.find((e) => e.state !== "answered");
     if (open && open.prompt_sha256 !== promptSha)
-      return waiting(`v této zakázce čeká odpověď na jiný už odeslaný prompt (sha256 ${String(open.prompt_sha256).slice(0, 12)}…); nový prompt se bez nového kola neposílá`);
+      return waiting(
+        `v této zakázce čeká odpověď na jiný už odeslaný prompt (sha256 ${String(open.prompt_sha256).slice(0, 12)}…); nový prompt se bez nového kola neposílá`,
+      );
     if (open && !(open.chat_url && CHAT_URL_RE.test(open.chat_url)))
-      return waiting("prompt už byl odeslán (nebo odeslání nejde vyloučit), ale URL chatu chybí; odpověď nejde přečíst a nový prompt se bez nového kola neposílá");
-    const nonce = open?.nonce ?? (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
+      return waiting(
+        "prompt už byl odeslán (nebo odeslání nejde vyloučit), ale URL chatu chybí; odpověď nejde přečíst a nový prompt se bez nového kola neposílá",
+      );
+    const nonce =
+      open?.nonce ?? (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
     const marker = `${END_WORD}${nonce}`;
     if (prompt.includes(marker))
       return waiting(
@@ -561,16 +642,31 @@ export class ChatGptWebChecker implements TextAdapter {
         return false;
       }
     };
-    const isMine = (e: SentEntry) => e.prompt_sha256 === promptSha && e.state !== "answered";
+    const isMine = (e: SentEntry) =>
+      e.prompt_sha256 === promptSha && e.state !== "answered";
     let steps: BrowserStep[];
     if (open) {
       chatUrl = open.chat_url;
       steps = chatGptReadSteps(open.chat_url!, marker, this.o.timeoutMs);
     } else {
       // Write-ahead: the entry is durable BEFORE the send, so a crash during the run can never lead to a second send.
-      if (!save([...journal, { prompt_sha256: promptSha, nonce, at: now().toISOString(), state: "sending" }]))
+      if (
+        !save([
+          ...journal,
+          {
+            prompt_sha256: promptSha,
+            nonce,
+            at: now().toISOString(),
+            state: "sending",
+          },
+        ])
+      )
         return waiting("deník odeslaných promptů nejde zapsat; nic neodesláno");
-      steps = chatGptSteps(prompt + answerInstructions(nonce, opts.outputSchema), marker, this.o.timeoutMs);
+      steps = chatGptSteps(
+        prompt + answerInstructions(nonce, opts.outputSchema),
+        marker,
+        this.o.timeoutMs,
+      );
     }
     let report: SentReport | undefined;
     /** Records what the gate saw about sending (a read-only run never sends). */
@@ -584,8 +680,12 @@ export class ChatGptWebChecker implements TextAdapter {
       }
       if (report?.submitted !== true) return; // unknown: stays "sending" (never sent again, waits)
       submits = 1;
-      chatUrl = report.url && CHAT_URL_RE.test(report.url) ? report.url : undefined;
-      save([...others, { ...mine, state: "sent", ...(chatUrl ? { chat_url: chatUrl } : {}) }]);
+      chatUrl =
+        report.url && CHAT_URL_RE.test(report.url) ? report.url : undefined;
+      save([
+        ...others,
+        { ...mine, state: "sent", ...(chatUrl ? { chat_url: chatUrl } : {}) },
+      ]);
     };
     let page: string;
     try {
@@ -603,15 +703,23 @@ export class ChatGptWebChecker implements TextAdapter {
     // Codex review kolo 1, nález 6: a secret anywhere on the page (snapshot) = rejected; the files are redacted.
     const fileKinds = redactSecretFiles(shots);
     const pageScan = scanSecrets(page);
-    if (fileKinds.length || !pageScan.clean) return rejected([...new Set([...fileKinds, ...pageScan.kinds])], "neověřeno");
+    if (fileKinds.length || !pageScan.clean)
+      return rejected(
+        [...new Set([...fileKinds, ...pageScan.kinds])],
+        "neověřeno",
+      );
     const seen = detectModel(page);
     const actual = seen.model
       ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
       : "neověřeno (stránka model neukazuje)";
     this.model = actual;
     // P16 v3: Work is never a valid place for a check; the answer is not used, the order waits (never pretended).
-    if (ranInWork(page, seen)) return waiting("běží v režimu Work místo Chat", actual);
-    const matches = seen.model !== undefined && CHAT_MODELS.includes(seen.model) && isHighIntensity(seen.intensity);
+    if (ranInWork(page, seen))
+      return waiting("běží v režimu Work místo Chat", actual);
+    const matches =
+      seen.model !== undefined &&
+      CHAT_MODELS.includes(seen.model) &&
+      isHighIntensity(seen.intensity);
     const region = answerRegion(page, marker, nonce);
     if (region === undefined)
       return waiting(
@@ -621,10 +729,18 @@ export class ChatGptWebChecker implements TextAdapter {
         actual,
       );
     // Codex review kolo 1, nález 3: nothing of the answer may follow the end marker in the same message.
-    if (!markerEndsAnswer(page, marker)) return waiting("za koncovou značkou následuje další obsah odpovědi (značka není konec odpovědi)", actual);
+    if (!markerEndsAnswer(page, marker))
+      return waiting(
+        "za koncovou značkou následuje další obsah odpovědi (značka není konec odpovědi)",
+        actual,
+      );
     // Codex review kolo 1, nález 1: only the requested Chat model at intensity Vysoká counts; another or unverified
     // model/intensity = the answer is not used, the order waits (never PASS).
-    if (!matches) return waiting(`model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka: ${actual})`, actual);
+    if (!matches)
+      return waiting(
+        `model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka: ${actual})`,
+        actual,
+      );
     let text: string;
     if (opts.outputSchema) {
       const v = verdictFromAnswer(region, opts.outputSchema);
@@ -647,7 +763,11 @@ export class ChatGptWebChecker implements TextAdapter {
       answer: text,
     });
     if (kinds.length) return rejected(kinds, actual);
-    save(entries.map((e) => (isMine(e) ? { ...e, state: "answered" as const } : e)));
+    save(
+      entries.map((e) =>
+        isMine(e) ? { ...e, state: "answered" as const } : e,
+      ),
+    );
     return { ok: true, text, limit: false, duration_ms: Date.now() - t0 };
   }
 }
