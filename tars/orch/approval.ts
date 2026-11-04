@@ -70,9 +70,26 @@ export function decisionFresh(
   const decided = decidedAt ? Date.parse(decidedAt) : NaN;
   const reissued = Date.parse(reissuedAt);
   if (Number.isNaN(decided) || Number.isNaN(reissued)) return false;
-  if (decided <= reissued) return false;
+  if (decided <= reissued + CLOCK_MARGIN_MS) return false;
   const own = notBefore ? Date.parse(notBefore) : NaN;
-  return Number.isNaN(own) || decided > own;
+  return Number.isNaN(own) || decided > own + CLOCK_MARGIN_MS;
+}
+
+/**
+ * Rezerva na rozdíl hodin Mac ↔ Notion a na zaokrouhlení `last_edited_time` na minuty: rozhodnutí musí být aspoň
+ * o 2 minuty novější než hranice. Ťuknutí těsně po zápisu se nepočítá (vlastník ťukne znovu), nikdy naopak.
+ */
+export const CLOCK_MARGIN_MS = 2 * 60_000;
+
+/**
+ * Po znovuvydání karty musí být i HODNOTA v panelu nová, ne jen čas změny řádku (ten posune i cizí nebo vlastní zápis):
+ * buď se liší od hodnoty, která v panelu stála při znovuvydání (`stale`, známá), nebo orchestrátor od znovuvydání
+ * viděl pole prázdné (`armed`, vlastník staré rozhodnutí smazal). Neznámá stará hodnota („?“) = jen přes `armed`.
+ */
+export function decisionValueNew(stale: string | undefined, value: string, armed: boolean): boolean {
+  if (armed) return true;
+  if (stale === undefined || stale === "?") return false;
+  return value !== stale;
 }
 
 /**

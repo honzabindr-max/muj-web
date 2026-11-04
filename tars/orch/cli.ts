@@ -232,7 +232,7 @@ async function main() {
       const [id] = args;
       if (!id) throw new Error("usage: reissue <order-id>");
       const orch = build();
-      const o = orch.reissue(id);
+      const o = await orch.reissue(id);
       await orch.flushPanel();
       console.log(`${o.id} → ${o.state} (karta znovuvydána; nová karta s otiskem v příštím ticku, GO musí přijít znovu)`);
       return;

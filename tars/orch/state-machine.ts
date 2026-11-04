@@ -16,7 +16,7 @@ export type OrderEvent =
   | { type: "delivered"; owner_needed: boolean }
   | { type: "owner"; decision: "GO" | "REJECT"; option?: "A" | "B" }
   /** Znovuvydání karty (`cli.ts reissue`): karta bez otisku se vrací do DELIVERED, další tick vydá novou s otiskem. */
-  | { type: "reissue" }
+  | { type: "reissue"; stale_decision: string }
   | { type: "limit"; resume_after: string }
   | { type: "resume" }
   | { type: "fail"; reason: string }
@@ -130,7 +130,12 @@ export function transition(order: Order, ev: OrderEvent, now: string): Order {
       break;
     case "reissue":
       // Stará karta a všechna owner-pole zmizí (staré GO se nikdy nepřebírá); `reissued_at` je hranice pro nové GO.
-      next.meta = { ...Object.fromEntries(Object.entries(order.meta).filter(([k]) => !k.startsWith("owner_") && k !== "readback")), reissued_at: now };
+      // `reissue_stale_decision` = hodnota „Rozhodnutí vlastníka“ v panelu při znovuvydání („“ prázdná, „?“ neznámá).
+      next.meta = {
+        ...Object.fromEntries(Object.entries(order.meta).filter(([k]) => !k.startsWith("owner_") && k !== "readback" && k !== "reissue_armed")),
+        reissued_at: now,
+        reissue_stale_decision: ev.stale_decision,
+      };
       next.owner_card_url = undefined;
       next.owner_reasons = undefined;
       next.owner_needed = undefined;

@@ -91,11 +91,18 @@ Zakázka, která dostala kartu ještě před DR-039 (ve `WAITING_OWNER`, bez `me
 („chybí approved_hash“). `npx tsx tars/orch/cli.ts reissue <order-id>` ji pod stavovým zámkem a CAS vrátí do
 `DELIVERED`: smaže starou kartu (`owner_card_url`) i všechna `owner_*` pole v `meta`, uloží `meta.reissued_at` a zapíše
 „karta znovuvydána“ do `runs/log.jsonl`. Jiný stav nebo karta s otiskem = odmítnuto (exit 1). Další tick projde
-standardní cestou: read-back DRAFTu → nová karta s `approved_hash`/`artifact_hash`. Staré GO se nikdy nepřebírá:
-z Notionu platí rozhodnutí jen tehdy, když se řádek panelu změnil po `reissued_at` i po posledním vlastním zápisu řádku
-orchestrátorem (`last_edited_time`, Notion ho zaokrouhluje na minuty; neznámý čas = nepřijmout). Do té doby zakázka čeká
-ve `WAITING_OWNER` („čeká na nové GO po znovuvydání karty“) a vlastník musí v panelu rozhodnout znovu (případně hodnotu
-přepnout a vrátit). Stejně tak `owner()`. `reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání.
+standardní cestou: read-back DRAFTu → nová karta s `approved_hash`/`artifact_hash`. Staré GO se nikdy nepřebírá.
+Z Notionu platí rozhodnutí jen tehdy, když platí obě podmínky:
+- **čas**: `last_edited_time` řádku je víc než 2 min (rezerva na hodiny a zaokrouhlení na minuty) po `reissued_at`
+  i po každém vlastním zásahu orchestrátoru do řádku (zápis řádku před ním i po něm, i neúspěšný; komentář
+  s upozorněním). Neznámý čas = nepřijmout.
+- **hodnota**: liší se od hodnoty, která v panelu stála při znovuvydání (`meta.reissue_stale_decision`), nebo
+  orchestrátor od znovuvydání viděl pole prázdné (`meta.reissue_armed`). Když stará hodnota nešla zjistit („?“),
+  platí jen druhá cesta.
+
+Do té doby zakázka čeká ve `WAITING_OWNER` („čeká na nové GO po znovuvydání karty“). Postup pro vlastníka, když v panelu
+zůstalo staré „GO“: pole vymazat, počkat na další tick a pak vybrat GO znovu. Pro `owner()` platí podmínka času
+(čas volání). `reissue` není rozhodnutí vlastníka, bash-preflight ho nebrání.
 
 ## Safety
 

@@ -3,7 +3,7 @@
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
-import { artifactHash, decisionFresh, goBlocker } from "./approval";
+import { artifactHash, decisionFresh, decisionValueNew, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import { briefMarkdown, type DepartmentRunner, type DeptContext, type StepOutcome } from "./departments";
 import { adapterPreflight, type LadderEnv, type PreflightResult } from "./ladder";
@@ -165,10 +165,12 @@ export class Orchestrator {
           else panel.index.clearUncertain(o.id);
         }
         creating = !existing;
+        // Po znovuvydání karty: vlastní zápis řádku mění last_edited_time, za nové GO se proto počítá jen pozdější změna.
+        // Značka PŘED zápisem i po něm: i zápis s chybou nebo nejasným výsledkem mohl řádek v Notionu změnit.
+        this.markOwnTouch(o);
         const id = await panel.sink.upsert(row, existing);
         panel.index.set(o.id, id);
-        // Po znovuvydání karty: vlastní zápis řádku mění last_edited_time, za nové GO se proto počítá jen pozdější změna.
-        if (o.meta.reissued_at) panel.index.setWrittenAt(o.id, this.iso());
+        this.markOwnTouch(o);
         this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
         await this.pingOwner(o, id);
       } catch (e) {
@@ -198,7 +200,9 @@ export class Orchestrator {
       this.tickPingKeys?.add(key);
       const title = current.brief?.title ?? `Nová zakázka ${current.id}`;
       const t0 = Date.now();
+      this.markOwnTouch(current); // komentář může změnit last_edited_time řádku
       const r = await ping.send(pageId, title);
+      this.markOwnTouch(current);
       const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
       if (r.outcome === "sent" || r.outcome === "uncertain") {
         this.d.store.withStateLock(() => {
@@ -213,6 +217,16 @@ export class Orchestrator {
       else this.logOnce({ order: o.id, kind: "info", role: "transport", result: r.detail ?? `upozornění na iPhone: ${r.outcome}` });
     } catch (e) {
       this.log({ order: o.id, kind: "error", role: "transport", result: "upozornění na iPhone selhalo", reason: (e as Error).message.slice(0, 300) });
+    }
+  }
+
+  /** Znovuvydaná zakázka: čas vlastního zásahu do řádku panelu (hranice pro nové GO, `decisionFresh`). Nikdy nevyhazuje. */
+  private markOwnTouch(o: Order): void {
+    if (!o.meta.reissued_at || !this.d.panel) return;
+    try {
+      this.d.panel.index.setWrittenAt(o.id, this.iso());
+    } catch (e) {
+      this.safeLog({ order: o.id, kind: "error", role: "transport", result: "značka vlastního zápisu řádku selhala", reason: (e as Error).message.slice(0, 200) });
     }
   }
 
@@ -384,6 +398,15 @@ export class Orchestrator {
         }
         const row = panel.sink.readOwnerRow ? await panel.sink.readOwnerRow(pageId) : { decision: await panel.sink.readOwnerDecision(pageId), last_edited_time: undefined };
         const value = row.decision;
+        if (!value && waiting.meta.reissued_at && waiting.meta.reissue_armed !== "1") {
+          // Vlastník po znovuvydání staré rozhodnutí smazal: další vyplněná hodnota je nové rozhodnutí.
+          this.d.store.withStateLock(() => {
+            const fresh = this.d.store.load(waiting.id);
+            if (fresh.state !== "WAITING_OWNER" || fresh.meta.reissued_at !== waiting.meta.reissued_at) return;
+            this.persist({ ...fresh, meta: { ...fresh.meta, reissue_armed: "1" } });
+          }, this.d.stateLockWaitMs);
+          continue;
+        }
         const ev = ownerEventFor(value);
         if (!ev) continue;
         const notBefore = panel.index.writtenAt(waiting.id);
@@ -391,6 +414,10 @@ export class Orchestrator {
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(waiting.id);
           if (fresh.state !== "WAITING_OWNER") return;
+          if (fresh.meta.reissued_at && !decisionValueNew(fresh.meta.reissue_stale_decision, value!, fresh.meta.reissue_armed === "1")) {
+            this.logOnce({ order: fresh.id, kind: "info", role: "orchestrator", result: `${ev.decision} nepřijato (Notion ${value}): čeká na nové GO po znovuvydání karty`, reason: "hodnota je stejná jako před znovuvydáním; vlastník ji musí smazat a vybrat znovu, nebo vybrat jinou" });
+            return;
+          }
           this.acceptOwner(fresh, ev, `Notion ${value}`, row.last_edited_time, notBefore);
         }, this.d.stateLockWaitMs);
       } catch (e) {
@@ -741,18 +768,41 @@ export class Orchestrator {
    * Znovuvydání karty (`cli.ts reissue`). Není to rozhodnutí vlastníka: jen zakázka ve WAITING_OWNER, jejíž karta nemá
    * `meta.approved_hash` (stará verze před DR-039), se pod stavovým zámkem a CAS vrátí do DELIVERED. Přechod smaže
    * starou kartu a owner-pole a uloží `meta.reissued_at`; další tick vydá standardní cestou (read-back DRAFTu) novou
-   * kartu s otiskem. GO pak platí jen tehdy, když vzniklo po `reissued_at` (`decisionFresh`).
+   * kartu s otiskem. GO z Notionu pak platí jen tehdy, když vzniklo po `reissued_at` i po vlastních zásazích do řádku
+   * (`decisionFresh`) a jeho hodnota je nová (`decisionValueNew`: jiná než při znovuvydání, nebo pole bylo mezitím prázdné).
    */
-  reissue(id: string): Order {
+  async reissue(id: string): Promise<Order> {
+    const refusal = (o: Order) =>
+      o.state !== "WAITING_OWNER"
+        ? `znovuvydání odmítnuto: zakázka ${id} je ve stavu ${o.state}, ne WAITING_OWNER`
+        : o.meta.approved_hash
+          ? `znovuvydání odmítnuto: karta zakázky ${id} už má otisk (approved_hash)`
+          : undefined;
+    const early = refusal(this.d.store.load(id));
+    if (early) throw new TransitionError(early);
+    const stale = await this.panelDecisionNow(id);
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
-      if (o.state !== "WAITING_OWNER") throw new TransitionError(`znovuvydání odmítnuto: zakázka ${id} je ve stavu ${o.state}, ne WAITING_OWNER`);
-      if (o.meta.approved_hash) throw new TransitionError(`znovuvydání odmítnuto: karta zakázky ${id} už má otisk (approved_hash)`);
-      const next = this.apply(o, { type: "reissue" }, { role: "orchestrator", result: "karta znovuvydána" });
+      const why = refusal(o);
+      if (why) throw new TransitionError(why);
+      const next = this.apply(o, { type: "reissue", stale_decision: stale }, { role: "orchestrator", result: "karta znovuvydána" });
       if (next.state !== "DELIVERED") throw new TransitionError(`znovuvydání odmítnuto: stav zakázky ${id} se mezitím změnil`);
       this.log({ order: id, kind: "info", role: "orchestrator", result: "karta znovuvydána", reason: "stará karta bez otisku; nová karta s otiskem v příštím ticku, GO musí přijít znovu" });
       return next;
     }, this.d.stateLockWaitMs);
+  }
+
+  /** Hodnota „Rozhodnutí vlastníka“ v panelu teď („“ prázdná, „?“ nejde zjistit). Jen čtení, REST. */
+  private async panelDecisionNow(id: string): Promise<string> {
+    const panel = this.d.panel;
+    const pageId = panel?.index.get(id);
+    if (!panel || !pageId || !(panel.sink.readOwnerRow || panel.sink.readOwnerDecision)) return "?";
+    try {
+      const v = panel.sink.readOwnerRow ? (await panel.sink.readOwnerRow(pageId)).decision : await panel.sink.readOwnerDecision!(pageId);
+      return v ?? "";
+    } catch {
+      return "?";
+    }
   }
 }
 

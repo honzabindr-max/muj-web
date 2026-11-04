@@ -6,7 +6,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
-import { artifactHash, decisionFresh } from "../approval";
+import { artifactHash, decisionFresh, decisionValueNew } from "../approval";
 import { CardRegistry } from "../cards";
 import {
   CopyDepartment,
@@ -97,7 +97,9 @@ class Panel implements PanelSink {
   rows: PanelRow[] = [];
   decision: string | undefined;
   lastEdited: string | undefined;
+  failUpsert = false;
   async upsert(row: PanelRow, page?: string) {
+    if (this.failUpsert) throw new Error("notion 502");
     this.rows.push(row);
     return page ?? "page1";
   }
@@ -173,8 +175,10 @@ describe("cli.ts reissue: znovuvydání karty bez otisku", () => {
     const r = (await x.o.tick()) as { order: string };
     const before = store.load(r.order);
     expect(before.meta.approved_hash).toBeTruthy();
-    expect(() => x.o.reissue(r.order)).toThrow(TransitionError);
-    expect(() => x.o.reissue(r.order)).toThrow(/už má otisk \(approved_hash\)/);
+    await expect(x.o.reissue(r.order)).rejects.toThrow(TransitionError);
+    await expect(x.o.reissue(r.order)).rejects.toThrow(
+      /už má otisk \(approved_hash\)/,
+    );
     expect(store.load(r.order)).toEqual(before);
   });
 
@@ -193,7 +197,7 @@ describe("cli.ts reissue: znovuvydání karty bez otisku", () => {
         history: [],
         meta: {},
       });
-      expect(() => x.o.reissue(id)).toThrow(
+      await expect(x.o.reissue(id)).rejects.toThrow(
         /znovuvydání odmítnuto: .* ve stavu .*, ne WAITING_OWNER/,
       );
       expect(store.load(id).state).toBe(state);
@@ -210,9 +214,9 @@ describe("cli.ts reissue: znovuvydání karty bez otisku", () => {
       history: [],
       meta: { approved_hash: "a".repeat(64) },
     };
-    expect(() => transition(withHash, { type: "reissue" }, clock)).toThrow(
-      TransitionError,
-    );
+    expect(() =>
+      transition(withHash, { type: "reissue", stale_decision: "?" }, clock),
+    ).toThrow(TransitionError);
   });
 
   it("reissue → DELIVERED (reissued_at, owner-pole a stará karta pryč, log) → tick vydá novou kartu s otiskem", async () => {
@@ -220,11 +224,12 @@ describe("cli.ts reissue: znovuvydání karty bez otisku", () => {
     const oldCard = store.load(id).owner_card_url;
     expect(oldCard).toBeTruthy();
     clock = "2026-11-04T08:40:00.000Z";
-    const r = o.reissue(id);
+    const r = await o.reissue(id);
     expect(r.state).toBe("DELIVERED");
     const s = store.load(id);
     expect(s.state).toBe("DELIVERED");
     expect(s.meta.reissued_at).toBe(clock);
+    expect(s.meta.reissue_stale_decision).toBe(""); // pole v panelu bylo při znovuvydání prázdné
     expect(Object.keys(s.meta).filter((k) => k.startsWith("owner_"))).toEqual(
       [],
     );
@@ -271,8 +276,9 @@ describe("GO po znovuvydání karty: jen nové, s read-backem", () => {
       ),
     ).toBe(true);
     clock = "2026-11-04T08:40:00.000Z";
-    x.o.reissue(x.id);
+    await x.o.reissue(x.id);
     await x.o.flushPanel();
+    expect(store.load(x.id).meta.reissue_stale_decision).toBe("GO");
     clock = "2026-11-04T08:45:00.000Z";
     await x.o.tick(); // nová karta s otiskem, zápis řádku v 8:45
     expect(store.load(x.id).state).toBe("WAITING_OWNER");
@@ -296,16 +302,96 @@ describe("GO po znovuvydání karty: jen nové, s read-backem", () => {
 
   it("změna řádku po reissued_at, ale jen vlastním zápisem orchestrátoru (před ním), se za nové GO nepočítá", async () => {
     const { o, panel, id } = await reissued();
-    panel.lastEdited = "2026-11-04T08:44:00.000Z"; // po reissue (8:40), před vlastním zápisem řádku (8:45)
+    panel.decision = "GO A"; // nová hodnota: rozhoduje jen čas
+    for (const t of ["08:44", "08:45", "08:46", "08:47"]) {
+      // před vlastním zápisem (8:45), přesně na něm, nebo v rezervě 2 min po něm
+      panel.lastEdited = `2026-11-04T${t}:00.000Z`;
+      await o.pollOwnerDecisions();
+      expect(store.load(id).meta.owner_go, t).toBeUndefined();
+    }
+    panel.lastEdited = "2026-11-04T08:48:00.000Z";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBe(clock);
+  });
+
+  it("stejná hodnota jako před znovuvydáním (GO) s čerstvým časem se nepřijme; po vymazání pole a novém GO ano", async () => {
+    const { o, panel, id } = await reissued();
+    panel.lastEdited = "2026-11-04T08:49:00.000Z"; // čas se posunul (např. cizí nebo vlastní zápis jiného sloupce)
     await o.pollOwnerDecisions();
     expect(store.load(id).meta.owner_go).toBeUndefined();
-    panel.lastEdited = "2026-11-04T08:45:00.000Z"; // přesně vlastní zápis
+    expect(
+      log().some(
+        (e) =>
+          e.order === id &&
+          WAIT.test(e.result ?? "") &&
+          /stejná jako před znovuvydáním/.test(e.reason ?? ""),
+      ),
+    ).toBe(true);
+    panel.decision = undefined; // vlastník pole smazal
     await o.pollOwnerDecisions();
-    expect(store.load(id).meta.owner_go).toBeUndefined();
+    expect(store.load(id).meta.reissue_armed).toBe("1");
+    panel.decision = "GO";
+    clock = "2026-11-04T08:53:00.000Z";
+    panel.lastEdited = "2026-11-04T08:52:00.000Z";
+    await o.pollOwnerDecisions();
+    expect(store.load(id).meta.owner_go).toBe(clock);
+  });
+
+  it("hodnotu v panelu při znovuvydání nešlo zjistit („?“) → nová hodnota se přijme až po vymazání pole", async () => {
+    const panel = new Panel();
+    const x = await oldCardOrder(panel);
+    panel.decision = "GO";
+    panel.readOwnerRow = async () => {
+      throw new Error("notion 502");
+    };
+    clock = "2026-11-04T08:40:00.000Z";
+    await x.o.reissue(x.id);
+    expect(store.load(x.id).meta.reissue_stale_decision).toBe("?");
+    panel.readOwnerRow = async () => ({
+      decision: panel.decision,
+      last_edited_time: panel.lastEdited,
+    });
+    clock = "2026-11-04T08:45:00.000Z";
+    await x.o.tick();
+    clock = "2026-11-04T08:50:00.000Z";
+    panel.decision = "GO A";
+    panel.lastEdited = "2026-11-04T08:49:00.000Z";
+    await x.o.pollOwnerDecisions();
+    expect(store.load(x.id).meta.owner_go).toBeUndefined();
+    panel.decision = undefined;
+    await x.o.pollOwnerDecisions();
+    panel.decision = "GO";
+    await x.o.pollOwnerDecisions();
+    expect(store.load(x.id).meta.owner_go).toBe(clock);
+  });
+
+  it("vlastní zápis řádku, který selže (Notion ho mohl uložit), posune hranici také", async () => {
+    const panel = new Panel();
+    const x = await oldCardOrder(panel);
+    clock = "2026-11-04T08:40:00.000Z";
+    await x.o.reissue(x.id);
+    await x.o.flushPanel();
+    panel.failUpsert = true;
+    clock = "2026-11-04T08:45:00.000Z";
+    await x.o.tick();
+    expect(store.load(x.id).state).toBe("WAITING_OWNER");
+    expect(
+      log().some((e) => e.order === x.id && e.result === "panel sync failed"),
+    ).toBe(true);
+    expect(new PanelIndex(dir).writtenAt(x.id)).toBe(
+      "2026-11-04T08:45:00.000Z",
+    );
+    panel.failUpsert = false;
+    clock = "2026-11-04T08:50:00.000Z";
+    panel.decision = "GO";
+    panel.lastEdited = "2026-11-04T08:46:00.000Z"; // jen důsledek nejasného zápisu
+    await x.o.pollOwnerDecisions();
+    expect(store.load(x.id).meta.owner_go).toBeUndefined();
   });
 
   it("neznámý last_edited (chybí čas nebo sink bez readOwnerRow) → nepřijato, čeká", async () => {
     const { o, panel, id } = await reissued();
+    panel.decision = "GO A"; // nová hodnota: rozhoduje jen čas
     panel.lastEdited = undefined;
     await o.pollOwnerDecisions();
     expect(store.load(id).meta.owner_go).toBeUndefined();
@@ -369,7 +455,8 @@ describe("GO po znovuvydání karty: jen nové, s read-backem", () => {
 describe("decisionFresh a RestPanelSink.readOwnerRow", () => {
   it("decisionFresh: jen čas striktně po reissued_at a po vlastním zápisu; neznámý čas = false", () => {
     const at = "2026-11-04T08:40:00.000Z";
-    expect(decisionFresh(at, "2026-11-04T08:41:00.000Z")).toBe(true);
+    expect(decisionFresh(at, "2026-11-04T08:43:00.000Z")).toBe(true);
+    expect(decisionFresh(at, "2026-11-04T08:42:00.000Z")).toBe(false); // v rezervě CLOCK_MARGIN_MS
     expect(decisionFresh(at, at)).toBe(false);
     expect(decisionFresh(at, "2026-11-04T08:31:00.000Z")).toBe(false);
     expect(decisionFresh(at, undefined)).toBe(false);
@@ -379,8 +466,21 @@ describe("decisionFresh a RestPanelSink.readOwnerRow", () => {
       decisionFresh(at, "2026-11-04T08:41:00.000Z", "2026-11-04T08:45:00.000Z"),
     ).toBe(false);
     expect(
-      decisionFresh(at, "2026-11-04T08:46:00.000Z", "2026-11-04T08:45:00.000Z"),
+      decisionFresh(at, "2026-11-04T08:47:00.000Z", "2026-11-04T08:45:00.000Z"),
+    ).toBe(false);
+    expect(
+      decisionFresh(at, "2026-11-04T08:48:00.000Z", "2026-11-04T08:45:00.000Z"),
     ).toBe(true);
+  });
+
+  it("decisionValueNew: jiná známá hodnota nebo vymazané pole; neznámá stará hodnota jen přes vymazání", () => {
+    expect(decisionValueNew("GO", "GO", false)).toBe(false);
+    expect(decisionValueNew("GO", "GO A", false)).toBe(true);
+    expect(decisionValueNew("", "GO", false)).toBe(true);
+    expect(decisionValueNew("?", "GO", false)).toBe(false);
+    expect(decisionValueNew(undefined, "GO", false)).toBe(false);
+    expect(decisionValueNew("GO", "GO", true)).toBe(true);
+    expect(decisionValueNew("?", "GO", true)).toBe(true);
   });
 
   it("RestPanelSink.readOwnerRow vrátí hodnotu i last_edited_time; řádek v koši = nic", async () => {
