@@ -174,56 +174,75 @@ export function answerRegion(
  * No accessible name in quotes and no text: those are content and may never be skipped.
  */
 const SNAPSHOT_ONLY_LINE = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:?)?\s*['"]?\s*$/i;
-/** What may stand before the verdict JSON on its line: only the snapshot prefix of the element and an opening quote. */
-const SNAPSHOT_PREFIX = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:\s*)?['"]?$/i;
+/** The snapshot prefix of an element line (`  - paragraph [ref=e5]: `); the rest of the line is its value. */
+const SNAPSHOT_PREFIX = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:[ \t]*)?/i;
 
-/** The outermost JSON object that ends exactly at the end of `s` and starts after nothing but a snapshot prefix. */
-function trailingObject(s: string): { value: unknown } | undefined {
-  for (let i = s.indexOf("{"); i >= 0; i = s.indexOf("{", i + 1)) {
-    if (objectEnd(s, i) !== s.length) continue;
-    const lineStart = s.lastIndexOf("\n", i - 1) + 1;
-    if (!SNAPSHOT_PREFIX.test(s.slice(lineStart, i))) continue;
+/**
+ * The text value of a snapshot line, decoded by its own YAML quoting (not guessed): '…' → '' is ', "…" → JSON-style
+ * escapes (\" \\ \n \t \uXXXX), plain → as is. The closing quote may be missing (the end marker cut the line).
+ */
+export function snapshotValue(line: string, withPrefix = true): string {
+  let v = (withPrefix ? line.replace(SNAPSHOT_PREFIX, "") : line).replace(/\s+$/, "");
+  if (v.startsWith("'")) {
+    v = v.slice(1).replace(/'$/, "").replace(/''/g, "'");
+  } else if (v.startsWith('"')) {
+    v = v.slice(1).replace(/(?<!\\)"$/, "");
     try {
-      return { value: JSON.parse(s.slice(i)) };
+      v = JSON.parse(`"${v}"`) as string;
     } catch {
-      /* not JSON in this escaping */
+      v = v.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    }
+  }
+  return v.replace(/\s+$/, "");
+}
+
+const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
+
+/** The JSON object that the answer ends with: on the last content line, or starting up to 200 lines higher (pretty JSON). */
+function trailingObject(lines: string[]): unknown {
+  const last = lines.length - 1;
+  for (let k = last; k >= Math.max(0, last - 200); k--) {
+    const text =
+      k === last
+        ? snapshotValue(lines[k])
+        : [snapshotValue(lines[k]), ...lines.slice(k + 1, last).map((l) => l.replace(/\s+$/, "")), snapshotValue(lines[last], false)].join("\n");
+    const t = text.trim();
+    if (!t.startsWith("{") || objectEnd(t, 0) !== t.length) continue;
+    try {
+      return JSON.parse(t);
+    } catch {
+      /* not JSON from this line; try a higher start */
     }
   }
   return undefined;
 }
 
-const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
-
 /**
- * The verdict from the answer region (P16 v2, never a false PASS):
+ * The verdict from the answer region (P16 v2, never a false PASS, no needless stop):
  *  1. from the end, only lines of pure snapshot structure are dropped (no names, no text);
- *  2. what is left must END with the verdict JSON object, alone on its line (only the element prefix before it);
- *  3. it must be exactly the schema;
+ *  2. the answer must END with one JSON object (alone in its element, after the element prefix; one line or several),
+ *     decoded by the line's real YAML quoting; whitespace before the end marker is ignored;
+ *  3. that object must be exactly the schema; an invalid one = unclear, earlier objects are never searched;
  *  4. no other schema-valid verdict object with a different verdict may appear anywhere in the answer.
- * Anything else (prose before/after, a quoted name, an earlier draft JSON, conflicting verdicts) is unclear →
- * undefined → WAITING_REVIEW.
+ * Anything else (prose after the JSON, a quoted element name, conflicting verdicts) is unclear → undefined →
+ * WAITING_REVIEW.
  */
 export function verdictFromAnswer(region: string, schema: Record<string, unknown>): string | undefined {
   const allowed = ((schema.properties as Record<string, { enum?: string[] }> | undefined)?.verdict?.enum ?? []) as string[];
   if (!allowed.length) return undefined;
   const lines = region.split("\n");
   while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1])) lines.pop();
-  const body = lines.join("\n").replace(/['"]\s*$/, "");
-  if (!body.endsWith("}")) return undefined;
-  let found: string | undefined;
-  for (const u of unescapes) {
-    const t = trailingObject(u(body));
-    if (!t) continue;
-    const text = JSON.stringify(t.value);
-    if (!parseStructuredVerdict(text, allowed)) return undefined; // the trailing object decides; invalid = unclear
-    if (found !== undefined && found !== text) return undefined; // escapings disagree = unclear
-    found = text;
-  }
-  if (found === undefined) return undefined;
-  const verdict = verdictOf(JSON.parse(found));
-  for (const c of jsonObjectsIn(region)) {
-    const other = JSON.stringify(c.value);
-    if (parseStructuredVerdict(other, allowed) && verdictOf(c.value) !== verdict) return undefined;
+  if (!lines.length) return undefined;
+  const value = trailingObject(lines);
+  if (value === undefined) return undefined;
+  const found = JSON.stringify(value);
+  if (!parseStructuredVerdict(found, allowed)) return undefined;
+  const verdict = verdictOf(value);
+  // per line decoded by its own quoting, and the whole region (objects over several lines)
+  for (const part of [...region.split("\n").map((l) => snapshotValue(l)), region]) {
+    for (const c of jsonObjectsIn(part)) {
+      if (parseStructuredVerdict(JSON.stringify(c.value), allowed) && verdictOf(c.value) !== verdict) return undefined;
+    }
   }
   return found;
 }

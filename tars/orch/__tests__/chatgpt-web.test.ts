@@ -153,6 +153,13 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     expect(JSON.parse(r.text).verdict).toBe("FIX");
   });
 
+  it("platná odpověď, kde ChatGPT spojil JSON a značku do jednoho odstavce, projde (adaptér end-to-end)", async () => {
+    const joined: Script = (steps) => [`- main:`, `  - paragraph: ${JSON.stringify(sentPrompt(steps))}`, `  - paragraph: '${FIX_JSON} ${MARKER}'`].join("\n");
+    const r = await checker(new FakeBrowser(joined)).run("Posuď draft.", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(r.text).verdict).toBe("FIX");
+  });
+
   it("regrese falešného PASS: PASS JSON v promptu + odpověď prózou / JSON s dovětkem / sbalený prompt → WAITING_REVIEW", async () => {
     const prompt = `Draft obsahuje ${PASS_JSON}`;
     for (const answer of [
@@ -315,6 +322,19 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
         REVIEW_SCHEMA,
       ),
     ).toBeUndefined();
+    // třetí kolo kontroly Codexu: platné odpovědi se nesmí zbytečně odmítat
+    const APOS = '{"verdict":"FIX","findings":[{"severity":"low","file":null,"line":null,"text":"it\'s ok, \\"CTA\\" zkrátit"}]}';
+    const aposValid = JSON.stringify(JSON.parse(APOS));
+    // JSON a značka v jednom odstavci (Markdown spojí řádky): mezera před značkou
+    expect(verdictFromAnswer(`\n  - paragraph: ${PASS_JSON} `, REVIEW_SCHEMA)).toBe(PASS_JSON);
+    expect(verdictFromAnswer(`\n  - paragraph: '${PASS_JSON} `, REVIEW_SCHEMA)).toBe(PASS_JSON);
+    // YAML jednoduché uvozovky s apostrofem v textu nálezu ('' = ')
+    expect(verdictFromAnswer(`\n  - paragraph: '${APOS.replace(/'/g, "''")}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(aposValid);
+    // YAML dvojité uvozovky (escapy \\" a \\n), i přes víc řádků JSON
+    expect(verdictFromAnswer(`\n  - code [ref=e7]: ${JSON.stringify(JSON.stringify(JSON.parse(FIX_JSON), null, 2))}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(JSON.stringify(JSON.parse(FIX_JSON)));
+    // pretty JSON jako více řádků snapshotu (blokový text)
+    const pretty = JSON.stringify(JSON.parse(FIX_JSON), null, 2).split("\n");
+    expect(verdictFromAnswer(`\n  - code: ${pretty[0]}\n${pretty.slice(1).map((l) => `      ${l}`).join("\n")}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(JSON.stringify(JSON.parse(FIX_JSON)));
     // rozporné verdikty v odpovědi = nejasné
     expect(
       verdictFromAnswer(
