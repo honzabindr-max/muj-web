@@ -2,6 +2,7 @@
   "permissions": {
     "defaultMode": "default",
     "blockWritesOutsideWorkingDirectories": true,
+    "additionalDirectories": ["/Users/janbindr/.tars/work"],
     "allow": [
       "Read(./**)",
       "Edit(./**)",

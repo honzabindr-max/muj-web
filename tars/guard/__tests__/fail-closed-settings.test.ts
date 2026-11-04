@@ -37,6 +37,12 @@ describe("settings.json: fail-closed a hranice zápisu", () => {
     );
   });
 
+  it("povoluje zápis mimo worktree jen do ~/.tars/work (GO A vlastníka 4. 11.)", () => {
+    expect(settings.permissions.additionalDirectories).toEqual([
+      "/Users/janbindr/.tars/work",
+    ]);
+  });
+
   it.each(["bash-preflight.sh", "notion-owner-decision.py"])(
     "%s má onFailure: block a konečný timeout",
     (name) => {
