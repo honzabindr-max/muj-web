@@ -140,17 +140,23 @@ describe("nález 1 [high]: dirty row without a page id, crash between the create
   it("a crash after the receipt, before panel.index.set: the receipt is reused, no lookup, no create", async () => {
     waiting();
     const sink = new Sink();
-    sink.rows.set("0123456789abcdef0123456789abcdef", { "ID zakázky": ORDER_ID } as PanelRow);
+    sink.rows.set("0123456789abcdef0123456789abcdef", {
+      "ID zakázky": ORDER_ID,
+    } as PanelRow);
     sink.creates = 1;
     journal().prepare(ROW_OP);
-    journal().done(ROW_OP, { url: "https://www.notion.so/0123456789abcdef0123456789abcdef" });
+    journal().done(ROW_OP, {
+      url: "https://www.notion.so/0123456789abcdef0123456789abcdef",
+    });
     const index = new PanelIndex(dir);
     index.markDirty(ORDER_ID);
     await makeOrch(store, notion, { panel: { sink, index } }).tick();
     expect(sink.lookups).toBe(0);
     expect(sink.creates).toBe(1);
     expect(index.get(ORDER_ID)).toBe("0123456789abcdef0123456789abcdef");
-    expect(sink.rows.get("0123456789abcdef0123456789abcdef")!.Stav).toBe("WAITING_OWNER");
+    expect(sink.rows.get("0123456789abcdef0123456789abcdef")!.Stav).toBe(
+      "WAITING_OWNER",
+    );
   });
 
   it("a lookup error never leads to a create; the row stays dirty for the next tick", async () => {
@@ -364,7 +370,8 @@ describe("nález 3 [medium]: comment saved, answer undecodable → never sent tw
 
 describe("nález 4 [medium]: a late catch-up write of an older state never wins over a concurrent REJECT", () => {
   /** The first step of every tick (`catchUpPanel`); the rest of a tick of a FAILED order would plan a new one. */
-  const catchUp = (o: unknown) => (o as { catchUpPanel(): Promise<void> }).catchUpPanel();
+  const catchUp = (o: unknown) =>
+    (o as { catchUpPanel(): Promise<void> }).catchUpPanel();
   it("catch-up writes WAITING_OWNER while the owner's REJECT (CLI) writes FAILED: dirty stays, the next tick writes FAILED", async () => {
     waiting();
     const sink = new Sink();
@@ -382,22 +389,25 @@ describe("nález 4 [medium]: a late catch-up write of an older state never wins 
     sink.upsert = async (row, existing) => {
       if (!injected && row.Stav === "WAITING_OWNER") {
         injected = true;
-        // while the catch-up write is in flight, the owner rejects and the CLI rewrites the row
+        // while the catch-up write is in flight, the owner rejects; the CLI's row write is queued.
+        // Merge PR #99 + etapa 3: it waits for the order's panel lock (`.panel.lock`) held by this write, so it can no
+        // longer land first and be overwritten by the late older snapshot.
         cli.owner(ORDER_ID, "REJECT");
-        await cli.flushPanel();
-        expect(sink.rows.get("row-1")!.Stav).toBe("FAILED");
-        expect(index.isDirty(ORDER_ID)).toBe(false);
+        await new Promise((r) => setTimeout(r, 100));
+        expect(sink.rows.get("row-1")!.Stav).toBe("WAITING_OWNER"); // the CLI sent nothing yet
       }
-      return real(row, existing); // the late write of the older snapshot lands last
+      return real(row, existing);
     };
 
     await catchUp(o);
     expect(injected).toBe(true);
     expect(store.load(ORDER_ID).state).toBe("FAILED");
-    expect(sink.rows.get("row-1")!.Stav).toBe("WAITING_OWNER"); // overwritten by the late write …
-    expect(index.isDirty(ORDER_ID)).toBe(true); // … but the mark stays
+    expect(index.isDirty(ORDER_ID)).toBe(true); // the late write of the older snapshot keeps the mark
+    await cli.flushPanel(); // the CLI's write runs after the lock is released: FAILED, sent after the mark
+    expect(sink.rows.get("row-1")!.Stav).toBe("FAILED");
+    expect(index.isDirty(ORDER_ID)).toBe(false);
 
-    await catchUp(o); // next tick
+    await catchUp(o); // next tick: nothing older wins
     expect(sink.rows.get("row-1")!.Stav).toBe("FAILED");
     expect(index.isDirty(ORDER_ID)).toBe(false);
     expect(sink.creates).toBe(1);
