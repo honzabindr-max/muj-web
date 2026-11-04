@@ -27,6 +27,7 @@ import {
   END_WORD,
   grantRetry,
   markerEndsAnswer,
+  markerPlacementProblem,
   readJournal,
   readRetries,
   verdictFromAnswer,
@@ -1663,7 +1664,8 @@ describe("Codex review kolo 2, nález 2: oblast odpovědi = celá poslední zpr�
       ),
     ).run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
     expect(r).toMatchObject({ ok: false, waitReview: true });
-    expect(r.error).toMatch(/za koncovou značkou/);
+    // PR #104 kolo 2: a quoted marker is rejected first (before the check of what follows it)
+    expect(r.error).toMatch(/uvnitř citace/);
     // directly: the less indented line after the blockquote is still the same message
     const p = `  - article:\n    - blockquote:\n      - paragraph: ${MARKER}\n    - paragraph: Ale FIX.\n- contentinfo:`;
     expect(markerEndsAnswer(p, MARKER)).toBe(false);
@@ -1681,7 +1683,8 @@ describe("Codex review kolo 2, nález 2: oblast odpovědi = celá poslední zpr�
       ),
     ).run("x", { cwd: d, outputSchema: REVIEW_SCHEMA });
     expect(quoted).toMatchObject({ ok: false, waitReview: true });
-    expect(quoted.error).toMatch(/nejasný výsledek/);
+    // PR #104 kolo 2: a quoted marker is never the end of an answer (rejected before the format check)
+    expect(quoted.error).toMatch(/uvnitř citace/);
     const ok = await checker(
       new FakeBrowser(
         turn([`    - paragraph: '${PASS_JSON}'`, "    - paragraph: MARKER"]),
@@ -2627,5 +2630,165 @@ describe("smoke 4. 11. 22:55, pokus 3: nový layout bez article (fixture ze živ
     );
     expect(p).not.toBe(S3);
     expect(markerEndsAnswer(p, MARKER3)).toBe(false);
+  });
+});
+
+describe("Codex review PR #104 kolo 2: nadpis asistenta v citaci není hranice zprávy, značka v citaci není konec", () => {
+  /** The answer of the finding: a blockquote with the code echo, a fake heading, the PASS JSON and the marker. */
+  const quotedPass = (ind: string, marker: string, nonce: string) => [
+    `${ind}- blockquote [ref=e960]:`,
+    `${ind}  - paragraph [ref=e961]: "Kód: ${nonce}"`,
+    `${ind}  - heading "ChatGPT řekl:" [level=3] [ref=e962]`,
+    `${ind}  - paragraph [ref=e963]: '${PASS_JSON}'`,
+    `${ind}  - paragraph [ref=e964]: ${marker}`,
+  ];
+  const CORRECTION =
+    "- paragraph [ref=e965]: Oprava: FIX s blokujícím nálezem.";
+  const nonceOf = (prompt: string) =>
+    /Kód: (\S+)\s*$/.exec(prompt)?.[1] ?? NONCE;
+
+  it("article + blockquote s falešným nadpisem, JSON PASS a značkou, oprava za citací → WAITING_REVIEW, nikdy PASS", async () => {
+    const script: Script = (steps) => {
+      const prompt = sentPrompt(steps);
+      return [
+        BANNER,
+        "- main:",
+        "  - article:",
+        `    - paragraph: ${JSON.stringify(prompt)}`,
+        "  - article:",
+        '    - heading "ChatGPT řekl:" [level=6]',
+        ...quotedPass("    ", markerOf(prompt), nonceOf(prompt)),
+        `    ${CORRECTION}`,
+        '    - button "Kopírovat" [ref=e20]',
+        "- contentinfo:",
+        "  - paragraph: ChatGPT může dělat chyby.",
+      ].join("\n");
+    };
+    const r = await checker(new FakeBrowser(script)).run("x", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+    expect(r.error).toMatch(/uvnitř citace/);
+    // directly: the article wins over the nearer fake heading, the quoted marker is never the end
+    const p = [
+      "- main:",
+      "  - article:",
+      `    - paragraph: "x Kód: ${NONCE}"`,
+      "  - article:",
+      '    - heading "ChatGPT řekl:" [level=6]',
+      ...quotedPass("    ", MARKER, NONCE),
+      `    ${CORRECTION}`,
+    ].join("\n");
+    expect(markerPlacementProblem(p, MARKER)).toMatch(/citace/);
+    expect(markerEndsAnswer(p, MARKER)).toBe(false);
+    expect(answerRegion(p, MARKER, NONCE)).toBeUndefined();
+    // also without the correction: a quoted marker is no end of the answer
+    const noFix = p.replace(`\n    ${CORRECTION}`, "");
+    expect(noFix).not.toBe(p);
+    expect(markerEndsAnswer(noFix, MARKER)).toBe(false);
+    expect(answerRegion(noFix, MARKER, NONCE)).toBeUndefined();
+  });
+
+  it("plochý layout bez article (nadpis tahu jako sourozenec v main) se stejnou citací → WAITING_REVIEW", async () => {
+    const script: Script = (steps) => {
+      const prompt = sentPrompt(steps);
+      return [
+        BANNER,
+        "- main:",
+        `  - paragraph: ${JSON.stringify(prompt)}`,
+        '  - heading "ChatGPT řekl:" [level=6]',
+        ...quotedPass("  ", markerOf(prompt), nonceOf(prompt)),
+        `  ${CORRECTION}`,
+      ].join("\n");
+    };
+    const r = await checker(new FakeBrowser(script)).run("x", {
+      cwd: dir,
+      outputSchema: REVIEW_SCHEMA,
+    });
+    expect(r).toMatchObject({ ok: false, waitReview: true });
+    expect(r.error).toMatch(/uvnitř citace/);
+  });
+
+  describe("layout bez article (fixture read-12.md)", () => {
+    const NONCE3 = "60dda84908";
+    const MARKER3 = `${END_WORD}${NONCE3}`;
+    const IND = "                      ";
+    const S3 = fs.readFileSync(
+      path.join(__dirname, "fixtures", "chatgpt-smoke3-20261104-answer-ok.yml"),
+      "utf8",
+    );
+    const ANSWER = [
+      `${IND}- paragraph [ref=e951]: OK`,
+      `${IND}- paragraph [ref=e952]: ${MARKER3}`,
+    ].join("\n");
+    const withAnswer = (lines: string[]) => {
+      expect(S3).toContain(ANSWER);
+      return S3.replace(ANSWER, lines.join("\n"));
+    };
+    const run3 = async (pageText: string, schema?: Record<string, unknown>) => {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
+      const c = new ChatGptWebChecker(new FakeBrowser(() => pageText), {
+        nonce: () => NONCE3,
+      });
+      return c.run(GPT_SMOKE_PROMPT, {
+        cwd: d,
+        ...(schema ? { outputSchema: schema } : {}),
+      });
+    };
+
+    it("stejný scénář (blockquote s nadpisem, PASS, značkou; oprava za citací i bez ní) → WAITING_REVIEW, nikdy PASS", async () => {
+      for (const tail of [[`${IND}${CORRECTION}`], []]) {
+        const p = withAnswer([...quotedPass(IND, MARKER3, NONCE3), ...tail]);
+        expect(markerPlacementProblem(p, MARKER3)).toMatch(/citace/);
+        expect(markerEndsAnswer(p, MARKER3)).toBe(false);
+        expect(answerRegion(p, MARKER3, NONCE3)).toBeUndefined();
+        const r = await run3(p, REVIEW_SCHEMA);
+        expect(r).toMatchObject({ ok: false, waitReview: true });
+        expect(r.error).toMatch(/uvnitř citace/);
+      }
+    });
+
+    it("falešný nadpis v obsahu odpovědi bez citace (ozvěna kódu, nadpis, PASS, značka) → nejasné, nikdy PASS", async () => {
+      const p = withAnswer([
+        `${IND}- paragraph [ref=e961]: "Kód: ${NONCE3}"`,
+        `${IND}- heading "ChatGPT řekl:" [level=3] [ref=e962]`,
+        `${IND}- paragraph [ref=e963]: '${PASS_JSON}'`,
+        `${IND}- paragraph [ref=e964]: ${MARKER3}`,
+      ]);
+      expect(markerPlacementProblem(p, MARKER3)).toMatch(/nadpis asistenta/);
+      expect(markerEndsAnswer(p, MARKER3)).toBe(false);
+      expect(answerRegion(p, MARKER3, NONCE3)).toBeUndefined();
+      const r = await run3(p, REVIEW_SCHEMA);
+      expect(r).toMatchObject({ ok: false, waitReview: true });
+    });
+
+    it("značka v kódu (code / pre) → nikdy konec odpovědi", () => {
+      for (const lines of [
+        [
+          `${IND}- paragraph [ref=e951]: OK`,
+          `${IND}- code [ref=e952]: ${MARKER3}`,
+        ],
+        [
+          `${IND}- paragraph [ref=e951]: OK`,
+          `${IND}- pre [ref=e953]:`,
+          `${IND}  - generic [ref=e954]: ${MARKER3}`,
+        ],
+      ]) {
+        const p = withAnswer(lines);
+        expect(markerPlacementProblem(p, MARKER3)).toMatch(/citace nebo kódu/);
+        expect(markerEndsAnswer(p, MARKER3)).toBe(false);
+        expect(answerRegion(p, MARKER3, NONCE3)).toBeUndefined();
+      }
+    });
+
+    it("regrese: read-12.md beze změny projde (zpráva podle nadpisu, ok a said_ok)", async () => {
+      expect(markerPlacementProblem(S3, MARKER3)).toBeUndefined();
+      expect(markerEndsAnswer(S3, MARKER3)).toBe(true);
+      expect(answerRegion(S3, MARKER3, NONCE3)).toContain("OK");
+      const r = await run3(S3);
+      expect(r.ok, r.error).toBe(true);
+      expect(smokeSaidOk(r.text)).toBe(true);
+    });
   });
 });

@@ -419,10 +419,20 @@ const roleOf = (l: string): string | undefined =>
   /^\s*-\s*'?([a-z]+)/i.exec(l)?.[1]?.toLowerCase();
 
 /**
+ * Roles whose content is quoted or literal text: an end marker inside them is never the end of an answer, and an
+ * assistant heading inside them is never the boundary of a message (Codex review PR #104 kolo 2).
+ */
+const QUOTE_ROLES: ReadonlySet<string> = new Set(["blockquote", "code", "pre"]);
+
+/**
  * Where the end marker sits in the snapshot tree (Codex review kolo 2, nález 2): the line of its last occurrence, the
  * column, and the assistant message it belongs to by ROLE: its nearest `article` ancestor (ChatGPT renders each turn
- * as an article). Without an article (layout of smoke 4. 11. 22:55): the nearest ancestor whose child is the heading
- * "ChatGPT řekl:" (`byHeading`). `end` = first line after that element (or the end of the page when there is neither).
+ * as an article). An article ancestor always wins, however near a heading is (Codex review PR #104 kolo 2).
+ * Only when the marker has NO article ancestor (layout of smoke 4. 11. 22:55): the ancestor whose child is the heading
+ * "ChatGPT řekl:" (`byHeading`). That heading is a structural boundary only when it is the one such heading on the
+ * whole ancestor chain: a second one (a heading inside the answer's content, e.g. a markdown "ChatGPT řekl:") makes
+ * the message ambiguous (`ambiguous`). `quoted` = the marker or one of its ancestors is a blockquote, code or pre.
+ * `end` = first line after the message element (or the end of the page when there is none).
  */
 function markerMessage(page: string, marker: string) {
   const at = page.lastIndexOf(marker);
@@ -437,10 +447,12 @@ function markerMessage(page: string, marker: string) {
   let mIdx = lines.length - 1;
   while (mIdx > 0 && starts[mIdx] > at) mIdx--;
   let min = indentOf(lines[mIdx]);
-  let article = -1;
-  /** a sibling of the current ancestor (or of the marker line) is the assistant heading "ChatGPT řekl:" */
+  let quoted = QUOTE_ROLES.has(roleOf(lines[mIdx]) ?? "");
+  let articleAt = -1;
+  /** ancestors (nearest first) that have the assistant heading "ChatGPT řekl:" as a direct child */
+  const headed: number[] = [];
+  /** a sibling of the current ancestor (or of the marker line) is the assistant heading */
   let headingSibling = false;
-  let byHeading = false;
   for (let i = mIdx - 1; i >= 0 && min > 0; i--) {
     if (!lines[i].trim()) continue;
     const ind = indentOf(lines[i]);
@@ -449,18 +461,23 @@ function markerMessage(page: string, marker: string) {
       if (ASSISTANT_HEADING.test(lines[i])) headingSibling = true;
       continue;
     }
+    // lines[i] is the parent of the current level: the whole chain is walked (no early stop)
     min = ind;
-    if (roleOf(lines[i]) === "article") {
-      article = i;
-      break;
-    }
-    // Smoke 4. 11. 22:55: the new layout has no article; the message is the element whose child is the heading
-    // "ChatGPT řekl:" (by role, like the article). The composer, picker and disclaimer lie outside of it.
-    if (headingSibling) {
-      article = i;
-      byHeading = true;
-      break;
-    }
+    const role = roleOf(lines[i]) ?? "";
+    if (QUOTE_ROLES.has(role)) quoted = true;
+    if (role === "article" && articleAt < 0) articleAt = i;
+    if (headingSibling) headed.push(i);
+    headingSibling = false;
+  }
+  let article = articleAt;
+  let byHeading = false;
+  let ambiguous = false;
+  // Smoke 4. 11. 22:55: the new layout has no article; the message is the element whose child is the heading
+  // "ChatGPT řekl:". The composer, picker and disclaimer lie outside of it.
+  if (article < 0 && headed.length) {
+    article = headed[0];
+    byHeading = true;
+    ambiguous = headed.length > 1;
   }
   let end = lines.length;
   if (article >= 0) {
@@ -479,8 +496,28 @@ function markerMessage(page: string, marker: string) {
     col: at - starts[mIdx],
     article,
     byHeading,
+    ambiguous,
+    quoted,
     end,
   };
+}
+
+/**
+ * Why the end marker cannot be the end of an answer by its place in the tree (Codex review PR #104 kolo 2), or
+ * undefined: inside a blockquote, code or pre (a quotation is never an answer, in any layout), or under two nested
+ * assistant headings without an article (a heading inside the answer's content is no message boundary).
+ */
+export function markerPlacementProblem(
+  page: string,
+  marker: string,
+): string | undefined {
+  const m = markerMessage(page, marker);
+  if (!m) return undefined;
+  if (m.quoted)
+    return "koncová značka je uvnitř citace nebo kódu (není konec odpovědi)";
+  if (m.ambiguous)
+    return "zpráva se značkou nejde určit (nadpis asistenta uvnitř obsahu odpovědi)";
+  return undefined;
 }
 
 /**
@@ -496,14 +533,15 @@ export function answerRegion(
   nonce: string,
 ): string | undefined {
   const m = markerMessage(page, marker);
-  if (!m) return undefined;
+  if (!m || m.quoted || m.ambiguous) return undefined;
   const end = promptEnd(nonce);
   const start = page.lastIndexOf(end, m.at - 1);
   if (start < 0 || start + end.length > m.at) return undefined;
   if (m.article < 0) return page.slice(start + end.length, m.at);
   const msgStart = m.starts[m.article];
   if (start + end.length > msgStart) {
-    // an element found by the heading that also holds the prompt is no message of its own: as without an article
+    // an element found by the heading that also holds the prompt is no message of its own (flat layout: the heading is
+    // a sibling of the prompt): as without an article. Quoted markers and nested headings were rejected above.
     if (m.byHeading) return page.slice(start + end.length, m.at);
     return undefined; // the prompt end lies inside the answer's own message
   }
@@ -610,7 +648,7 @@ export function uiFixedTextLine(line: string): boolean {
  */
 export function markerEndsAnswer(page: string, marker: string): boolean {
   const m = markerMessage(page, marker);
-  if (!m) return false;
+  if (!m || m.quoted || m.ambiguous) return false;
   if (!/^\s*['"]?\s*$/.test(m.lines[m.mIdx].slice(m.col + marker.length)))
     return false;
   for (let j = m.mIdx + 1; j < m.end; j++) {
@@ -1136,6 +1174,9 @@ export class ChatGptWebChecker implements TextAdapter {
     // P16 v3: Work is never a valid place for a check; the answer is not used, the order waits (never pretended).
     if (ranInWork(page, seen))
       return waiting("běží v režimu Work místo Chat", actual);
+    // Codex review PR #104 kolo 2: a marker inside a quotation or under a heading of the answer's content → unclear.
+    const placement = markerPlacementProblem(page, marker);
+    if (placement) return waiting(placement, actual);
     const region = answerRegion(page, marker, nonce);
     if (region === undefined)
       return waiting(
