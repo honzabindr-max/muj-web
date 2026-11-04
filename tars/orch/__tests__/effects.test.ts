@@ -411,6 +411,34 @@ describe("panel projection: dirty rows are caught up on the next tick, never dup
     expect(sink.rows.size).toBe(1);
   });
 
+  it("an existing dirty mark is dropped when the catch-up create ends unclear on a sink without lookup: no second row later", async () => {
+    waiting();
+    const sink = new FakeSink();
+    (sink as { findRowByOrderId?: unknown }).findRowByOrderId = undefined;
+    const real = sink.upsert.bind(sink);
+    const answers: Array<"refuse" | "commit503"> = ["refuse", "commit503"];
+    sink.upsert = async (row, existing) => {
+      const a = answers.shift();
+      if (a === "refuse") throw new NotionRestError(400, "validation_error");
+      if (a === "commit503") {
+        await real(row, existing); // Notion saved the row …
+        throw new NotionRestError(503, "service_unavailable"); // … but the answer was lost
+      }
+      return real(row, existing);
+    };
+    const index = new PanelIndex(dir);
+    const o = makeOrch(store, notion, { panel: { sink, index } });
+    await o.resyncPanel(ORDER_ID);
+    expect(index.isDirty(ORDER_ID)).toBe(true);
+    await o.tick(); // catch-up: create committed, answer lost
+    expect(sink.creates).toBe(1);
+    expect(index.isDirty(ORDER_ID)).toBe(false);
+    await o.tick();
+    await o.tick();
+    expect(sink.creates).toBe(1);
+    expect(sink.rows.size).toBe(1);
+  });
+
   it("a cleanly refused create (4xx, nothing written) is dirty and the next tick creates the row once", async () => {
     waiting();
     const sink = new FakeSink();

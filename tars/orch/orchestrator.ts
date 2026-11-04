@@ -197,8 +197,10 @@ export class Orchestrator {
           if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
           // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
           // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
-          // exist, so a catch-up would create a second one. That case keeps the old rule (next transition only).
+          // exist, so a catch-up would create a second one. That case keeps the old rule (next transition only) and also
+          // drops an older mark (e.g. from a clean 4xx refusal), so no later catch-up repeats this create.
           if (!creating || !isUncertainOutcome(e) || panel.sink.findRowByOrderId) panel.index.markDirty(o.id);
+          else panel.index.clearDirty(o.id);
         } catch {
           /* the index itself is unwritable: the next transition still rewrites the row */
         }
