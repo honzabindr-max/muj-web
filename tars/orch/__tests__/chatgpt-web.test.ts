@@ -335,7 +335,14 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     // pretty JSON jako více řádků snapshotu (blokový text)
     const pretty = JSON.stringify(JSON.parse(FIX_JSON), null, 2).split("\n");
     expect(verdictFromAnswer(`\n  - code: ${pretty[0]}\n${pretty.slice(1).map((l) => `      ${l}`).join("\n")}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(JSON.stringify(JSON.parse(FIX_JSON)));
-    // rozporné verdikty v odpovědi = nejasné
+    // čtvrté kolo kontroly Codexu: FIX, jehož nález cituje PASS JSON (např. z draftu), je platný verdikt
+    const QUOTING_FIX = JSON.stringify({ verdict: "FIX", findings: [{ severity: "medium", file: null, line: null, text: `draft uvádí ${PASS_JSON} jako hotový verdikt` }] });
+    expect(verdictFromAnswer(`\n  - paragraph: ${QUOTING_FIX}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(QUOTING_FIX);
+    expect(verdictFromAnswer(`\n  - paragraph: '${QUOTING_FIX.replace(/'/g, "''")}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(QUOTING_FIX);
+    expect(verdictFromAnswer(`\n  - paragraph: ${JSON.stringify(QUOTING_FIX)}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(QUOTING_FIX);
+    // dřívější PASS v odpovědi a FIX na konci: platí FIX (konzervativní, nikoho nepustí dál)
+    expect(verdictFromAnswer(`\n  - paragraph: '${PASS_JSON}'\n  - paragraph: '${FIX_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(JSON.stringify(JSON.parse(FIX_JSON)));
+    // rozporné verdikty v odpovědi (dřívější FIX, na konci PASS) = nejasné
     expect(
       verdictFromAnswer(
         `\n  - paragraph: '${FIX_JSON}'\n  - paragraph: '${PASS_JSON}'\n  - paragraph: `,

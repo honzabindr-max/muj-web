@@ -199,7 +199,7 @@ export function snapshotValue(line: string, withPrefix = true): string {
 const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
 
 /** The JSON object that the answer ends with: on the last content line, or starting up to 200 lines higher (pretty JSON). */
-function trailingObject(lines: string[]): unknown {
+function trailingObject(lines: string[]): { value: unknown; startLine: number } | undefined {
   const last = lines.length - 1;
   for (let k = last; k >= Math.max(0, last - 200); k--) {
     const text =
@@ -209,7 +209,7 @@ function trailingObject(lines: string[]): unknown {
     const t = text.trim();
     if (!t.startsWith("{") || objectEnd(t, 0) !== t.length) continue;
     try {
-      return JSON.parse(t);
+      return { value: JSON.parse(t), startLine: k };
     } catch {
       /* not JSON from this line; try a higher start */
     }
@@ -233,15 +233,18 @@ export function verdictFromAnswer(region: string, schema: Record<string, unknown
   const lines = region.split("\n");
   while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1])) lines.pop();
   if (!lines.length) return undefined;
-  const value = trailingObject(lines);
-  if (value === undefined) return undefined;
-  const found = JSON.stringify(value);
+  const t = trailingObject(lines);
+  if (t === undefined) return undefined;
+  const found = JSON.stringify(t.value);
   if (!parseStructuredVerdict(found, allowed)) return undefined;
-  const verdict = verdictOf(value);
-  // per line decoded by its own quoting, and the whole region (objects over several lines)
-  for (const part of [...region.split("\n").map((l) => snapshotValue(l)), region]) {
-    for (const c of jsonObjectsIn(part)) {
-      if (parseStructuredVerdict(JSON.stringify(c.value), allowed) && verdictOf(c.value) !== verdict) return undefined;
+  // The conflict guard protects against a false PASS only: a FIX/BLOCK never lets an order through. It looks only at
+  // the answer BEFORE the chosen object, never inside it (a finding may quote a PASS JSON, e.g. from the draft).
+  if (verdictOf(t.value) === "PASS") {
+    const before = lines.slice(0, t.startLine);
+    for (const part of [...before.map((l) => snapshotValue(l)), before.join("\n")]) {
+      for (const c of jsonObjectsIn(part)) {
+        if (parseStructuredVerdict(JSON.stringify(c.value), allowed) && verdictOf(c.value) !== "PASS") return undefined;
+      }
     }
   }
   return found;
