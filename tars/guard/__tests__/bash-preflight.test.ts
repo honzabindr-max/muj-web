@@ -209,13 +209,13 @@ describe("bash-preflight: cli.ts owner (DR-039)", () => {
     expect(log).not.toContain("wo-tajne-id");
   });
 
-  it("obrana ve vrstvách: bez python3 hook propustí (fail-open, exit 1)", () => {
+  it("bez python3 hook zablokuje (fail-closed, exit 2)", () => {
     const r = spawnSync("/bin/bash", [SCRIPT], {
       input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "npx tsx tars/orch/cli.ts owner wo-1 GO" } }),
       encoding: "utf8",
       env: { PATH: "/nonexistent", TARS_PREFLIGHT_LOG: LOG } as unknown as NodeJS.ProcessEnv,
     });
-    expect(r.status).toBe(1);
+    expect(r.status).toBe(2);
     expect(r.stdout.trim()).toBe("");
   });
 });
@@ -251,10 +251,10 @@ describe("bash-preflight: okrajové chování", () => {
     expect(r.stdout.trim()).toBe("");
   });
 
-  it("neplatný JSON na vstupu neblokuje (exit 1, ne 2) a hlásí chybu", () => {
+  it("neplatný JSON na vstupu blokuje (fail-closed, exit 2) a hlásí chybu", () => {
     const r = run("tohle neni json");
-    expect(r.status).toBe(1);
-    expect(r.stderr).toMatch(/NEBYL zablokován/);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/ZABLOKOVÁN \(fail-closed\)/);
   });
 
   it("špatný regex v allowlistu hook nerozbije", () => {

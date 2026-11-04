@@ -9,8 +9,10 @@ Zamítne příkazy, které v Claude Code vyvolají ruční schvalování "Allow 
 
 Roury | jsou povolené. Parser respektuje '...' a "...", prochází také $(...), `...`
 a argument "-c" shellů (bash -c '...'), aby se kontrola nedala obejít.
-Když si parser není jistý (nedovřená uvozovka apod.), příkaz POVOLÍ a zaloguje to.
-Chyba hooku nikdy neblokuje práci: skončí exit 1 (nezablokující chyba) s hláškou na stderr.
+Když si parser není jistý (nedovřená uvozovka apod.), příkaz POVOLÍ a zaloguje to (UNSURE_ALLOW), aby se
+nerozbila běžná práce. Výjimka (P20): nejistý příkaz, který obsahuje cli.ts nebo tars/orch/cli, se ZAMÍTNE
+(UNSURE_DENY_CLI), protože u něj nejde vyloučit podpříkaz owner.
+Chyba hooku je fail-closed: neplatný JSON nebo pád skriptu skončí exit 2 (blokující) s hláškou na stderr.
 
 DR-039: navíc zamítne každé spuštění tars/orch/cli.ts s podpříkazem `owner` (npx tsx, node --import,
 tsx, npm exec, cesta relativní i absolutní, uvozovky, proměnné před příkazem, env, bash -c, $(...)),
@@ -19,7 +21,8 @@ Vedle parseru se VŽDY kontroluje surový text celého příkazu (OWNER_RAW_RE):
 kdekoli, i v uvozovkách, heredoc, argumentu echo/printf (printf '...' | bash), bash -c, eval, xargs.
 Mimo dosah textového hooku: zakódované/obfuskované varianty (base64, skládání řetězců za běhu, vlastní skript
 volající orch.owner()) - ty řeší pravidlo P20 (rozhodnutí vlastníka DR-039).
-Je to obrana ve vrstvách, ne důkaz identity: při chybě python3 hook propustí (fail-open, viz výše).
+Je to obrana ve vrstvách, ne důkaz identity. Při chybě hook blokuje (fail-closed, exit 2; v settings.json
+navíc onFailure: "block" pro timeout a neočekávaný exit kód).
 
 Vstup: JSON na stdin (tool_input.command). Výstup při zamítnutí: JSON
 hookSpecificOutput.permissionDecision = "deny" + důvod česky, exit 0.
@@ -44,6 +47,9 @@ REASONS = {
 }
 
 OWNER_REASON = "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)"
+# P20: nejistý rozbor + cli.ts / tars/orch/cli = nejde vyloučit podpříkaz owner -> deny.
+UNSURE_CLI_REASON = OWNER_REASON + ": příkaz s cli.ts nejde bezpečně rozebrat (P20). Napiš ho bez nedovřených uvozovek."
+UNSURE_CLI_RE = re.compile(r"cli\.[cm]?[jt]s\b|tars/orch/cli\b")
 # Zástupná hodnota za $(...) a `...` (obsah se kontroluje zvlášť); pro podpříkaz cli.ts znamená "nejde určit".
 SUB = "\x00sub"
 CLI_NAMES = {"cli.ts", "cli.js", "cli.mjs", "cli.cjs"}
@@ -523,6 +529,10 @@ def main():
     if "owner" in parser.found or owner_raw(cmd):
         log("DENY_OWNER")
         return deny(OWNER_REASON)
+    # P20: nejistý příkaz s cli.ts se zamítne i před allowlistem; ostatní nejisté zůstávají allow (níže).
+    if unsure is not None and UNSURE_CLI_RE.search(cmd):
+        log("UNSURE_DENY_CLI", str(unsure))
+        return deny(UNSURE_CLI_REASON)
     for pat in load_allow():
         if pat.fullmatch(cmd):
             log("ALLOWLIST", cmd[:40])
@@ -551,7 +561,7 @@ def deny(reason):
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:  # chyba hooku nesmí zablokovat práci: exit 1 = nezablokující chyba
-        log("HOOK_ERROR", repr(e)[:200])
-        sys.stderr.write("bash-preflight: chyba hooku (%r), příkaz NEBYL zablokován.\n" % (e,))
-        sys.exit(1)
+    except Exception as e:  # fail-closed: chyba hooku (i neplatný JSON) = exit 2, Claude Code volání zablokuje
+        log("HOOK_ERROR", type(e).__name__)
+        sys.stderr.write("bash-preflight: chyba hooku (%s), příkaz byl ZABLOKOVÁN (fail-closed).\n" % type(e).__name__)
+        sys.exit(2)

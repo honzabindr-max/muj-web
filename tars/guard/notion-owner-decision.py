@@ -6,8 +6,9 @@ Zamítne volání, jehož vstup nastavuje vlastnost „Rozhodnutí vlastníka“
 zadává jen vlastník v přehledu „TARS — Zakázky“; agent ho nikdy nezadává za něj.
 
 Text stránek se nekontroluje (karta smí o poli psát), jen klíče vlastností. Čtecí nástroje (fetch, search,
-query, get, list ...) projdou vždy. Je to obrana ve vrstvách, ne důkaz identity: při chybě python3 nebo
-nečitelném vstupu hook propustí (exit 1 = nezablokující chyba) a vlastnost nadále hlídá orchestrátor v kódu.
+query, get, list ...) projdou vždy. Je to obrana ve vrstvách, ne důkaz identity. Fail-closed (Radar 2026-11-03 #4):
+při chybě nebo nečitelném vstupu hook volání zablokuje (exit 2); v .claude/settings.json má navíc
+onFailure: "block", takže blokuje i chybějící python3, timeout a neočekávaný exit kód.
 
 Vstup: JSON na stdin (tool_name, tool_input). Výstup při zamítnutí: JSON hookSpecificOutput.permissionDecision
 = "deny" + důvod česky, exit 0.
@@ -70,6 +71,6 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:  # chyba hooku nesmí zablokovat práci: exit 1 = nezablokující chyba
-        sys.stderr.write("notion-owner-decision: chyba hooku (%r), volání NEBYLO zablokováno.\n" % (e,))
-        sys.exit(1)
+    except Exception as e:  # fail-closed: chyba hooku = exit 2, Claude Code volání zablokuje
+        sys.stderr.write("notion-owner-decision: chyba hooku (%s), volání bylo ZABLOKOVÁNO (fail-closed).\n" % type(e).__name__)
+        sys.exit(2)
