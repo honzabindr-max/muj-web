@@ -69,6 +69,17 @@ export function redactSecrets(text: string): string {
   return out;
 }
 
+// Same patterns without the word boundaries: a token glued to other word characters (e.g. "wo-copy_ghp_…")
+// is still found. Over-redacts rather than leaks; meant for values read from data (ids, log fields).
+const UNBOUNDED = PATTERNS.map(([, re]) => new RegExp(re.source.replaceAll("\\b", ""), `${re.flags.replace("g", "")}g`));
+
+/** redactSecrets without word-boundary requirements: a token-like substring anywhere is replaced. */
+export function redactSecretsUnbounded(text: string): string {
+  let out = redactSecrets(text);
+  for (const re of UNBOUNDED) out = out.replace(re, REDACTED);
+  return out;
+}
+
 /** Deep copy of JSON-like data with every string passed through redactSecrets (keys included). */
 export function redactDeep<T>(value: T): T {
   if (typeof value === "string") return redactSecrets(value) as T;

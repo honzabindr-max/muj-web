@@ -25,6 +25,7 @@ import {
 } from "./ladder";
 import {
   BROWSER_MCP_TOOLS,
+  EXACT_MODE_KEY_TOOL,
   MCP_SERVER,
   readState,
   typedTextSha,
@@ -59,6 +60,10 @@ export type BrowserStep =
   | { kind: "choose"; what: string; prefer: string; fallback: string }
   /** Wait until `text` appears on the page (browser_wait_for text), at most `ms`; not found = RESULT UNKNOWN timeout. */
   | { kind: "wait_text"; text: string; ms: number }
+  /** Close every open popover or menu (browser_press_key Escape) until a snapshot shows none. */
+  | { kind: "close_popups" }
+  /** Open the picker labelled `text` when it is not open yet (so a following read shows its state); nothing is changed. */
+  | { kind: "open"; text: string }
   | { kind: "read"; selector?: string };
 
 /** What the gate saw about sending in one browser run (`url` = the last page URL the MCP server reported). */
@@ -90,7 +95,10 @@ export function checkStep(step: BrowserStep): void {
     !hostAllowed(step.url)
   )
     throw new RuleViolation(`host není povolen: ${step.url}`);
-  if (step.kind === "click" && !actionAllowed(step.text))
+  if (
+    (step.kind === "click" || step.kind === "open") &&
+    !actionAllowed(step.text)
+  )
     throw new RuleViolation(`zakázaná akce: "${step.text}"`);
   if (step.kind === "fill" && step.submit && !actionAllowed(step.selector))
     throw new RuleViolation(`zakázané odeslání: ${step.selector}`);
@@ -180,6 +188,11 @@ export function browserSettings(
 export const BROWSER_ALLOWED_TOOLS = BROWSER_MCP_TOOLS.map(
   (t) => `mcp__${MCP_SERVER}__${t}`,
 );
+/** Allowed tools of a run with an exact fill (the ChatGPT check): + browser_press_key, its keys limited by the gate. */
+export const EXACT_ALLOWED_TOOLS = [
+  ...BROWSER_ALLOWED_TOOLS,
+  `mcp__${MCP_SERVER}__${EXACT_MODE_KEY_TOOL}`,
+];
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -197,7 +210,7 @@ export function buildTask(steps: BrowserStep[], rel: string): string {
         // The gate enforces every part; the steps only tell the driver the order the gate allows.
         if (s.exact && s.submit)
           return `${n}. Odeslání textu (přesně tento text, právě jednou):
-   a) browser_snapshot a najdi textové pole (nápověda selektoru: ${s.selector}).
+   a) Zavři každý otevřený popover nebo menu (browser_press_key s klávesou "Escape"). browser_snapshot: žádné menu ani popover není otevřené, textové pole je vidět (nápověda selektoru: ${s.selector}). Klikni do pole (browser_click), ať má fokus. Prázdné pole může ukazovat jen nápovědu (např. „Zeptat se ChatGPT“).
    b) Vyčisti ho: browser_type do pole s text "" (bez submit, bez slowly).
    c) browser_snapshot: pole musí být prázdné.
    d) browser_type do pole s přesně tímto textem (bez submit, bez slowly):
@@ -213,6 +226,10 @@ TEXT>>>
         return `${n}. Otevři výběr „${s.what}“ (nejdřív browser_snapshot) a vyber „${s.prefer}“. Když přesně tato volba není, vyber: ${s.fallback}. Nic jiného v nastavení neměň.`;
       case "wait_text":
         return `${n}. Opakuj browser_wait_for s parametrem text "${s.text}", dokud se text na stránce neobjeví, celkem nejvýš ${Math.ceil(s.ms / 1000)} s. Když se neobjeví, skonči s RESULT: UNKNOWN timeout.`;
+      case "close_popups":
+        return `${n}. Zavři každý otevřený popover nebo menu: browser_press_key s klávesou "Escape", pak browser_snapshot; opakuj, dokud snapshot neukazuje žádné otevřené menu (nejvýš ${UI_MAX_ATTEMPTS}×).`;
+      case "open":
+        return `${n}. Povinný krok: browser_snapshot. Když výběr „${s.text}“ není otevřený, otevři ho jedním kliknutím (browser_click) a udělej browser_snapshot. Snapshot musí ukazovat otevřené menu „${s.text}“ s označeným modelem a stavem posuvníku. Nic v něm neměň a nezavírej ho. Když ho nejde otevřít, skonči s RESULT: UNKNOWN vyber-modelu-neotevren (kód stav bez otevřeného výběru nepřijme).`;
       case "read":
         return `${n}. browser_snapshot s filename "${rel}/reads/read-${pad(n)}.md"${s.selector ? ` (cíl: ${s.selector})` : ""}. Obsah souboru nevypisuj.`;
     }
@@ -362,7 +379,7 @@ export class McpBrowser {
       out = await this.driver.run(buildTask(steps, path.basename(shotsDir)), {
         cwd: path.dirname(shotsDir),
         timeoutMs: waitMs + 10 * 60_000,
-        allowedTools: BROWSER_ALLOWED_TOOLS,
+        allowedTools: exact ? EXACT_ALLOWED_TOOLS : BROWSER_ALLOWED_TOOLS,
         noBuiltinTools: true,
         mcpConfig: cfg,
         settings: browserSettings(
@@ -435,18 +452,23 @@ export class McpBrowser {
       throw new RuleViolation(
         `stránka odešla mimo povolené hosty: ${st.blocked.detail}`,
       );
-    // Exact fill: exactly one verified send, else nothing was (provably) sent as planned.
+    const result = [
+      ...out.text.matchAll(/^RESULT:\s*(OK|UNKNOWN)\b(.*)$/gim),
+    ].at(-1);
+    // Exact fill: exactly one verified send, else nothing was (provably) sent as planned. Smoke 4. 11.: the driver's
+    // own reason (RESULT: UNKNOWN …) is kept in the message, so the step that stopped the run is visible.
     if (
       steps.some((s) => s.kind === "fill" && s.exact === true) &&
       st.submits !== 1
     )
       throw new UiUnknownError(
-        `text nebyl odeslán právě jednou po ověření obsahu pole (odesláno: ${st.submits})`,
+        `text nebyl odeslán právě jednou po ověření obsahu pole (odesláno: ${st.submits}${
+          result?.[1].toUpperCase() === "UNKNOWN"
+            ? `; ovladač: ${result[2].trim().slice(0, 120) || "bez důvodu"}`
+            : ""
+        })`,
         screenshots,
       );
-    const result = [
-      ...out.text.matchAll(/^RESULT:\s*(OK|UNKNOWN)\b(.*)$/gim),
-    ].at(-1);
     const finalUrl =
       [...out.text.matchAll(/^FINAL_URL:\s*(\S+)/gim)].at(-1)?.[1] ?? "";
     if (!result)
