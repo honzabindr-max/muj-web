@@ -319,6 +319,45 @@ describe("Konzilium Lite — GPT nedostupný", () => {
     expect(readRun(r.run_id!).verdicts).toHaveLength(0);
   });
 
+  it("Codex review kolo 1, nález 7: PENDING při kontrole → opakovaný příkaz pokračuje kontrolou stejného návrhu A (žádný návrh B)", async () => {
+    const { creator, checker, notion, deps } = setup(
+      [{ text: JSON.stringify(PROPOSAL) }, { text: JSON.stringify({ ...PROPOSAL, risks: ["návrh B"] }) }],
+      [{ ok: false, waitReview: true, error: "čeká na kontrolu: timeout" }, { text: PASS }],
+    );
+    const file = inputFile({ ...INPUT, title: "Pokračování A" });
+    const r1 = await runKonzilium(file, deps);
+    expect(r1.status).toBe("PENDING");
+    expect(readRun(r1.run_id!).pending_review).toMatchObject({ round: 1 });
+    const r2 = await runKonzilium(file, deps);
+    expect(r2.status).toBe("WAITING_OWNER");
+    expect(r2.run_id).toBe(r1.run_id); // the same run continues
+    expect(creator.prompts).toHaveLength(1); // no proposal B
+    expect(checker.prompts).toHaveLength(2);
+    expect(checker.prompts[1]).toBe(checker.prompts[0]); // exactly the same review prompt (proposal A)
+    // the web checker keeps its journal of sent prompts in the durable run dir, not in the temporary cwd
+    expect(checker.opts[1].journalDir).toBe(path.join(runsDir, "konzilium", r1.run_id!));
+    expect(notion.pages[0].markdown).not.toContain("návrh B");
+    const run = readRun(r1.run_id!);
+    expect(run.pending_review).toBeUndefined();
+    expect(run.calls.map((c) => c.result)).toEqual(["ok", "čeká na kontrolu", "ok"]);
+  });
+
+  it("nález 7: PENDING v opravném kole → pokračuje ověřením stejné opravy, bez nového návrhu i opravy", async () => {
+    const { creator, checker, deps } = setup(
+      [{ text: JSON.stringify(PROPOSAL) }, { text: JSON.stringify(PROPOSAL) }],
+      [{ text: FIX }, { ok: false, limit: true, error: "rate limit" }, { text: FIX_MEDIUM }],
+    );
+    const file = inputFile({ ...INPUT, title: "Pokračování opravy" });
+    const r1 = await runKonzilium(file, deps);
+    expect(r1.status).toBe("PENDING");
+    expect(readRun(r1.run_id!).pending_review).toMatchObject({ round: 2 });
+    const r2 = await runKonzilium(file, deps);
+    expect(r2).toMatchObject({ status: "WAITING_OWNER", run_id: r1.run_id, verdict: "FIX" });
+    expect(creator.prompts).toHaveLength(2);
+    expect(checker.prompts).toHaveLength(3);
+    expect(checker.prompts[2]).toBe(checker.prompts[1]);
+  });
+
   it("jiná chyba GPT (timeout) → PAUSED; limit v opravném kole → PENDING", async () => {
     const a = setup([{ text: JSON.stringify(PROPOSAL) }], [{ ok: false, error: "timeout" }]);
     expect((await runKonzilium(inputFile(), a.deps)).status).toBe("PAUSED");

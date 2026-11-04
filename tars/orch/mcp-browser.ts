@@ -39,6 +39,12 @@ export type BrowserStep =
   | { kind: "wait_text"; text: string; ms: number }
   | { kind: "read"; selector?: string };
 
+/** What the gate saw about sending in one browser run (`url` = the last page URL the MCP server reported). */
+export interface SentReport {
+  submitted: boolean | "unknown";
+  url?: string;
+}
+
 export class UiUnknownError extends Error {
   constructor(
     message: string,
@@ -73,12 +79,14 @@ export function playwrightMcpConfig(script = BROWSER_SCRIPT, runsDir?: string) {
 }
 
 /** Inline --settings of the browser run: no codex gate; Pre (fail-closed) and Post hook on every Playwright tool call. */
-export function browserSettings(gate: string, statePath: string, filesDir?: string, typeSha?: string): string {
+export function browserSettings(gate: string, statePath: string, filesDir?: string, typeSha?: string, noType = false): string {
   // filesDir = shots dir relative to the MCP workspace: the only place the model may name a snapshot/screenshot file.
   const files = filesDir ? `TARS_GATE_FILES="${filesDir}" ` : "";
   // typeSha = sha256 hex of the one text that may be typed (exact fill), checked by the gate on every browser_type.
   const typed = typeSha && /^[0-9a-f]{64}$/.test(typeSha) ? `TARS_GATE_TYPE_SHA="${typeSha}" ` : "";
-  const cmd = (mode: "pre" | "post") => `${files}${typed}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
+  // noType = the plan has no fill step: the gate denies every browser_type and every send-like click (read-only run).
+  const ro = noType ? `TARS_GATE_NO_TYPE="1" ` : "";
+  const cmd = (mode: "pre" | "post") => `${ro}${files}${typed}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
   const matcher = `mcp__${MCP_SERVER}__.*`;
   return JSON.stringify({
     ...JSON.parse(ORCH_CLAUDE_SETTINGS),
@@ -103,6 +111,19 @@ export function buildTask(steps: BrowserStep[], rel: string): string {
       case "click":
         return `${n}. browser_click na prvek s textem „${s.text}“ (nejdřív browser_snapshot)`;
       case "fill":
+        // Exact fill (P16, Codex review kolo 1 nález 4): clear, verify empty, type, verify content, then one send click.
+        // The gate enforces every part; the steps only tell the driver the order the gate allows.
+        if (s.exact && s.submit)
+          return `${n}. Odeslání textu (přesně tento text, právě jednou):
+   a) browser_snapshot a najdi textové pole (nápověda selektoru: ${s.selector}).
+   b) Vyčisti ho: browser_type do pole s text "" (bez submit, bez slowly).
+   c) browser_snapshot: pole musí být prázdné.
+   d) browser_type do pole s přesně tímto textem (bez submit, bez slowly):
+<<<TEXT
+${s.value}
+TEXT>>>
+   e) browser_snapshot (brána porovná obsah pole s textem).
+   f) browser_click na tlačítko pro odeslání. Když brána kterýkoli krok zamítne, nic neopakuj a skonči s RESULT: UNKNOWN obsah-pole.`;
         return `${n}. Do textového pole (nápověda selektoru: ${s.selector}) vlož přesně tento text pomocí browser_type${s.submit ? " a odešli (submit: true)" : ""}:\n<<<TEXT\n${s.value}\nTEXT>>>`;
       case "wait":
         return `${n}. Počkej celkem ${Math.ceil(s.ms / 1000)} s (browser_wait_for, time nejvýš 30, opakuj do součtu).`;
@@ -177,7 +198,7 @@ export class McpBrowser {
   }
 
   /** Runs the step plan through Playwright MCP. Returns texts of "read" steps (wrapped as data), screenshots, final URL. */
-  async run(steps: BrowserStep[], shotsDir: string): Promise<{ reads: string[]; rawReads: string[]; screenshots: string[]; finalUrl: string }> {
+  async run(steps: BrowserStep[], shotsDir: string, onSent?: (s: SentReport) => void): Promise<{ reads: string[]; rawReads: string[]; screenshots: string[]; finalUrl: string }> {
     steps.forEach(checkStep);
     // Fresh artifacts for every run: nothing left by an earlier run (reads, screenshots, gate state) may pass as new.
     fs.mkdirSync(shotsDir, { recursive: true });
@@ -201,7 +222,7 @@ export class McpBrowser {
         allowedTools: BROWSER_ALLOWED_TOOLS,
         noBuiltinTools: true,
         mcpConfig: cfg,
-        settings: browserSettings(this.gate, statePath, path.basename(shotsDir), exact ? typedTextSha(exact.value) : undefined),
+        settings: browserSettings(this.gate, statePath, path.basename(shotsDir), exact ? typedTextSha(exact.value) : undefined, !steps.some((s) => s.kind === "fill")),
         // The same runs dir as for Chrome and the MCP server: the SessionStart hook of this claude -p looks for the lock there.
         env: this.runsDir ? { TARS_RUNS_DIR: this.runsDir } : undefined,
       });
@@ -212,6 +233,13 @@ export class McpBrowser {
       this.chrome("stop"); // also after a failed or timed-out start: nothing may stay behind
     } catch (e) {
       failure ??= e;
+    }
+    // Whether the prompt was sent, from the gate (it counted every allowed send), on success AND on failure, so the
+    // caller can record it durably and never send it again (Codex review kolo 1, nález 5). No state file = no tool call
+    // was allowed (the pre hook is fail-closed) = nothing sent; a damaged one = unknown.
+    if (onSent) {
+      const st = readState(statePath);
+      onSent(st ? { submitted: st.submits > 0, url: st.url } : { submitted: fs.existsSync(statePath) ? "unknown" : false });
     }
     try {
       if (failure) throw failure;
@@ -230,6 +258,8 @@ export class McpBrowser {
     if (!st || st.calls === 0) throw new UiUnknownError("brána nezaznamenala žádné volání nástroje prohlížeče (hooky neběžely)", screenshots);
     if (st.blocked?.kind === "bot") throw new UiUnknownError("stránka vyžaduje ověření proti botům (Cloudflare); TARS ho neobchází", screenshots);
     if (st.blocked?.kind === "offhost") throw new RuleViolation(`stránka odešla mimo povolené hosty: ${st.blocked.detail}`);
+    // Exact fill: exactly one verified send, else nothing was (provably) sent as planned.
+    if (steps.some((s) => s.kind === "fill" && s.exact === true) && st.submits !== 1) throw new UiUnknownError(`text nebyl odeslán právě jednou po ověření obsahu pole (odesláno: ${st.submits})`, screenshots);
     const result = [...out.text.matchAll(/^RESULT:\s*(OK|UNKNOWN)\b(.*)$/gim)].at(-1);
     const finalUrl = [...out.text.matchAll(/^FINAL_URL:\s*(\S+)/gim)].at(-1)?.[1] ?? "";
     if (!result) throw new UiUnknownError("ovladač prohlížeče nevrátil RESULT", screenshots);

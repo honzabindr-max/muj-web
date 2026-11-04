@@ -708,7 +708,9 @@ describe("McpBrowser", () => {
     expect(opts.noBuiltinTools).toBe(true);
     expect(JSON.parse(fs.readFileSync(opts.mcpConfig!, "utf8"))).toEqual(playwrightMcpConfig(path.join(r.dir, "fake-browser.sh"), "/repo/runs"));
     const sp = statePathOf(opts);
-    expect(opts.settings).toBe(browserSettings("/repo/gate.ts", sp, "shots-r0"));
+    // a plan without a fill step is read-only: the gate denies typing and sending (TARS_GATE_NO_TYPE)
+    expect(opts.settings).toBe(browserSettings("/repo/gate.ts", sp, "shots-r0", undefined, true));
+    expect(opts.settings).toContain('TARS_GATE_NO_TYPE=\\"1\\"');
     expect(opts.settings).toContain('TARS_GATE_FILES=\\"shots-r0\\" TARS_GATE_STATE='); // files of this run only
     expect(sp.startsWith(os.tmpdir())).toBe(true); // gate state outside the MCP workspace (cwd), so the browser tools cannot write it
     expect(sp.startsWith(opts.cwd)).toBe(false);
@@ -717,6 +719,29 @@ describe("McpBrowser", () => {
     expect(prompt).toContain('browser_snapshot s filename "shots-r0/reads/read-02.md"');
     expect(r.calls()).toEqual(["start", "stop"]);
     expect(r.envs()).toEqual(["/repo/runs", "/repo/runs"]); // the launcher looks at the same runs/ dir as the orchestrator
+  });
+
+  it("Codex review kolo 1, nálezy 4+5: hlášení o odeslání z brány (i při chybě); přesné vložení bez ověřeného odeslání = UNKNOWN", async () => {
+    const exact = [
+      { kind: "goto" as const, url: "https://chatgpt.com/" },
+      { kind: "fill" as const, selector: "textarea", value: "prompt", submit: true, exact: true },
+      { kind: "read" as const },
+    ];
+    // sent (gate counted the send), but the read file is missing → UNKNOWN; the send is reported anyway
+    const ok = rig(() => OK("https://chatgpt.com/c/abc"), false, { submits: 1, url: "https://chatgpt.com/c/abc" });
+    const seen: unknown[] = [];
+    await expect(ok.browser.run(exact, ok.shots, (s) => seen.push(s))).rejects.toThrow(/read/);
+    expect(seen).toEqual([{ submitted: true, url: "https://chatgpt.com/c/abc" }]);
+    // the gate denied the send (submits 0): UNKNOWN, reported as not sent
+    const denied = rig(() => OK("https://chatgpt.com/"), false, { submits: 0 });
+    const seen2: unknown[] = [];
+    await expect(denied.browser.run(exact, denied.shots, (s) => seen2.push(s))).rejects.toThrow(/právě jednou/);
+    expect(seen2).toEqual([{ submitted: false, url: undefined }]);
+    // the hooks never ran (no state file): nothing was sent
+    const none = rig(() => OK(), false, null);
+    const seen3: unknown[] = [];
+    await expect(none.browser.run(exact, none.shots, (s) => seen3.push(s))).rejects.toThrow();
+    expect(seen3).toEqual([{ submitted: false }]);
   });
 
   it("the control claude -p gets TARS_RUNS_DIR too, even when it was never exported", async () => {

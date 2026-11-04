@@ -508,6 +508,12 @@ export interface KonziliumRun {
   verdicts: VerdictRecord[];
   card_url?: string;
   panel_row?: string;
+  /**
+   * PENDING during a review (GPT limit or GPT in the browser unavailable): the round and the creator output file of the
+   * proposal that waits. A repeated command with the same input continues with the review of exactly this proposal
+   * (Codex review kolo 1, nález 7), never a new proposal.
+   */
+  pending_review?: { round: 1 | 2; proposal_file: string };
 }
 
 export interface KonziliumResult {
@@ -721,6 +727,25 @@ export function findWaitingRun(root: string, inputSha: string): string | undefin
   return undefined;
 }
 
+/** PENDING run with the same input that waits for a review of its proposal (it is continued, not started again). */
+export function findPendingReviewRun(root: string, inputSha: string): KonziliumRun | undefined {
+  if (!fs.existsSync(root)) return undefined;
+  for (const d of fs.readdirSync(root).sort()) {
+    const f = path.join(root, d, "run.json");
+    try {
+      const r = JSON.parse(fs.readFileSync(f, "utf8")) as KonziliumRun;
+      if (r.input_sha256 === inputSha && r.status === "PENDING" && r.pending_review && r.run_id === d) return r;
+    } catch {
+      /* není běh */
+    }
+  }
+  return undefined;
+}
+
+/** Calls that use up the budget: a review that waited (GPT unavailable / limit) is repeated on resume, not counted. */
+const RETRYABLE_RESULTS = new Set(["čeká na kontrolu", "limit"]);
+const countedCalls = (run: KonziliumRun): number => run.calls.filter((c) => !RETRYABLE_RESULTS.has(c.result)).length;
+
 class RunCtx {
   constructor(
     readonly dir: string,
@@ -750,7 +775,7 @@ async function callModel(
   prompt: string,
   opts: Omit<RunOpts, "cwd">,
 ): Promise<AdapterResult> {
-  if (ctx.run.calls.length >= MAX_MODEL_CALLS) throw new Error(`překročen strop ${MAX_MODEL_CALLS} volání modelů`);
+  if (countedCalls(ctx.run) >= MAX_MODEL_CALLS) throw new Error(`překročen strop ${MAX_MODEL_CALLS} volání modelů`);
   assertClean(`prompt (${step})`, [prompt, snap.name, snap.model]);
   const n = ctx.run.calls.length + 1;
   const rec: CallRecord = {
@@ -802,7 +827,7 @@ async function callModel(
     rec.output_file = file;
     rec.canonical_sha256 = sha256(canonical);
   }
-  rec.result = r.ok ? "ok" : r.limit ? "limit" : "chyba";
+  rec.result = r.ok ? "ok" : r.limit ? "limit" : r.waitReview ? "čeká na kontrolu" : "chyba";
   ctx.save();
   // Text chyby modelu se dál nepředává (do run.json.reason ani na stdout), jen bezpečný popis.
   return { ...r, error: r.error === undefined ? undefined : safeErrorLabel(r.error) };
@@ -823,6 +848,7 @@ async function review(
     outputSchema: KONZILIUM_REVIEW_SCHEMA,
     isolated: true, // codex bez config.toml (MCP Notion apod.), pluginů, apps, hooků, shellu a webu
     timeoutMs: deps.timeoutMs,
+    journalDir: ctx.dir, // GPT v prohlížeči: deník odeslání v adresáři běhu (cwd modelu je dočasný a maže se)
   });
   if (!r.ok)
     return r.waitReview
@@ -901,32 +927,44 @@ async function runLocked(
   const inputSha = sha256(raw);
   const waiting = findWaitingRun(root, inputSha);
   if (waiting) return { status: "FAILED", reason: `pro stejný vstup už čeká karta na vlastníka (běh ${waiting}); nový běh se nespouští`, calls: 0 };
-  const started = now();
-  const runId = `konz-${stamp(started)}-${inputSha.slice(0, 8)}`;
-  const dir = path.join(root, runId);
-  try {
-    fs.mkdirSync(dir);
-  } catch {
-    return { status: "FAILED", reason: `běh ${runId} už existuje`, calls: 0 };
+  // Codex review kolo 1, nález 7: a PENDING run with the same input that waits for a review continues with the review
+  // of its proposal A (same run dir, same journal of sent prompts), never with a new proposal B.
+  const pending = findPendingReviewRun(root, inputSha);
+  let runId: string;
+  let ctx: RunCtx;
+  if (pending) {
+    runId = pending.run_id;
+    // The adapters of this command (snapshots of their configuration) are the ones that run now.
+    ctx = new RunCtx(path.join(root, runId), { ...pending, status: "RUNNING", reason: undefined, finished_at: undefined, creator: snaps.creator, checker: snaps.checker }, deps.tmpRoot ?? os.tmpdir());
+  } else {
+    const started = now();
+    runId = `konz-${stamp(started)}-${inputSha.slice(0, 8)}`;
+    const dir = path.join(root, runId);
+    try {
+      fs.mkdirSync(dir);
+    } catch {
+      return { status: "FAILED", reason: `běh ${runId} už existuje`, calls: 0 };
+    }
+    ctx = new RunCtx(
+      dir,
+      {
+        v: 1,
+        run_id: runId,
+        input_sha256: inputSha,
+        status: "RUNNING",
+        started_at: started.toISOString(),
+        creator: snaps.creator,
+        checker: snaps.checker,
+        calls: [],
+        verdicts: [],
+      },
+      deps.tmpRoot ?? os.tmpdir(),
+    );
   }
-  const ctx = new RunCtx(
-    dir,
-    {
-      v: 1,
-      run_id: runId,
-      input_sha256: inputSha,
-      status: "RUNNING",
-      started_at: started.toISOString(),
-      creator: snaps.creator,
-      checker: snaps.checker,
-      calls: [],
-      verdicts: [],
-    },
-    deps.tmpRoot ?? os.tmpdir(),
-  );
   ctx.save();
   const finish = (status: KonziliumStatus, reason?: string, extra: Partial<KonziliumResult> = {}): KonziliumResult => {
     ctx.run.status = status;
+    if (status !== "PENDING") ctx.run.pending_review = undefined;
     ctx.run.reason = reason ? redactSecrets(reason).slice(0, 300) : undefined;
     ctx.run.finished_at = now().toISOString();
     ctx.save();
@@ -953,22 +991,53 @@ async function runLocked(
     assertClean("vstup (pole)", inputStrings(input));
     assertNoEncoding("vstup (pole)", inputStrings(input));
 
-    // 2) Návrh Clauda (volání 1).
-    let proposal = await revise(ctx, deps, snaps.creator, "navrh", buildCreatorPrompt(input), input);
+    // A review that cannot happen now (PENDING) keeps the proposal it is about; the next command reviews exactly it.
+    const lastCreatorFile = () => [...ctx.run.calls].reverse().find((c) => c.role === "creator")?.output_file;
+    const held = (o: Outcome, round: 1 | 2): KonziliumResult => {
+      const file = lastCreatorFile();
+      if (o.status === "PENDING" && file) ctx.run.pending_review = { round, proposal_file: file };
+      return finish(o.status, o.reason);
+    };
+    const resume = ctx.run.pending_review;
+
+    // 2) Návrh Clauda (volání 1), nebo čekající návrh A při pokračování.
+    let proposal: Proposal | Outcome;
+    if (resume) {
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(ctx.dir, path.basename(resume.proposal_file)), "utf8");
+      } catch {
+        return finish("FAILED", "čekající návrh nejde načíst");
+      }
+      assertClean("čekající návrh", scanVariants(text, "čekající návrh"));
+      proposal = parseProposal(text, input.first_principles.length) ?? { status: "FAILED", reason: "čekající návrh není platný JSON podle schématu" };
+    } else {
+      proposal = await revise(ctx, deps, snaps.creator, "navrh", buildCreatorPrompt(input), input);
+    }
     if (isOutcome(proposal)) return finish(proposal.status, proposal.reason);
 
-    // 3) Oponentura GPT (volání 2).
-    let verdict = await review(ctx, deps, snaps.checker, 1, input, proposal);
-    if (isOutcome(verdict)) return finish(verdict.status, verdict.reason);
+    // 3) Oponentura GPT (volání 2); při pokračování v opravném kole se přeskočí (verdikt kola 1 je uložen).
+    let verdict: StructuredVerdict<KonziliumVerdict> | Outcome;
+    if (resume?.round === 2) {
+      const first = ctx.run.verdicts.find((v) => v.round === 1);
+      if (!first) return finish("FAILED", "čekající ověření nemá uložený verdikt kola 1");
+      verdict = { verdict: first.verdict, findings: first.findings, issues: [] };
+    } else {
+      verdict = await review(ctx, deps, snaps.checker, 1, input, proposal);
+      if (isOutcome(verdict)) return held(verdict, 1);
+    }
     if (verdict.verdict === "NELZE_OVERIT") return finish("PAUSED", `GPT: nelze ověřit — ${verdict.issues.join("; ")}`, { verdict: "NELZE_OVERIT" });
 
     // 4) Jen při FIX: jedna oprava Clauda (volání 3) a jedno ověření GPT (volání 4).
     if (verdict.verdict === "FIX") {
-      const revised = await revise(ctx, deps, snaps.creator, "oprava", buildRevisionPrompt(input, proposal, verdict.findings), input);
-      if (isOutcome(revised)) return finish(revised.status, revised.reason);
+      let revised: Proposal | Outcome = proposal;
+      if (resume?.round !== 2) {
+        revised = await revise(ctx, deps, snaps.creator, "oprava", buildRevisionPrompt(input, proposal, verdict.findings), input);
+        if (isOutcome(revised)) return finish(revised.status, revised.reason);
+      }
       proposal = revised;
       const v2 = await review(ctx, deps, snaps.checker, 2, input, proposal, verdict.findings);
-      if (isOutcome(v2)) return finish(v2.status, v2.reason);
+      if (isOutcome(v2)) return held(v2, 2);
       verdict = v2;
       if (verdict.verdict === "NELZE_OVERIT") return finish("PAUSED", `GPT po opravě: nelze ověřit — ${verdict.issues.join("; ")}`, { verdict: "NELZE_OVERIT" });
       const blocking = verdict.findings.filter(isBlocking);

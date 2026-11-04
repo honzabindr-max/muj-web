@@ -35,6 +35,11 @@ export interface RefInfo {
   ok: boolean;
   /** true when the label looks like sending. */
   submit: boolean;
+  /**
+   * Text the element holds as the last snapshot shows it (its own text value and the text values of its subtree, one
+   * per line, decoded from the YAML quoting). undefined = unknown (no snapshot since the last action on it).
+   */
+  content?: string;
 }
 
 export interface GateState {
@@ -43,6 +48,8 @@ export interface GateState {
   url?: string;
   refs: Record<string, RefInfo>;
   blocked?: { kind: "offhost" | "bot"; detail: string };
+  /** Exact mode (typeSha): the ref the prompt was typed into; the send is allowed only when its content matches. */
+  typedRef?: string;
 }
 
 export const emptyState = (): GateState => ({ calls: 0, submits: 0, refs: {} });
@@ -63,12 +70,20 @@ export function typedTextSha(text: string): string {
   return createHash("sha256").update(text.replace(/\r\n?/g, "\n").trim()).digest("hex");
 }
 
+/** true when the text to type is empty after the same normalization (clearing the field). */
+const isClearText = (text: unknown): boolean => String(text ?? "").replace(/\r\n?/g, "\n").trim() === "";
+
 /**
  * Returns the reason a tool call is denied, or undefined when it is allowed (pure; the caller counts the call).
  * `typeSha` (P16 v2): when set, every browser_type must type exactly the planned text (sha256), so the driving model
- * cannot change the prompt a reviewer answers.
+ * cannot change the prompt a reviewer answers. Exact mode also guards what is really sent (Codex review kolo 1, nález 4):
+ * `slowly` (pressSequentially appends to what is already there) and `submit` on browser_type are denied; the field must
+ * be empty in the last snapshot before the prompt is typed (clearing = browser_type with ""), and the send click is
+ * allowed only when a snapshot after typing shows the field holding exactly the prompt (sha256).
+ * `noType`: the plan types nothing (read-only run, e.g. reading an already sent ChatGPT answer): no browser_type and no
+ * click on a send-like element.
  */
-export function gateMcpCall(toolName: string, input: Record<string, unknown> = {}, state: GateState = emptyState(), filesDir?: string, typeSha?: string): string | undefined {
+export function gateMcpCall(toolName: string, input: Record<string, unknown> = {}, state: GateState = emptyState(), filesDir?: string, typeSha?: string, noType = false): string | undefined {
   const prefix = `mcp__${MCP_SERVER}__`;
   if (!toolName.startsWith(prefix)) return undefined; // not ours (matcher keeps this from happening)
   const tool = toolName.slice(prefix.length);
@@ -95,7 +110,19 @@ export function gateMcpCall(toolName: string, input: Record<string, unknown> = {
     if (typeof input.element === "string" && !actionAllowed(input.element)) return `zakázaná akce: "${input.element.slice(0, 80)}"`;
     if (state.submits >= 1 && (tool === "browser_type" || ref.submit)) return "po odeslání se už nepíše ani neodesílá";
     if (tool === "browser_click" && input.doubleClick === true && ref.submit) return "dvojklik na odesílací prvek se nepovoluje";
-    if (tool === "browser_type" && typeSha && typedTextSha(String(input.text ?? "")) !== typeSha) return "vkládaný text se liší od zadaného (sha256); vlož ho přesně beze změny";
+    if (noType && (tool === "browser_type" || ref.submit)) return "tento běh jen čte: nic se nepíše ani neodesílá";
+    if (typeSha && tool === "browser_type") {
+      if (input.slowly === true) return "pomalé psaní (slowly) se nepovoluje: nepřepíše rozepsaný text v poli";
+      if (input.submit === true) return "odeslání přes browser_type se nepovoluje: nejdřív browser_snapshot (brána ověří obsah pole), pak klik na odeslání";
+      if (!isClearText(input.text)) {
+        if (typedTextSha(String(input.text ?? "")) !== typeSha) return "vkládaný text se liší od zadaného (sha256); vlož ho přesně beze změny";
+        if (ref.content === undefined || ref.content.trim() !== "") return 'pole není podle posledního snapshotu prázdné: vyčisti ho (browser_type s textem ""), udělej browser_snapshot a teprve pak piš';
+      }
+    }
+    if (typeSha && tool === "browser_click" && ref.submit) {
+      const typed = state.typedRef !== undefined && Object.hasOwn(state.refs, state.typedRef) ? state.refs[state.typedRef] : undefined;
+      if (typed?.content === undefined || typedTextSha(typed.content) !== typeSha) return "obsah pole podle posledního snapshotu neodpovídá zadanému textu (sha256): nic se neodesílá";
+    }
   }
   return undefined;
 }
@@ -104,10 +131,16 @@ export function gateMcpCall(toolName: string, input: Record<string, unknown> = {
 export function countCall(toolName: string, input: Record<string, unknown>, state: GateState): void {
   state.calls++;
   if (toolName.endsWith("browser_type") && input.submit === true) state.submits++;
-  if (toolName.endsWith("browser_click")) {
-    const ref = Object.hasOwn(state.refs, String(input.target ?? input.ref ?? "")) ? state.refs[String(input.target ?? input.ref)] : undefined;
-    if (ref?.submit) state.submits++;
+  const target = String(input.target ?? input.ref ?? "");
+  const ref = Object.hasOwn(state.refs, target) ? state.refs[target] : undefined;
+  if (toolName.endsWith("browser_click") && ref?.submit) state.submits++;
+  if (toolName.endsWith("browser_type") && ref) {
+    // What the field holds after this call is known only from the next snapshot.
+    ref.content = undefined;
+    if (!isClearText(input.text)) state.typedRef = target;
   }
+  // A click may change the field: it is verified again by the next snapshot.
+  if (toolName.endsWith("browser_click") && !ref?.submit && state.typedRef !== undefined && Object.hasOwn(state.refs, state.typedRef)) state.refs[state.typedRef].content = undefined;
 }
 
 function textOf(x: unknown): string {
@@ -121,7 +154,8 @@ function textOf(x: unknown): string {
 // when it contains ": ", starts with "-" etc.: - 'role "na: me" [ref=e5]': text.
 const QUOTED_KEY = /^(\s*)- '((?:[^']|'')*)'(?::(.*))?$/;
 const PLAIN_LINE = /^(\s*)- (.*)$/;
-const KEY = /^(\S+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)(?::(.*))?$/;
+// The role never contains ":", so a quoted text value (`- paragraph: "Kód: x"`) is never read as an accessible name.
+const KEY = /^([^\s:]+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)(?::(.*))?$/;
 const REF_ATTR = /\[ref=((?:f\d+)?e\d+)\]/;
 
 interface SnapLine {
@@ -144,6 +178,20 @@ function parseSnapLine(l: string): SnapLine | undefined {
   return { indent, role: k[1], name: k[2] ? k[2].slice(1, -1) : "", ref: REF_ATTR.exec(k[3])?.[1], text: (q ? (q[3] ?? "") : (k[4] ?? "")).trim() };
 }
 
+/** A text value of a snapshot line decoded by its YAML quoting: '…' ('' = '), "…" (JSON escapes), plain as is. */
+export function yamlScalar(raw: string): string {
+  const v = raw.trim();
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    try {
+      return JSON.parse(v) as string;
+    } catch {
+      return v.slice(1, -1);
+    }
+  }
+  return v;
+}
+
 /** Reads refs from a YAML snapshot structurally: a ref counts only as an attribute of the element, never inside names or texts. */
 export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
   const lines = yaml.split("\n").map(parseSnapLine);
@@ -153,15 +201,18 @@ export function parseSnapshotRefs(yaml: string): Record<string, RefInfo> {
     if (!e?.ref) continue;
     const own = `${e.role}${e.name ? ` "${e.name}"` : ""}`;
     let all = `${own} ${e.text}`;
+    const texts = e.text ? [yamlScalar(e.text)] : [];
     for (let j = i + 1; j < lines.length; j++) {
       const c = lines[j];
       if (!c) continue;
       if (c.indent <= e.indent) break;
       all += ` ${c.role} ${c.name} ${c.text}`;
+      texts.push(yamlScalar(c.text));
     }
-    const info: RefInfo = { label: own.slice(0, 120), ok: actionAllowed(all), submit: SUBMIT_LABEL_RE.test(all) };
+    const info: RefInfo = { label: own.slice(0, 120), ok: actionAllowed(all), submit: SUBMIT_LABEL_RE.test(all), content: texts.join("\n") };
     const prev = Object.hasOwn(refs, e.ref) ? refs[e.ref] : undefined;
-    refs[e.ref] = prev ? { label: `${prev.label} | ${info.label}`.slice(0, 240), ok: prev.ok && info.ok, submit: prev.submit || info.submit } : info;
+    // The same ref twice: what the field holds is ambiguous (content unknown).
+    refs[e.ref] = prev ? { label: `${prev.label} | ${info.label}`.slice(0, 240), ok: prev.ok && info.ok, submit: prev.submit || info.submit, content: undefined } : info;
   }
   return refs;
 }
@@ -264,7 +315,7 @@ async function main() {
       state = s;
     } else state = emptyState();
     if (mode === "pre") {
-      const why = gateMcpCall(name, input, state, process.env.TARS_GATE_FILES || undefined, process.env.TARS_GATE_TYPE_SHA || undefined);
+      const why = gateMcpCall(name, input, state, process.env.TARS_GATE_FILES || undefined, process.env.TARS_GATE_TYPE_SHA || undefined, process.env.TARS_GATE_NO_TYPE === "1");
       if (why) {
         process.stderr.write(`TARS: ${why}\n`);
         process.exitCode = 2;

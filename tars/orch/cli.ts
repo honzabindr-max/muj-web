@@ -142,7 +142,8 @@ async function main() {
       const lock = new Store(runsDir);
       if (!lock.acquireLock()) throw new Error("běží jiná zakázka (lock)");
       try {
-        const dir = path.join(runsDir, "gpt-smoke");
+        // A fresh dir per smoke run: the journal of sent prompts (one send per dir) must not block the next smoke.
+        const dir = path.join(runsDir, "gpt-smoke", new Date().toISOString().replace(/[-:.]/g, ""));
         fs.mkdirSync(dir, { recursive: true });
         const gpt = makeGptWeb();
         const r = await gpt.run("Odpověz jen slovem OK.", { cwd: dir });

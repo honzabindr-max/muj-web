@@ -9,7 +9,7 @@
 // typed prompt must match its sha256). Never logs in. The answer is read from the page as data and parsed in code.
 // Whatever goes wrong (no profile/login, limit, timeout, an answer that is not exactly the schema) is `waitReview`:
 // the orchestrator keeps the order in WAITING_REVIEW with the same artifact. A check is never PASS without an answer.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -20,7 +20,9 @@ import {
   RuleViolation,
   UiUnknownError,
   type BrowserStep,
+  type SentReport,
 } from "./mcp-browser";
+import { redactDeep, redactSecrets, scanSecrets } from "./secret-scan";
 import type { ModelFamily } from "./types";
 import { parseStructuredVerdict } from "./verdict";
 
@@ -45,6 +47,8 @@ export interface WebBrowser {
   run(
     steps: BrowserStep[],
     shotsDir: string,
+    /** Called once per run (also when it fails) with what the gate saw about sending. */
+    onSent?: (s: SentReport) => void,
   ): Promise<{ rawReads: string[]; screenshots: string[]; finalUrl: string }>;
 }
 
@@ -56,8 +60,107 @@ export interface WebCheckRecord {
   actual_model: string;
   model_matches: boolean;
   reason?: string;
-  submits: 1;
+  /** Prompts sent by this run: 1, or 0 when it only read the answer of an already sent prompt (journal). */
+  submits: 0 | 1;
+  /** URL of the chat the answer belongs to (from the journal of sent prompts). */
+  chat_url?: string;
   answer?: string;
+}
+
+/**
+ * Journal of sent prompts (Codex review kolo 1, nález 5), one durable file per order dir. A prompt is written as
+ * "sending" BEFORE it is sent, "sent" (with the chat URL) when the gate saw the send, "answered" when its answer was
+ * read. While an entry is not answered, no new prompt is sent from this dir: the next run only opens the saved chat
+ * and reads; without a chat URL the check waits (WAITING_REVIEW) until a new round.
+ */
+export const SENT_JOURNAL = "gptweb-sent.json";
+export interface SentEntry {
+  prompt_sha256: string;
+  nonce: string;
+  at: string;
+  state: "sending" | "sent" | "answered";
+  chat_url?: string;
+}
+/** Only a real ChatGPT conversation URL is ever opened again. */
+export const CHAT_URL_RE = /^https:\/\/chatgpt\.com\/c\/[A-Za-z0-9-]+\/?$/;
+
+/** The journal of a dir; [] when there is none, undefined when it exists but cannot be read (then nothing is sent). */
+export function readJournal(dir: string): SentEntry[] | undefined {
+  const f = path.join(dir, SENT_JOURNAL);
+  if (!fs.existsSync(f)) return [];
+  try {
+    const j = JSON.parse(fs.readFileSync(f, "utf8")) as { v?: unknown; entries?: unknown };
+    if (j.v !== 1 || !Array.isArray(j.entries)) return undefined;
+    return j.entries as SentEntry[];
+  } catch {
+    return undefined;
+  }
+}
+
+/** Durable write: temp file, fsync, rename, fsync of the dir (a crash leaves the old or the new journal, never half). */
+export function writeJournal(dir: string, entries: SentEntry[]): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const f = path.join(dir, SENT_JOURNAL);
+  const tmp = `${f}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeSync(fd, `${JSON.stringify({ v: 1, entries }, null, 2)}\n`);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, f);
+  try {
+    const d = fs.openSync(dir, "r");
+    try {
+      fs.fsyncSync(d);
+    } finally {
+      fs.closeSync(d);
+    }
+  } catch {
+    /* fsync of a dir is not supported everywhere; the rename is atomic */
+  }
+}
+
+/** Steps that only read the answer of an already sent prompt: open its chat, wait for the marker, read. No fill. */
+export function chatGptReadSteps(chatUrl: string, marker: string, timeoutMs = CHATGPT_ANSWER_TIMEOUT_MS): BrowserStep[] {
+  return [
+    { kind: "goto", url: chatUrl },
+    { kind: "wait", ms: 4000 },
+    { kind: "wait_text", text: marker, ms: timeoutMs },
+    { kind: "read" },
+  ];
+}
+
+const TEXT_FILE_RE = /\.(md|ya?ml|json|txt|log)$/i;
+
+/**
+ * Redacts every secret in the text files of a dir (recursively), in place; returns the kinds found (never values).
+ * The MCP server writes the page snapshot itself; this runs right after every browser run (Codex review kolo 1, nález 6).
+ */
+export function redactSecretFiles(dir: string): string[] {
+  const kinds = new Set<string>();
+  const walk = (d: string) => {
+    let names: fs.Dirent[];
+    try {
+      names = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const n of names) {
+      const p = path.join(d, n.name);
+      if (n.isDirectory()) walk(p);
+      else if (n.isFile() && TEXT_FILE_RE.test(n.name)) {
+        const t = fs.readFileSync(p, "utf8");
+        const sc = scanSecrets(t);
+        if (sc.clean) continue;
+        sc.kinds.forEach((k) => kinds.add(k));
+        fs.writeFileSync(p, redactSecrets(t));
+      }
+    }
+  };
+  walk(dir);
+  return [...kinds];
 }
 
 /** Steps of one check: open ChatGPT, mode Chat (never Work), the model, intensity, one exact submit, wait, read. */
@@ -218,34 +321,61 @@ export function otherVerdictWord(text: string, chosen: string, allowed: readonly
 
 const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
 
-/** The JSON object that the answer ends with: on the last content line, or starting up to 200 lines higher (pretty JSON). */
-function trailingObject(lines: string[]): { value: unknown; startLine: number } | undefined {
-  const last = lines.length - 1;
-  for (let k = last; k >= Math.max(0, last - 200); k--) {
-    const text =
-      k === last
-        ? snapshotValue(lines[k])
-        : [snapshotValue(lines[k]), ...lines.slice(k + 1, last).map((l) => l.replace(/\s+$/, "")), snapshotValue(lines[last], false)].join("\n");
-    const t = text.trim();
-    if (!t.startsWith("{") || objectEnd(t, 0) !== t.length) continue;
-    try {
-      return { value: JSON.parse(t), startLine: k };
-    } catch {
-      /* not JSON from this line; try a higher start */
-    }
+/** A button with an accessible name but no text value (ChatGPT UI: copy, rate, "Přemýšlení trvalo 2 min"). */
+const UI_BUTTON_LINE = /^\s*-\s*button(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*:?\s*$/i;
+/** The heading ChatGPT puts above an assistant message ("ChatGPT řekl:" / "ChatGPT said:"). */
+const ASSISTANT_HEADING = /^\s*-\s*heading\s+"ChatGPT(?:\s+(?:řekl|said))?:?"(?:\s*\[[^\]\n]*\])*:?\s*$/i;
+
+/**
+ * true when the end marker is the real end of the last assistant message (Codex review kolo 1, nález 3): on its line
+ * only a closing quote may follow; the following lines of the same block (indented at least as deep as the marker's
+ * line) hold no text, only snapshot structure or text-less buttons; and no further assistant message follows anywhere.
+ * Anything else (e.g. a correction to FIX after the marker) = the answer did not end with the marker → unclear.
+ */
+export function markerEndsAnswer(page: string, marker: string): boolean {
+  const at = page.lastIndexOf(marker);
+  if (at < 0) return false;
+  const lineStart = page.lastIndexOf("\n", at) + 1;
+  const nl = page.indexOf("\n", at);
+  if (!/^\s*['"]?\s*$/.test(page.slice(at + marker.length, nl < 0 ? undefined : nl))) return false;
+  if (nl < 0) return true;
+  const indent = (l: string) => l.length - l.trimStart().length;
+  const mi = indent(page.slice(lineStart, at));
+  let inBlock = true;
+  for (const l of page.slice(nl + 1).split("\n")) {
+    if (ASSISTANT_HEADING.test(l)) return false;
+    if (!l.trim()) continue;
+    if (indent(l) < mi) inBlock = false;
+    if (!inBlock || SNAPSHOT_ONLY_LINE.test(l) || UI_BUTTON_LINE.test(l)) continue;
+    return false;
   }
-  return undefined;
+  return true;
+}
+
+/** The answer line as one JSON object on ONE line (decoded by its YAML quoting), or undefined. */
+function singleLineObject(line: string): unknown {
+  const v = snapshotValue(line);
+  if (v.includes("\n")) return undefined;
+  const t = v.trim();
+  if (!t.startsWith("{") || objectEnd(t, 0) !== t.length) return undefined;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * The verdict from the answer region (P16 v2, never a false PASS, no needless stop):
+ * The verdict from the answer region (P16, never a false PASS). The answer must be exactly the schema (Codex review
+ * kolo 1, nález 2): one JSON object on one line, then the end marker. Concretely:
  *  1. from the end, only lines of pure snapshot structure are dropped (no names, no text);
- *  2. the answer must END with one JSON object (alone in its element, after the element prefix; one line or several),
- *     decoded by the line's real YAML quoting; whitespace before the end marker is ignored;
- *  3. that object must be exactly the schema; an invalid one = unclear, earlier objects are never searched;
- *  4. no other schema-valid verdict object with a different verdict may appear anywhere in the answer.
- * Anything else (prose after the JSON, a quoted element name, conflicting verdicts) is unclear → undefined →
- * WAITING_REVIEW.
+ *  2. the last line must be one JSON object on one line (alone in its element, after the element prefix), decoded by
+ *     the line's real YAML quoting; whitespace before the end marker is ignored;
+ *  3. that object must be exactly the schema;
+ *  4. every line before it may only be ChatGPT UI without text: snapshot structure, a text-less button, the heading
+ *     "ChatGPT řekl:"; no other verdict word or verdict object in those names. Any text (prose such as "only a quoted
+ *     sample, I did not check", a heading, a second JSON, a JSON pretty-printed over several lines) = unclear.
+ * Unclear → undefined → WAITING_REVIEW.
  */
 export function verdictFromAnswer(region: string, schema: Record<string, unknown>): string | undefined {
   const allowed = ((schema.properties as Record<string, { enum?: string[] }> | undefined)?.verdict?.enum ?? []) as string[];
@@ -253,22 +383,15 @@ export function verdictFromAnswer(region: string, schema: Record<string, unknown
   const lines = region.split("\n");
   while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1])) lines.pop();
   if (!lines.length) return undefined;
-  const t = trailingObject(lines);
-  if (t === undefined) return undefined;
-  const found = JSON.stringify(t.value);
+  const value = singleLineObject(lines[lines.length - 1]);
+  if (value === undefined) return undefined;
+  const found = JSON.stringify(value);
   if (!parseStructuredVerdict(found, allowed)) return undefined;
-  // Conflict guard, for every verdict: any other schema-valid verdict object in the answer BEFORE the chosen one that is
-  // not identical to it (another verdict, e.g. an earlier BLOCK before a final FIX, or other findings) = unclear, so
-  // no blocking finding can get lost. It never looks INSIDE the chosen object (a finding may quote a JSON verdict).
-  // Also an object with a `verdict` key that is not even schema-valid ({"verdict":"BLOCK"}), and another verdict word
-  // of the schema written in the text before (e.g. "BLOCK: …" above a final PASS JSON).
-  const before = lines.slice(0, t.startLine);
-  for (const part of [...before.map((l) => snapshotValue(l)), before.join("\n")]) {
-    for (const c of jsonObjectsIn(part)) {
-      if (verdictOf(c.value) !== undefined && JSON.stringify(c.value) !== found) return undefined;
-    }
-  }
-  if (otherVerdictWord(before.map((l) => snapshotValue(l)).join("\n"), String(verdictOf(t.value)), allowed)) return undefined;
+  const before = lines.slice(0, -1);
+  if (before.some((l) => !SNAPSHOT_ONLY_LINE.test(l) && !UI_BUTTON_LINE.test(l) && !ASSISTANT_HEADING.test(l))) return undefined;
+  // Button names are UI, but none may carry another verdict or a JSON verdict object (no blocking finding gets lost).
+  for (const c of jsonObjectsIn(before.join("\n"))) if (verdictOf(c.value) !== undefined) return undefined;
+  if (otherVerdictWord(before.map((l) => snapshotValue(l)).join("\n"), String(verdictOf(value)), allowed)) return undefined;
   return found;
 }
 
@@ -357,38 +480,53 @@ export class ChatGptWebChecker implements TextAdapter {
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
     const t0 = Date.now();
     const now = this.o.now ?? (() => new Date());
-    const nonce = (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
-    const marker = `${END_WORD}${nonce}`;
-    const full = prompt + answerInstructions(nonce, opts.outputSchema);
     const stamp = now().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
     const shots = path.join(opts.cwd, `shots-gptweb-${stamp}`);
-    const record = (
-      r: Omit<WebCheckRecord, "at" | "requested_model" | "submits">,
-    ): WebCheckRecord => {
-      const rec: WebCheckRecord = {
+    const jdir = opts.journalDir ?? opts.cwd;
+    // The prompt as the reviewer gets it, without the per-send nonce: the key of the journal of sent prompts.
+    const promptSha = createHash("sha256").update(`${prompt}\n${JSON.stringify(opts.outputSchema ?? null)}`).digest("hex");
+    let submits: 0 | 1 = 0;
+    let chatUrl: string | undefined;
+    /**
+     * Writes the record (diagnostics). Codex review kolo 1, nález 6: it is scanned for secrets BEFORE anything is
+     * written; with a hit only the redacted record is written (no value) and the kinds are returned (the caller rejects).
+     */
+    const record = (r: Omit<WebCheckRecord, "at" | "requested_model" | "submits">): string[] => {
+      let rec: WebCheckRecord = {
         at: now().toISOString(),
         requested_model: this.requestedModel,
-        submits: 1,
+        submits,
+        ...(chatUrl ? { chat_url: chatUrl } : {}),
         ...r,
       };
+      const sc = scanSecrets(JSON.stringify(rec));
+      if (!sc.clean) rec = redactDeep(rec);
       this.lastRecord = rec;
       try {
-        fs.writeFileSync(
-          path.join(opts.cwd, `check-gptweb-${stamp}.md`),
-          recordMarkdown(rec),
-        );
+        fs.writeFileSync(path.join(opts.cwd, `check-gptweb-${stamp}.md`), recordMarkdown(rec));
       } catch {
         /* the record is diagnostics; the caller stores the verdict and logs the call */
       }
-      return rec;
+      return sc.kinds;
+    };
+    /** A secret in the answer, the page or the record: rejected (like SecretScanningAdapter), the value never stored. */
+    const rejected = (kinds: string[], actual: string): AdapterResult => {
+      record({
+        status: "WAITING_REVIEW",
+        actual_model: actual,
+        model_matches: false,
+        reason: `secret-scan: ${kinds.join(",")} (hodnota skryta, odpověď se nepoužije)`,
+      });
+      return { ok: false, text: "", limit: false, error: `secret-scan: ${kinds.join(",")}`, duration_ms: Date.now() - t0 };
     };
     const waiting = (reason: string, actual = "neověřeno"): AdapterResult => {
-      record({
+      const kinds = record({
         status: "WAITING_REVIEW",
         actual_model: actual,
         model_matches: false,
         reason,
       });
+      if (kinds.length) return rejected(kinds, actual);
       return {
         ok: false,
         text: "",
@@ -398,20 +536,74 @@ export class ChatGptWebChecker implements TextAdapter {
         duration_ms: Date.now() - t0,
       };
     };
+    // Codex review kolo 1, nález 5: a prompt is sent at most once per order dir. An entry that is not answered yet
+    // means: never send again; open its chat and only read, or wait when there is no chat URL.
+    const journal = readJournal(jdir);
+    if (!journal) return waiting("deník odeslaných promptů nejde přečíst; nový prompt se neposílá");
+    const open = journal.find((e) => e.state !== "answered");
+    if (open && open.prompt_sha256 !== promptSha)
+      return waiting(`v této zakázce čeká odpověď na jiný už odeslaný prompt (sha256 ${String(open.prompt_sha256).slice(0, 12)}…); nový prompt se bez nového kola neposílá`);
+    if (open && !(open.chat_url && CHAT_URL_RE.test(open.chat_url)))
+      return waiting("prompt už byl odeslán (nebo odeslání nejde vyloučit), ale URL chatu chybí; odpověď nejde přečíst a nový prompt se bez nového kola neposílá");
+    const nonce = open?.nonce ?? (this.o.nonce ?? (() => randomBytes(5).toString("hex")))();
+    const marker = `${END_WORD}${nonce}`;
     if (prompt.includes(marker))
       return waiting(
         "prompt už obsahuje koncovou značku (nelze bezpečně číst odpověď)",
       );
+    let entries = journal;
+    const save = (next: SentEntry[]): boolean => {
+      try {
+        writeJournal(jdir, next);
+        entries = next;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const isMine = (e: SentEntry) => e.prompt_sha256 === promptSha && e.state !== "answered";
+    let steps: BrowserStep[];
+    if (open) {
+      chatUrl = open.chat_url;
+      steps = chatGptReadSteps(open.chat_url!, marker, this.o.timeoutMs);
+    } else {
+      // Write-ahead: the entry is durable BEFORE the send, so a crash during the run can never lead to a second send.
+      if (!save([...journal, { prompt_sha256: promptSha, nonce, at: now().toISOString(), state: "sending" }]))
+        return waiting("deník odeslaných promptů nejde zapsat; nic neodesláno");
+      steps = chatGptSteps(prompt + answerInstructions(nonce, opts.outputSchema), marker, this.o.timeoutMs);
+    }
+    let report: SentReport | undefined;
+    /** Records what the gate saw about sending (a read-only run never sends). */
+    const settle = () => {
+      const mine = open ? undefined : entries.find(isMine);
+      if (!mine) return;
+      const others = entries.filter((e) => !isMine(e));
+      if (report?.submitted === false) {
+        save(others); // provably not sent: a later run may send it
+        return;
+      }
+      if (report?.submitted !== true) return; // unknown: stays "sending" (never sent again, waits)
+      submits = 1;
+      chatUrl = report.url && CHAT_URL_RE.test(report.url) ? report.url : undefined;
+      save([...others, { ...mine, state: "sent", ...(chatUrl ? { chat_url: chatUrl } : {}) }]);
+    };
     let page: string;
     try {
-      const r = await this.browser.run(
-        chatGptSteps(full, marker, this.o.timeoutMs),
-        shots,
-      );
+      const r = await this.browser.run(steps, shots, (sent) => {
+        report = sent;
+      });
       page = r.rawReads.at(-1) ?? "";
     } catch (e) {
+      settle();
+      const kinds = redactSecretFiles(shots);
+      if (kinds.length) return rejected(kinds, "neověřeno");
       return waiting(waitReason(e));
     }
+    settle();
+    // Codex review kolo 1, nález 6: a secret anywhere on the page (snapshot) = rejected; the files are redacted.
+    const fileKinds = redactSecretFiles(shots);
+    const pageScan = scanSecrets(page);
+    if (fileKinds.length || !pageScan.clean) return rejected([...new Set([...fileKinds, ...pageScan.kinds])], "neověřeno");
     const seen = detectModel(page);
     const actual = seen.model
       ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
@@ -428,6 +620,11 @@ export class ChatGptWebChecker implements TextAdapter {
           : "odpověď ChatGPT není dokončená nebo konec promptu není na stránce (koncová značka chybí)",
         actual,
       );
+    // Codex review kolo 1, nález 3: nothing of the answer may follow the end marker in the same message.
+    if (!markerEndsAnswer(page, marker)) return waiting("za koncovou značkou následuje další obsah odpovědi (značka není konec odpovědi)", actual);
+    // Codex review kolo 1, nález 1: only the requested Chat model at intensity Vysoká counts; another or unverified
+    // model/intensity = the answer is not used, the order waits (never PASS).
+    if (!matches) return waiting(`model nebo intenzita neodpovídá požadovanému ${this.requestedModel} (stránka: ${actual})`, actual);
     let text: string;
     if (opts.outputSchema) {
       const v = verdictFromAnswer(region, opts.outputSchema);
@@ -435,7 +632,7 @@ export class ChatGptWebChecker implements TextAdapter {
         return waiting(
           LIMIT_PAGE_RE.test(region)
             ? "ChatGPT je na limitu"
-            : "nejasný výsledek: odpověď není JSON podle schématu",
+            : "nejasný výsledek: odpověď není přesně jeden JSON objekt podle schématu na jednom řádku",
           actual,
         );
       text = v;
@@ -443,12 +640,14 @@ export class ChatGptWebChecker implements TextAdapter {
       text = region.slice(-4000).trim();
       if (!text) return waiting("prázdná odpověď", actual);
     }
-    record({
+    const kinds = record({
       status: "ANSWER",
       actual_model: actual,
       model_matches: matches,
       answer: text,
     });
+    if (kinds.length) return rejected(kinds, actual);
+    save(entries.map((e) => (isMine(e) ? { ...e, state: "answered" as const } : e)));
     return { ok: true, text, limit: false, duration_ms: Date.now() - t0 };
   }
 }
