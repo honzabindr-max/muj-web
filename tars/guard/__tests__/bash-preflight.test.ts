@@ -255,6 +255,9 @@ const OWNER_DENY: Array<[string, string]> = [
 const OWNER_ALLOW: Array<[string, string]> = [
   ["cli.ts tick", "npx tsx tars/orch/cli.ts tick"],
   ["cli.ts status", "npx tsx tars/orch/cli.ts status"],
+  // Etapa 5 (P0-a): read-only health projection.
+  ["cli.ts health", "npx tsx tars/orch/cli.ts health"],
+  ["cli.ts health --json", "npx tsx tars/orch/cli.ts health --json"],
   ["cli.ts konzilium", "npx tsx tars/orch/cli.ts konzilium vstup.json"],
   [
     "cli.ts reissue (znovuvydání karty není rozhodnutí vlastníka)",
@@ -306,6 +309,16 @@ describe("bash-preflight: cli.ts owner (DR-039)", () => {
     expect(decide("npx tsx tars/orch/cli.ts reissue x").decision).toBe("allow");
     expect(decide("cli.ts reissue x").decision).toBe("allow");
     const d = decide("npx tsx tars/orch/cli.ts owner x GO");
+    expect(d.decision).toBe("deny");
+    expect(d.reason).toBe(
+      "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)",
+    );
+  });
+
+  it("health je čtení: `cli.ts health` projde, `cli.ts owner` zůstává blokované (P20)", () => {
+    expect(decide("npx tsx tars/orch/cli.ts health").decision).toBe("allow");
+    expect(decide("npx tsx tars/orch/cli.ts health --json").decision).toBe("allow");
+    const d = decide("npx tsx tars/orch/cli.ts owner wo-1 GO");
     expect(d.decision).toBe("deny");
     expect(d.reason).toBe(
       "Agent nikdy nezadává GO ani REJECT za vlastníka (DR-039)",

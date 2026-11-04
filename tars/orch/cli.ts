@@ -1,10 +1,11 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | reissue <order-id> | konzilium <vstup.json> | gpt-smoke | gpt-retry <id> fable|vlastnik <proč>
+// CLI: npx tsx tars/orch/cli.ts tick | status | health [--json] | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | reissue <order-id> | konzilium <vstup.json> | gpt-smoke | gpt-retry <id> fable|vlastnik <proč>
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
+import { auditHealth, collectSnapshot, formatHealth } from "./audit-health";
 import { CardRegistry } from "./cards";
 import { ChatGptWebChecker } from "./chatgpt-web";
 import {
@@ -235,6 +236,19 @@ function build(): Orchestrator {
 
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
+  if (cmd === "health") {
+    // Etapa 5 (P0-a): read-only projection. Handled before `new Store`, which would create runs/ when it is missing.
+    const snap = collectSnapshot(runsDir, {
+      launchd: process.env.TARS_HEALTH_LAUNCHD === "0" ? null : undefined,
+    });
+    const report = auditHealth(snap, Date.now());
+    console.log(
+      args.includes("--json")
+        ? JSON.stringify(report, null, 2)
+        : formatHealth(report),
+    );
+    return;
+  }
   const store = new Store(runsDir);
   switch (cmd) {
     case "tick": {
@@ -458,7 +472,7 @@ async function main() {
     }
     default:
       console.log(
-        "usage: cli.ts tick | status | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>",
+        "usage: cli.ts tick | status | health [--json] | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>",
       );
       process.exitCode = 1;
   }
