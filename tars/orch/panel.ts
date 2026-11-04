@@ -191,11 +191,35 @@ export interface FindRowOptions {
   card?: string;
   /** etapa 3, review kolo 3: neptat se zpožděného hledání (MCP), REST nedostupný → `PanelRowUnclear` */
   consistentOnly?: boolean;
+  /**
+   * Opravný PR „panel“, nález 4: přečíst celý výsledek; víc než jeden odpovídající řádek (stejná zakázka, stejné kolo)
+   * = `PanelRowDuplicate`, nikdy „vezmi první“.
+   */
+  unique?: boolean;
+}
+
+/** Nález 4: konzistentní dotaz našel víc řádků stejné zakázky a kola. Žádný se nepoužije, dokud konflikt nevyřeší Fable. */
+export class PanelRowDuplicate extends Error {
+  constructor(public readonly rows: string[]) {
+    super(`dva nebo víc řádků stejného kola: ${rows.join(", ")}`);
+  }
+}
+
+/**
+ * Opravný PR „panel“, kolo 2: háčky zápisu řádku. `beforeMcpCreate` se zavolá těsně předtím, než vytvoření řádku odejde
+ * přes MCP fallback (claude -p); volající si to durable zaznamená. Výjimka z háčku = přes MCP se nic neodešle.
+ */
+export interface UpsertHooks {
+  beforeMcpCreate?: () => void;
 }
 
 export interface PanelSink {
   /** Creates or updates the row; returns the row page id. Throws on failure. */
-  upsert(row: PanelRow, existingPageId?: string): Promise<string>;
+  upsert(
+    row: PanelRow,
+    existingPageId?: string,
+    hooks?: UpsertHooks,
+  ): Promise<string>;
   /** Raw value of the owner-only select „Rozhodnutí vlastníka“ of a row (undefined = empty). Read-only. */
   readOwnerDecision?(pageId: string): Promise<string | undefined>;
   /** Totéž i se spolehlivostí čtení a odkazem „Karta rozhodnutí“ (Notion REST); potřeba pro GO po znovuvydání karty. */
@@ -434,6 +458,7 @@ export class RestPanelSink implements PanelSink {
       (opts.card === undefined ||
         r.properties?.["Karta rozhodnutí"]?.url === opts.card);
     let cursor: string | undefined;
+    const hits: string[] = [];
     for (let page = 0; page < FIND_MAX_PAGES; page++) {
       const j = await this.api.request<{
         results?: FoundRow[];
@@ -445,9 +470,11 @@ export class RestPanelSink implements PanelSink {
         page_size: 25,
         ...(cursor ? { start_cursor: cursor } : {}),
       });
-      const hit = (j.results ?? []).find(matches);
-      if (hit?.id) return hit.id.replace(/-/g, "");
-      if (!j.has_more) return undefined; // the whole result was read and holds no live row: it does not exist
+      for (const r of (j.results ?? []).filter(matches))
+        hits.push(r.id!.replace(/-/g, ""));
+      if (!opts.unique && hits.length) return hits[0];
+      if (opts.unique && hits.length > 1) throw new PanelRowDuplicate(hits);
+      if (!j.has_more) return hits[0]; // the whole result was read: one live row, or none (it does not exist)
       if (!j.next_cursor) break;
       cursor = j.next_cursor;
     }
@@ -495,7 +522,11 @@ export class RestPanelSink implements PanelSink {
  * answer is unclear. Review kolo 3: undefined here is NOT a proof of absence (the MCP search index lags behind).
  */
 export interface PanelRowLookup {
-  find(orderId: string): Promise<string | undefined>;
+  /** `unique`: víc odpovídajících řádků = `PanelRowDuplicate`, nikdy „vezmi první“ (opravný PR „panel“, kolo 2). */
+  find(
+    orderId: string,
+    opts?: { unique?: boolean },
+  ): Promise<string | undefined>;
 }
 
 const SEARCH_TOOL = "mcp__claude_ai_Notion__notion-search";
@@ -545,7 +576,10 @@ export function fetchedProperties(
 export class McpPanelLookup implements PanelRowLookup {
   constructor(private cwd: string) {}
 
-  async find(orderId: string): Promise<string | undefined> {
+  async find(
+    orderId: string,
+    opts: { unique?: boolean } = {},
+  ): Promise<string | undefined> {
     const input = {
       query: orderId,
       data_source_url: `collection://${PANEL_DATA_SOURCE_ID}`,
@@ -599,6 +633,7 @@ export class McpPanelLookup implements PanelRowLookup {
         "dohledání řádku nelze ověřit (neúplný výsledek hledání)",
       );
     const fetches = calls.filter((c) => c.name === FETCH_TOOL);
+    const hits: string[] = [];
     for (const cand of results) {
       if (
         cand.parent_data_source_url !== undefined &&
@@ -616,9 +651,13 @@ export class McpPanelLookup implements PanelRowLookup {
         );
       if (!fetched.result.includes(`collection://${PANEL_DATA_SOURCE_ID}`))
         continue; // a page outside the panel
-      if (props["ID zakázky"] === orderId) return id;
+      if (props["ID zakázky"] !== orderId) continue;
+      if (!opts.unique) return id;
+      if (!hits.includes(id)) hits.push(id);
     }
-    return undefined;
+    // Opravný PR „panel“, kolo 2 (bod 4): s `unique` se přečte celý výsledek; dva řádky téže zakázky = konflikt (HOLD).
+    if (hits.length > 1) throw new PanelRowDuplicate(hits);
+    return hits[0];
   }
 }
 
@@ -640,7 +679,11 @@ export class HybridPanelSink implements PanelSink {
     private mcpLookup?: PanelRowLookup,
   ) {}
 
-  async upsert(unsafeRow: PanelRow, existingPageId?: string): Promise<string> {
+  async upsert(
+    unsafeRow: PanelRow,
+    existingPageId?: string,
+    hooks?: UpsertHooks,
+  ): Promise<string> {
     const row = redactDeep(unsafeRow); // same row goes to whichever transport is chosen
     try {
       return await this.rest.upsert(row, existingPageId);
@@ -649,6 +692,8 @@ export class HybridPanelSink implements PanelSink {
       if (!isFallbackEligible(e, existingPageId !== undefined)) throw e;
       this.log(`Notion REST: ${redactSecrets(e.message)}, používám fallback`);
     }
+    // Opravný PR „panel“, kolo 2 (bod 4): vytvoření přes MCP se zaznamená dřív, než odejde.
+    if (existingPageId === undefined) hooks?.beforeMcpCreate?.();
     return this.mcp.upsert(row, existingPageId);
   }
 
@@ -683,7 +728,11 @@ export class HybridPanelSink implements PanelSink {
         `Notion REST: ${redactSecrets(e.message)}, dohledávám řádek přes fallback`,
       );
     }
-    const found = await this.mcpLookup.find(orderId);
+    // Opravný PR „panel“, kolo 2 (bod 4): `unique` platí i pro MCP hledání (dva řádky = `PanelRowDuplicate`).
+    const found = await this.mcpLookup.find(
+      orderId,
+      opts.unique ? { unique: true } : {},
+    );
     if (found) return found;
     throw new PanelRowUnclear(
       "řádek panelu nejasný, ruční kontrola: hledání přes MCP nic nenašlo, jeho index může být zpožděný",
@@ -843,10 +892,23 @@ export class PanelIndex {
    * Znovuvydání karty (pod stavovým zámkem): dosavadní řádek se vyřadí a index patří kolu `round`, zatím bez řádku.
    * Nový řádek vznikne až s novou kartou s otiskem (`Orchestrator.syncPanel`).
    */
-  retire(orderId: string, round: number): void {
+  retire(orderId: string, round: number, alsoRow?: string): void {
     this.update((all) => {
       const old = all[orderId];
       const list = supersededOf(all, orderId);
+      // Opravný PR „panel“, kolo 2: `alsoRow` = řádek mimo index (receipt, dohledání), vyřazuje se taky. Idempotentní:
+      // index už patří kolu `round` nebo novějšímu (dokončení po pádu) → jen se doplní `alsoRow`, řádek nového kola zůstává.
+      if (alsoRow && !list.includes(norm(alsoRow))) list.push(norm(alsoRow));
+      if (roundOf(all, orderId) >= round) {
+        if (old && alsoRow && norm(old) === norm(alsoRow)) delete all[orderId];
+        return {
+          write: {
+            ...all,
+            [`${SUPERSEDED_PREFIX}${orderId}`]: JSON.stringify(list),
+          },
+          result: undefined,
+        };
+      }
       if (old && !list.includes(norm(old))) list.push(norm(old));
       delete all[orderId];
       delete all[`${UNCERTAIN_PREFIX}${orderId}`];
@@ -934,8 +996,27 @@ export class PanelIndex {
         return { result: false };
       delete all[`${DIRTY_PREFIX}${orderId}`];
       delete all[`${DIRTY_SEQ_PREFIX}${orderId}`];
+      delete all[`${HOLD_PREFIX}${orderId}`];
       return { write: all, result: true };
     });
+  }
+  /**
+   * Opravný PR „panel“, nález 2: zápis řádku skončil HOLD (řádek nejasný). Značka dirty ZŮSTANE (nastaví se, chyběla-li)
+   * a zapamatuje se čas HOLD: `catchUpPanel` dohledá zakázku znovu až s odstupem. Smaže se jen s dirty (`clearDirty`).
+   */
+  markHold(orderId: string, atMs: number): void {
+    this.markDirty(orderId);
+    this.update((all) => ({
+      write: { ...all, [`${HOLD_PREFIX}${orderId}`]: String(atMs) },
+      result: undefined,
+    }));
+  }
+  /** Čas posledního HOLD řádku zakázky (ms), undefined = zakázka není v HOLD. */
+  heldAt(orderId: string): number | undefined {
+    const raw = this.read()[`${HOLD_PREFIX}${orderId}`];
+    if (raw === undefined) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0; // nečitelný čas = odstup uplynul, dohledá se hned
   }
   /**
    * Review kolo 2: a monotonic sequence of row writes of an order, taken right before the write is sent (send order,
@@ -999,6 +1080,7 @@ function roundOf(all: Record<string, string>, orderId: string): number {
 }
 const DIRTY_PREFIX = "dirty:";
 const DIRTY_SEQ_PREFIX = "dirtyseq:";
+const HOLD_PREFIX = "hold:";
 const SEQ_PREFIX = "writeseq:";
 const seqOf = (all: Record<string, string>, key: string): number => {
   const n = Number(all[key]);

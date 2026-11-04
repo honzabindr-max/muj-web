@@ -27,14 +27,17 @@ import {
   operationId,
   titleWithMarker,
   type EffectLookup,
+  type EffectRecord,
 } from "./effects";
 import { isUncertainOutcome, NotionRestError, pageIdFromUrl } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import {
   panelRow,
+  PanelRowDuplicate,
   PanelRowUnclear,
   supersededRow,
   type IndexSetResult,
+  type OwnerRow,
   type PanelIndex,
   type PanelRow,
   type PanelSink,
@@ -69,6 +72,26 @@ import {
 import { callChecker } from "./departments";
 import type { Department, LogEntry, Order } from "./types";
 
+/** Odkud zápis řádku zná jeho ID (opravný PR „panel“, kolo 2, bod 1). */
+type RowSource = "index" | "receipt" | "lookup";
+
+/** Výsledek kontroly řádku před zápisem (`Orchestrator.vetRow`). */
+type RowVet =
+  | {
+      kind: "ok";
+      /** řádek, jak byl přečten před zápisem */
+      row: OwnerRow;
+      /** odkaz karty řádku je prokazatelně aktuální: poslední zápis nesl aktuální kartu, nebo řádek je bez rozhodnutí */
+      proven: boolean;
+    }
+  | { kind: "invalidated" }
+  | { kind: "stop" };
+
+/** Journal efektů: vyřazení řádku panelu a založení nového kola řádku (`<id>/row-invalidate/r<kolo>`). */
+const ROW_INVALIDATE = "row-invalidate";
+
+const normPage = (id: string) => id.replace(/-/g, "");
+
 export interface OrchestratorDeps {
   store: Store;
   supervisor: TextAdapter;
@@ -98,7 +121,20 @@ export interface OrchestratorDeps {
   stateLockWaitMs?: number;
   /** How long a panel write, reissue or decision poll waits for the order's panel lock (default 30000 ms), then HOLD. */
   panelLockWaitMs?: number;
+  /**
+   * Opravný PR „panel“, nález 4: ochranná doba po vytvoření řádku s nejasným výsledkem (timeout, síťová chyba). Do jejího
+   * uplynutí (od posledního záznamu operace v journalu) se pro stejnou operaci nepošle další POST, i když konzistentní
+   * dohledání řádek ještě nevidí (server může POST pořád zpracovávat). Výchozí 10 minut.
+   */
+  panelCreateGuardMs?: number;
+  /** Nález 2: s jakým odstupem `catchUpPanel` znovu dohledává řádek zakázky v HOLD (výchozí 10 minut). */
+  panelHoldRetryMs?: number;
 }
+
+/** Výchozí ochranná doba po nejasném POST nového řádku (nález 4). */
+export const PANEL_CREATE_GUARD_MS = 10 * 60_000;
+/** Výchozí odstup dalšího dohledání řádku v HOLD (nález 2). */
+export const PANEL_HOLD_RETRY_MS = 10 * 60_000;
 
 export type TickResult =
   | { status: "guard_alarm"; summary: string }
@@ -128,6 +164,21 @@ class DeliverFailure extends Error {
 
 /** Review kolo 1: the order's row may exist (create of unclear outcome) and cannot be looked up: no write at all. */
 class PanelRowHold extends Error {}
+
+/**
+ * Nález 4: dřívější vytvoření řádku má nejasný výsledek a ochranná doba ještě neuplynula. Žádný POST, žádný HOLD:
+ * značka dirty zůstane a další tick dohledá znovu.
+ */
+class PanelRowGuardWait extends Error {}
+
+/**
+ * Kolo 3, bod 2: REST vytvoření řádku čistě odmítl a záznam transportu MCP do journalu se nepodařil (zámek `.state.lock`
+ * nezískán, fence neplatí). MCP se proto vůbec nezavolá: žádné vytvoření neproběhlo, výsledek je prokazatelně bez efektu.
+ */
+class McpCreateNotSent extends Error {}
+
+/** Kolo 3, bod 1: meta pole s rozhodnutím vlastníka; po vyřazení řádku se do nového kola nepřenášejí. */
+const OWNER_DECISION_META = ["owner_go", "owner_go_source", "owner_option"];
 
 /** Wraps any adapter: output containing a secret is dropped, never stored (§6). */
 export class SecretScanningAdapter implements TextAdapter {
@@ -304,10 +355,14 @@ export class Orchestrator {
   ): Promise<void> {
     const panel = this.d.panel!;
     // Kolo karty až pod zámkem panelu, těsně před zápisem (ne snímek z doby, kdy byl zápis zařazen).
-    const snap = this.fenced(lease, () => ({
-      latest: this.tryLoad(snapshot.id),
-      indexRound: panel.index.round(snapshot.id),
-    }));
+    const snap = this.fenced(lease, () => {
+      // Kolo 2, bod 2: nedokončené vyřazení řádku (pád uprostřed) se dokončí dřív, než se řádek hledá nebo zapisuje.
+      this.finishInvalidations(snapshot.id);
+      return {
+        latest: this.tryLoad(snapshot.id),
+        indexRound: panel.index.round(snapshot.id),
+      };
+    });
     const reissued =
       reissueRound(snap.latest ?? snapshot) > 0 || snap.indexRound > 0;
     // Znovuvydaná zakázka píše vždy aktuální stav; kolo 0 jako dřív (snímek přechodu, `fresh` = aktuální stav).
@@ -333,6 +388,9 @@ export class Orchestrator {
         panel.index.clearDirty(o.id);
         return;
       }
+      // Kolo 2, bod 1: odkud je ID řádku. Index, receipt z journalu i dohledání podle „ID zakázky“ pak projdou STEJNOU
+      // kontrolou karty a rozhodnutí (`vetRow`); žádná cesta ji neobejde.
+      let source: RowSource = "index";
       if (!existing) {
         const found = await this.resolvePanelRow(
           o.id,
@@ -340,26 +398,113 @@ export class Orchestrator {
           lease,
           reissued ? { round, card } : { round: 0 },
         );
-        existing = found?.id;
-        // Oprava po review sloučení: dohledaný řádek nikdy nezapíše `lastWrite.card = null` před následným PATCH.
-        // - Řádek dohledaný podle odkazu na aktuální kartu (čtením ověřeno, že ji nese): zápis se zaznamená rovnou
-        //   s touto kartou, takže selhání následného PATCH (např. 409) na přijetí rozhodnutí nic nemění.
-        // - Jinak (receipt z journalu, kolo 0): jen index, záznam zápisu až po úspěšném PATCH níže. Při chybě zůstane
-        //   řádek dirty a poll čeká (netaintuje), další úspěšná synchronizace záznam doplní.
-        if (
-          found &&
-          this.setIndex(lease, o.id, found.id, round, found.card) !== "ok"
-        )
-          return;
+        if (found) {
+          existing = found.id;
+          source = found.source;
+        }
       }
-      if (!existing) {
-        // durable BEFORE the create: a crash after it is found by the lookup above
-        this.fenced(lease, () => this.effects.prepare(op));
-        creating = true;
+      // Opravný PR „panel“, nález 3 + kolo 2, bod 1: řádek znovuvydané zakázky ve WAITING_OWNER s kartou se před PATCH
+      // přečte. Jiná karta v řádku, znehodnocený řádek, nebo rozhodnutí v řádku, jehož odkaz karty nebyl od vydání
+      // aktuální karty prokazatelně aktuální (receipt, dohledání, chybějící záznam zápisu) → řádek se vyřadí a zakázka
+      // dostane nový řádek (`invalidateRow`). PATCH tedy nikdy neopraví odkaz v řádku, kde mohlo vzniknout rozhodnutí
+      // nad jinou kartou.
+      const vetted =
+        existing &&
+        reissued &&
+        card &&
+        o.state === "WAITING_OWNER" &&
+        panel.sink.readOwnerRow
+          ? await this.vetRow(o.id, round, card, existing, source, lease)
+          : undefined;
+      if (vetted?.kind === "invalidated")
+        return await this.writePanel(
+          this.d.store.load(o.id),
+          { fresh: true },
+          lease,
+          t0,
+        );
+      if (vetted?.kind === "stop") {
+        panel.index.markDirty(o.id);
+        return;
       }
+      // Řádek z receiptu nebo z dohledání: do indexu (bez záznamu zápisu; ten vznikne až po ověřeném PATCH níže).
+      if (
+        existing &&
+        source !== "index" &&
+        this.setIndex(lease, o.id, existing, round, undefined) !== "ok"
+      )
+        return;
       // Review kolo 2: send order of this write; a late answer of an older or concurrent write never clears dirty.
-      const seq = panel.index.beginWrite(o.id);
-      const id = await this.writeRow(lease, row, existing);
+      let seq: number;
+      let id: string;
+      if (!existing) {
+        // durable BEFORE the create: a crash after it is found by the lookup above.
+        // Opravný PR „panel“, nález 1: sekvence zápisu, poslední kontrola fence a PREPARED v JEDNOM kroku pod
+        // `.state.lock`, hned za ním POST bez dalšího zámku. Nezíská-li se zámek (timeout 5 s) nebo neplatí fence, PREPARED
+        // nevznikne a `creating` zůstane false: prokazatelně nic neodešlo, další tick řádek normálně vytvoří (žádný HOLD).
+        seq = this.fenced(lease, () => {
+          const s = panel.index.beginWrite(o.id);
+          this.effects.prepare(op);
+          return s;
+        });
+        creating = true;
+        // Kolo 2, bod 3: vytvoření přes MCP fallback se v journalu označí dřív, než odejde (obnova pak bez
+        // konzistentního REST dohledání končí HOLD, nikdy dalším POST).
+        // Kolo 3, bod 2: nejde-li záznam zapsat (zámek, fence), MCP se nezavolá a chyba nese „nic neodešlo“
+        // (`McpCreateNotSent` → EFFECT_ABSENT níže), nikdy nejistý výsledek.
+        id = await panel.sink.upsert(row, undefined, {
+          beforeMcpCreate: () => {
+            try {
+              this.fenced(lease, () => this.effects.markTransport(op, "mcp"));
+            } catch (err) {
+              // Kolo 4: důkaz „pokus nic neodeslal“ trvale na disk (bez `.state.lock`), aby ho převzala i další
+              // instance (nový `panel-sync`), když ani EFFECT_ABSENT níže nezíská zámek.
+              try {
+                const attempts = this.effects.get(op)?.attempts;
+                if (attempts !== undefined)
+                  this.effects.recordNotSent(op, attempts);
+              } catch {
+                /* bez trvalého důkazu zůstane PREPARED: nejhůř HOLD, nikdy dvojí vytvoření */
+              }
+              throw new McpCreateNotSent(
+                `REST vytvoření odmítl a záznam transportu MCP do journalu se nepodařil (${String((err as Error)?.message ?? err).slice(0, 200)}); MCP vytvoření neodešlo`,
+              );
+            }
+          },
+        });
+      } else if (vetted?.kind === "ok") {
+        ({ id, seq } = await this.vettedPatch(
+          o.id,
+          round,
+          card!,
+          row,
+          existing,
+          vetted,
+          lease,
+        ));
+        const after = await this.recheckAfterPatch(
+          o.id,
+          round,
+          card!,
+          existing,
+          vetted.row,
+          lease,
+        );
+        if (after === "invalidated")
+          return await this.writePanel(
+            this.d.store.load(o.id),
+            { fresh: true },
+            lease,
+            t0,
+          );
+        if (after === "stop") {
+          panel.index.markDirty(o.id);
+          return;
+        }
+      } else {
+        seq = panel.index.beginWrite(o.id);
+        id = await this.writeRow(lease, row, existing);
+      }
       if (creating)
         this.fenced(lease, () =>
           this.effects.done(op, { url: `https://www.notion.so/${id}` }),
@@ -397,10 +542,30 @@ export class Orchestrator {
       }
       await this.pingOwner(o, id);
     } catch (e) {
-      if (e instanceof PanelRowHold) {
-        // Nothing to catch up: any create could duplicate the row. Logged once; the next transition logs again.
+      if (e instanceof PanelRowGuardWait) {
+        // Nález 4: ochranná doba po nejasném POST; žádný druhý POST, značka zůstává, další tick dohledá znovu.
         try {
-          panel.index.clearDirty(o.id);
+          panel.index.markDirty(o.id);
+        } catch {
+          /* ignore */
+        }
+        this.logOnce({
+          order: o.id,
+          kind: "info",
+          role: "transport",
+          result: `panel: čekám na ochrannou dobu po nejasném vytvoření řádku, druhý POST se neposílá (${op})`,
+          reason: e.message.slice(0, 300),
+        });
+        return;
+      }
+      if (e instanceof PanelRowHold) {
+        // Opravný PR „panel“, nález 2: HOLD značku pro pozdější dorovnání nemaže. S dohledáním (REST/MCP) ji `catchUpPanel`
+        // s odstupem zkusí znovu: jakmile index MCP řádek zpřístupní (nebo REST potvrdí neexistenci), řádek se dorovná.
+        // Bez dohledání (sink bez findRowByOrderId) by žádné další kolo nic nevyřešilo: značka se smaže jako dřív.
+        try {
+          if (panel.sink.findRowByOrderId)
+            panel.index.markHold(o.id, this.now().getTime());
+          else panel.index.clearDirty(o.id);
         } catch {
           /* ignore */
         }
@@ -413,28 +578,34 @@ export class Orchestrator {
         });
         return;
       }
+      // Kolo 3, bod 2: MCP vytvoření neodešlo (REST čistě odmítl, záznam transportu se nezapsal) = jistě bez efektu.
+      const notSent = e instanceof McpCreateNotSent;
+      const unsure = !notSent && isUncertainOutcome(e);
       try {
         // PR #99: journal a značky jen s platným fence (jinak je zapíše až platný držitel zámku panelu).
         this.fenced(lease, () => {
           if (creating) {
             // Clean refusal → certainly no row; anything else may have created one: stays PREPARED, looked up first next time.
             // A stale fence (PanelLockHoldError) sent nothing, but the record stays PREPARED: the next attempt looks up first.
-            if (isUncertainOutcome(e) || e instanceof PanelLockHoldError)
+            if (unsure || e instanceof PanelLockHoldError)
               this.effects.note(op, (e as Error).message ?? String(e));
-            else this.effects.absent(op, (e as Error).message ?? String(e));
+            else {
+              this.effects.absent(op, (e as Error).message ?? String(e));
+              this.effects.clearNotSent(op);
+            }
           }
           // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
-          if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e))
+          if (creating && panel.sink.findRowByOrderId && unsure)
             panel.index.markUncertain(o.id);
         });
       } catch {
-        /* fence neplatí nebo journal nezapisovatelný */
+        /* fence neplatí nebo journal nezapisovatelný (u `notSent` doplní EFFECT_ABSENT další zápis z `.not-sent`) */
       }
       try {
         // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
         // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
         // exist, so the operation stays PREPARED and every later sync of this order is a HOLD (`resolvePanelRow`).
-        if (!creating || !isUncertainOutcome(e) || panel.sink.findRowByOrderId)
+        if (!creating || !unsure || panel.sink.findRowByOrderId)
           panel.index.markDirty(o.id);
         else panel.index.clearDirty(o.id);
       } catch {
@@ -479,6 +650,128 @@ export class Orchestrator {
   ): Promise<string> {
     this.fenced(lease, () => undefined);
     return this.d.panel!.sink.upsert(row, page);
+  }
+
+  /**
+   * Opravný PR „panel“, kolo 2, bod 1: jedna kontrola řádku znovuvydané zakázky ve WAITING_OWNER před zápisem, pro
+   * každou cestu k ID řádku (index, receipt z journalu, dohledání). Řádek se přečte (REST) a vyřadí (`invalidateRow`:
+   * znehodnotit, nové kolo řádku, starý SUPERSEDED), když:
+   *  - je znehodnocený, nebo ukazuje jinou kartu než aktuální kartu s otiskem,
+   *  - nese rozhodnutí, ale jeho odkaz karty nebyl od vydání aktuální karty prokazatelně aktuální. Prokázané je to jen
+   *    záznamem posledního zápisu pod zámkem panelu do tohoto řádku, v tomto kole, s aktuální kartou (`lastWrite`), a ten
+   *    má jen řádek z indexu. Řádek z receiptu nebo z dohledání s rozhodnutím se tedy vždy vyřadí.
+   * Selhání čtení vyhodí výjimku: nic se nezapíše, řádek zůstane dirty.
+   */
+  private async vetRow(
+    id: string,
+    round: number,
+    card: string,
+    pageId: string,
+    source: RowSource,
+    lease: PanelLease,
+  ): Promise<RowVet> {
+    const panel = this.d.panel!;
+    const seen = await panel.sink.readOwnerRow!(pageId);
+    const norm = normPage(pageId);
+    const { last, tainted } = this.fenced(lease, () => ({
+      last: source === "index" ? panel.index.lastWrite(id) : undefined,
+      tainted: panel.index.tainted(id).includes(norm),
+    }));
+    const lastOk =
+      last !== undefined &&
+      last.row === norm &&
+      last.round === round &&
+      last.card === card;
+    const why = tainted
+      ? "řádek je znehodnocený"
+      : seen.readable === true && seen.card !== card
+        ? `řádek ukazuje jinou kartu (${String(seen.card ?? "nic").slice(0, 80)})`
+        : seen.decision && !lastOk
+          ? `rozhodnutí ${seen.decision} v řádku, jehož odkaz karty nebyl od vydání aktuální karty prokazatelně aktuální (řádek z ${source === "index" ? "indexu bez záznamu zápisu aktuální karty" : source === "receipt" ? "receiptu journalu" : "dohledání"})`
+          : undefined;
+    if (!why)
+      return {
+        kind: "ok",
+        row: seen,
+        proven: seen.readable === true && (lastOk || !seen.decision),
+      };
+    const moved = this.fenced(lease, () =>
+      this.invalidateRow(id, round, pageId, `před zápisem: ${why}`),
+    );
+    return moved ? { kind: "invalidated" } : { kind: "stop" };
+  }
+
+  /**
+   * PATCH prověřeného řádku (kolo 2, bod 1). Před odesláním se záznam posledního zápisu nastaví na „zápis běží, karta
+   * neprokázaná“ (`card: null`): pád nebo nejasný výsledek PATCH tak nikdy nenechá platit starý důkaz přes okno, ve
+   * kterém mohl PATCH přepsat cizí kartu. Čisté odmítnutí (nic se nezapsalo) vrátí důkaz z kontroly před zápisem.
+   */
+  private async vettedPatch(
+    id: string,
+    round: number,
+    card: string,
+    row: PanelRow,
+    pageId: string,
+    vetted: Extract<RowVet, { kind: "ok" }>,
+    lease: PanelLease,
+  ): Promise<{ id: string; seq: number }> {
+    const panel = this.d.panel!;
+    const seq = this.fenced(lease, () => {
+      const s = panel.index.beginWrite(id);
+      panel.index.recordWrite(id, {
+        row: pageId,
+        round,
+        card: null,
+        fence: lease.fence,
+      });
+      return s;
+    });
+    try {
+      return { id: await this.writeRow(lease, row, pageId), seq };
+    } catch (e) {
+      if (vetted.proven && !isUncertainOutcome(e))
+        try {
+          this.fenced(lease, () =>
+            panel.index.recordWrite(id, {
+              row: pageId,
+              round,
+              card,
+              fence: lease.fence,
+            }),
+          );
+        } catch {
+          /* záznam zůstane „neprokázaný“: poll čeká, další zápis prověří znovu */
+        }
+      throw e;
+    }
+  }
+
+  /**
+   * Kolo 2, bod 1 (okno mezi čtením a PATCH): po PATCH se řádek přečte znovu. Ukazuje-li jinou kartu (cizí zápis po
+   * PATCH), nebo se rozhodnutí změnilo proti čtení před zápisem (mohlo vzniknout nad cizí kartou, kterou PATCH právě
+   * přepsal), řádek se vyřadí. Teprve pak smí volající zaznamenat zápis s aktuální kartou. Selhání čtení vyhodí výjimku
+   * (záznam zápisu zůstane „neprokázaný“).
+   */
+  private async recheckAfterPatch(
+    id: string,
+    round: number,
+    card: string,
+    pageId: string,
+    before: OwnerRow,
+    lease: PanelLease,
+  ): Promise<"ok" | "invalidated" | "stop"> {
+    const after = await this.d.panel!.sink.readOwnerRow!(pageId);
+    const why =
+      after.readable === true && after.card !== card
+        ? `po zápisu řádek ukazuje jinou kartu (${String(after.card ?? "nic").slice(0, 80)})`
+        : after.decision && after.decision !== before.decision
+          ? `rozhodnutí ${after.decision} vzniklo v okně zápisu řádku (před zápisem ${before.decision ?? "prázdné"}); nad jakou kartou, nelze prokázat`
+          : undefined;
+    if (!why) return "ok";
+    const moved = this.fenced(lease, () =>
+      this.invalidateRow(id, round, pageId, why),
+    );
+    return moved ? "invalidated" : "stop";
   }
 
   /**
@@ -606,12 +899,31 @@ export class Orchestrator {
     op: string,
     lease: PanelLease,
     sel: { round: number; card?: string },
-  ): Promise<{ id: string; card: string | undefined } | undefined> {
+  ): Promise<{ id: string; source: "receipt" | "lookup" } | undefined> {
     const panel = this.d.panel!;
-    const prev = this.effects.get(op);
+    let prev = this.effects.get(op);
+    // Kolo 3, bod 2 + kolo 4: trvale doloženo (`.not-sent`, i z jiné instance / procesu), že pokus nic nevytvořil (MCP
+    // neodešlo), jen EFFECT_ABSENT nešlo zapsat. Doplní se teď, s platným fence a jen pro tentýž pokus (stejné
+    // `attempts`, bez záznamu transportu MCP); jinak je důkaz zastaralý a smaže se bez účinku.
+    const proven = this.effects.notSentAttempt(op);
+    if (proven !== undefined) {
+      prev = this.fenced(lease, () => {
+        const cur = this.effects.get(op);
+        const r =
+          cur?.state === "PREPARED" && !cur.transport && cur.attempts === proven
+            ? this.effects.absent(
+                op,
+                "REST vytvoření odmítl a MCP vytvoření neodešlo (záznam transportu se nezapsal); doplněno později",
+              )
+            : cur;
+        this.effects.clearNotSent(op);
+        return r;
+      });
+    }
     if (prev?.state === "EFFECT_DONE" && prev.receipt) {
       const id = pageIdFromUrl(prev.receipt.url);
-      if (id) return { id, card: undefined }; // karta řádku nečtena
+      // Kolo 2, bod 1: karta řádku z receiptu nečtena; volající ho prověří stejně jako řádek z indexu (`vetRow`).
+      if (id) return { id, source: "receipt" };
     }
     if (panel.sink.findRowByOrderId) {
       // Review kolo 3: nothing of unclear outcome was ever sent for this row (no PREPARED / UNKNOWN, no uncertain mark):
@@ -620,22 +932,54 @@ export class Orchestrator {
       const newRow =
         (!prev || prev.state === "EFFECT_ABSENT") &&
         !panel.index.isUncertain(orderId);
+      // Kolo 2, bod 3: vytvoření řádku odešlo přes MCP fallback a jeho výsledek není znám. Platí jen konzistentní REST
+      // dohledání; když REST odpovědět nemůže, HOLD s logem (nikdy MCP hledání se zpožděným indexem, nikdy další POST).
+      const viaMcp =
+        prev?.transport === "mcp" &&
+        (prev.state === "PREPARED" || prev.state === "EFFECT_UNKNOWN");
+      // Kolo 2: vyřazené i znehodnocené řádky se nikdy nevezmou (ani po pádu uprostřed vyřazení).
       const exclude =
         sel.round > 0
-          ? this.fenced(lease, () => panel.index.superseded(orderId))
+          ? this.fenced(lease, () => [
+              ...new Set([
+                ...panel.index.superseded(orderId),
+                ...panel.index.tainted(orderId),
+              ]),
+            ])
           : undefined;
       let found: string | undefined;
       try {
         found = await panel.sink.findRowByOrderId(orderId, {
-          consistentOnly: newRow,
+          consistentOnly: newRow || viaMcp,
+          // Nález 4: dva řádky stejné zakázky a kola = konflikt (HOLD), nikdy „vezmi první“.
+          unique: true,
           ...(exclude ? { exclude } : {}),
           ...(sel.round > 0 && sel.card !== undefined
             ? { card: sel.card }
             : {}),
         });
       } catch (e) {
+        if (e instanceof PanelRowDuplicate) {
+          this.log({
+            order: orderId,
+            kind: "error",
+            role: "transport",
+            result: `panel HOLD: dva řádky stejného kola ${sel.round} (${e.rows.join(", ")}), žádný se nepoužije, konflikt řeší Fable (${op})`,
+          });
+          throw new PanelRowHold(
+            `dva řádky stejného kola ${sel.round}: ${e.rows.join(", ")}, konflikt řeší Fable (${op})`,
+          );
+        }
         if (!(e instanceof PanelRowUnclear)) throw e;
         if (newRow) return undefined; // nothing sent before: create it
+        if (viaMcp)
+          this.log({
+            order: orderId,
+            kind: "error",
+            role: "transport",
+            result: `panel HOLD: vytvoření řádku odešlo přes MCP fallback s nejasným výsledkem a konzistentní REST dohledání není k dispozici; další POST se neposílá (${op})`,
+            reason: e.message.slice(0, 300),
+          });
         if (prev?.state === "PREPARED")
           this.fenced(lease, () => this.effects.unknown(op, e.message));
         throw new PanelRowHold(
@@ -658,12 +1002,23 @@ export class Orchestrator {
             role: "transport",
             result: `panel: řádek nalezen podle ID zakázky, druhý se nevytváří (${op})`,
           });
-        // Dohledání s `card` vrací jen řádek, jehož odkaz „Karta rozhodnutí“ je tato karta (REST čtení; přes MCP to
-        // ověřit nejde a dohledání s `card` tam končí `PanelRowUnclear`): karta řádku je tím ověřená.
-        return {
-          id: found,
-          card: sel.round > 0 && sel.card !== undefined ? sel.card : undefined,
-        };
+        // Kolo 2, bod 1: dohledání s `card` ukazuje jen stav v okamžiku dotazu, ne historii řádku; volající ho prověří
+        // stejně jako řádek z indexu (`vetRow`).
+        return { id: found, source: "lookup" };
+      }
+      // Opravný PR „panel“, nález 4: konzistentní dotaz řádek nevidí, ale dřívější POST má nejasný výsledek (timeout,
+      // síťová chyba) a server ho může pořád zpracovávat. Neexistence platí až po ochranné době od posledního záznamu
+      // operace; do té doby žádný další POST (`PanelRowGuardWait`, značka dirty zůstává).
+      if (!newRow) {
+        const guardMs = this.d.panelCreateGuardMs ?? PANEL_CREATE_GUARD_MS;
+        const since = prev ? Date.parse(prev.updated_at) : NaN;
+        const left = Number.isFinite(since)
+          ? since + guardMs - this.now().getTime()
+          : 0;
+        if (left > 0)
+          throw new PanelRowGuardWait(
+            `konzistentní dohledání řádek zatím nevidí, POST z ${prev!.updated_at} mohl ještě doběhnout; další pokus nejdřív za ${Math.ceil(left / 1000)} s (${op})`,
+          );
       }
       this.fenced(lease, () => {
         if (prev && prev.state !== "EFFECT_ABSENT")
@@ -716,6 +1071,7 @@ export class Orchestrator {
       });
       return Promise.resolve();
     }
+    const retryMs = this.d.panelHoldRetryMs ?? PANEL_HOLD_RETRY_MS;
     for (const id of dirty) {
       let o: Order;
       try {
@@ -724,6 +1080,15 @@ export class Orchestrator {
         panel.index.clearDirty(id); // the order no longer exists locally: nothing to project
         continue;
       }
+      // Opravný PR „panel“, nález 2: zakázka v HOLD panelu zůstává mezi dirty; dohledá se znovu až s odstupem.
+      let heldAt: number | undefined;
+      try {
+        heldAt = panel.index.heldAt(id);
+      } catch {
+        heldAt = undefined;
+      }
+      if (heldAt !== undefined && this.now().getTime() - heldAt < retryMs)
+        continue;
       this.log({
         order: id,
         kind: "info",
@@ -1125,8 +1490,14 @@ export class Orchestrator {
         });
       return;
     }
-    for (const waiting of waitingOrders) {
+    for (const listed of waitingOrders) {
       try {
+        // Kolo 2, bod 2: nedokončené vyřazení řádku (pád uprostřed) se dokončí dřív, než se určí kolo a řádek.
+        await this.panelLock(listed.id, async (lease) =>
+          this.fenced(lease, () => this.finishInvalidations(listed.id)),
+        );
+        const waiting = this.d.store.load(listed.id);
+        if (waiting.state !== "WAITING_OWNER") continue;
         // Jen řádek aktuálního kola karty (po znovuvydání nový řádek; vyřazený řádek se nikdy nečte).
         const round = reissueRound(waiting);
         // Every earlier write of this row failed (or its outcome is unknown): sync it now, otherwise the tap could never be read.
@@ -1166,7 +1537,7 @@ export class Orchestrator {
         if (resync) await this.resyncPanel(waiting.id);
       } catch (e) {
         this.log({
-          order: waiting.id,
+          order: listed.id,
           kind: "error",
           role: "transport",
           result: "owner decision read failed",
@@ -1219,9 +1590,30 @@ export class Orchestrator {
           : undefined;
       const cardDiffers =
         row.readable === true && card !== undefined && row.card !== card;
-      if (cardDiffers) resync = true; // odkaz se opraví i bez rozhodnutí
       const value = row.decision ?? "";
       const ev = ownerEventFor(value || undefined);
+      if (cardDiffers) {
+        // Opravný PR „panel“, nález 3: řádek ukazuje jinou kartu. Pouhá oprava odkazu by zachovala rozhodnutí vybrané
+        // nad starou kartou (teď, nebo v okně do opravy) a další poll by ho přijal. Proto i bez rozhodnutí: řádek je
+        // neplatný pro rozhodnutí, zakázka dostane nové kolo řádku (nový řádek s prázdným rozhodnutím), starý SUPERSEDED.
+        resync = true;
+        this.invalidateRow(
+          fresh.id,
+          round,
+          pageId,
+          `odkaz „Karta rozhodnutí“ v řádku není aktuální karta s otiskem (v řádku ${String(row.card ?? "nic").slice(0, 80)}${ev ? `, Notion ${value}` : ""})`,
+        );
+        if (ev)
+          this.logOnce({
+            order: fresh.id,
+            kind: "info",
+            role: "orchestrator",
+            result: `${ev.decision} nepřijato (Notion ${value}): čeká na rozhodnutí na nové kartě`,
+            reason:
+              "řádek panelu ukazoval jinou kartu; rozhodnout se musí na novém řádku aktuální karty",
+          });
+        return;
+      }
       if (!ev) return;
       const wait = (reason: string) =>
         this.logOnce({
@@ -1267,19 +1659,24 @@ export class Orchestrator {
           "záznam posledního zápisu řádku pod zámkem panelu nenese aktuální kartu; řádek se dorovná, rozhodnutí se přijme po úspěšném zápisu",
         );
       }
-      if (cardDiffers || !lastOk) {
+      if (!lastOk) {
         // Vlastník mohl rozhodovat nad jinou kartou, než jakou do řádku naposledy zapsal držitel zámku: nikdy nepřijmout.
-        panel.index.taint(fresh.id, pageId);
-        resync = true;
+        // Nález 3: stejně jako u jiné karty v řádku nové kolo řádku (nový řádek, starý SUPERSEDED).
         this.log({
           order: fresh.id,
           kind: "error",
           role: "orchestrator",
-          result: cardDiffers
-            ? "odkaz „Karta rozhodnutí“ v řádku není aktuální karta s otiskem, řádek se přepíše; rozhodnutí z řádku se nepřijme (HOLD)"
-            : "poslední zápis řádku pod zámkem panelu nenesl aktuální kartu; rozhodnutí z řádku se nepřijme (HOLD)",
+          result:
+            "poslední zápis řádku pod zámkem panelu nenesl aktuální kartu; rozhodnutí z řádku se nepřijme (HOLD)",
           reason: `v řádku ${String(row.card ?? "nic").slice(0, 80)}; poslední zápis ${last ? `${last.row} kolo ${last.round} fence ${last.fence}` : "žádný"}`,
         });
+        this.invalidateRow(
+          fresh.id,
+          round,
+          pageId,
+          "poslední zápis řádku pod zámkem panelu nenesl aktuální kartu",
+        );
+        resync = true;
         return wait(
           "řádek panelu ukazoval jinou kartu; rozhodnout se musí na aktuální kartě",
         );
@@ -1287,6 +1684,124 @@ export class Orchestrator {
       this.acceptOwner(fresh, ev, `Notion ${value}`);
     });
     return resync;
+  }
+
+  /**
+   * Opravný PR „panel“, nález 3 (volat pod `.state.lock` s platným fence zámku panelu). Řádek `pageId` je neplatný pro
+   * rozhodnutí: znehodnotí se (`taint`, jeho rozhodnutí se nikdy nepřijme) a zakázka ve WAITING_OWNER dostane nové kolo
+   * řádku stejným mechanismem jako znovuvydání karty: `meta.reissue_round` + 1 (karta s otiskem zůstává), index vyřadí
+   * řádek (`retire`), další zápis vytvoří nový řádek s prázdným rozhodnutím a starý označí SUPERSEDED. „Rozhodnutí
+   * vlastníka“ se nezapisuje (P20). Vrací true, když nové kolo vzniklo.
+   */
+  private invalidateRow(
+    id: string,
+    round: number,
+    pageId: string,
+    reason: string,
+  ): boolean {
+    const panel = this.d.panel!;
+    panel.index.taint(id, pageId);
+    const fresh = this.d.store.load(id);
+    if (fresh.state !== "WAITING_OWNER" || reissueRound(fresh) !== round)
+      return false;
+    // Kolo 2, bod 1: i řádek mimo index (receipt, dohledání); index ale nesmí v tomto kole držet JINÝ řádek.
+    const cur = panel.index.current(id, round);
+    if (cur && normPage(cur) !== normPage(pageId)) return false;
+    // Kolo 2, bod 2: záměr (který řádek, které kolo) durable v journalu PŘED změnou stavu a indexu. Pád kdekoli potom
+    // dokončí `finishInvalidations` při dalším vstupu (zápis řádku, poll), takže zakázka nezůstane bez platného řádku
+    // ani se dvěma.
+    const op = operationId(id, ROW_INVALIDATE, round);
+    const prev = this.effects.get(op);
+    if (prev?.state === "EFFECT_DONE" || prev?.state === "EFFECT_UNKNOWN")
+      return false;
+    this.effects.prepare(op, { subject: normPage(pageId) });
+    this.log({
+      order: id,
+      kind: "error",
+      role: "orchestrator",
+      result: `řádek panelu ${pageId} je neplatný pro rozhodnutí (HOLD); zakázka dostane nový řádek kola ${round + 1}, starý se označí SUPERSEDED`,
+      reason: reason.slice(0, 300),
+    });
+    return this.completeInvalidation(this.effects.get(op)!);
+  }
+
+  /**
+   * Kolo 2, bod 2 (pod `.state.lock` s platným fence): dokončí vyřazení řádku podle záznamu v journalu. Idempotentní, každý
+   * krok se dá zopakovat: znehodnotit řádek, zvýšit kolo řádku ve state.json (jen je-li zakázka pořád ve WAITING_OWNER
+   * v kole záznamu), vyřadit řádek v indexu (`retire` i pro řádek mimo index), receipt. Vrátí true, když zakázka má
+   * nové kolo řádku (další zápis vytvoří nový řádek).
+   */
+  private completeInvalidation(rec: EffectRecord): boolean {
+    const panel = this.d.panel!;
+    const { order: id, round, operation_id: op } = rec;
+    const page = rec.subject;
+    if (!page) {
+      this.effects.unknown(op, "záznam vyřazení řádku nenese řádek");
+      return false;
+    }
+    panel.index.taint(id, page);
+    let o = this.d.store.load(id);
+    if (reissueRound(o) === round) {
+      if (o.state !== "WAITING_OWNER") {
+        this.effects.absent(
+          op,
+          `zakázka mezitím ve stavu ${o.state}; řádek znehodnocen, nové kolo řádku nevzniklo`,
+        );
+        return false;
+      }
+      const at = this.iso();
+      // Kolo 3, bod 1: rozhodnutí vlastníka uložené z vyřazeného řádku nebo kola (`owner_go`, jeho zdroj, volba A/B) se
+      // do nového kola nepřenáší. Platí jen rozhodnutí z nového řádku aktuální karty; jinak by úspěšný read-back převedl
+      // zakázku do DONE podle GO, které vlastník mezitím v řádku změnil (např. na REJECT).
+      const droppedGo = o.meta.owner_go;
+      const keep = Object.fromEntries(
+        Object.entries(o.meta).filter(
+          ([k]) => !OWNER_DECISION_META.includes(k),
+        ),
+      );
+      const next: Order = {
+        ...o,
+        updated_at: at,
+        meta: {
+          ...keep,
+          reissue_round: String(round + 1),
+          row_invalidated_at: at,
+        },
+      };
+      if (!this.persist(next)) return false; // zůstává PREPARED: dokončí další vstup
+      if (droppedGo)
+        this.log({
+          order: id,
+          kind: "info",
+          role: "orchestrator",
+          result: `uložené GO (${o.meta.owner_go_source ?? "?"}) z vyřazeného řádku zrušeno; platí jen rozhodnutí z nového řádku kola ${round + 1}`,
+        });
+      o = next;
+    } else if (reissueRound(o) < round) {
+      this.effects.unknown(
+        op,
+        `kolo řádku ve stavu (${reissueRound(o)}) je starší než kolo záznamu`,
+      );
+      return false;
+    }
+    panel.index.retire(id, round + 1, page);
+    this.effects.done(op, { url: `https://www.notion.so/${page}` });
+    return true;
+  }
+
+  /** Kolo 2, bod 2 (pod `.state.lock` s platným fence): dokončí každé vyřazení řádku, které po pádu zůstalo PREPARED. */
+  private finishInvalidations(id: string): void {
+    if (!this.d.panel) return;
+    for (const r of this.effects.list(id))
+      if (r.step === ROW_INVALIDATE && r.state === "PREPARED") {
+        const done = this.completeInvalidation(r);
+        this.log({
+          order: id,
+          kind: "info",
+          role: "orchestrator",
+          result: `dokončeno vyřazení řádku panelu ${r.subject ?? "?"} podle journalu (${r.operation_id})${done ? `, nové kolo řádku ${r.round + 1}` : ""}`,
+        });
+      }
   }
 
   /**

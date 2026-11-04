@@ -40,6 +40,10 @@ export interface EffectRecord {
   /** true when the receipt was found by the marker lookup after a crash */
   recovered?: boolean;
   reason?: string;
+  /** Opravný PR „panel“, kolo 2: řádek panelu, kterého se operace týká (vyřazení řádku `row-invalidate`). */
+  subject?: string;
+  /** Opravný PR „panel“, kolo 2: zápis odešel přes MCP fallback (claude -p); zaznamenáno PŘED jeho odesláním. */
+  transport?: "mcp";
 }
 
 /** Deterministic: the same order, step and round always give the same id (a retry keeps it). */
@@ -141,12 +145,13 @@ export class EffectJournal {
   }
 
   /** Durable PREPARED before the write starts; a retry keeps the operation_id and counts the attempt. */
-  prepare(op: string, extra: { content_hash?: string } = {}): EffectRecord {
+  prepare(op: string, extra: { content_hash?: string; subject?: string } = {}): EffectRecord {
     const { order, step, round } = this.parts(op);
     const prev = this.get(op);
     if (prev?.state === "EFFECT_DONE" || prev?.state === "EFFECT_UNKNOWN") throw new Error(`operace ${op} je ve stavu ${prev.state}, nový zápis zakázán`);
     const at = this.now();
     const hash = extra.content_hash ?? prev?.content_hash;
+    const subject = extra.subject ?? prev?.subject;
     return this.write({
       operation_id: op,
       order,
@@ -157,6 +162,7 @@ export class EffectJournal {
       prepared_at: prev?.prepared_at ?? at,
       updated_at: at,
       ...(hash ? { content_hash: hash } : {}),
+      ...(subject ? { subject } : {}),
     });
   }
 
@@ -183,6 +189,45 @@ export class EffectJournal {
   /** The attempt failed but may have written: stays PREPARED (the next attempt looks it up first), reason recorded. */
   note(op: string, reason: string): EffectRecord {
     return this.write({ ...this.require(op), updated_at: this.now(), reason: reason.slice(0, 300) });
+  }
+
+  /** Opravný PR „panel“, kolo 2: zápis právě odchází přes MCP fallback (durable před odesláním); stav se nemění. */
+  markTransport(op: string, transport: "mcp"): EffectRecord {
+    return this.write({ ...this.require(op), transport, updated_at: this.now() });
+  }
+
+  /**
+   * Opravný PR „panel“, kolo 4: trvalý důkaz, že pokus `attempts` operace nic nevytvořil (REST čistě odmítl, MCP se
+   * nezavolalo), když EFFECT_ABSENT nejde zapsat do journalu (`.state.lock` obsazený). Samostatný soubor vedle záznamu
+   * (`<step>-r<kolo>.not-sent`, ne `.json`, takže ho `list` nevrací), zapsaný atomicky a trvale (`writeDurable`) BEZ
+   * `.state.lock`: zapisuje ho jen proces, který ten pokus sám provedl, a týká se jen toho jednoho pokusu. Převezme ho
+   * i nová instance (další `panel-sync`): `absent` se doplní jen pro PREPARED bez záznamu transportu MCP se stejným
+   * `attempts`, takže pozdější (skutečně odeslaný) pokus ho nikdy nepřebije.
+   */
+  recordNotSent(op: string, attempts: number): void {
+    const f = this.notSentFile(op);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    writeDurable(f, JSON.stringify({ operation_id: op, attempts, at: this.now() }) + "\n");
+  }
+
+  /** Pokus, u kterého je trvale doloženo „nic neodešlo“ (`recordNotSent`); undefined = žádný nebo nečitelný záznam. */
+  notSentAttempt(op: string): number | undefined {
+    const f = this.notSentFile(op);
+    if (!fs.existsSync(f)) return undefined;
+    try {
+      const r = JSON.parse(fs.readFileSync(f, "utf8")) as { operation_id?: unknown; attempts?: unknown };
+      return r.operation_id === op && typeof r.attempts === "number" ? r.attempts : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  clearNotSent(op: string): void {
+    fs.rmSync(this.notSentFile(op), { force: true });
+  }
+
+  private notSentFile(op: string): string {
+    return this.file(op).replace(/\.json$/, ".not-sent");
   }
 
   private require(op: string): EffectRecord {

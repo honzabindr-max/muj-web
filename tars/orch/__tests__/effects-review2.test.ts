@@ -13,6 +13,7 @@ import {
   McpPanelLookup,
   PANEL_DATA_SOURCE_ID,
   PanelIndex,
+  PanelRowDuplicate,
   type PanelRow,
   type PanelSink,
 } from "../panel";
@@ -465,6 +466,29 @@ describe("McpPanelLookup: the code decides from the transported tool calls, neve
       ).rejects.toThrow();
     }
   }, 30_000); // seven fake claude processes
+
+  it("opravný PR „panel“, kolo 2: two rows of the order with `unique` → PanelRowDuplicate (never the first one); without it the first", async () => {
+    const PAGE2_DASHED = "40c0ae49-f507-8147-8d39-cb7afe452e5a";
+    const calls: Call[] = [
+      {
+        name: SEARCH,
+        input: searchInput("wo-1"),
+        text: JSON.stringify({
+          results: [hit("wo-1"), { ...hit("wo-1"), id: PAGE2_DASHED }],
+        }),
+      },
+      { name: FETCH, input: { id: PAGE_DASHED }, text: fetchText("wo-1") },
+      { name: FETCH, input: { id: PAGE2_DASHED }, text: fetchText("wo-1") },
+    ];
+    await expect(
+      withFakeClaude(calls, () =>
+        new McpPanelLookup(dir).find("wo-1", { unique: true }),
+      ),
+    ).rejects.toBeInstanceOf(PanelRowDuplicate);
+    expect(
+      await withFakeClaude(calls, () => new McpPanelLookup(dir).find("wo-1")),
+    ).toBe(PAGE);
+  });
 
   it("fetchedProperties reads the connector's JSON answer and bare markdown", () => {
     expect(fetchedProperties(fetchText("wo-1"))).toMatchObject({
