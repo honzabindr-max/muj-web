@@ -709,7 +709,7 @@ describe("DevDepartment.findEffect (fake gh on PATH)", () => {
 
   it("one PR of the order's branch with the marker → found; none → absent", async () => {
     await withGh(
-      `echo '[{"url":"https://github.com/o/r/pull/7","body":"x ${marker} y"},{"url":"https://github.com/o/r/pull/6","body":"bez značky"}]'`,
+      `printf '%s\\n' '[{"url":"https://github.com/o/r/pull/7","body":"x\\nOperace TARS: \`${marker}\`\\n**DRAFT**"},{"url":"https://github.com/o/r/pull/6","body":"bez značky"}]'`,
       async () => {
         expect(await (await dev()).findEffect(o(), ctx(), DELIVER_OP)).toEqual({
           status: "found",
@@ -726,7 +726,7 @@ describe("DevDepartment.findEffect (fake gh on PATH)", () => {
 
   it("two PRs with the marker, a failing gh or an unreadable answer → uncertain", async () => {
     await withGh(
-      `echo '[{"url":"https://github.com/o/r/pull/7","body":"${marker}"},{"url":"https://github.com/o/r/pull/8","body":"${marker}"}]'`,
+      `echo '[{"url":"https://github.com/o/r/pull/7","body":"Operace TARS: \`${marker}\`"},{"url":"https://github.com/o/r/pull/8","body":"Operace TARS: \`${marker}\`"}]'`,
       async () => {
         expect(
           (await (await dev()).findEffect(o(), ctx(), DELIVER_OP)).status,

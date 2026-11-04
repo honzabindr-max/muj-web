@@ -11,7 +11,7 @@ import type { GuardResult } from "./guard";
 import type { NotionClient } from "./notion";
 import { buildCardData, cardDataSection } from "./card-data";
 import { EffectJournal, effectSurelyAbsent, effectTag, lookupNotionMarker, operationId, titleWithMarker, type EffectLookup } from "./effects";
-import { isUncertainOutcome, NotionRestError } from "./notion";
+import { isUncertainOutcome, NotionRestError, pageIdFromUrl } from "./notion";
 import { waitingOwnerTransitions, type OwnerPing } from "./owner-ping";
 import { panelRow, type PanelIndex, type PanelSink } from "./panel";
 import { missingSources, sourcesBlock, type LoadedSource, type SourceLoader } from "./sources";
@@ -75,6 +75,9 @@ class DeliverFailure extends Error {
     super(outcome.error ?? "deliver failed");
   }
 }
+
+/** Review kolo 1: the order's row may exist (create of unclear outcome) and cannot be looked up: no write at all. */
+class PanelRowHold extends Error {}
 
 /** Wraps any adapter: output containing a secret is dropped, never stored (§6). */
 export class SecretScanningAdapter implements TextAdapter {
@@ -166,47 +169,123 @@ export class Orchestrator {
   /**
    * Rewrites the order's panel row from state.json. Serialized; errors are logged, never thrown.
    * Every sync writes the full current row, so a missed update is caught up by the next one.
+   *
+   * Review kolo 1:
+   * - Creating the row is a journaled effect (`<order>/panel-row/r0`: PREPARED → create → receipt). A row without a known
+   *   page id is ALWAYS looked up by „ID zakázky“ first (`resolvePanelRow`), so a crash between the create and
+   *   `panel.index.set` never yields a second row. Without a lookup, an earlier create of unclear outcome is a HOLD.
+   * - `fresh` (catch-up, panel-sync) writes the state current when the write starts, not the one seen when it was queued.
+   *   After the write the version is compared again: if state.json moved on meanwhile (e.g. the owner's REJECT from the
+   *   CLI), the row may hold an older state, so the dirty mark stays and the next tick rewrites the newer one.
    */
-  private syncPanel(o: Order): void {
+  private syncPanel(snapshot: Order, opts: { fresh?: boolean } = {}): void {
     const panel = this.d.panel;
     if (!panel) return;
-    const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
-    const row = panelRow(o, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
     this.panelQueue = this.panelQueue.then(async () => {
       const t0 = Date.now();
+      let o = snapshot;
+      if (opts.fresh) {
+        try {
+          o = this.d.store.load(snapshot.id);
+        } catch {
+          /* the order is gone locally: the snapshot is all we have */
+        }
+      }
+      const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
+      const row = panelRow(o, dept?.creatorModel() ?? "—", dept?.checkerModel() ?? "—");
+      const op = operationId(o.id, "panel-row", 0);
       let creating = false;
       try {
-        let existing = panel.index.get(o.id);
-        if (!existing && panel.index.isUncertain(o.id)) {
-          // An earlier create may have been saved without us seeing the answer: look the row up by order id (REST filter,
-          // never SQL/rows) before creating again. If the lookup fails we do not create; the next sync tries again.
-          if (!panel.sink.findRowByOrderId) throw new Error("výsledek dřívějšího vytvoření řádku je nejasný, čekám na REST kvůli dohledání");
-          existing = await panel.sink.findRowByOrderId(o.id);
-          if (existing) panel.index.set(o.id, existing);
-          else panel.index.clearUncertain(o.id);
+        const existing = panel.index.get(o.id) ?? (await this.resolvePanelRow(o.id, op));
+        if (!existing) {
+          this.effects.prepare(op); // durable BEFORE the create: a crash after it is found by the lookup above
+          creating = true;
         }
-        creating = !existing;
         const id = await panel.sink.upsert(row, existing);
+        if (creating) this.effects.done(op, { url: `https://www.notion.so/${id}` });
         panel.index.set(o.id, id);
-        panel.index.clearDirty(o.id);
-        this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+        if (this.panelRowStale(o)) {
+          panel.index.markDirty(o.id);
+          this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state} (stav se mezitím změnil, dorovnám v příštím ticku)`, duration_ms: Date.now() - t0 });
+        } else {
+          panel.index.clearDirty(o.id);
+          this.log({ order: o.id, kind: "info", role: "transport", result: `panel ${o.state}`, duration_ms: Date.now() - t0 });
+        }
         await this.pingOwner(o, id);
       } catch (e) {
+        if (e instanceof PanelRowHold) {
+          // Nothing to catch up: any create could duplicate the row. Logged once; the next transition logs again.
+          try {
+            panel.index.clearDirty(o.id);
+          } catch {
+            /* ignore */
+          }
+          this.logOnce({ order: o.id, kind: "error", role: "transport", result: `EFFECT_UNKNOWN / HOLD: ${op}`, reason: e.message.slice(0, 300) });
+          return;
+        }
         try {
+          if (creating) {
+            // Clean refusal → certainly no row; anything else may have created one: stays PREPARED, looked up first next time.
+            if (isUncertainOutcome(e)) this.effects.note(op, (e as Error).message ?? String(e));
+            else this.effects.absent(op, (e as Error).message ?? String(e));
+          }
           // Only a sink that can look rows up may mark (otherwise the mark could never be resolved and would block the panel).
           if (creating && panel.sink.findRowByOrderId && isUncertainOutcome(e)) panel.index.markUncertain(o.id);
           // Etapa 3: the row is behind state.json; the next tick rewrites it (`catchUpPanel`), not only the next transition.
           // Never after a create of unknown outcome that cannot be looked up (sink without findRowByOrderId): the row may
-          // exist, so a catch-up would create a second one. That case keeps the old rule (next transition only) and also
-          // drops an older mark (e.g. from a clean 4xx refusal), so no later catch-up repeats this create.
+          // exist, so the operation stays PREPARED and every later sync of this order is a HOLD (`resolvePanelRow`).
           if (!creating || !isUncertainOutcome(e) || panel.sink.findRowByOrderId) panel.index.markDirty(o.id);
           else panel.index.clearDirty(o.id);
         } catch {
-          /* the index itself is unwritable: the next transition still rewrites the row */
+          /* the index or the journal is unwritable: the next transition still rewrites the row */
         }
         this.log({ order: o.id, kind: "error", role: "transport", result: "panel sync failed", reason: (e as Error).message.slice(0, 300), duration_ms: Date.now() - t0 });
       }
     });
+  }
+
+  /** True when state.json holds a newer version than the one the row was written from (or the order is gone: false). */
+  private panelRowStale(written: Order): boolean {
+    try {
+      return (this.d.store.load(written.id).version ?? 0) !== (written.version ?? 0);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Review kolo 1: the page id of an order's row when the index does not know it. Never answers „no row“ unless that is
+   * certain: a receipt in the journal is reused; otherwise the row is looked up by „ID zakázky“ (REST query; an error
+   * throws, so nothing is created). Without a lookup, a create of unclear outcome (PREPARED / UNKNOWN in the journal, or
+   * the old uncertain mark) throws `PanelRowHold`: never a second create without a lookup.
+   */
+  private async resolvePanelRow(orderId: string, op: string): Promise<string | undefined> {
+    const panel = this.d.panel!;
+    const prev = this.effects.get(op);
+    if (prev?.state === "EFFECT_DONE" && prev.receipt) {
+      const id = pageIdFromUrl(prev.receipt.url);
+      if (id) {
+        panel.index.set(orderId, id);
+        return id;
+      }
+    }
+    if (panel.sink.findRowByOrderId) {
+      const found = await panel.sink.findRowByOrderId(orderId);
+      if (found) {
+        if (prev && prev.state !== "EFFECT_DONE") this.effects.done(op, { url: `https://www.notion.so/${found}` }, { recovered: true });
+        panel.index.set(orderId, found);
+        if (prev) this.log({ order: orderId, kind: "info", role: "transport", result: `panel: řádek nalezen podle ID zakázky, druhý se nevytváří (${op})` });
+        return found;
+      }
+      if (prev && prev.state !== "EFFECT_ABSENT") this.effects.absent(op, "dohledání podle ID zakázky: řádek neexistuje");
+      if (panel.index.isUncertain(orderId)) panel.index.clearUncertain(orderId);
+      return undefined;
+    }
+    if (prev?.state === "PREPARED" || prev?.state === "EFFECT_UNKNOWN" || panel.index.isUncertain(orderId)) {
+      if (prev?.state === "PREPARED") this.effects.unknown(op, "vytvoření řádku má nejasný výsledek a nejde dohledat (sink bez dohledání)");
+      throw new PanelRowHold(`dřívější vytvoření řádku má nejasný výsledek a nejde dohledat podle ID zakázky, nové vytvoření zakázáno (${op})`);
+    }
+    return undefined;
   }
 
   /**
@@ -233,7 +312,7 @@ export class Orchestrator {
         continue;
       }
       this.log({ order: id, kind: "info", role: "transport", result: "panel: dorovnávám řádek po chybě zápisu" });
-      this.syncPanel(o);
+      this.syncPanel(o, { fresh: true }); // review kolo 1: the state current at the write, re-checked after it
     }
     return this.flushPanel();
   }
@@ -278,12 +357,15 @@ export class Orchestrator {
       const t0 = Date.now();
       const r = await ping.send(pageId, title);
       const base = { order: o.id, role: "transport" as const, duration_ms: Date.now() - t0 };
+      // Review kolo 1: EFFECT_ABSENT (resent by a later tick) only for outcomes that certainly wrote nothing; any other
+      // outcome — „uncertain“ or one this code does not know — is EFFECT_UNKNOWN and the comment is never sent again.
+      const absent = r.outcome === "no_token" || r.outcome === "no_permission" || r.outcome === "secret" || r.outcome === "failed";
       if (r.outcome === "sent") this.effects.done(op, { url: `https://www.notion.so/${pageId}` });
-      else if (r.outcome === "uncertain") this.effects.unknown(op, r.detail ?? "výsledek nejasný");
-      else this.effects.absent(op, r.detail ?? r.outcome);
-      if (r.outcome === "sent" || r.outcome === "uncertain") markPinged();
+      else if (absent) this.effects.absent(op, r.detail ?? r.outcome);
+      else this.effects.unknown(op, r.detail ?? "výsledek nejasný");
+      if (!absent) markPinged();
       if (r.outcome === "sent") this.log({ ...base, kind: "info", result: "upozornění na iPhone: komentář se zmínkou odeslán" });
-      else if (r.outcome === "uncertain") this.log({ ...base, kind: "error", result: r.detail ?? "upozornění na iPhone: výsledek nejasný" });
+      else if (!absent) this.log({ ...base, kind: "error", result: `EFFECT_UNKNOWN: ${op}`, reason: r.detail ?? "upozornění na iPhone: výsledek nejasný, neopakuje se" });
       else if (r.outcome === "failed") this.logOnce({ order: o.id, kind: "error", role: "transport", result: r.detail ?? "upozornění na iPhone selhalo" }); // opakuje se každý tick, hláška se nezdvojuje
       else this.logOnce({ order: o.id, kind: "info", role: "transport", result: r.detail ?? `upozornění na iPhone: ${r.outcome}` });
     } catch (e) {
@@ -328,7 +410,7 @@ export class Orchestrator {
   /** Waits for pending panel writes (end of tick, tests). */
   /** Rewrites the panel row of one order from its state.json (idempotent, no transition). */
   resyncPanel(id: string): Promise<void> {
-    this.syncPanel(this.d.store.load(id));
+    this.syncPanel(this.d.store.load(id), { fresh: true });
     return this.flushPanel();
   }
 

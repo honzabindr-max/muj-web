@@ -9,7 +9,7 @@ import path from "node:path";
 import type { AdapterResult, AiChain, TextAdapter } from "./adapters";
 import { DriverLimitError, RuleViolation, UiUnknownError, type BrowserStep } from "./mcp-browser";
 import { stripFrontmatter } from "./cards";
-import { lookupNotionMarker, titleWithMarker, type EffectLookup, type EffectTag } from "./effects";
+import { bodyCarriesMarker, lookupNotionMarker, titleWithMarker, type EffectLookup, type EffectTag } from "./effects";
 import type { NotionClient } from "./notion";
 import { scanSecrets } from "./secret-scan";
 import type { Store } from "./store";
@@ -449,7 +449,8 @@ ${verdictFormatFor(this.reviewer)}`;
       return { status: "uncertain", reason: "gh pr list: nečitelná odpověď" };
     }
     if (prs.length >= 50) return { status: "uncertain", reason: "gh pr list: neúplný výsledek" };
-    const hits = prs.filter((p) => typeof p.body === "string" && p.body.includes(marker));
+    // Exact marker line (the last `Operace TARS:` line), never a substring: a brief quoting another marker is not a hit.
+    const hits = prs.filter((p) => typeof p.body === "string" && bodyCarriesMarker(p.body, marker));
     if (hits.length === 0) return { status: "absent" };
     if (hits.length > 1 || typeof hits[0].url !== "string" || !/^https:\/\/github\.com\/\S+\/pull\/\d+$/.test(hits[0].url)) return { status: "uncertain", reason: `PR se značkou ${marker}: ${hits.length}` };
     return { status: "found", url: hits[0].url };

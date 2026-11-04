@@ -295,7 +295,7 @@ export class RestNotion implements NotionClient {
 
   /**
    * Etapa 3: `GET /v1/blocks/{parent}/children`, every page of the listing (at most CHILDREN_MAX_PAGES × 100 blocks),
-   * child pages whose title contains the marker. A listing that cannot be read to its end throws (never „not found“).
+   * child pages whose title ENDS with exactly the marker (`titleCarriesMarker`). A listing that cannot be read to its end throws (never „not found“).
    */
   async findChildPagesByMarker(parentPageId: string, marker: string): Promise<Array<{ url: string; in_trash?: boolean }>> {
     const parent = parentPageId.replace(/-/g, "");
@@ -308,7 +308,8 @@ export class RestNotion implements NotionClient {
       );
       if (!Array.isArray(j.results)) throw new NotionRestError(200, "bad_response");
       for (const b of j.results as Array<{ id?: unknown; type?: unknown; in_trash?: unknown; archived?: unknown; child_page?: { title?: unknown } }>) {
-        if (b.type !== "child_page" || typeof b.child_page?.title !== "string" || !b.child_page.title.includes(marker)) continue;
+        // Exact token at the end of the title, never a substring: a title quoting another order's marker is not a hit.
+        if (b.type !== "child_page" || typeof b.child_page?.title !== "string" || !titleCarriesMarker(b.child_page.title, marker)) continue;
         if (typeof b.id !== "string" || !COMMITTED_ID_RE.test(b.id)) throw new NotionRestError(200, "bad_response");
         hits.push({ url: `https://www.notion.so/${b.id.replace(/-/g, "")}`, ...(b.in_trash === true || b.archived === true ? { in_trash: true } : {}) });
       }
@@ -318,6 +319,29 @@ export class RestNotion implements NotionClient {
     }
     throw new NotionRestError(200, "incomplete"); // the listing has more than we read: never answer „not found“
   }
+}
+
+/**
+ * Exact match (review kolo 1): a title carries the marker only when the marker is the whole token at its very end, where
+ * `titleWithMarker` puts it. A title that merely quotes another order's marker (`… [op:wo-a/deliver/r0] … [op:wo-b/…]`)
+ * belongs to the order whose marker ends it, never to the quoted one.
+ */
+export function titleCarriesMarker(title: string, marker: string): boolean {
+  const t = title.trimEnd();
+  if (!marker || !t.endsWith(marker)) return false;
+  const before = t.length - marker.length;
+  return before === 0 || /\s/.test(t[before - 1]); // a whole token, not the tail of a longer one
+}
+
+const BODY_MARKER_LINE_RE = /^Operace TARS: `(\[op:[^`\r\n]+\])`\r?$/gm;
+
+/**
+ * Exact match in a PR body: the LAST line of the exact form ``Operace TARS: `[op:…]` `` (the one `deliver` appends after
+ * the brief) must equal the marker. A brief quoting another marker inline, or quoting such a line above it, never matches.
+ */
+export function bodyCarriesMarker(body: string, marker: string): boolean {
+  const lines = [...body.matchAll(BODY_MARKER_LINE_RE)];
+  return lines.length > 0 && lines[lines.length - 1][1] === marker;
 }
 
 /** 50 × 100 child blocks under the DRAFT parent; beyond that the lookup reports „cannot tell“ (HOLD). */

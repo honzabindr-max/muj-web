@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { CopyDepartment, type DepartmentRunner } from "../departments";
 import type { NotionClient } from "../notion";
-import { pageIdFromUrl } from "../notion";
+import { pageIdFromUrl, titleCarriesMarker } from "../notion";
 import { Orchestrator } from "../orchestrator";
 import type { PanelIndex, PanelSink } from "../panel";
 import type { Store } from "../store";
@@ -77,7 +77,7 @@ export class FileNotion implements NotionClient {
   async findChildPagesByMarker(parent: string, marker: string) {
     if (this.opts.findFails) throw new Error("notion REST 0 network");
     return this.pages()
-      .filter((p) => p.parent === parent && p.title.includes(marker))
+      .filter((p) => p.parent === parent && titleCarriesMarker(p.title, marker))
       .map((p) => ({ url: `https://www.notion.so/${p.id}` }));
   }
 }

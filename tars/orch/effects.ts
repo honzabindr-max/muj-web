@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { isUncertainOutcome, OwnerDecisionWriteError, SecretLeakError, type NotionClient } from "./notion";
+export { bodyCarriesMarker, titleCarriesMarker } from "./notion";
 import { writeDurable } from "./store";
 
 /**
