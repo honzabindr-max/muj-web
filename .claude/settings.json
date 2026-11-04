@@ -1,6 +1,7 @@
 {
   "permissions": {
     "defaultMode": "default",
+    "blockWritesOutsideWorkingDirectories": true,
     "allow": [
       "Read(./**)",
       "Edit(./**)",
@@ -104,7 +105,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/tars/guard/bash-preflight.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/tars/guard/bash-preflight.sh\"",
+            "timeout": 30,
+            "onFailure": "block"
           }
         ]
       },
@@ -113,7 +116,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PROJECT_DIR}/tars/guard/notion-owner-decision.py\""
+            "command": "python3 -I \"${CLAUDE_PROJECT_DIR}/tars/guard/notion-owner-decision.py\"",
+            "timeout": 30,
+            "onFailure": "block"
           }
         ]
       }
