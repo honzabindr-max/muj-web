@@ -169,57 +169,63 @@ export function answerRegion(
   return page.slice(start + end.length, at);
 }
 
-/** Text between the verdict JSON and the end marker may only be snapshot structure (quotes, "- paragraph:", refs). */
-function onlySnapshotNoise(tail: string): boolean {
-  return (
-    tail
-      .replace(/-\s*[a-z]+(?:\s+"[^"\n]*")?(?:\s*\[[^\]\n]*\])*:?/gi, "")
-      .replace(/[\s'"`]/g, "") === ""
-  );
-}
+/**
+ * A line that is only snapshot structure: a role with optional attributes (`- paragraph [ref=e5]:`), quotes or nothing.
+ * No accessible name in quotes and no text: those are content and may never be skipped.
+ */
+const SNAPSHOT_ONLY_LINE = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:?)?\s*['"]?\s*$/i;
+/** What may stand before the verdict JSON on its line: only the snapshot prefix of the element and an opening quote. */
+const SNAPSHOT_PREFIX = /^\s*(?:-\s*[a-z]+(?:\s*\[[^\]\n]*\])*:\s*)?['"]?$/i;
 
-/** Balanced JSON objects of one string with their positions. */
-function objectsIn(
-  s: string,
-): { start: number; end: number; value: unknown }[] {
-  const out: { start: number; end: number; value: unknown }[] = [];
+/** The outermost JSON object that ends exactly at the end of `s` and starts after nothing but a snapshot prefix. */
+function trailingObject(s: string): { value: unknown } | undefined {
   for (let i = s.indexOf("{"); i >= 0; i = s.indexOf("{", i + 1)) {
-    const e = objectEnd(s, i);
-    if (e < 0) continue;
+    if (objectEnd(s, i) !== s.length) continue;
+    const lineStart = s.lastIndexOf("\n", i - 1) + 1;
+    if (!SNAPSHOT_PREFIX.test(s.slice(lineStart, i))) continue;
     try {
-      out.push({ start: i, end: e, value: JSON.parse(s.slice(i, e)) });
+      return { value: JSON.parse(s.slice(i)) };
     } catch {
-      /* not JSON */
+      /* not JSON in this escaping */
     }
   }
-  return out;
+  return undefined;
 }
 
+const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
+
 /**
- * The verdict from the answer region. Only the JSON object that ends LAST, right before the end marker (only snapshot
- * structure in between), counts, and it must be exactly the schema. Never an earlier object (a draft, a quote, a
- * thinking summary): anything else is unclear → undefined → WAITING_REVIEW, never PASS.
+ * The verdict from the answer region (P16 v2, never a false PASS):
+ *  1. from the end, only lines of pure snapshot structure are dropped (no names, no text);
+ *  2. what is left must END with the verdict JSON object, alone on its line (only the element prefix before it);
+ *  3. it must be exactly the schema;
+ *  4. no other schema-valid verdict object with a different verdict may appear anywhere in the answer.
+ * Anything else (prose before/after, a quoted name, an earlier draft JSON, conflicting verdicts) is unclear →
+ * undefined → WAITING_REVIEW.
  */
-export function verdictFromAnswer(
-  region: string,
-  schema: Record<string, unknown>,
-): string | undefined {
-  const allowed = ((
-    schema.properties as Record<string, { enum?: string[] }> | undefined
-  )?.verdict?.enum ?? []) as string[];
+export function verdictFromAnswer(region: string, schema: Record<string, unknown>): string | undefined {
+  const allowed = ((schema.properties as Record<string, { enum?: string[] }> | undefined)?.verdict?.enum ?? []) as string[];
   if (!allowed.length) return undefined;
+  const lines = region.split("\n");
+  while (lines.length && SNAPSHOT_ONLY_LINE.test(lines[lines.length - 1])) lines.pop();
+  const body = lines.join("\n").replace(/['"]\s*$/, "");
+  if (!body.endsWith("}")) return undefined;
+  let found: string | undefined;
   for (const u of unescapes) {
-    const s = u(region);
-    const objs = objectsIn(s);
-    if (!objs.length) continue;
-    const last = objs.reduce((a, b) =>
-      b.end > a.end || (b.end === a.end && b.start < a.start) ? b : a,
-    );
-    if (!onlySnapshotNoise(s.slice(last.end))) continue;
-    const text = JSON.stringify(last.value);
-    if (parseStructuredVerdict(text, allowed)) return text;
+    const t = trailingObject(u(body));
+    if (!t) continue;
+    const text = JSON.stringify(t.value);
+    if (!parseStructuredVerdict(text, allowed)) return undefined; // the trailing object decides; invalid = unclear
+    if (found !== undefined && found !== text) return undefined; // escapings disagree = unclear
+    found = text;
   }
-  return undefined;
+  if (found === undefined) return undefined;
+  const verdict = verdictOf(JSON.parse(found));
+  for (const c of jsonObjectsIn(region)) {
+    const other = JSON.stringify(c.value);
+    if (parseStructuredVerdict(other, allowed) && verdictOf(c.value) !== verdict) return undefined;
+  }
+  return found;
 }
 
 /** Model and intensity as the page shows them (model picker in the header comes first in the snapshot). */

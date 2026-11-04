@@ -274,12 +274,61 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     ).toBe("\n odpověď ");
     expect(
       verdictFromAnswer(`a ${PASS_JSON}\n  - paragraph: `, REVIEW_SCHEMA),
+    ).toBeUndefined(); // prose before the JSON on its line = unclear
+    expect(
+      verdictFromAnswer(
+        `\n  - paragraph: ${PASS_JSON}\n  - paragraph: `,
+        REVIEW_SCHEMA,
+      ),
     ).toBe(PASS_JSON);
     // text after the JSON (prose, a second thought) → unclear, never the earlier JSON
     expect(
       verdictFromAnswer(`${PASS_JSON} ale vlastně FIX`, REVIEW_SCHEMA),
     ).toBeUndefined();
     expect(verdictFromAnswer("nic", REVIEW_SCHEMA)).toBeUndefined();
+    // druhé kolo kontroly Codexu: za JSON nesmí projít žádný obsah, ani „- slovo“ ani jméno prvku v uvozovkách
+    const tail = (t: string) =>
+      `\n  - paragraph: '${PASS_JSON}'\n${t}\n  - paragraph: `;
+    expect(
+      verdictFromAnswer(tail("  - paragraph: - ale - fix"), REVIEW_SCHEMA),
+    ).toBeUndefined();
+    expect(
+      verdictFromAnswer(
+        tail('  - button "FIX: kritérium 1 chybí" [ref=e9]'),
+        REVIEW_SCHEMA,
+      ),
+    ).toBeUndefined();
+    expect(
+      verdictFromAnswer(
+        tail("  - paragraph: Ale ve skutečnosti FIX."),
+        REVIEW_SCHEMA,
+      ),
+    ).toBeUndefined();
+    // čistá struktura snapshotu za JSON projde
+    expect(
+      verdictFromAnswer(tail("  - generic [ref=e9]:"), REVIEW_SCHEMA),
+    ).toBe(PASS_JSON);
+    // próza před JSON na stejném řádku = nejasné
+    expect(
+      verdictFromAnswer(
+        `\n  - paragraph: 'Návrh: ${PASS_JSON}'\n  - paragraph: `,
+        REVIEW_SCHEMA,
+      ),
+    ).toBeUndefined();
+    // rozporné verdikty v odpovědi = nejasné
+    expect(
+      verdictFromAnswer(
+        `\n  - paragraph: '${FIX_JSON}'\n  - paragraph: '${PASS_JSON}'\n  - paragraph: `,
+        REVIEW_SCHEMA,
+      ),
+    ).toBeUndefined();
+    // poslední objekt mimo schéma rozhoduje: dřívější PASS se nevezme
+    expect(
+      verdictFromAnswer(
+        `\n  - paragraph: '${PASS_JSON}'\n  - paragraph: '{"verdict":"OK"}'\n  - paragraph: `,
+        REVIEW_SCHEMA,
+      ),
+    ).toBeUndefined();
   });
 });
 
