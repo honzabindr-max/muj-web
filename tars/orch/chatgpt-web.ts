@@ -196,6 +196,18 @@ export function snapshotValue(line: string, withPrefix = true): string {
   return v.replace(/\s+$/, "");
 }
 
+/** true when `text` names a verdict of `allowed` other than `chosen` (whole words, upper case as in the schema). */
+export function otherVerdictWord(text: string, chosen: string, allowed: readonly string[]): boolean {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const v of allowed) {
+    if (v === chosen) continue;
+    // a shorter verdict inside the chosen one ("PASS" in "PASS WITH REQUIRED PATCHES") is not another verdict
+    const t = chosen.includes(v) ? text.split(chosen).join(" ") : text;
+    if (new RegExp(`(?<![A-Za-z_])${esc(v)}(?![A-Za-z_])`).test(t)) return true;
+  }
+  return false;
+}
+
 const verdictOf = (v: unknown): unknown => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>).verdict : undefined);
 
 /** The JSON object that the answer ends with: on the last content line, or starting up to 200 lines higher (pretty JSON). */
@@ -237,16 +249,18 @@ export function verdictFromAnswer(region: string, schema: Record<string, unknown
   if (t === undefined) return undefined;
   const found = JSON.stringify(t.value);
   if (!parseStructuredVerdict(found, allowed)) return undefined;
-  // The conflict guard protects against a false PASS only: a FIX/BLOCK never lets an order through. It looks only at
-  // the answer BEFORE the chosen object, never inside it (a finding may quote a PASS JSON, e.g. from the draft).
-  if (verdictOf(t.value) === "PASS") {
-    const before = lines.slice(0, t.startLine);
-    for (const part of [...before.map((l) => snapshotValue(l)), before.join("\n")]) {
-      for (const c of jsonObjectsIn(part)) {
-        if (parseStructuredVerdict(JSON.stringify(c.value), allowed) && verdictOf(c.value) !== "PASS") return undefined;
-      }
+  // Conflict guard, for every verdict: any other schema-valid verdict object in the answer BEFORE the chosen one that is
+  // not identical to it (another verdict, e.g. an earlier BLOCK before a final FIX, or other findings) = unclear, so
+  // no blocking finding can get lost. It never looks INSIDE the chosen object (a finding may quote a JSON verdict).
+  // Also an object with a `verdict` key that is not even schema-valid ({"verdict":"BLOCK"}), and another verdict word
+  // of the schema written in the text before (e.g. "BLOCK: …" above a final PASS JSON).
+  const before = lines.slice(0, t.startLine);
+  for (const part of [...before.map((l) => snapshotValue(l)), before.join("\n")]) {
+    for (const c of jsonObjectsIn(part)) {
+      if (verdictOf(c.value) !== undefined && JSON.stringify(c.value) !== found) return undefined;
     }
   }
+  if (otherVerdictWord(before.map((l) => snapshotValue(l)).join("\n"), String(verdictOf(t.value)), allowed)) return undefined;
   return found;
 }
 

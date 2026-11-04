@@ -36,7 +36,7 @@ import { lastStepSentence, queueOf } from "../panel";
 import { isActionable, transition } from "../state-machine";
 import { Store } from "../store";
 import type { ModelFamily, Order } from "../types";
-import { REVIEW_SCHEMA } from "../verdict";
+import { GATE_SCHEMA, REVIEW_SCHEMA } from "../verdict";
 
 const CARDS_DIR = path.join(__dirname, "..", "..", "..", ".claude", "agents");
 const NONCE = "n0nce42";
@@ -340,8 +340,28 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     expect(verdictFromAnswer(`\n  - paragraph: ${QUOTING_FIX}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(QUOTING_FIX);
     expect(verdictFromAnswer(`\n  - paragraph: '${QUOTING_FIX.replace(/'/g, "''")}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(QUOTING_FIX);
     expect(verdictFromAnswer(`\n  - paragraph: ${JSON.stringify(QUOTING_FIX)}\n  - paragraph: `, REVIEW_SCHEMA)).toBe(QUOTING_FIX);
-    // dřívější PASS v odpovědi a FIX na konci: platí FIX (konzervativní, nikoho nepustí dál)
-    expect(verdictFromAnswer(`\n  - paragraph: '${PASS_JSON}'\n  - paragraph: '${FIX_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(JSON.stringify(JSON.parse(FIX_JSON)));
+    // páté kolo: rozporná odpověď s blokujícím nálezem nesmí projít (dřívější BLOCK, na konci FIX)
+    const BLOCK_JSON = '{"verdict":"BLOCK","findings":[{"severity":"critical","file":null,"line":null,"text":"rozhoduje cenu (Sponzor)"}]}';
+    expect(verdictFromAnswer(`\n  - paragraph: '${BLOCK_JSON}'\n  - paragraph: '${FIX_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBeUndefined();
+    // dva FIXy s jinými nálezy = nejasné (dřívější nález by se ztratil)
+    const FIX2 = '{"verdict":"FIX","findings":[{"severity":"high","file":null,"line":null,"text":"chybí zdroj"}]}';
+    expect(verdictFromAnswer(`\n  - paragraph: '${FIX2}'\n  - paragraph: '${FIX_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBeUndefined();
+    // dřívější PASS a FIX na konci = nejasné (rozpor)
+    expect(verdictFromAnswer(`\n  - paragraph: '${PASS_JSON}'\n  - paragraph: '${FIX_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBeUndefined();
+    // brána vizuálu: dřívější FAIL, na konci PASS WITH REQUIRED PATCHES = nejasné
+    const GATE_FAIL = '{"verdict":"FAIL","findings":[{"severity":"critical","file":null,"line":null,"text":"mění funnel"}]}';
+    const GATE_PATCH = '{"verdict":"PASS WITH REQUIRED PATCHES","findings":[{"severity":"medium","file":null,"line":null,"text":"zvětšit CTA"}]}';
+    expect(verdictFromAnswer(`\n  - paragraph: '${GATE_FAIL}'\n  - paragraph: '${GATE_PATCH}'\n  - paragraph: `, GATE_SCHEMA)).toBeUndefined();
+    expect(verdictFromAnswer(`\n  - paragraph: '${GATE_PATCH}'\n  - paragraph: `, GATE_SCHEMA)).toBe(JSON.stringify(JSON.parse(GATE_PATCH)));
+    // dřívější objekt s verdiktem mimo schéma a próza s jiným verdiktem před JSON = nejasné
+    expect(verdictFromAnswer(`\n  - paragraph: '{"verdict":"BLOCK"}'\n  - paragraph: '${PASS_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBeUndefined();
+    expect(verdictFromAnswer(`\n  - paragraph: "BLOCK: rozhoduje cenu."\n  - paragraph: '${PASS_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBeUndefined();
+    // UI řádky ChatGPT před odpovědí (nadpis, souhrn přemýšlení) nevadí
+    expect(verdictFromAnswer(`\n  - heading "ChatGPT řekl:" [level=6]\n  - button "Přemýšlení trvalo 2 min" [ref=e8]\n  - paragraph: '${PASS_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(PASS_JSON);
+    // brána: „PASS“ uvnitř zvoleného „PASS WITH REQUIRED PATCHES“ není jiný verdikt
+    expect(verdictFromAnswer(`\n  - paragraph: "Verdikt: PASS WITH REQUIRED PATCHES"\n  - paragraph: '${GATE_PATCH}'\n  - paragraph: `, GATE_SCHEMA)).toBe(JSON.stringify(JSON.parse(GATE_PATCH)));
+    // stejný verdikt zopakovaný beze změny = platný
+    expect(verdictFromAnswer(`\n  - paragraph: '${FIX_JSON}'\n  - paragraph: '${FIX_JSON}'\n  - paragraph: `, REVIEW_SCHEMA)).toBe(JSON.stringify(JSON.parse(FIX_JSON)));
     // rozporné verdikty v odpovědi (dřívější FIX, na konci PASS) = nejasné
     expect(
       verdictFromAnswer(
