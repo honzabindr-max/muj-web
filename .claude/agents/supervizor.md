@@ -58,7 +58,7 @@ Technický protokol v0 (implementační volba orchestrátoru, ne pravidlo ze zdr
 
 ## 6. Kontrolor
 
-GPT v prohlížeči (ChatGPT, režim Work, projekt TARS · Analýzy, model s nejvyšším přemýšlením; P16 v2), jiná rodina než supervizor Claude Opus (TARS-ORCH-001 §2a bod 6). Nedostupný GPT v prohlížeči = zakázka čeká ve WAITING_REVIEW, kontrola se nepředstírá. Checklist odvozený z bodů 3 a 5:
+GPT v prohlížeči (ChatGPT v běžném režimu Chat, nikdy Work, GPT-6 · Vysoká; P16 v3), jiná rodina než supervizor Claude Opus (TARS-ORCH-001 §2a bod 6). Nedostupný GPT v prohlížeči = zakázka čeká ve WAITING_REVIEW, kontrola se nepředstírá. Checklist odvozený z bodů 3 a 5:
 1. `why` cituje text, který v HANDOFF stojí v ACTIVE TRACK nebo DALŠÍ KROK.
 2. Zakázka nespadá pod „Co se NESMÍ dělat znovu“ a nemění zamčený kontrakt.
 3. `inputs` obsahují jen fakta z HANDOFF nebo kufříku; pracovní hodnoty nejsou podané jako zamčené.

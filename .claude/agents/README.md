@@ -17,7 +17,7 @@ Každá definice obsahuje: frontmatter (`name`, `description` = kdy roli použí
 
 ## GPT: kontroly mimo kód v prohlížeči, kód přes Codex (P16 v2)
 
-Pravidlo vlastníka (4. 11.): všechny kontroly, které se netýkají kódu, dělá GPT v prohlížeči (ChatGPT, režim Work, projekt TARS · Analýzy, model s nejvyšším přemýšlením, adaptér `tars/orch/chatgpt-web.ts`). Codex zůstává na programování a kontrolu kódu. Když GPT v prohlížeči není dostupný, zakázka čeká ve `WAITING_REVIEW` a kontrola se nepředstírá.
+Pravidlo vlastníka (4. 11.): všechny kontroly, které se netýkají kódu, dělá GPT v prohlížeči (ChatGPT v běžném režimu Chat, nikdy Work, GPT-6 · Vysoká, adaptér `tars/orch/chatgpt-web.ts`; P16 v3). Codex zůstává na programování a kontrolu kódu. Když GPT v prohlížeči není dostupný, zakázka čeká ve `WAITING_REVIEW` a kontrola se nepředstírá.
 
 Role, které podle karty dělá GPT, nejsou Claude subagenty. Jejich soubory v `gpt/` záměrně nemají pole `name` (místo něj `role`), takže je Claude Code načte jen jako dokumentaci a Claude je nikdy nespustí. Čte je pouze orchestrátor, který je vkládá do promptu kontroly (JSON verdikt `{verdict, findings[]}`, ověřený v kódu podle schématu).
 

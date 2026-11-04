@@ -48,7 +48,7 @@ function browserReady(): PreflightResult {
 
 /** Rung 3 = Playwright MCP driven by Claude (sonnet), Chrome TARS-agent started and closed by guard/tars-browser.sh. */
 const makeBrowser = () => new McpBrowser(new SecretScanningAdapter(new ClaudeCli("sonnet")), { runsDir });
-/** P16 v2: every non-code check = ChatGPT in the browser (Work, projekt TARS · Analýzy, nejvyšší přemýšlení). */
+/** P16 v3: every non-code check = ChatGPT in the browser, mode Chat (subscription, never Work), GPT-6 · Vysoká. */
 const makeGptWeb = () => new ChatGptWebChecker(makeBrowser());
 
 async function refreshBrowserStatus(): Promise<PreflightResult> {
@@ -137,7 +137,8 @@ async function main() {
       return;
     }
     case "gpt-smoke": {
-      // Harmless live check of the P16 v2 path: one prompt "Odpověz jen slovem OK." in the project TARS · Analýzy.
+      // Harmless live check of the P16 v3 path: one prompt "Odpověz jen slovem OK." in ChatGPT mode Chat (no project).
+      // Needs the TARS-agent profile logged in to ChatGPT (ordinary account); only the owner logs in, TARS never does.
       const lock = new Store(runsDir);
       if (!lock.acquireLock()) throw new Error("běží jiná zakázka (lock)");
       try {

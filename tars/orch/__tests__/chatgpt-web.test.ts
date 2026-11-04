@@ -1,4 +1,4 @@
-// P16 v2: non-code checks through ChatGPT in the browser (fake browser, no model, no Chrome).
+// P16 v3: non-code checks through ChatGPT in the browser, mode Chat (fake browser, no model, no Chrome).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +16,6 @@ import { CardRegistry } from "../cards";
 import {
   answerRegion,
   CHATGPT_MODEL,
-  CHATGPT_PROJECT,
   ChatGptWebChecker,
   chatGptSteps,
   detectModel,
@@ -49,7 +48,7 @@ const FIX_JSON =
 function page(
   prompt: string,
   answer: string,
-  model = 'button "GPT-6.1 Sol Max." [ref=e3]',
+  model = 'button "GPT-6 Vysoká" [ref=e3]',
 ): string {
   return [
     "- banner:",
@@ -109,7 +108,8 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     expect(b.calls).toHaveLength(1);
     const steps = b.calls[0];
     expect(steps[0]).toEqual({ kind: "goto", url: "https://chatgpt.com/" });
-    expect(steps).toContainEqual({ kind: "click", text: CHATGPT_PROJECT });
+    expect(steps).toContainEqual(expect.objectContaining({ kind: "choose", prefer: "Chat" }));
+    expect(steps.some((s) => s.kind === "click")).toBe(false); // no project
     expect(steps.filter((s) => s.kind === "fill")).toHaveLength(1);
     expect(steps.find((s) => s.kind === "fill")).toMatchObject({
       submit: true,
@@ -118,7 +118,8 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     expect(sentPrompt(steps)).toContain("Posuď zadání.");
     // the end marker is only in the answer, never literally in the prompt
     expect(sentPrompt(steps)).not.toContain(MARKER);
-    expect(c.model).toBe("GPT-6.1 Sol · Max.");
+    expect(c.model).toBe("GPT-6 · Vysoká");
+    expect(c.name).toBe("ChatGPT web (Chat, GPT-6 · Vysoká)");
     expect(c.lastRecord).toMatchObject({
       status: "ANSWER",
       model_matches: true,
@@ -129,7 +130,7 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
       .filter((f) => /^check-gptweb-.*\.md$/.test(f));
     expect(rec).toHaveLength(1);
     expect(fs.readFileSync(path.join(dir, rec[0]), "utf8")).toContain(
-      "Skutečný model (ze stránky): GPT-6.1 Sol · Max.",
+      "Skutečný model (ze stránky): GPT-6 · Vysoká",
     );
   });
 
@@ -255,7 +256,7 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
     expect(c.lastRecord).toMatchObject({
       model_matches: false,
       actual_model: "GPT-5.5 Thinking · Heavy",
-      requested_model: `${CHATGPT_MODEL} · Max.`,
+      requested_model: `${CHATGPT_MODEL} · Vysoká`,
     });
     const rec = fs.readdirSync(dir).find((f) => f.startsWith("check-gptweb-"))!;
     expect(fs.readFileSync(path.join(dir, rec), "utf8")).toMatch(/NEODPOVÍDÁ/);
@@ -268,9 +269,9 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
   });
 
   it("pomocné funkce: detectModel, answerRegion, verdictFromAnswer", () => {
-    expect(detectModel('- button "GPT-6.1 Sol Max."')).toEqual({
-      model: "GPT-6.1 Sol",
-      intensity: "Max.",
+    expect(detectModel('- button "GPT-6 Vysoká"')).toEqual({
+      model: "GPT-6",
+      intensity: "Vysoká",
     });
     expect(answerRegion("bez značky", MARKER, NONCE)).toBeUndefined();
     expect(
@@ -376,6 +377,71 @@ describe("ChatGptWebChecker (fake prohlížeč)", () => {
         REVIEW_SCHEMA,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("P16 v3: režim Chat (paušál), nikdy Work", () => {
+  it("kroky neobsahují Work jako volbu ani projekt; režim Chat, model GPT-6 / GPT-5.6 Sol, intenzita Vysoká", () => {
+    const steps = chatGptSteps("prompt", MARKER);
+    const chooses = steps.filter((s): s is Extract<BrowserStep, { kind: "choose" }> => s.kind === "choose");
+    expect(chooses.map((s) => s.prefer)).toEqual(["Chat", "GPT-6", "Vysoká"]);
+    expect(chooses[0].fallback).toMatch(/RESULT: UNKNOWN chat-nedostupny/);
+    expect(chooses[1].fallback).toMatch(/GPT-5\.6 Sol/);
+    expect(chooses[2].fallback).toMatch(/nejvyšší stupeň/);
+    for (const s of steps) {
+      expect(s.kind).not.toBe("click");
+      if (s.kind === "choose") expect(s.prefer).not.toMatch(/Work/);
+    }
+    // Work appears only as a prohibition ("nikdy"), never as something to pick
+    for (const s of chooses) if (/Work/.test(s.fallback)) expect(s.fallback).toMatch(/nikdy[^;]*„Work“/);
+    expect(JSON.stringify(steps)).not.toMatch(/projekt|Analýzy|GPT-6\.1|Max\./);
+  });
+
+  it("stránka v režimu Work (model GPT-6.1 Sol / Max. nebo zvolený přepínač Work) → WAITING_REVIEW „běží v režimu Work místo Chat“, odpověď se nepoužije", async () => {
+    for (const model of [
+      'button "GPT-6.1 Sol Max." [ref=e3]',
+      'button "GPT-6 Max." [ref=e3]',
+      'tab "Work" [selected] [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]',
+    ]) {
+      const c = checker(new FakeBrowser(answering(PASS_JSON, model)));
+      const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+      expect(r, model).toMatchObject({ ok: false, waitReview: true, text: "" });
+      expect(r.error, model).toMatch(/běží v režimu Work místo Chat/);
+      expect(c.lastRecord, model).toMatchObject({ status: "WAITING_REVIEW", model_matches: false });
+    }
+    // the switch always shows both labels: a not-selected Work is not Work mode
+    const c = checker(
+      new FakeBrowser(answering(PASS_JSON, 'tab "Chat" [selected] [ref=e1]\n  - tab "Work" [ref=e2]\n  - button "GPT-6 Vysoká" [ref=e3]')),
+    );
+    expect(await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA })).toMatchObject({ ok: true });
+    expect(c.lastRecord?.model_matches).toBe(true);
+  });
+
+  it("záložní GPT-5.6 Sol + Vysoká → shoda", async () => {
+    const c = checker(new FakeBrowser(answering(PASS_JSON, 'button "GPT-5.6 Sol Vysoká" [ref=e3]')));
+    const r = await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(r.ok).toBe(true);
+    expect(c.model).toBe("GPT-5.6 Sol · Vysoká");
+    expect(c.lastRecord).toMatchObject({ status: "ANSWER", model_matches: true });
+  });
+
+  it("GPT-6 + Střední → neshoda (zapsáno NEODPOVÍDÁ), nikdy předstíraná shoda", async () => {
+    const c = checker(new FakeBrowser(answering(PASS_JSON, 'button "GPT-6 Střední" [ref=e3]')));
+    await c.run("x", { cwd: dir, outputSchema: REVIEW_SCHEMA });
+    expect(c.model).toBe("GPT-6 · Střední");
+    expect(c.lastRecord).toMatchObject({ model_matches: false, actual_model: "GPT-6 · Střední" });
+    const rec = fs.readdirSync(dir).find((f) => f.startsWith("check-gptweb-"))!;
+    expect(fs.readFileSync(path.join(dir, rec), "utf8")).toMatch(/NEODPOVÍDÁ/);
+  });
+
+  it("detectModel rozliší GPT-6 od GPT-6.1 Sol a GPT-5.6 Sol (i intenzitu hned za názvem)", () => {
+    expect(detectModel('- button "GPT-6 Vysoká" [ref=e3]')).toEqual({ model: "GPT-6", intensity: "Vysoká" });
+    expect(detectModel('- button "GPT-6.1 Sol Max." [ref=e3]')).toEqual({ model: "GPT-6.1 Sol", intensity: "Max." });
+    expect(detectModel('- button "GPT-5.6 Sol Vysoká" [ref=e3]')).toEqual({ model: "GPT-5.6 Sol", intensity: "Vysoká" });
+    expect(detectModel('- button "GPT-6 · Střední"')).toEqual({ model: "GPT-6", intensity: "Střední" });
+    expect(detectModel('- button "GPT-6 High"')).toEqual({ model: "GPT-6", intensity: "High" });
+    expect(detectModel('- button "GPT-6.1"').model).toBe("GPT-6.1");
+    expect(detectModel('- button "GPT-6"').model).toBe("GPT-6");
   });
 });
 

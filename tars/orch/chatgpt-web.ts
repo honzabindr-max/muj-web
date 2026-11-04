@@ -1,5 +1,8 @@
-// P16 v2 (pokyn vlastníka 4. 11.): every non-code check runs in ChatGPT in the browser — mode Work, project
-// "TARS · Analýzy", the model with the highest reasoning (today GPT-6.1 Sol, intensity Max.). Codex stays for code.
+// P16 v3 (Pravidla vlastníka v1.7, pokyn 4. 11. 9:53): every non-code check runs in ChatGPT in the browser in the
+// ordinary mode Chat (switch "Chat | Work" at the top), so it draws on the ChatGPT subscription (paušál), not on the
+// Work limit. Highest reasoning Chat offers: GPT-6, intensity Vysoká (fallback GPT-5.6 Sol, Vysoká). Work is never
+// used for checks, not even as a fallback; there is no project. A page that shows Work is a mismatch → WAITING_REVIEW.
+// Codex stays for code.
 //
 // No own browser code (DR-027): the steps run through McpBrowser (Playwright MCP, Chrome TARS-agent started and closed
 // by guard/tars-browser.sh, every tool call through mcp-gate.ts: host allowlist incl. chatgpt.com, one submit, the
@@ -22,11 +25,17 @@ import type { ModelFamily } from "./types";
 import { parseStructuredVerdict } from "./verdict";
 
 export const CHATGPT_URL = "https://chatgpt.com/";
-export const CHATGPT_WORKSPACE = "Work";
-export const CHATGPT_PROJECT = "TARS · Analýzy";
-export const CHATGPT_MODEL = "GPT-6.1 Sol";
-export const CHATGPT_INTENSITY = "Max.";
-/** How long one answer may take (Max. reasoning can think for many minutes). */
+/** Mode of the switch "Chat | Work" (P16 v3): always Chat. */
+export const CHATGPT_MODE = "Chat";
+/** The other mode of the switch. Checks never use it, not even as a fallback. */
+export const CHATGPT_FORBIDDEN_MODE = "Work";
+export const CHATGPT_MODEL = "GPT-6";
+export const CHATGPT_MODEL_FALLBACK = "GPT-5.6 Sol";
+/** Intensity slider in Chat: Nízká / Střední / Vysoká; Vysoká is the top for both Chat models. */
+export const CHATGPT_INTENSITY = "Vysoká";
+/** Models the check accepts (both exist only in Chat). */
+export const CHAT_MODELS: readonly string[] = [CHATGPT_MODEL, CHATGPT_MODEL_FALLBACK];
+/** How long one answer may take (Vysoká reasoning can think for many minutes). */
 export const CHATGPT_ANSWER_TIMEOUT_MS = 25 * 60_000;
 /** The end marker is the word + the nonce written together; the prompt holds them only apart. */
 export const END_WORD = "TARSKONEC";
@@ -51,7 +60,7 @@ export interface WebCheckRecord {
   answer?: string;
 }
 
-/** Steps of one check: open ChatGPT, mode Work, the project, the model, intensity, one exact submit, wait, read. */
+/** Steps of one check: open ChatGPT, mode Chat (never Work), the model, intensity, one exact submit, wait, read. */
 export function chatGptSteps(
   prompt: string,
   marker: string,
@@ -62,22 +71,21 @@ export function chatGptSteps(
     { kind: "wait", ms: 4000 },
     {
       kind: "choose",
-      what: "režim / pracovní prostor (workspace)",
-      prefer: CHATGPT_WORKSPACE,
-      fallback: `nic jiného; když „${CHATGPT_WORKSPACE}“ není, skonči s RESULT: UNKNOWN work-nedostupny`,
+      what: "režim (přepínač nahoře „Chat | Work“)",
+      prefer: CHATGPT_MODE,
+      fallback: `nic jiného, nikdy „${CHATGPT_FORBIDDEN_MODE}“; když „${CHATGPT_MODE}“ není, skonči s RESULT: UNKNOWN chat-nedostupny`,
     },
-    { kind: "click", text: CHATGPT_PROJECT },
     {
       kind: "choose",
       what: "model",
       prefer: CHATGPT_MODEL,
-      fallback: "dostupný model s nejvyšší intenzitou přemýšlení",
+      fallback: `„${CHATGPT_MODEL_FALLBACK}“; nikdy nepřepínej do režimu „${CHATGPT_FORBIDDEN_MODE}“`,
     },
     {
       kind: "choose",
-      what: "intenzita přemýšlení",
+      what: "intenzita přemýšlení (posuvník Nízká / Střední / Vysoká)",
       prefer: CHATGPT_INTENSITY,
-      fallback: "nejvyšší dostupná intenzita přemýšlení",
+      fallback: "nejvyšší stupeň posuvníku",
     },
     {
       kind: "fill",
@@ -264,23 +272,43 @@ export function verdictFromAnswer(region: string, schema: Record<string, unknown
   return found;
 }
 
-/** Model and intensity as the page shows them (model picker in the header comes first in the snapshot). */
+/**
+ * Model and intensity as the page shows them (model picker in the header comes first in the snapshot). The version is
+ * read whole and only a known name word may follow, so "GPT-6" is never "GPT-6.1 Sol" or "GPT-5.6 Sol" and an
+ * intensity word ("GPT-6 Vysoká") is never part of the model name.
+ */
 export function detectModel(page: string): {
   model?: string;
   intensity?: string;
 } {
   const head = page.slice(0, 30_000);
   const m =
-    /\b((?:Chat)?GPT[- ]?\d+(?:\.\d+)?(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini|[A-Z][a-z]{2,12}))?)\b/.exec(
+    /(?<![\p{L}\d])((?:Chat)?GPT[- ]?\d+(?:\.\d+)*(?:[ -](?:Sol|Pro|Thinking|Instant|mini|Mini)(?![\p{L}\d]))?)(?![\p{L}\d.]*\d)/u.exec(
       head,
     );
   if (!m) return {};
   const near = head.slice(m.index, m.index + 300);
   const i =
-    /\b(Max\.?|Maximální|Maximum|Heavy|Extended|Vysoká|High|Střední|Medium|Standard|Light)(?=[\s"'\]):,]|$)/.exec(
+    /(?<![\p{L}\d])(Max\.?|Maximální|Maximum|Heavy|Extended|Vysoká|High|Střední|Medium|Standard|Light|Nízká|Low)(?=[\s"'\]):,·]|$)/u.exec(
       near.slice(m[1].length),
     );
   return { model: m[1], intensity: i?.[1] };
+}
+
+/** Intensity "Vysoká" (High) as the page shows it. */
+export const isHighIntensity = (intensity?: string): boolean => intensity === "Vysoká" || intensity === "High";
+
+/** A selected "Work" in the mode switch (snapshot state), not the mere label (the switch always shows both modes). */
+const WORK_SELECTED_RE = /-\s*[a-z]+\s+"Work"[^\n]*\[(?:pressed|selected|checked)(?:=true)?\]/i;
+
+/**
+ * true when the page shows that the check runs in Work instead of Chat (P16 v3): the mode switch has Work selected, or
+ * the page shows a Work model or intensity (GPT-6.1 Sol, Max.), which do not exist in Chat.
+ */
+export function ranInWork(page: string, seen: { model?: string; intensity?: string }): boolean {
+  if (WORK_SELECTED_RE.test(page.slice(0, 30_000))) return true;
+  if (seen.model && /^(?:Chat)?GPT[- ]?6\.1\b/.test(seen.model)) return true;
+  return Boolean(seen.intensity && /^Max/.test(seen.intensity));
 }
 
 const LIMIT_PAGE_RE =
@@ -312,7 +340,7 @@ export interface ChatGptWebOpts {
 
 export class ChatGptWebChecker implements TextAdapter {
   readonly family: ModelFamily = "gpt";
-  readonly name = `ChatGPT web (${CHATGPT_WORKSPACE}, projekt ${CHATGPT_PROJECT})`;
+  readonly name = `ChatGPT web (${CHATGPT_MODE}, ${CHATGPT_MODEL} · ${CHATGPT_INTENSITY})`;
   /** The answer is validated against RunOpts.outputSchema in code, so the text it returns is exactly one schema JSON. */
   readonly supportsOutputSchema = true;
   readonly requestedModel = `${CHATGPT_MODEL} · ${CHATGPT_INTENSITY}`;
@@ -388,10 +416,10 @@ export class ChatGptWebChecker implements TextAdapter {
     const actual = seen.model
       ? `${seen.model}${seen.intensity ? ` · ${seen.intensity}` : ""}`
       : "neověřeno (stránka model neukazuje)";
-    const matches =
-      seen.model === CHATGPT_MODEL &&
-      Boolean(seen.intensity?.startsWith("Max"));
     this.model = actual;
+    // P16 v3: Work is never a valid place for a check; the answer is not used, the order waits (never pretended).
+    if (ranInWork(page, seen)) return waiting("běží v režimu Work místo Chat", actual);
+    const matches = seen.model !== undefined && CHAT_MODELS.includes(seen.model) && isHighIntensity(seen.intensity);
     const region = answerRegion(page, marker, nonce);
     if (region === undefined)
       return waiting(
@@ -427,7 +455,7 @@ export class ChatGptWebChecker implements TextAdapter {
 
 export function recordMarkdown(r: WebCheckRecord): string {
   return [
-    "# Kontrola GPT v prohlížeči (P16 v2)",
+    "# Kontrola GPT v prohlížeči (P16 v3, Chat)",
     "",
     `- Čas: ${r.at}`,
     `- Stav: ${r.status}`,

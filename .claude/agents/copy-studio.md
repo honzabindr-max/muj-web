@@ -10,7 +10,7 @@ executor: claude -p --model opus
 family: claude
 adapter: claude-opus
 rung: 1
-checker: ChatGPT v prohlížeči (Work, projekt TARS · Analýzy, nejvyšší přemýšlení; P16 v2)
+checker: ChatGPT v prohlížeči (Chat, nikdy Work, GPT-6 · Vysoká; P16 v3)
 checker_family: gpt
 sources: handoff, capsule, buildos, funnel, ui_build_brief, copy_handoff
 max_fix_rounds: 3
@@ -61,7 +61,7 @@ Notion podstránka DRAFT (TARS-ORCH-001 §2). Rodič DRAFT stránek: zdroje ho n
 
 ## 6. Kontrolor
 
-GPT v prohlížeči (ChatGPT, režim Work, projekt TARS · Analýzy, model s nejvyšším přemýšlením; P16 v2), jiná rodina než tvůrce. Když GPT v prohlížeči není dostupný, zakázka čeká ve WAITING_REVIEW a kontrola se nepředstírá. Checklist:
+GPT v prohlížeči (ChatGPT v běžném režimu Chat, nikdy Work, GPT-6 · Vysoká; P16 v3), jiná rodina než tvůrce. Když GPT v prohlížeči není dostupný, zakázka čeká ve WAITING_REVIEW a kontrola se nepředstírá. Checklist:
 1. Fakta jen ze zadání (bod 5.2).
 2. Funnel, factual a legal meaning beze změny (bod 3).
 3. Max 3 směry u klíčových bloků (bod 3).

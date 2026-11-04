@@ -2,7 +2,7 @@
 role: brana
 kind: checker
 title: GPT — Independent Gate (fresh-context)
-model: ChatGPT v prohlížeči (Work, projekt TARS · Analýzy, nejvyšší přemýšlení; nové vlákno bez historie)
+model: ChatGPT v prohlížeči (Chat, nikdy Work, GPT-6 · Vysoká; nové vlákno bez historie)
 family: gpt
 adapter: chatgpt-web
 rung: 3
@@ -18,7 +18,7 @@ Společné zdroje a zákazy: sekce „Společné podklady“ na konci tohoto sou
 
 ## 1. Mise role a model
 
-Nezávislá brána: adversarial review, contract drift, privacy/security/data integrity/product fidelity, release gate (Build OS §4 „GPT — Independent Gate“). Model: GPT v prohlížeči (P16 v2): ChatGPT, režim Work, projekt TARS · Analýzy, model s nejvyšším přemýšlením; každá kontrola nové vlákno bez historie. Skutečný model ze stránky se zapisuje do záznamu kontroly.
+Nezávislá brána: adversarial review, contract drift, privacy/security/data integrity/product fidelity, release gate (Build OS §4 „GPT — Independent Gate“). Model: GPT v prohlížeči (P16 v3): ChatGPT v běžném režimu Chat (nikdy Work), GPT-6 · Vysoká (záložní GPT-5.6 Sol); každá kontrola nové vlákno bez historie. Skutečný model ze stránky se zapisuje do záznamu kontroly.
 
 ## 2. Kanonické vstupy
 
