@@ -23,12 +23,10 @@ import {
   END_WORD,
   grantRetry,
   markerEndsAnswer,
-  PICKER_VERIFY,
   readJournal,
   readRetries,
   verdictFromAnswer,
   writeJournal,
-  type PickerEvidence,
   type SentEntry,
   type WebBrowser,
 } from "../chatgpt-web";
@@ -170,14 +168,6 @@ const promptShaOf = (prompt: string) =>
   createHash("sha256")
     .update(`${prompt}\n${JSON.stringify(REVIEW_SCHEMA)}`)
     .digest("hex");
-/** Picker evidence of one read with GPT-6 at Vysoká, top step (what picker() shows by default). */
-const HIGH_EVIDENCE: PickerEvidence = {
-  menu: "Vybrat model ChatGPT",
-  model: "GPT-6",
-  intensity: "Vysoká",
-  level: 3,
-  levels: 3,
-};
 
 /** First attempt: NONCE; every later attempt of the same checker gets a new nonce (like random bytes). */
 const checker = (b: WebBrowser) => {
@@ -1297,71 +1287,20 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
     expect(steps.at(-1)).toEqual({ kind: "read" });
   });
 
-  it("nález 3: pád po „answered“ před uložením výsledku → další běh dokončí z deníku bez nového odeslání", async () => {
-    const b = new FakeBrowser(answering(PASS_JSON));
-    expect(
-      await checker(b).run("Posuď.", { cwd: dir, outputSchema: REVIEW_SCHEMA }),
-    ).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(readJournal(dir)).toEqual([
-      expect.objectContaining({
-        state: "answered",
-        answer: PASS_JSON,
-        model_before: "GPT-6 · Vysoká",
-        model_after: "GPT-6 · Vysoká",
-        chat_url: CHAT,
-        verify: PICKER_VERIFY,
-        picker_before: HIGH_EVIDENCE,
-        picker_after: HIGH_EVIDENCE,
-      }),
-    ]);
-    // the caller crashed before storing the result: a new process (new checker) repeats the check
-    const c2 = new ChatGptWebChecker(b, { nonce: () => "jiny" });
-    const r2 = await c2.run("Posuď.", {
-      cwd: dir,
-      outputSchema: REVIEW_SCHEMA,
-    });
-    expect(r2).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(b.calls).toHaveLength(1); // no browser run, no second send
-    expect(c2.lastRecord).toMatchObject({
-      status: "ANSWER",
-      submits: 0,
-      chat_url: CHAT,
-    });
-    // an "answered" entry without the control check evidence is never used: burned, WAITING_REVIEW, nothing sent
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gptweb-"));
-    const sha = readJournal(dir)![0].prompt_sha256;
-    writeJournal(d, [
-      {
-        prompt_sha256: sha,
+  describe("Codex review PR #101 kolo 3: uložená odpověď se z deníku nikdy neobnovuje", () => {
+    const INTERRUPTED = "přerušený pokus, obnova z deníku se nepovoluje";
+    const stored = (extra: Record<string, unknown>): SentEntry =>
+      ({
+        prompt_sha256: promptShaOf("Posuď."),
         nonce: "old",
         at: new Date().toISOString(),
         state: "answered",
         answer: PASS_JSON,
-        model_before: "GPT-6 · Střední",
+        model_before: "GPT-6 · Vysoká",
         model_after: "GPT-6 · Vysoká",
-      },
-    ]);
-    const b3 = new FakeBrowser(answering(FIX_JSON));
-    const r3 = await checker(b3).run("Posuď.", {
-      cwd: d,
-      outputSchema: REVIEW_SCHEMA,
-    });
-    expect(r3).toMatchObject({ ok: false, waitReview: true, text: "" });
-    expect(b3.calls).toHaveLength(0);
-  });
-
-  describe("Codex review PR #101 kolo 2: obnova z deníku jen s důkazem ověření ovládacího prvku", () => {
-    const stored = (extra: Partial<SentEntry>): SentEntry => ({
-      prompt_sha256: promptShaOf("Posuď."),
-      nonce: "old",
-      at: new Date().toISOString(),
-      state: "answered",
-      answer: PASS_JSON,
-      model_before: "GPT-6 · High",
-      model_after: "GPT-6 · High",
-      ...extra,
-    });
-    const restore = async (e: SentEntry) => {
+        ...extra,
+      }) as SentEntry;
+    const afterRestart = async (e: SentEntry) => {
       writeJournal(dir, [e]);
       const b = new FakeBrowser(answering(FIX_JSON));
       const c = checker(b);
@@ -1371,61 +1310,89 @@ describe("Codex review kolo 2, hlavní změna (nálezy 1, 3): jeden pokus = nov�
       });
       return { r, c, b };
     };
-
-    it("starý záznam „answered“ bez verze s „GPT-6 · High“ → WAITING_REVIEW, spálen, bez odeslání; nový pokus jen gpt-retry", async () => {
-      const { r, c, b } = await restore(stored({}));
-      expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
-      expect(r.error).toMatch(/starý záznam bez ověření ovládacího prvku/);
-      expect(r.error).toMatch(/gpt-retry/);
-      expect(b.calls).toHaveLength(0);
-      expect(c.lastRecord).toMatchObject({
+    const expectBurnedWaiting = (
+      x: Awaited<ReturnType<typeof afterRestart>>,
+    ) => {
+      expect(x.r).toMatchObject({ ok: false, waitReview: true, text: "" });
+      expect(x.r.error).toContain(INTERRUPTED);
+      expect(x.r.error).toMatch(/gpt-retry/);
+      expect(x.b.calls).toHaveLength(0);
+      expect(x.c.lastRecord).toMatchObject({
         status: "WAITING_REVIEW",
         submits: 0,
       });
       expect(readJournal(dir)).toEqual([
+        expect.objectContaining({ state: "burned", reason: INTERRUPTED }),
+      ]);
+    };
+
+    it("pád po „answered“ před uložením výsledku → po restartu spáleno, WAITING_REVIEW, bez odeslání; gpt-retry pak právě jedno nové odeslání", async () => {
+      // a real "answered" attempt written by a live run
+      const b0 = new FakeBrowser(answering(PASS_JSON));
+      expect(
+        await checker(b0).run("Posuď.", {
+          cwd: dir,
+          outputSchema: REVIEW_SCHEMA,
+        }),
+      ).toMatchObject({ ok: true, text: PASS_JSON });
+      const live = readJournal(dir)!;
+      expect(live).toEqual([
         expect.objectContaining({
-          state: "burned",
-          reason: "starý záznam bez ověření ovládacího prvku",
+          state: "answered",
+          answer: PASS_JSON,
+          model_before: "GPT-6 · Vysoká",
+          model_after: "GPT-6 · Vysoká",
+          chat_url: CHAT,
         }),
       ]);
+      // the caller crashed before storing the result: a new process (new checker) repeats the check
+      const x = await afterRestart(live[0]);
+      expectBurnedWaiting(x);
       // the next tick sends nothing on its own either
-      const again = await checker(b).run("Posuď.", {
+      const again = await checker(x.b).run("Posuď.", {
         cwd: dir,
         outputSchema: REVIEW_SCHEMA,
       });
       expect(again).toMatchObject({ ok: false, waitReview: true });
-      expect(b.calls).toHaveLength(0);
-      // a version without evidence is inconclusive too
-      const v = await restore(stored({ verify: PICKER_VERIFY }));
-      expect(v.r).toMatchObject({ ok: false, waitReview: true });
-      expect(v.b.calls).toHaveLength(0);
+      expect(x.b.calls).toHaveLength(0);
+      // gpt-retry: exactly one new send
+      expect(grantRetry(dir, "vlastnik", "přerušená kontrola").ok).toBe(true);
+      const b2 = new FakeBrowser(answering(FIX_JSON));
+      const r2 = await new ChatGptWebChecker(b2, { nonce: () => "novy" }).run(
+        "Posuď.",
+        { cwd: dir, outputSchema: REVIEW_SCHEMA },
+      );
+      expect(r2).toMatchObject({ ok: true, text: FIX_JSON });
+      expect(b2.calls).toHaveLength(1);
+      expect(readJournal(dir)!.at(-1)).toMatchObject({
+        nonce: "novy",
+        state: "answered",
+      });
     });
 
-    it("nový záznam s platným důkazem → obnova bez odeslání projde", async () => {
-      const { r, c, b } = await restore(
-        stored({
-          verify: PICKER_VERIFY,
-          picker_before: HIGH_EVIDENCE,
-          picker_after: HIGH_EVIDENCE,
-        }),
+    it("syntetický záznam s kompletním „důkazem“ ovládacího prvku → také spálen, bez odeslání", async () => {
+      const evidence = {
+        menu: "Vybrat model ChatGPT",
+        model: "GPT-6",
+        intensity: "High",
+        level: 3,
+        levels: 3,
+      };
+      expectBurnedWaiting(
+        await afterRestart(
+          stored({
+            verify: "picker-v1",
+            picker_before: evidence,
+            picker_after: evidence,
+          }),
+        ),
       );
-      expect(r).toMatchObject({ ok: true, text: PASS_JSON });
-      expect(b.calls).toHaveLength(0);
-      expect(c.lastRecord).toMatchObject({ status: "ANSWER", submits: 0 });
-      expect(c.model).toBe("GPT-6 · Vysoká");
     });
 
-    it("nový záznam s důkazem Medium → neshoda, WAITING_REVIEW bez odeslání", async () => {
-      const { r, b } = await restore(
-        stored({
-          verify: PICKER_VERIFY,
-          picker_before: HIGH_EVIDENCE,
-          picker_after: { ...HIGH_EVIDENCE, intensity: "Medium", level: 2 },
-        }),
+    it("starý záznam „answered“ s „GPT-6 · Střední“ → také spálen, bez odeslání", async () => {
+      expectBurnedWaiting(
+        await afterRestart(stored({ model_before: "GPT-6 · Střední" })),
       );
-      expect(r).toMatchObject({ ok: false, waitReview: true, text: "" });
-      expect(b.calls).toHaveLength(0);
-      expect(readJournal(dir)![0]).toMatchObject({ state: "burned" });
     });
   });
 
@@ -1609,13 +1576,18 @@ describe("Codex review kolo 3, nález 1: po spáleném pokusu jen výslovný gpt
         used_at: t.toISOString(),
       }),
     ]);
-    // answered: the result is reused, nothing is sent, no retry is needed or allowed
-    expect(await run()).toMatchObject({ ok: true, text: PASS_JSON });
-    expect(fills(b)).toBe(2);
+    // while the attempt is answered (not burned), no retry is allowed
     expect(grantRetry(dir, "fable", "x")).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/není spálený/),
     });
+    // Codex review PR #101 kolo 3: a later run never restores the stored answer: burned, waits, nothing is sent
+    const later = await run();
+    expect(later).toMatchObject({ ok: false, waitReview: true, text: "" });
+    expect(later.error).toMatch(
+      /přerušený pokus, obnova z deníku se nepovoluje/,
+    );
+    expect(fills(b)).toBe(2);
   });
 
   it("povolení se spotřebuje před odesláním: i neúspěšný nový pokus potřebuje další gpt-retry", async () => {

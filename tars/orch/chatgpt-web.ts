@@ -83,7 +83,8 @@ export interface WebCheckRecord {
  * Vysoká before the send and after the answer; then the attempt is "answered" with the answer and both models stored.
  * Anything else (timeout, mismatch, crash, any doubt) makes the attempt "burned" for good: its chat is never opened
  * again and its answer is never accepted, not even by a later read. A provably unsent attempt is removed.
- * After a crash between "answered" and storing the result, the next run finishes from the stored answer without a send.
+ * Codex review PR #101 kolo 3: a stored answer is never restored. An "answered" attempt found by a later run (crash
+ * between "answered" and storing the result) is burned like any interrupted attempt; nothing is sent automatically.
  * Codex review kolo 3, nález 1: a burned attempt is never followed by an automatic one. While the last attempt of the
  * dir is burned, nothing is sent; the order stays in WAITING_REVIEW with the reason. A new attempt (new chat, new
  * nonce, one send) needs an explicit grant from `cli.ts gpt-retry` (RETRY_FILE).
@@ -101,27 +102,14 @@ export interface SentEntry {
   answer?: string;
   model_before?: string;
   model_after?: string;
-  /**
-   * Codex review PR #101 kolo 2: version of the control check that wrote the "answered" attempt, and what the open
-   * picker showed in both reads (the data the match was decided from). An "answered" attempt without the current
-   * version or without complete evidence is inconclusive: burned, never reused, never followed by an automatic send.
-   */
-  verify?: string;
-  picker_before?: PickerEvidence;
-  picker_after?: PickerEvidence;
 }
-/** Current version of the control check in the journal (see SentEntry.verify). */
-export const PICKER_VERIFY = "picker-v1";
-/** One read of the open picker: menu name, checked model, slider status label and its step. */
-export interface PickerEvidence {
-  menu: string;
-  model: string;
-  intensity: string;
-  level: number;
-  levels: number;
-}
-/** Reason of a burned "answered" attempt written before the control check (or without its evidence). */
-export const STALE_ANSWER_RECORD = "starý záznam bez ověření ovládacího prvku";
+/**
+ * Codex review PR #101 kolo 3: an answer is accepted only in the browser run that sent and read it (the control is
+ * verified live in that run). A stored "answered" attempt is never restored from the journal (the journal is written
+ * by the same order dir and proves nothing): after a restart it is burned with this reason, nothing is sent.
+ */
+export const INTERRUPTED_ATTEMPT =
+  "přerušený pokus, obnova z deníku se nepovoluje";
 const isFinal = (e: SentEntry) =>
   e.state === "answered" || e.state === "burned";
 /** Only a real ChatGPT conversation URL is recorded (diagnostics; a chat is never opened again). */
@@ -916,51 +904,26 @@ export class ChatGptWebChecker implements TextAdapter {
       return waiting("deník pokusů nejde přečíst; nový prompt se neposílá");
     entries = journal;
 
-    // 1) A crash after "answered" and before the caller stored the result: finish from the stored answer, no send.
-    //    Codex review PR #101 kolo 2: only an attempt of the current control check with complete picker evidence,
-    //    evaluated again by the same function as the live reads.
+    // 1) Codex review PR #101 kolo 3: an "answered" attempt of this prompt means a run was interrupted between the
+    //    answer and storing the result. The stored answer is never restored (no proof outside the live run): the
+    //    attempt is burned and moved to the end of the journal (so it blocks like any burned attempt), the order waits,
+    //    nothing is sent; a new attempt only by gpt-retry.
     const answered = journal.filter(
       (e) => e.prompt_sha256 === promptSha && e.state === "answered",
     );
-    const done = [...answered]
-      .reverse()
-      .find((e) => storedAnswerValid(e, opts.outputSchema));
-    if (done) {
-      const actualDone = shownModel(evidenceShown(done.picker_after!));
-      chatUrl = done.chat_url;
-      this.model = actualDone;
-      const kinds = record({
-        status: "ANSWER",
-        actual_model: actualDone,
-        model_matches: true,
-        answer: done.answer,
-      });
-      if (kinds.length) return rejected(kinds, actualDone);
-      return {
-        ok: true,
-        text: done.answer!,
-        limit: false,
-        duration_ms: Date.now() - t0,
-      };
-    }
-
-    // 1b) Codex review PR #101 kolo 2: an "answered" attempt of this prompt without the current control check or its
-    //     evidence (e.g. written before the fix from the page text) is inconclusive: burned and moved to the end of the
-    //     journal (so it blocks like any burned attempt), the order waits, nothing is sent; a new attempt only by gpt-retry.
-    const unproven = answered.filter((e) => !storedPickerOk(e));
-    if (unproven.length) {
+    if (answered.length) {
       const next: SentEntry[] = [
-        ...journal.filter((e) => !unproven.includes(e)),
-        ...unproven.map((e) => ({
+        ...journal.filter((e) => !answered.includes(e)),
+        ...answered.map((e) => ({
           ...e,
           state: "burned" as const,
-          reason: STALE_ANSWER_RECORD,
+          reason: INTERRUPTED_ATTEMPT,
         })),
       ];
       if (!save(next))
         return waiting("deník pokusů nejde zapsat; nic neodesláno");
       return waiting(
-        `${STALE_ANSWER_RECORD}: uložená odpověď se nepoužije, pokus je spálený a znovu se automaticky neposílá. Nový pokus jen příkazem: ${retryCommand(path.basename(jdir))}`,
+        `${INTERRUPTED_ATTEMPT}: uložená odpověď se nepoužije, pokus je spálený a znovu se automaticky neposílá. Nový pokus jen příkazem: ${retryCommand(path.basename(jdir))}`,
       );
     }
 
@@ -973,8 +936,7 @@ export class ChatGptWebChecker implements TextAdapter {
           : {
               ...e,
               state: "burned" as const,
-              reason:
-                "pokus nedokončen v běhu, který ho odeslal (pád nebo přerušení); odpověď se nikdy nepřijme",
+              reason: `${INTERRUPTED_ATTEMPT} (pokus nedokončen v běhu, který ho odeslal, pád nebo přerušení; odpověď se nikdy nepřijme)`,
             },
       );
       if (!save(burned))
@@ -1186,9 +1148,6 @@ export class ChatGptWebChecker implements TextAdapter {
               answer: text,
               model_before: shownModel(seenBefore),
               model_after: actual,
-              verify: PICKER_VERIFY,
-              picker_before: pickerEvidence(seenBefore),
-              picker_after: pickerEvidence(seen),
               ...(chatUrl ? { chat_url: chatUrl } : {}),
             }
           : e,
@@ -1221,7 +1180,7 @@ const modelOk = (seen: ShownModel): boolean =>
   (seen.levels === undefined || seen.level === seen.levels);
 /**
  * The match of the two picker reads (before the send, after the answer): both read from the control, both an allowed
- * Chat model at the top intensity, the same model. Used by the live run and by the restore from the journal.
+ * Chat model at the top intensity, the same model. Used only by the live run.
  */
 const pickerPairOk = (before: ShownModel, after: ShownModel): boolean =>
   controlVerified(before) &&
@@ -1229,66 +1188,6 @@ const pickerPairOk = (before: ShownModel, after: ShownModel): boolean =>
   modelOk(before) &&
   modelOk(after) &&
   before.model === after.model;
-
-/** Evidence of one picker read for the journal (only after controlVerified). */
-function pickerEvidence(seen: ShownModel): PickerEvidence {
-  return {
-    menu: CHATGPT_PICKER,
-    model: seen.model!,
-    intensity: seen.intensity!,
-    level: seen.level!,
-    levels: seen.levels!,
-  };
-}
-
-const evidenceShown = (p: PickerEvidence): ShownModel => ({
-  model: p.model,
-  intensity: p.intensity,
-  level: p.level,
-  levels: p.levels,
-});
-
-/** Complete evidence of one read: the picker menu name, the checked model, the slider status label and step. */
-function evidenceComplete(p: unknown): p is PickerEvidence {
-  if (!p || typeof p !== "object") return false;
-  const x = p as Record<string, unknown>;
-  return (
-    x.menu === CHATGPT_PICKER &&
-    typeof x.model === "string" &&
-    x.model.trim() !== "" &&
-    typeof x.intensity === "string" &&
-    x.intensity.trim() !== "" &&
-    Number.isInteger(x.level) &&
-    Number.isInteger(x.levels)
-  );
-}
-
-/** A stored "answered" attempt of the current control check with complete evidence that matches again. */
-function storedPickerOk(e: SentEntry): boolean {
-  return (
-    e.verify === PICKER_VERIFY &&
-    evidenceComplete(e.picker_before) &&
-    evidenceComplete(e.picker_after) &&
-    pickerPairOk(evidenceShown(e.picker_before), evidenceShown(e.picker_after))
-  );
-}
-
-/**
- * A stored "answered" attempt is used only when it holds an answer and the picker evidence of its run matches again
- * (storedPickerOk; the text fields model_before/model_after never decide).
- */
-function storedAnswerValid(
-  e: SentEntry,
-  schema?: Record<string, unknown>,
-): boolean {
-  if (typeof e.answer !== "string" || !e.answer.trim()) return false;
-  if (!storedPickerOk(e)) return false;
-  if (!schema) return true;
-  const allowed = ((
-    schema.properties as Record<string, { enum?: string[] }> | undefined
-  )?.verdict?.enum ?? []) as string[];
-  return parseStructuredVerdict(e.answer, allowed) !== undefined;
-}
 
 export function recordMarkdown(r: WebCheckRecord): string {
   return [
