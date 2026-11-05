@@ -313,21 +313,31 @@ export function finalBodyRef(order: Pick<Order, "meta">): { file: string; sha256
  * odkazuje, musí být PASS přesně nad tímto tělem (artifactHash i sha256 souboru). Jinak důvod (BODY_MISMATCH).
  */
 export function finalBodyProblem(order: Order, store: Store): string | undefined {
+  const v = verifyFinalBody(order, store);
+  return v && "problem" in v ? v.problem : undefined;
+}
+
+/**
+ * FIX1 nález 5 (TOCTOU): soubor finálního těla se přečte JEDNOU a ověří se právě tento buffer. Vrací buď přesně
+ * ověřené bajty k odeslání (`body`), nebo důvod HOLD (`problem`). undefined = zakázka bez finálního těla.
+ * deliver odesílá výhradně vrácený `body`, soubor podruhé nečte.
+ */
+export function verifyFinalBody(order: Order, store: Store): { body: string } | { problem: string } | undefined {
   const fb = finalBodyRef(order);
   if (!fb) return undefined;
   let body: string;
   try {
     body = store.readFile(order.id, fb.file);
   } catch {
-    return `BODY_MISMATCH: ${fb.file} nejde přečíst`;
+    return { problem: `BODY_MISMATCH: ${fb.file} nejde přečíst` };
   }
-  if (artifactHash(body) !== fb.sha256) return `BODY_MISMATCH: ${fb.file} se po sestavení změnil`;
+  if (artifactHash(body) !== fb.sha256) return { problem: `BODY_MISMATCH: ${fb.file} se po sestavení změnil` };
   const rc = readReviewReceipt(store.orderDir(order.id), { review_id: order.meta.review_receipt_id, sha256: order.meta.review_receipt_sha256 });
-  if (!rc) return "BODY_MISMATCH: chybí review receipt, na který odkazuje stav";
-  if (rc.verdict !== "PASS") return `BODY_MISMATCH: receipt má verdikt ${rc.verdict}`;
-  if (rc.reviewed_artifact_kind !== "content" || rc.reviewed_artifact_hash !== fb.sha256) return "BODY_MISMATCH: receipt patří k jinému tělu";
-  if (rc.reviewed_body_file?.file !== fb.file || rc.reviewed_body_file.sha256 !== sha256(body)) return "BODY_MISMATCH: sha256 souboru ≠ receipt";
-  return undefined;
+  if (!rc) return { problem: "BODY_MISMATCH: chybí review receipt, na který odkazuje stav" };
+  if (rc.verdict !== "PASS") return { problem: `BODY_MISMATCH: receipt má verdikt ${rc.verdict}` };
+  if (rc.reviewed_artifact_kind !== "content" || rc.reviewed_artifact_hash !== fb.sha256) return { problem: "BODY_MISMATCH: receipt patří k jinému tělu" };
+  if (rc.reviewed_body_file?.file !== fb.file || rc.reviewed_body_file.sha256 !== sha256(body)) return { problem: "BODY_MISMATCH: sha256 souboru ≠ receipt" };
+  return { body };
 }
 
 /** §8: soubor výstupu kroku bez FINISHED se nemaže, jen přejmenuje na orphan-a<n>.md. */
@@ -486,9 +496,10 @@ ${verdictFormatFor(this.checker)}`;
     if (finalBodyRef(order)) {
       // §6.2.1 bod 5: hlavička se znovu nesestavuje; odejdou přesně bajty `final-body-r<n>.md`, ověřené proti stavu
       // a review receiptu. Nesoulad = nic se neodešle (orchestrátor ho zachytí dřív jako HOLD).
-      const problem = finalBodyProblem(order, ctx.store);
-      if (problem) return { ok: false, error: problem, effect_absent: true, model: "notion" };
-      content = ctx.store.readFile(order.id, finalBodyRef(order)!.file);
+      // FIX1 nález 5: odejde přesně buffer, který prošel ověřením (žádné druhé čtení souboru).
+      const v = verifyFinalBody(order, ctx.store);
+      if (!v || "problem" in v) return { ok: false, error: v ? v.problem : "BODY_MISMATCH: chybí finální tělo", effect_absent: true, model: "notion" };
+      content = v.body;
     } else {
       content = copyEnvelope(order, this.creatorModel(), this.checkerModel(), order.fix_rounds) + ctx.store.readFile(order.id, order.draft_file!);
     }

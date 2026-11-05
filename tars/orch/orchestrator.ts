@@ -9,12 +9,14 @@ import { parseReset } from "./reset";
 import { artifactHash, goBlocker } from "./approval";
 import {
   AttemptJournal,
+  GroupNotEndedError,
   isTerminalAttempt,
   journalScope,
   psProbe,
   reconcileAll,
   runInAttempt,
   sha256,
+  writeAllDurable,
   type ProcessProbe,
 } from "./attempts";
 import type { CardRegistry } from "./cards";
@@ -2384,12 +2386,21 @@ export class Orchestrator {
       ...(order.fence !== undefined ? { fence: order.fence } : {}),
     });
     let r: T;
+    const scope = journalScope(J, rec.attempt_id, processStartTime);
+    // FIX1 nález 1: konec skupiny některého procesu kroku (nebo vnitřního volání) nedoložen → HOLD, ne FINISHED.
+    const holdUnsettled = (why: string): AttemptRun<T> => {
+      J.holdAttempt(rec.attempt_id, why);
+      return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${why}` };
+    };
     try {
-      r = await runInAttempt(
-        journalScope(J, rec.attempt_id, processStartTime),
-        run,
-      );
+      r = await runInAttempt(scope, run);
     } catch (e) {
+      if (e instanceof GroupNotEndedError || scope.unsettled?.length)
+        return holdUnsettled(
+          e instanceof GroupNotEndedError
+            ? String(e.message).slice(0, 400)
+            : `konec skupiny procesů nedoložen: ${scope.unsettled!.join("; ")}`,
+        );
       const sha = J.writeOutput(
         rec,
         JSON.stringify({ error: String((e as Error)?.message ?? e) }),
@@ -2397,12 +2408,27 @@ export class Orchestrator {
       J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: sha });
       throw e;
     }
+    if (scope.unsettled?.length)
+      return holdUnsettled(`konec skupiny procesů nedoložen: ${scope.unsettled.join("; ")}`);
     const out: AttemptOutput<T> = { outcome: r };
     if (r.ok && r.draft_file && r.draft_file !== "wt") {
+      // FIX1 nález 4: draft (skutečný výstup kroku) se uloží trvale PŘED FINISHED: celé bajty + fsync souboru +
+      // atomický rename + fsync adresáře. Bez toho by pád OS po FINISHED mohl draft ztratit (RESUME → UNKNOWN).
+      let text: string | undefined;
       try {
-        out.draft_sha256 = sha256(this.d.store.readFile(order.id, r.draft_file));
+        text = this.d.store.readFile(order.id, r.draft_file);
       } catch {
         /* draft nejde přečíst: RESUME pak není možný (UNKNOWN) */
+      }
+      if (text !== undefined) {
+        try {
+          writeAllDurable(path.join(this.d.store.orderDir(order.id), r.draft_file), text);
+        } catch (e) {
+          const why = `draft ${r.draft_file} nejde uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+          J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })) });
+          throw new Error(why);
+        }
+        out.draft_sha256 = sha256(text);
       }
     }
     const sha = J.writeOutput(rec, JSON.stringify(out));

@@ -6,12 +6,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runProcess, type TextAdapter } from "../adapters";
 import { artifactHash } from "../approval";
 import {
   AttemptJournal,
+  currentAttempt,
   journalScope,
   killGroup,
   parsePsLine,
@@ -19,6 +20,7 @@ import {
   reconcileAttempt,
   RetryRefusedError,
   runInAttempt,
+  settleGroup,
   sha256,
   type AttemptRecord,
   type ProcInfo,
@@ -157,7 +159,10 @@ function proc(p: Partial<ProcInfo> & { pid: number }): ProcInfo {
 class FakeProbe implements ProcessProbe {
   kills: Array<{ pgid: number; sig: string }> = [];
   private i = 0;
-  constructor(private seq: Array<ProcInfo[] | undefined>) {}
+  constructor(
+    private seq: Array<ProcInfo[] | undefined>,
+    public ownPgid: number | undefined = 7,
+  ) {}
   list() {
     const r = this.seq[Math.min(this.i, this.seq.length - 1)];
     this.i++;
@@ -419,6 +424,101 @@ describe("§7 runProcess: detached skupina, TARS_ATTEMPT_ID, kill -pgid", () => 
     await waitFor(() => pidExists(gpid) === false);
     expect(pidExists(gpid)).toBe(false);
   });
+
+  it("FIX1 nález 1: vnuk ignorující SIGTERM přežije close rodiče → SIGKILL skupiny podle doloženého konce skupiny, výsledek až při prázdné skupině", async () => {
+    const pidFile = path.join(dir, "gpid");
+    const t0 = Date.now();
+    const r = await runProcess(
+      "/bin/sh",
+      [
+        "-c",
+        `${process.execPath} -e "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)" >/dev/null 2>&1 & echo $! > ${pidFile}; sleep 30`,
+      ],
+      "",
+      dir,
+      1500,
+    );
+    const gpid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    cleanup.push(() => {
+      try {
+        process.kill(gpid, "SIGKILL");
+      } catch {
+        /* neběží */
+      }
+    });
+    expect(r.timedOut).toBe(true);
+    // close rodiče přišel hned po SIGTERM; výsledek ale čekal na SIGKILL vnuka (≥ 5 s po SIGTERM).
+    expect(Date.now() - t0).toBeGreaterThan(5000);
+    expect(r.groupEnded).toBe(true);
+    expect(pidExists(gpid)).toBe(false);
+  }, 30_000);
+
+  it("FIX1 nález 1: pod pokusem nedoložený konec skupiny zapíše onSettled → unsettled (pokus nesmí do FINISHED)", async () => {
+    const j = J();
+    const rec = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: "2030-01-01T00:00:00.000Z",
+      decision_check: "legacy",
+    });
+    const scope = journalScope(j, rec.attempt_id, processStartTime);
+    scope.onSettled!(4242, false, "člen bez identity");
+    scope.onSettled!(4243, true, "skupina prázdná");
+    expect(scope.unsettled).toEqual(["4242: člen bez identity"]);
+  });
+
+  it("FIX1 nález 1+2: settleGroup — prázdná skupina = konec; člen spuštěný po exit vedoucího (možná recyklace) se nesignalizuje; SIGTERM → SIGKILL → ověření", async () => {
+    const exitAt = Date.parse("2026-11-05T10:00:10Z");
+    const old = { pid: 9001, startMs: Date.parse("2026-11-05T10:00:00Z") };
+    const late = { pid: 9002, startMs: Date.parse("2026-11-05T10:00:10Z") };
+    const kills: string[] = [];
+    const kill = (g: number, s: NodeJS.Signals) => (
+      kills.push(`${s} -${g}`),
+      true
+    );
+    const sleep = async () => {};
+    expect(
+      await settleGroup(77, exitAt, { list: () => [], kill, sleep }),
+    ).toMatchObject({ ended: true });
+    expect(kills).toEqual([]);
+
+    const foreign = await settleGroup(77, exitAt, {
+      list: () => [old, late],
+      kill,
+      sleep,
+    });
+    expect(foreign.ended).toBe(false);
+    expect(foreign.note).toMatch(/bez doložené identity/);
+    expect(kills).toEqual([]);
+
+    expect(
+      (await settleGroup(77, exitAt, { list: () => undefined, kill, sleep }))
+        .ended,
+    ).toBe(false);
+
+    // člen ignoruje SIGTERM, SIGKILL ho ukončí
+    let n = 0;
+    const seq = await settleGroup(77, exitAt, {
+      list: () => (kills.includes("SIGKILL -77") && n++ > 0 ? [] : [old]),
+      kill,
+      sleep,
+      termWaitMs: 0,
+      killWaitMs: 50,
+    });
+    expect(seq.ended).toBe(true);
+    expect(kills).toEqual(["SIGTERM -77", "SIGKILL -77"]);
+
+    // po SIGKILL stále běží → ended false
+    kills.length = 0;
+    const stuck = await settleGroup(77, exitAt, {
+      list: () => [old],
+      kill,
+      sleep,
+      termWaitMs: 0,
+      killWaitMs: 0,
+    });
+    expect(stuck.ended).toBe(false);
+    expect(stuck.note).toMatch(/po SIGKILL stále běží/);
+  });
 });
 
 // ───────────────────────────── §7 reconciler: 6 orphan testů ─────────────────────────────
@@ -521,7 +621,8 @@ describe("§7 reconciler", () => {
     expect(pidExists(child.pid!)).toBe(true);
   });
 
-  it("orphan test 3: přeživší vnuk po kill rodiče — před deadline čeká, po deadline SIGTERM -pgid a ABANDONED s důkazem", async () => {
+  /** Skutečný vedoucí `sh` (exec sleep) s vnukem node ve stejné skupině; pokus STARTED s lstart vedoucího. */
+  async function realGroup(deadline: string) {
     const pidFile = path.join(dir, "gpid");
     const leader = spawn(
       "/bin/sh",
@@ -538,20 +639,47 @@ describe("§7 reconciler", () => {
         fs.readFileSync(pidFile, "utf8").trim().length > 0,
     );
     const gpid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    cleanup.push(() => {
+      try {
+        process.kill(gpid, "SIGKILL");
+      } catch {
+        /* už neběží */
+      }
+    });
     const j = J();
     const r = j.intent(ORDER_ID, "create-r0", {
       input_sha256: "x",
-      deadline: new Date(Date.now() + 3600_000).toISOString(),
+      deadline,
       decision_check: "legacy",
     });
-    const lst = processStartTime(leader.pid!)!;
     j.started(r.attempt_id, {
       pid: leader.pid!,
       pgid: leader.pid!,
-      lstart: lst,
+      lstart: processStartTime(leader.pid!)!,
       cmd: "sh",
       at: NOW,
     });
+    // Sonda vidí jen procesy tohoto testu: ostatní procesy stroje (souběžné testy, démoni) by jinak spadly do
+    // „nevyloučitelných“ (nález 3) a test by neměřil kill sekvenci.
+    const scoped: ProcessProbe = {
+      list: () =>
+        psProbe
+          .list()
+          ?.filter(
+            (p) =>
+              p.pid === leader.pid || p.pid === gpid || p.pgid === leader.pid,
+          ),
+      kill: (g, s) => psProbe.kill(g, s),
+      sleep: (ms) => psProbe.sleep(ms),
+      ownPgid: psProbe.ownPgid,
+    };
+    return { leader, gpid, j, r, scoped };
+  }
+
+  it("orphan test 3 (FIX1 nález 2): rodič zabit, vnuk žije ve skupině bez vedoucího → identita nedoložena → HOLD, nic se nesignalizuje (ani po deadline)", async () => {
+    const { leader, gpid, j, r, scoped } = await realGroup(
+      new Date(Date.now() + 3600_000).toISOString(),
+    );
     const exited = new Promise((res) => leader.on("exit", res));
     process.kill(leader.pid!, "SIGKILL"); // rodič umře, vnuk zůstane ve skupině
     await exited;
@@ -559,23 +687,196 @@ describe("§7 reconciler", () => {
       () => !(psProbe.list() ?? []).some((p) => p.pid === leader.pid),
     );
     expect(pidExists(gpid)).toBe(true);
-    const wait = await reconcileAttempt(j, j.get(r.attempt_id)!, psProbe, {
+    const sent: string[] = [];
+    const watch: ProcessProbe = {
+      ...scoped,
+      kill: (g, s) => (sent.push(`${s} -${g}`), scoped.kill(g, s)),
+    };
+    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, watch, {
+      now: new Date(Date.now() + 2 * 3600_000),
+      uid: UID,
+      exitTimeoutMs: 300,
+    });
+    expect(res.action).toBe("hold");
+    expect(res.reason).toMatch(/bez doložené identity/);
+    expect(sent).toEqual([]);
+    expect(pidExists(gpid)).toBe(true);
+    expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
+  });
+
+  it("orphan test 3b: vedoucí se shodným lstart žije s vnukem — před deadline čeká, po deadline SIGTERM -pgid a ABANDONED s důkazem", async () => {
+    const { leader, gpid, j, r, scoped } = await realGroup(
+      new Date(Date.now() + 3600_000).toISOString(),
+    );
+    const wait = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
       now: new Date(),
       uid: UID,
       exitTimeoutMs: 300,
     });
     expect(wait.action).toBe("waiting_background");
-    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, psProbe, {
+    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
       now: new Date(Date.now() + 2 * 3600_000),
       uid: UID,
       exitTimeoutMs: 300,
     });
     expect(res.action).toBe("abandoned");
     await waitFor(() => pidExists(gpid) === false);
+    await waitFor(() => pidExists(leader.pid!) === false);
     const rec = j.get(r.attempt_id)!;
     expect(rec.abandoned!.kill_evidence).toMatch(
       new RegExp(`SIGTERM -${leader.pid}: odesláno`),
     );
+  });
+
+  it("FIX1 nález 2: recyklovaný pgid bez lstart / bez vedoucího → HOLD, 0 signálů; vlastní skupina ani neznámá vlastní skupina se nesignalizují", async () => {
+    const past = "2026-11-04T11:00:00.000Z"; // deadline uplynul
+    // STARTED bez lstart, ve skupině 4242 běží vedoucí i člen (může to být cizí skupina po recyklaci ID)
+    let j = J();
+    let r = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: past,
+      decision_check: "legacy",
+    });
+    r = j.started(r.attempt_id, {
+      pid: 4242,
+      pgid: 4242,
+      lstart: "",
+      cmd: "claude",
+      at: NOW,
+    });
+    let probe = new FakeProbe([
+      [proc({ pid: 4242 }), proc({ pid: 4250, pgid: 4242 })],
+    ]);
+    let res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("hold");
+    expect(res.reason).toMatch(/bez doložené identity/);
+    expect(probe.kills).toEqual([]);
+
+    // lstart uložen, vedoucí chybí, členové s pgid 4242 běží (recyklované ID po odchodu nového vedoucího)
+    fs.rmSync(path.join(dir, ORDER_ID, "attempts"), { recursive: true });
+    j = J();
+    r = startedRec(j, past);
+    probe = new FakeProbe([
+      [proc({ pid: 4250, pgid: 4242 }), proc({ pid: 4251, pgid: 4242 })],
+    ]);
+    res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("hold");
+    expect(probe.kills).toEqual([]);
+
+    // skupina pokusu = vlastní skupina orchestrátoru → HOLD, 0 signálů
+    fs.rmSync(path.join(dir, ORDER_ID, "attempts"), { recursive: true });
+    j = J();
+    r = startedRec(j, past);
+    probe = new FakeProbe([[proc({ pid: 4242, lstart: LST })]], 4242);
+    res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("hold");
+    expect(res.reason).toMatch(/vlastní skupina/);
+    expect(probe.kills).toEqual([]);
+
+    // vlastní skupinu nejde zjistit → HOLD, 0 signálů
+    fs.rmSync(path.join(dir, ORDER_ID, "attempts"), { recursive: true });
+    j = J();
+    r = startedRec(j, past);
+    probe = new FakeProbe([[proc({ pid: 4242, lstart: LST })]]);
+    probe.ownPgid = undefined;
+    res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("hold");
+    expect(probe.kills).toEqual([]);
+  });
+
+  it("FIX1 nález 2: produkční psProbe předává vlastní pgid; killGroup odmítne vlastní skupinu (ne jen process.pid)", () => {
+    const own = Number(
+      spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
+        encoding: "utf8",
+      }).stdout.trim(),
+    );
+    expect(own).toBeGreaterThan(1);
+    expect(psProbe.ownPgid).toBe(own);
+    expect(killGroup(own, "SIGCONT")).toBe(false);
+    expect(psProbe.kill(own, "SIGCONT")).toBe(false);
+  });
+
+  it("FIX1 nález 3: skupina pokusu skončila, ale po INTENT běží proces se skrytým env mimo skupinu (setsid potomek) → HOLD, ne ABANDONED", async () => {
+    const j = J();
+    const r = startedRec(j);
+    const setsidChild = proc({
+      pid: 5000,
+      pgid: 5000,
+      envHidden: true,
+      startMs: Date.parse(NOW) + 2000,
+    });
+    let res = await reconcileAttempt(
+      j,
+      r,
+      new FakeProbe([[setsidChild]]),
+      at(NOW),
+    );
+    expect(res.action).toBe("hold");
+    expect(res.reason).toMatch(/konec potomků nelze doložit/);
+    expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
+    // Proces s čitelným env bez TARS_ATTEMPT_ID ani proces spuštěný před INTENT potomkem být nemůže → ABANDONED.
+    res = await reconcileAttempt(
+      j,
+      j.get(r.attempt_id)!,
+      new FakeProbe([
+        [
+          proc({
+            pid: 5001,
+            envHidden: false,
+            startMs: Date.parse(NOW) + 2000,
+          }),
+          proc({
+            pid: 5002,
+            envHidden: true,
+            startMs: Date.parse(NOW) - 3600_000,
+          }),
+        ],
+      ]),
+      at(NOW),
+    );
+    expect(res.action).toBe("abandoned");
+  });
+
+  it("FIX1 nález 3: skutečný potomek v nové session (detached = setsid) přežije konec skupiny → HOLD", async () => {
+    const pidFile = path.join(dir, "spid");
+    const j = J();
+    const r = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: "2030-01-01T00:00:00.000Z",
+      decision_check: "legacy",
+    });
+    const leader = spawn(
+      process.execPath,
+      [
+        "-e",
+        `const c=require('child_process').spawn('/bin/sleep',['30'],{detached:true,stdio:'ignore'});require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref()`,
+      ],
+      { stdio: "ignore", detached: true },
+    );
+    await new Promise((res) => leader.on("exit", res));
+    const spid = Number(fs.readFileSync(pidFile, "utf8"));
+    cleanup.push(() => killGroup(spid, "SIGKILL"));
+    j.started(r.attempt_id, {
+      pid: leader.pid!,
+      pgid: leader.pid!,
+      lstart: "Wed Nov 4 12:00:00 2026",
+      cmd: "node",
+      at: NOW,
+    });
+    const scoped: ProcessProbe = {
+      list: () =>
+        psProbe.list()?.filter((p) => p.pid === spid || p.pgid === leader.pid),
+      kill: (g, s) => psProbe.kill(g, s),
+      sleep: (ms) => psProbe.sleep(ms),
+      ownPgid: psProbe.ownPgid,
+    };
+    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
+      now: new Date(),
+      uid: UID,
+    });
+    expect(res.action).toBe("hold");
+    expect(res.reason).toContain(String(spid));
+    expect(pidExists(spid)).toBe(true);
   });
 
   it("orphan test 4: recyklovaný PID (jiný lstart) se nezabije, pokus ABANDONED", async () => {
@@ -634,6 +935,88 @@ describe("§7 reconciler", () => {
     expect(recs).toHaveLength(1);
     expect(recs[0].reconcile?.result).toBe("RESUME");
     expect(again.meta.final_body_file).toBe("final-body-r0.md");
+  });
+
+  it("FIX1 nález 1: orchestrátor — konec skupiny procesu kroku nedoložen → pokus HOLD (žádný FINISHED), přechod se neaplikuje", async () => {
+    const creator = new FakeAdapter("gpt", "c", () => {
+      currentAttempt()!.onSettled!(
+        4242,
+        false,
+        "člen skupiny bez doložené identity",
+      );
+      return DRAFT;
+    });
+    const o = orch(
+      new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+    );
+    const r = await o.step(seed("DOING"));
+    expect(r.state).not.toBe("CHECKING");
+    const recs = J().list(ORDER_ID, "create-r0");
+    expect(recs).toHaveLength(1);
+    expect(recs[0].phase).toBe("HOLD");
+    expect(recs[0].finished).toBeUndefined();
+    expect(recs[0].hold!.reason).toMatch(/konec skupiny procesů nedoložen/);
+  });
+
+  it("FIX1 nález 1: vnitřní volání kontrolora s nedoloženým koncem skupiny → volání i krok HOLD, ne FINISHED", async () => {
+    const creator = new FakeAdapter("gpt", "c", () => DRAFT);
+    const checker = new FakeAdapter("claude", "k", () => {
+      currentAttempt()!.onSettled!(4243, false, "po SIGKILL stále běží");
+      return PASS;
+    });
+    const o = orch(new CopyDepartment(creator, checker));
+    let ord = await o.step(seed("DOING"));
+    expect(ord.state).toBe("CHECKING");
+    ord = await o.step(ord);
+    expect(ord.state).not.toBe("DELIVERED");
+    const all = J().list(ORDER_ID);
+    expect(all.find((x) => x.step === "check-r0-a1-c0")!.phase).toBe("HOLD");
+    expect(all.find((x) => x.step === "check-r0")!.phase).toBe("HOLD");
+  });
+
+  it("FIX1 nález 4: draft se zapíše trvale (fsync souboru, rename, fsync adresáře) PŘED zápisem FINISHED; po pádu jde RESUME", async () => {
+    const events: string[] = [];
+    const realRename = fs.renameSync;
+    const sRename = vi
+      .spyOn(fs, "renameSync")
+      .mockImplementation((src, dst) => {
+        const name = path.basename(String(dst));
+        let tag = name;
+        if (name === "create-r0-a1.json")
+          tag = `${name}:${(JSON.parse(fs.readFileSync(String(src), "utf8")) as AttemptRecord).phase}`;
+        events.push(`rename ${tag}`);
+        return realRename(src, dst);
+      });
+    const realFsync = fs.fsyncSync;
+    const sFsync = vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
+      events.push("fsync");
+      return realFsync(fd);
+    });
+    try {
+      const creator = new FakeAdapter("gpt", "c", () => DRAFT);
+      const o = orch(
+        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+      );
+      const before = seed("DOING");
+      expect((await o.step(before)).state).toBe("CHECKING");
+      const d = events.indexOf("rename draft-v0.md");
+      const fin = events.indexOf("rename create-r0-a1.json:FINISHED");
+      expect(d).toBeGreaterThan(0);
+      expect(events[d - 1]).toBe("fsync"); // fsync souboru před rename
+      expect(events[d + 1]).toBe("fsync"); // fsync adresáře po rename
+      expect(fin).toBeGreaterThan(d);
+      // pád po FINISHED před uložením přechodu: draft je na disku se shodným sha256 → RESUME, 0 nových volání
+      const cur = store.load(ORDER_ID);
+      store.save({ ...before, version: cur.version });
+      expect((await o.step(store.load(ORDER_ID))).state).toBe("CHECKING");
+      expect(creator.calls).toBe(1);
+      expect(J().list(ORDER_ID, "create-r0")[0].reconcile?.result).toBe(
+        "RESUME",
+      );
+    } finally {
+      sRename.mockRestore();
+      sFsync.mockRestore();
+    }
   });
 
   it("orchestrátor: osiřelý pokus běží na pozadí před deadline → žádný druhý pokus, stav beze změny", async () => {
@@ -921,6 +1304,35 @@ describe("§6.2.1 finální tělo a review receipt (N07)", () => {
     expect(JSON.stringify(held)).toMatch(/BODY_MISMATCH/);
     expect(notion.pages()).toHaveLength(0);
     expect(notion.creates).toBe(0);
+  });
+
+  it("FIX1 nález 5 (TOCTOU): soubor vyměněn mezi ověřením a odesláním → odejde přesně ověřený buffer, soubor se čte jednou", async () => {
+    const { ord } = await toDelivered();
+    const body = store.readFile(ORDER_ID, "final-body-r0.md");
+    const f = path.join(dir, ORDER_ID, "final-body-r0.md");
+    let reads = 0;
+    const swapping = Object.create(store) as Store;
+    swapping.readFile = (id: string, name: string) => {
+      const t = store.readFile(id, name);
+      if (name === "final-body-r0.md" && ++reads === 1)
+        fs.writeFileSync(f, "# podvržený text po ověření\n" + DRAFT);
+      return t;
+    };
+    const dept = new CopyDepartment(
+      new FakeAdapter("gpt", "c", () => DRAFT),
+      new FakeAdapter("claude", "k", () => PASS),
+    );
+    const out = await dept.deliver(ord, {
+      store: swapping,
+      notion,
+      draftParentId: PARENT,
+    } as never);
+    expect(out.ok).toBe(true);
+    expect(reads).toBe(1);
+    expect(out.content).toBe(body);
+    expect(notion.pages()).toHaveLength(1);
+    expect(notion.pages()[0].md).toBe(body);
+    expect(notion.pages()[0].md).not.toContain("podvržený");
   });
 
   it("receipt platí jen přes odkaz ze stavu: podvržený soubor v reviews/ ani špatný sha256 se nepřijmou", async () => {

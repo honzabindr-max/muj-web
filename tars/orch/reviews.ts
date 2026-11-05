@@ -13,6 +13,7 @@ import type { AdapterResult, TextAdapter } from "./adapters";
 import {
   AttemptJournal,
   currentAttempt,
+  GroupNotEndedError,
   journalScope,
   runInAttempt,
   sha256,
@@ -165,12 +166,17 @@ export async function invokeChecker(
     decision_check: `část kroku ${outer.id}`,
   });
   let res: Awaited<ReturnType<typeof call>>;
+  const scope = journalScope(journal, rec.attempt_id, processStartTime);
+  // FIX1 nález 1: konec skupiny procesu kontrolora nedoložen → volání do HOLD (ne FINISHED), krok to převezme.
+  const unsettled = (): never => {
+    const why = `konec skupiny procesů nedoložen: ${scope.unsettled!.join("; ")}`;
+    journal.holdAttempt(rec.attempt_id, why);
+    throw new GroupNotEndedError(`${rec.attempt_id}: ${why}`);
+  };
   try {
-    res = await runInAttempt(
-      journalScope(journal, rec.attempt_id, processStartTime),
-      call,
-    );
+    res = await runInAttempt(scope, call);
   } catch (e) {
+    if (scope.unsettled?.length) unsettled();
     const sha = journal.writeOutput(rec, "");
     journal.finished(rec.attempt_id, {
       exit: null,
@@ -179,6 +185,7 @@ export async function invokeChecker(
     });
     throw e;
   }
+  if (scope.unsettled?.length) unsettled();
   const text = res.r.text ?? "";
   const output_sha256 = journal.writeOutput(rec, text);
   journal.finished(rec.attempt_id, {

@@ -14,7 +14,7 @@
 // existuje skupina s tímto ID). Co doložit nejde, je HOLD.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -79,7 +79,51 @@ export class AttemptError extends Error {}
 /** §8: opakování kroku bez záznamu reconcile, nebo reconcile odmítnutý adaptérem (dev do PR 4b). Fail-closed. */
 export class RetryRefusedError extends AttemptError {}
 
+/**
+ * FIX1 nález 1: proces pokusu skončil, ale konec jeho skupiny procesů nejde doložit (člen bez doložené identity,
+ * ps selhal, po SIGKILL stále běží, stdout drží proces mimo skupinu). Pokus jde do HOLD, ne do FINISHED.
+ */
+export class GroupNotEndedError extends AttemptError {}
+
 const SAFE = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * FIX1 nález 4: trvalý atomický zápis výstupu kroku (draftu) před FINISHED: unikátní tmp, zápis VŠECH bajtů ve
+ * smyčce (writeSync smí zapsat méně), fsync souboru, rename, fsync adresáře. Krátký zápis = chyba, původní soubor
+ * beze změny.
+ * SJEDNOTIT PO REBASE NAD PR 1: PR 1 dává totéž do `writeDurable` (store.ts) a `Store.writeFile`; pak tuto funkci
+ * nahradit voláním `writeDurable` a smazat.
+ */
+export function writeAllDurable(file: string, content: string): void {
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  const buf = Buffer.from(content, "utf8");
+  try {
+    const fd = fs.openSync(tmp, "wx");
+    try {
+      let off = 0;
+      while (off < buf.length) {
+        const n = fs.writeSync(fd, buf, off, buf.length - off);
+        if (!(n > 0))
+          throw new AttemptError(
+            `krátký zápis ${off}/${buf.length} B do ${path.basename(tmp)}`,
+          );
+        off += n;
+      }
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+  const dfd = fs.openSync(path.dirname(file), "r");
+  try {
+    fs.fsyncSync(dfd);
+  } finally {
+    fs.closeSync(dfd);
+  }
+}
 
 export function sha256(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex");
@@ -302,6 +346,10 @@ export interface AttemptScope {
   id: string;
   /** Volá runProcess hned po spawn. Vyhozená chyba = proces se ihned zabije (bez STARTED nejde sledovat). */
   onSpawn(pid: number, cmd: string): void;
+  /** FIX1 nález 1: runProcess po `close` hlásí, zda je skupina dítěte doloženě prázdná. */
+  onSettled?(pid: number, ended: boolean, note: string): void;
+  /** Skupiny, jejichž konec se nepodařilo doložit (pid: důvod). Neprázdné = pokus nesmí do FINISHED. */
+  unsettled?: string[];
 }
 
 const scopeStore = new AsyncLocalStorage<AttemptScope>();
@@ -323,8 +371,13 @@ export function journalScope(
   id: string,
   startTime: (pid: number) => string | undefined,
 ): AttemptScope {
+  const unsettled: string[] = [];
   return {
     id,
+    unsettled,
+    onSettled(pid, ended, note) {
+      if (!ended) unsettled.push(`${pid}: ${note}`.slice(0, 300));
+    },
     onSpawn(pid, cmd) {
       journal.started(id, {
         pid,
@@ -337,9 +390,28 @@ export function journalScope(
   };
 }
 
+let ownGroupCache: number | undefined;
+
+/**
+ * Skupina procesů tohoto procesu (`ps -o pgid= -p <pid>`), čtená jednou. undefined = nejde zjistit; killGroup pak
+ * nic nesignalizuje (fail-closed: bez doložené vlastní skupiny nejde vyloučit, že signál zasáhne nás).
+ */
+export function ownProcessGroup(): number | undefined {
+  if (ownGroupCache !== undefined) return ownGroupCache;
+  const r = spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  const n = Number(typeof r.stdout === "string" ? r.stdout.trim() : "");
+  if (r.status === 0 && Number.isInteger(n) && n > 0) ownGroupCache = n;
+  return ownGroupCache;
+}
+
 /**
  * Signál celé skupině procesů. Nikdy pro pid/pgid ≤ 1 nebo nečíselný (nodejs/node#65052: kill(0) by zasáhl vlastní
  * skupinu, kill(-1) všechny procesy uživatele) a nikdy pro vlastní skupinu volajícího. Vrací true, když signál odešel.
+ * FIX1 nález 2: vlastní skupina = předaný `ownPgid` i skutečná skupina procesu (ownProcessGroup), ne jen process.pid.
+ * Když vlastní skupinu nejde zjistit, nesignalizuje se nic.
  */
 export function killGroup(
   pgid: number | undefined,
@@ -350,6 +422,8 @@ export function killGroup(
     return false;
   if (pgid === process.pid || (ownPgid !== undefined && pgid === ownPgid))
     return false;
+  const mine = ownProcessGroup();
+  if (mine === undefined || pgid === mine) return false;
   try {
     process.kill(-pgid, sig);
     return true;
@@ -421,9 +495,115 @@ export const psProbe: ProcessProbe = {
     }
     return out;
   },
-  kill: (pgid, sig) => killGroup(pgid, sig),
+  // FIX1 nález 2: produkční sonda předává vlastní skupinu; killGroup ji odmítne (a sám ji ověří i bez ní).
+  get ownPgid() {
+    return ownProcessGroup();
+  },
+  kill: (pgid, sig) => killGroup(pgid, sig, ownProcessGroup()),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
+
+// ───────────────────────────── konec skupiny dítěte runProcess (FIX1 nález 1) ─────────────────────────────
+
+export interface GroupMember {
+  pid: number;
+  /** začátek procesu z `ps -o lstart=` (rozlišení 1 s, oříznuto dolů); NaN = nečitelné */
+  startMs: number;
+}
+
+/**
+ * Členové skupiny `pgid` (`ps -A -o pid=,pgid=,lstart=`, bez env: funguje i tam, kde `ps -E` nejde). undefined =
+ * ps selhal nebo řádek nejde přečíst (nic nejde doložit).
+ */
+export function listGroupMembers(pgid: number): GroupMember[] | undefined {
+  const r = spawnSync("ps", ["-A", "-o", "pid=,pgid=,lstart="], {
+    encoding: "utf8",
+    timeout: 15_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (r.status !== 0 || typeof r.stdout !== "string" || !r.stdout.trim())
+    return undefined;
+  const re = new RegExp(`^\\s*(\\d+)\\s+(\\d+)\\s+${LSTART.source}\\s*$`);
+  const out: GroupMember[] = [];
+  for (const l of r.stdout.split("\n")) {
+    if (!l.trim()) continue;
+    const m = re.exec(l);
+    if (!m) return undefined;
+    if (Number(m[2]) !== pgid) continue;
+    const ms = Date.parse(m[3].replace(/\s+/g, " "));
+    out.push({ pid: Number(m[1]), startMs: Number.isFinite(ms) ? ms : NaN });
+  }
+  return out;
+}
+
+export interface SettleOpts {
+  list?: (pgid: number) => GroupMember[] | undefined;
+  kill?: (pgid: number, sig: NodeJS.Signals) => boolean;
+  sleep?: (ms: number) => Promise<void>;
+  /** čekání na konec skupiny po SIGTERM (výchozí 5 s) a po SIGKILL (výchozí 2 s) */
+  termWaitMs?: number;
+  killWaitMs?: number;
+}
+
+/**
+ * FIX1 nález 1: doloží konec skupiny dítěte po jeho `close`. `close` hlavního dítěte nic neříká o zbytku skupiny
+ * (vnuk ignorující SIGTERM běží dál s přesměrovanými proudy). Postup: členové skupiny → žádný = konec. Jinak
+ * SIGTERM -pgid, čekat, SIGKILL -pgid, čekat, a znovu ověřit. Výsledek `ended: true` jen při prázdné skupině.
+ *
+ * Identita (nález 2): po `exit` vedoucího může skupina zaniknout a její ID připadnout novému procesu. Nová skupina
+ * se stejným ID vzniká až po zániku naší, a ta nemohla zaniknout dřív, než skončil vedoucí (`exitAtMs`). Člen je
+ * proto doloženě náš, jen když začal před `exitAtMs` (lstart má rozlišení 1 s: start + 1 s ≤ exitAtMs). Člen bez
+ * doložené identity se nesignalizuje: výsledek `ended: false` (HOLD).
+ */
+export async function settleGroup(
+  pgid: number,
+  exitAtMs: number,
+  o: SettleOpts = {},
+): Promise<{ ended: boolean; note: string }> {
+  const list = o.list ?? listGroupMembers;
+  const kill = o.kill ?? ((g, s) => killGroup(g, s));
+  const sleep =
+    o.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+  const evidence: string[] = [];
+  /** "empty" | "ours" | důvod, proč nejde pokračovat */
+  const look = (): "empty" | "ours" | string => {
+    const m = list(pgid);
+    if (!m) return "ps selhal";
+    if (!m.length) return "empty";
+    const foreign = m.filter((x) => !(x.startMs + 1000 <= exitAtMs));
+    if (foreign.length)
+      return `člen skupiny ${pgid} bez doložené identity (pid ${foreign.map((x) => x.pid).join(",")}, start po konci vedoucího)`;
+    evidence.push(`členové ${m.map((x) => x.pid).join(",")}`);
+    return "ours";
+  };
+  const waitEmpty = async (ms: number): Promise<"empty" | "ours" | string> => {
+    const until = Date.now() + ms;
+    for (;;) {
+      const s = look();
+      if (s !== "ours" || Date.now() >= until) return s;
+      await sleep(Math.min(100, Math.max(1, until - Date.now())));
+    }
+  };
+  let s = look();
+  if (s === "empty") return { ended: true, note: "skupina prázdná" };
+  if (s !== "ours") return { ended: false, note: s };
+  evidence.push(
+    `SIGTERM -${pgid}: ${kill(pgid, "SIGTERM") ? "odesláno" : "neodesláno"}`,
+  );
+  s = await waitEmpty(o.termWaitMs ?? 5000);
+  if (s === "empty") return { ended: true, note: evidence.join("; ") };
+  if (s !== "ours")
+    return { ended: false, note: `${s}; ${evidence.join("; ")}` };
+  evidence.push(
+    `SIGKILL -${pgid}: ${kill(pgid, "SIGKILL") ? "odesláno" : "neodesláno"}`,
+  );
+  s = await waitEmpty(o.killWaitMs ?? 2000);
+  if (s === "empty") return { ended: true, note: evidence.join("; ") };
+  return {
+    ended: false,
+    note: `${s === "ours" ? "po SIGKILL stále běží" : s}; ${evidence.join("; ")}`,
+  };
+}
 
 // ───────────────────────────── reconciler (§7) ─────────────────────────────
 
@@ -446,18 +626,58 @@ export interface ReconcileOpts {
   uid?: number;
 }
 
-/** Skupina pokusu: žije (members), je pryč (dead), nebo patří jinému procesu po recyklaci PID (recycled = mrtvá). */
+/**
+ * Skupina pokusu (FIX1 nález 2). Signalizovat se smí jen skupina s doloženou identitou:
+ * - `alive`: vedoucí (pid = pgid) běží se shodným lstart jako v STARTED. Dokud běží náš vedoucí, ID skupiny nemůže
+ *   patřit nikomu jinému (novou skupinu s ID = X založí jen proces X).
+ * - `dead`: žádný proces s tímto pgid ani vedoucí. Nic se nezabíjí.
+ * - `recycled`: vedoucí PID existuje s jiným lstart. Podle POSIX se PID nerecykluje, dokud existuje skupina s tímto
+ *   ID, takže naše skupina neexistuje; členové patří cizí skupině. Nic se nezabíjí.
+ * - `unproven`: členové s tímto pgid běží, ale vedoucí chybí nebo lstart v STARTED chybí. Mohou to být naši přeživší
+ *   vnuci i cizí procesy po recyklaci ID: nikdy se nesignalizují, výsledek je HOLD.
+ */
+type GroupKind = "alive" | "dead" | "recycled" | "unproven";
+
 function groupState(
   c: AttemptChild,
   procs: ProcInfo[],
-): { alive: boolean; recycled: boolean; members: number[] } {
+  provenAtMs?: number,
+): { kind: GroupKind; alive: boolean; members: number[] } {
   const leader = procs.find((p) => p.pid === c.pgid);
-  // Vedoucí PID existuje s jiným časem startu: PID byl recyklován. Podle POSIX se PID nerecykluje, dokud existuje
-  // skupina s tímto ID, takže naše skupina už neexistuje. Nic se nezabíjí.
+  const inGroup = procs.filter((p) => p.pgid === c.pgid);
+  const members = inGroup.map((p) => p.pid);
   if (leader && c.lstart && leader.lstart !== c.lstart)
-    return { alive: false, recycled: true, members: [] };
-  const members = procs.filter((p) => p.pgid === c.pgid).map((p) => p.pid);
-  return { alive: members.length > 0, recycled: false, members };
+    return { kind: "recycled", alive: false, members: [] };
+  if (leader && c.lstart && leader.lstart === c.lstart)
+    return { kind: "alive", alive: true, members };
+  if (!leader && !members.length)
+    return { kind: "dead", alive: false, members: [] };
+  // Vedoucí zmizel až během kill sekvence (`provenAtMs` = čas výpisu, ve kterém byla identita doložena přes lstart
+  // vedoucího). Členové spuštění před tímto výpisem byli tehdy v jediné skupině s tímto ID, tedy v naší: smí dostat
+  // SIGKILL. Člen spuštěný později nebo identita nikdy nedoložená = unproven.
+  if (
+    provenAtMs !== undefined &&
+    inGroup.every((p) => p.startMs + 1000 <= provenAtMs)
+  )
+    return { kind: "alive", alive: true, members };
+  return { kind: "unproven", alive: false, members };
+}
+
+/**
+ * FIX1 nález 3: procesy uživatele, které mohou být potomky pokusu mimo jeho skupinu a nejde je vyloučit: env skrytý
+ * (`ps -E` ho neukáže, TARS_ATTEMPT_ID nejde ověřit), spuštěné od INTENT a vedoucí vlastní skupiny nebo s
+ * neexistujícím vedoucím (tak vypadá potomek po `setsid` / `setpgid`). Proces s čitelným env bez TARS_ATTEMPT_ID
+ * pokusu se za potomka nepovažuje (env se dědí).
+ */
+function unclearProcesses(rec: AttemptRecord, own: ProcInfo[]): ProcInfo[] {
+  const since = Math.floor(Date.parse(rec.intent_at) / 1000) * 1000 - 1000;
+  const pids = new Set(own.map((p) => p.pid));
+  return own.filter(
+    (p) =>
+      p.envHidden &&
+      !(p.startMs < since) &&
+      (p.pid === p.pgid || !pids.has(p.pgid)),
+  );
 }
 
 function groupsOf(rec: AttemptRecord): AttemptChild[] {
@@ -489,6 +709,7 @@ export async function reconcileAttempt(
     journal.holdAttempt(id, reason);
     return { attempt_id: id, action: "hold", reason };
   };
+  const listedAt = Date.now();
   const procs = probe.list();
   if (!procs) return hold("ps selhal: konec pokusu nelze prokázat");
   const uid =
@@ -530,14 +751,7 @@ export async function reconcileAttempt(
       return hold(
         `INTENT bez STARTED, běží proces s TARS_ATTEMPT_ID (pid ${tagged.map((p) => p.pid).join(", ")})`,
       );
-    const since = Math.floor(Date.parse(rec.intent_at) / 1000) * 1000 - 1000;
-    const pids = new Set(own.map((p) => p.pid));
-    const unclear = own.filter(
-      (p) =>
-        p.envHidden &&
-        !(p.startMs < since) &&
-        (p.pid === p.pgid || !pids.has(p.pgid)),
-    );
+    const unclear = unclearProcesses(rec, own);
     if (unclear.length)
       return hold(
         `INTENT bez STARTED, ${unclear.length} proces(ů) po INTENT se skrytým env: nelze vyloučit`,
@@ -554,13 +768,29 @@ export async function reconcileAttempt(
   }
 
   let states = groups.map((c) => ({ c, ...groupState(c, own) }));
+  // FIX1 nález 2: členové skupiny bez doložené identity (vedoucí chybí, nebo STARTED nemá lstart) se nikdy
+  // nesignalizují, ani po deadline: HOLD.
+  const unproven = states.filter((s) => s.kind === "unproven");
+  if (unproven.length)
+    return hold(
+      `skupina ${unproven.map((s) => `${s.c.pgid} (členové ${s.members.join(",")})`).join("; ")} bez doložené identity (vedoucí chybí nebo chybí lstart): nic se nesignalizuje`,
+    );
   const alive = states.filter((s) => s.alive);
   if (!alive.length) {
     if (tagged.length)
       return hold(
         `skupina pokusu skončila, ale běží proces s TARS_ATTEMPT_ID mimo ni (pid ${tagged.map((p) => p.pid).join(", ")})`,
       );
-    const recycled = states.some((s) => s.recycled);
+    // FIX1 nález 3: konec skupiny ještě nedokládá konec potomků (setsid do jiné skupiny, env skrytý).
+    const unclear = unclearProcesses(rec, own);
+    if (unclear.length)
+      return hold(
+        `skupina pokusu skončila, ale ${unclear.length} proces(ů) po INTENT se skrytým env mimo ni (pid ${unclear
+          .map((p) => p.pid)
+          .slice(0, 20)
+          .join(",")}): konec potomků nelze doložit`,
+      );
+    const recycled = states.some((s) => s.kind === "recycled");
     const reason = recycled
       ? "PID vedoucího recyklován (jiný lstart), skupina neexistuje, nic se nezabíjí"
       : "osiřelý pokus: nic neběží, bez FINISHED";
@@ -574,7 +804,16 @@ export async function reconcileAttempt(
       reason: `skupina ${alive.map((s) => s.c.pgid).join(", ")} běží, deadline ${rec.deadline}`,
     };
   }
-  // Deadline uplynul: SIGTERM -pgid, po ExitTimeOut SIGKILL -pgid, pak doložit, že nic neběží.
+  // FIX1 nález 2: vlastní skupina orchestrátoru se nikdy nesignalizuje; když ji nejde zjistit, nesignalizuje se nic.
+  const ownPgid = probe.ownPgid;
+  if (ownPgid === undefined)
+    return hold("vlastní skupinu procesů nejde zjistit: nic se nesignalizuje");
+  if (alive.some((s) => s.c.pgid === ownPgid))
+    return hold(
+      `skupina pokusu ${ownPgid} = vlastní skupina orchestrátoru: nic se nesignalizuje`,
+    );
+  // Deadline uplynul: SIGTERM -pgid, po ExitTimeOut SIGKILL -pgid, pak doložit, že nic neběží. Identita se
+  // ověřuje před každým signálem (groupState nad novým výpisem, `listedAt` = výpis s doloženým vedoucím).
   const evidence: string[] = [];
   for (const s of alive)
     evidence.push(
@@ -588,8 +827,14 @@ export async function reconcileAttempt(
     ...groupState(
       s.c,
       after!.filter((p) => p.uid === uid),
+      listedAt,
     ),
   }));
+  const lost = states.filter((s) => s.kind === "unproven");
+  if (lost.length)
+    return hold(
+      `po SIGTERM: skupina ${lost.map((s) => `${s.c.pgid} (členové ${s.members.join(",")})`).join("; ")} bez doložené identity, SIGKILL neodeslán; ${evidence.join("; ")}`,
+    );
   const still = states.filter((s) => s.alive);
   if (still.length) {
     for (const s of still)
@@ -601,14 +846,25 @@ export async function reconcileAttempt(
     if (!after) return hold(`ps selhal po SIGKILL; ${evidence.join("; ")}`);
   }
   const ownAfter = after.filter((p) => p.uid === uid);
-  const left = alive.filter((s) => groupState(s.c, ownAfter).alive);
+  const left = alive.filter((s) => {
+    const g = groupState(s.c, ownAfter, listedAt);
+    return g.alive || g.kind === "unproven";
+  });
   const taggedAfter = ownAfter.filter((p) => p.attemptId === id);
   if (left.length || taggedAfter.length)
     return hold(
       `po kill stále běží: skupiny ${left.map((s) => s.c.pgid).join(",") || "-"}, TARS_ATTEMPT_ID ${taggedAfter.map((p) => p.pid).join(",") || "-"}; ${evidence.join("; ")}`,
     );
+  const unclearAfter = unclearProcesses(rec, ownAfter);
+  if (unclearAfter.length)
+    return hold(
+      `po kill: skupina prázdná, ale ${unclearAfter.length} proces(ů) po INTENT se skrytým env mimo ni (pid ${unclearAfter
+        .map((p) => p.pid)
+        .slice(0, 20)
+        .join(",")}): konec potomků nelze doložit; ${evidence.join("; ")}`,
+    );
   evidence.push(
-    "po kill: žádný proces se skupinou pokusu ani s TARS_ATTEMPT_ID",
+    "po kill: žádný proces se skupinou pokusu ani s TARS_ATTEMPT_ID, žádný nevyloučitelný proces mimo skupinu",
   );
   journal.abandoned(
     id,

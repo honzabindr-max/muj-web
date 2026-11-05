@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { currentAttempt, killGroup } from "./attempts";
+import { currentAttempt, killGroup, settleGroup } from "./attempts";
 import { limitWarning } from "./reset";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
@@ -158,6 +158,8 @@ interface ProcResult {
   duration_ms: number;
   /** ISO okamžik konce procesu (§10.3: od něj se počítá relativní reset). */
   received_at: string;
+  /** FIX1 nález 1: false = konec skupiny dítěte nejde doložit (člen bez identity, po SIGKILL běží, ps selhal) */
+  groupEnded: boolean;
 }
 
 export function runProcess(
@@ -194,12 +196,26 @@ export function runProcess(
       }
     }
     let closed = false;
+    // FIX1 nález 1: čas `exit` vedoucího (Node ho v tu chvíli už sklidil). Do `exit` patří ID skupiny jistě nám.
+    let exitAt: number | undefined;
+    let strayPipe = false;
     const timer = setTimeout(() => {
       timedOut = true;
       killGroup(p.pid, "SIGTERM");
-      // Po `close` už skupina nemusí existovat a její ID by mohlo patřit jinému procesu: SIGKILL jen dokud běží.
       setTimeout(() => {
-        if (!closed) killGroup(p.pid, "SIGKILL");
+        // Vedoucí ještě nesklizen = skupina je jistě naše: SIGKILL celé skupině. Po `exit` rozhoduje settleGroup
+        // (identita členů), tady se nesignalizuje. Drží-li proudy proces i 5 s po konci vedoucího, zavřou se (jinak
+        // `close` nepřijde) a pokus nesmí do FINISHED.
+        const unstick = () => {
+          if (closed) return;
+          strayPipe = true;
+          p.stdout.destroy();
+          p.stderr.destroy();
+        };
+        if (exitAt === undefined) {
+          killGroup(p.pid, "SIGKILL");
+          setTimeout(unstick, 5000).unref();
+        } else unstick();
       }, 5000).unref();
     }, timeoutMs);
     p.stdout.on("data", (d) => (stdout += d));
@@ -207,11 +223,24 @@ export function runProcess(
     p.on("error", (e) => (stderr += String(e)));
     // A child that exits without reading stdin (e.g. codex failing fast) must not crash us with EPIPE.
     p.stdin.on("error", () => undefined);
+    p.on("exit", () => {
+      exitAt ??= Date.now();
+    });
     p.on("close", (code) => {
       closed = true;
       clearTimeout(timer);
       const end = Date.now();
-      resolve({ code, stdout, stderr, timedOut, duration_ms: end - t0, received_at: new Date(end).toISOString() });
+      // FIX1 nález 1: `close` hlavního dítěte nedokládá konec skupiny. Výsledek až po doloženém konci (settleGroup:
+      // členové skupiny → SIGTERM → SIGKILL → ověření). Nedoložený konec = pokus nesmí do FINISHED (HOLD).
+      const done = (ended: boolean, note: string) => {
+        if (!ended) stderr += `TARS: konec skupiny procesů nedoložen (${note.slice(0, 300)})\n`;
+        if (attempt?.onSettled && p.pid) attempt.onSettled(p.pid, ended, note);
+        resolve({ code, stdout, stderr, timedOut, duration_ms: Date.now() - t0, received_at: new Date(end).toISOString(), groupEnded: ended });
+      };
+      if (!p.pid) return done(true, "proces nevznikl");
+      void settleGroup(p.pid, exitAt ?? end)
+        .then((s) => (strayPipe ? done(false, `stdout/stderr drženy po konci vedoucího (proces mimo skupinu); ${s.note}`) : done(s.ended, s.note)))
+        .catch((e) => done(false, String((e as Error)?.message ?? e)));
     });
     p.stdin.end(input);
   });
