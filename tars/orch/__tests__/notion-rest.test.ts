@@ -430,7 +430,11 @@ describe("rozhodnutí vlastníka a dohledání řádku jen přes REST", () => {
   it("findRowByOrderId: limit stránek, has_more bez kurzoru nebo chyba uprostřed = „nelze ověřit“, nikdy „neexistuje“", async () => {
     const endless = mockFetch(() => ({ status: 200, json: { results: [], has_more: true, next_cursor: "again" } }));
     await expect(new RestPanelSink(new NotionRestApi(TOKEN, endless.fn)).findRowByOrderId("wo-1")).rejects.toThrow(/nelze ověřit/);
-    expect(endless.calls).toHaveLength(5); // the page limit
+    expect(endless.calls).toHaveLength(2); // etapa 4 PR 3: opakovaný kurzor (S6) se pozná hned, ne až na limitu stránek
+    let k = 0;
+    const endlessDistinct = mockFetch(() => ({ status: 200, json: { results: [], has_more: true, next_cursor: `c${++k}` } }));
+    await expect(new RestPanelSink(new NotionRestApi(TOKEN, endlessDistinct.fn)).findRowByOrderId("wo-1")).rejects.toThrow(/nelze ověřit/);
+    expect(endlessDistinct.calls).toHaveLength(5); // the page limit
     const noCursor = mockFetch(() => ({ status: 200, json: { results: [], has_more: true, next_cursor: null } }));
     await expect(new RestPanelSink(new NotionRestApi(TOKEN, noCursor.fn)).findRowByOrderId("wo-1")).rejects.toThrow(/nelze ověřit/);
     let n = 0;
@@ -441,15 +445,31 @@ describe("rozhodnutí vlastníka a dohledání řádku jen přes REST", () => {
   });
 
   it("findRowByOrderId: REST dotaz na data source s filtrem „ID zakázky“, odpadlý (in_trash) řádek se ignoruje", async () => {
-    const f = mockFetch(() => ({ status: 200, json: { results: [{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", in_trash: true }, { id: "11111111-2222-3333-4444-555555555555" }] } }));
+    const f = mockFetch(() => ({ status: 200, json: { results: [{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", in_trash: true }, { id: "11111111-2222-3333-4444-555555555555" }], has_more: false, next_cursor: null } }));
     const sink = new RestPanelSink(new NotionRestApi(TOKEN, f.fn));
     expect(await sink.findRowByOrderId("wo-20261102-120000")).toBe("11111111222233334444555555555555");
     const c = f.calls[0];
     expect(c.method).toBe("POST");
     expect(c.url).toBe(`https://api.notion.com/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`);
     expect(JSON.parse(c.body!).filter).toEqual({ property: "ID zakázky", rich_text: { equals: "wo-20261102-120000" } });
-    const none = mockFetch(() => ({ status: 200, json: { results: [] } }));
+    const none = mockFetch(() => ({ status: 200, json: { results: [], has_more: false, next_cursor: null } }));
     expect(await new RestPanelSink(new NotionRestApi(TOKEN, none.fn)).findRowByOrderId("wo-x")).toBeUndefined();
+  });
+});
+
+describe("etapa 4 PR 3: findRowByOrderId a známky neúplného čtení (mapa inboxu v4 §8.1)", () => {
+  it("S1/S2 request_status ≠ complete, S7 chybí has_more nebo results → „nelze ověřit“, nikdy „neexistuje“", async () => {
+    for (const json of [
+      { results: [], has_more: false, next_cursor: null, request_status: { type: "incomplete" } },
+      { results: [], has_more: false, next_cursor: null, request_status: { type: "neco_noveho" } },
+      { results: [] },
+      { has_more: false, next_cursor: null },
+    ]) {
+      const f = mockFetch(() => ({ status: 200, json }));
+      await expect(new RestPanelSink(new NotionRestApi(TOKEN, f.fn)).findRowByOrderId("wo-1")).rejects.toThrow(/nelze ověřit/);
+    }
+    const ok = mockFetch(() => ({ status: 200, json: { results: [], has_more: false, next_cursor: null, request_status: { type: "complete" } } }));
+    expect(await new RestPanelSink(new NotionRestApi(TOKEN, ok.fn)).findRowByOrderId("wo-1")).toBeUndefined();
   });
 });
 
