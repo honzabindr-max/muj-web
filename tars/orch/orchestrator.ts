@@ -2421,6 +2421,8 @@ export class Orchestrator {
         out.draft_sha256 = sha256(text);
       } catch (e) {
         const why = `draft ${r.draft_file} nejde přečíst nebo uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+        // FIX3 nález 2: doložená varování CLI z úspěšného volání se zapíší (pod lease) i na chybové cestě, před throw.
+        this.noteLimitWarning(order, r, kind === "check" ? "checker" : "creator");
         J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })) });
         throw new Error(why);
       }

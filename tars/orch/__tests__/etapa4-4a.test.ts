@@ -53,6 +53,13 @@ import {
 } from "./effects-fixture";
 
 const ROOT = path.resolve(__dirname, "..", "..", "..");
+// FIX3 (CI): testy se skutečnými procesy čtou env přes `ps -E` a formát lstart z macOS ps. Na Linuxu (procps) `ps -E`
+// selže, sonda vrátí undefined a reconciler správně drží HOLD („ps selhal“), jen ne z důvodu, který test měří.
+// Tyto testy proto běží jen na darwin; Linux větev pokrývají testy „FIX3 A“ níže (selhání / nesrovnalost ps = HOLD).
+// TARS_SIM_LINUX_PS=1 vypne darwin testy i na macOS (lokální simulace CI na Linuxu).
+const DARWIN_PS =
+  process.platform === "darwin" && process.env.TARS_SIM_LINUX_PS !== "1";
+const itDarwinPs = it.runIf(DARWIN_PS);
 const UID = process.getuid!();
 
 let dir: string;
@@ -588,7 +595,7 @@ describe("§7 reconciler", () => {
     ).toMatch(/ps selhal/);
   });
 
-  it("orphan test 2 (crash-after-spawn-before-PID): skutečný proces s TARS_ATTEMPT_ID (env čitelný přes ps -E) → HOLD, nic se nezabíjí", async () => {
+  itDarwinPs("orphan test 2 (crash-after-spawn-before-PID): skutečný proces s TARS_ATTEMPT_ID (env čitelný přes ps -E) → HOLD, nic se nezabíjí", async () => {
     const j = J();
     const r = j.intent(ORDER_ID, "create-r0", {
       input_sha256: "x",
@@ -670,7 +677,7 @@ describe("§7 reconciler", () => {
     return { leader, gpid, j, r, scoped };
   }
 
-  it("orphan test 3 (FIX1 nález 2): rodič zabit, vnuk žije ve skupině bez vedoucího → identita nedoložena → HOLD, nic se nesignalizuje (ani po deadline)", async () => {
+  itDarwinPs("orphan test 3 (FIX1 nález 2): rodič zabit, vnuk žije ve skupině bez vedoucího → identita nedoložena → HOLD, nic se nesignalizuje (ani po deadline)", async () => {
     const { leader, gpid, j, r, scoped } = await realGroup(
       new Date(Date.now() + 3600_000).toISOString(),
     );
@@ -698,7 +705,7 @@ describe("§7 reconciler", () => {
     expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
   });
 
-  it("orphan test 3b: vedoucí se shodným lstart žije s vnukem — před deadline čeká, po deadline SIGTERM -pgid a ABANDONED s důkazem", async () => {
+  itDarwinPs("orphan test 3b: vedoucí se shodným lstart žije s vnukem — před deadline čeká, po deadline SIGTERM -pgid a ABANDONED s důkazem", async () => {
     const { leader, gpid, j, r, scoped } = await realGroup(
       new Date(Date.now() + 3600_000).toISOString(),
     );
@@ -831,7 +838,7 @@ describe("§7 reconciler", () => {
     expect(res.action).toBe("abandoned");
   });
 
-  it("FIX1 nález 3: skutečný potomek v nové session (detached = setsid) přežije konec skupiny → HOLD", async () => {
+  itDarwinPs("FIX1 nález 3: skutečný potomek v nové session (detached = setsid) přežije konec skupiny → HOLD", async () => {
     const pidFile = path.join(dir, "spid");
     const j = J();
     const r = j.intent(ORDER_ID, "create-r0", {
@@ -871,6 +878,70 @@ describe("§7 reconciler", () => {
     expect(res.action).toBe("hold");
     expect(res.reason).toContain(String(spid));
     expect(pidExists(spid)).toBe(true);
+  });
+
+  /** FIX3 A: falešný `ps` na PATH (simulace Linuxu / procps): `-E` odmítne, nebo vrátí nečitelný řádek. */
+  async function withFakePs<R>(
+    body: "reject-E" | "garbage",
+    fn: () => Promise<R>,
+  ): Promise<R> {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "tars-fakeps-"));
+    const script =
+      body === "reject-E"
+        ? `#!/bin/sh\ncase " $* " in *" -E "*) echo "error: unsupported SysV option" >&2; exit 1;; esac\nexec /bin/ps "$@"\n`
+        : `#!/bin/sh\necho "4242 4242 ${UID} ?"\n`;
+    fs.writeFileSync(path.join(bin, "ps"), script, { mode: 0o755 });
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${bin}:${oldPath ?? ""}`;
+    try {
+      return await fn();
+    } finally {
+      process.env.PATH = oldPath;
+      fs.rmSync(bin, { recursive: true, force: true });
+    }
+  }
+
+  it("FIX3 A (Linux): `ps -E` selže (procps) → produkční psProbe vrátí undefined → HOLD „ps selhal“, žádný signál, i po deadline", async () => {
+    await withFakePs("reject-E", async () => {
+      expect(psProbe.list()).toBeUndefined();
+      const j = J();
+      const r = startedRec(j, "2026-11-04T11:00:00.000Z"); // deadline uplynul
+      const sent: string[] = [];
+      const watch: ProcessProbe = {
+        list: () => psProbe.list(),
+        kill: (g, s) => (sent.push(`${s} -${g}`), false),
+        sleep: async () => {},
+        ownPgid: 7,
+      };
+      const res = await reconcileAttempt(j, r, watch, at(NOW));
+      expect(res.action).toBe("hold");
+      expect(res.reason).toMatch(/ps selhal/);
+      expect(sent).toEqual([]);
+      expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
+    });
+  });
+
+  it("FIX3 A (Linux): nesrovnalost výstupu ps (nečitelný řádek) → psProbe undefined → HOLD, žádný signál", async () => {
+    await withFakePs("garbage", async () => {
+      expect(psProbe.list()).toBeUndefined();
+      const j = J();
+      const r = startedRec(j, "2026-11-04T11:00:00.000Z");
+      const sent: string[] = [];
+      const res = await reconcileAttempt(
+        j,
+        r,
+        {
+          list: () => psProbe.list(),
+          kill: (g, s) => (sent.push(`${s} -${g}`), false),
+          sleep: async () => {},
+          ownPgid: 7,
+        },
+        at(NOW),
+      );
+      expect(res.action).toBe("hold");
+      expect(res.reason).toMatch(/ps selhal/);
+      expect(sent).toEqual([]);
+    });
   });
 
   it("FIX2 nález 1: po SIGTERM vedoucí zmizel, ve skupině běží člen spuštěný dávno předtím (cizí proces po recyklaci pgid a setpgid) → HOLD, SIGKILL neodeslán", async () => {
@@ -1170,6 +1241,104 @@ describe("§7 reconciler", () => {
       sFsync.mockRestore();
       sOpen.mockRestore();
       sRename.mockRestore();
+    }
+  });
+
+  /** FIX3 B: create uloží draft, první čtení draft-v0.md vyhodí EIO (jednorázově). */
+  function eioOnce() {
+    const realRead = store.readFile.bind(store);
+    let fail = true;
+    return vi
+      .spyOn(store, "readFile")
+      .mockImplementation((id: string, name: string) => {
+        if (fail && name === "draft-v0.md") {
+          fail = false;
+          throw Object.assign(new Error("EIO: i/o error, read"), {
+            code: "EIO",
+          });
+        }
+        return realRead(id, name);
+      });
+  }
+
+  it("FIX3 nález 1: create uloží draft A, čtení EIO → FINISHED ok:false; další tick před novým create přejmenuje draft A na orphan kopii, nový create ho nepřepíše", async () => {
+    const DRAFT_A = `${DRAFT}\n\nverze A`;
+    const DRAFT_B = `${DRAFT}\n\nverze B`;
+    let n = 0;
+    const creator = new FakeAdapter("gpt", "c", () =>
+      ++n === 1 ? DRAFT_A : DRAFT_B,
+    );
+    const spy = eioOnce();
+    try {
+      const o = orch(
+        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+      );
+      await expect(o.step(seed("DOING"))).rejects.toThrow(/EIO/);
+      const od = store.orderDir(ORDER_ID);
+      expect(fs.readFileSync(path.join(od, "draft-v0.md"), "utf8")).toBe(
+        DRAFT_A,
+      );
+      expect(J().list(ORDER_ID, "create-r0")[0].finished!.ok).toBe(false);
+      // další tick: reconcile pokusu FINISHED ok:false → draft A přejmenován, teprve pak nový create (B)
+      const next = await o.step(store.load(ORDER_ID));
+      expect(next.state).toBe("CHECKING");
+      expect(creator.calls).toBe(2);
+      expect(fs.readFileSync(path.join(od, "orphan-a1.md"), "utf8")).toBe(
+        DRAFT_A,
+      );
+      expect(fs.readFileSync(path.join(od, "draft-v0.md"), "utf8")).toBe(
+        DRAFT_B,
+      );
+      const first = J().list(ORDER_ID, "create-r0")[0];
+      expect(first.reconcile?.result).toBe("RETRY_SAFE");
+      expect(first.reconcile?.reason).toMatch(
+        /FINISHED ok:false přejmenován na orphan-a1\.md/,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("FIX3 nález 2: create vrátí doložené varování CLI o limitu, čtení draftu EIO → varování se zapíše (limit-warning.json) před throw", async () => {
+    const WARN6 = "Approaching usage limit · resets in 6 days";
+    const creator: TextAdapter = {
+      name: "fake",
+      model: "c",
+      family: "gpt",
+      run: async () => ({
+        ok: true,
+        text: DRAFT,
+        limit: false,
+        duration_ms: 0,
+        limit_warning: WARN6,
+        limit_source: "claude",
+        received_at: NOW,
+      }),
+    };
+    const spy = eioOnce();
+    const lease = vi.spyOn(store, "holdsLease").mockReturnValue(true);
+    try {
+      const o = orch(
+        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+      );
+      await expect(o.step(seed("DOING"))).rejects.toThrow(/EIO/);
+      const f = store.readRunsFile("limit-warning.json");
+      expect(f).toBeDefined();
+      const rec = JSON.parse(f!.text) as {
+        sources: Record<
+          string,
+          { until: string; excerpt?: string; role?: string }
+        >;
+      };
+      const claude = rec.sources.claude;
+      expect(claude?.excerpt).toBe(WARN6);
+      expect(claude!.role).toBe("creator");
+      expect(Date.parse(claude!.until)).toBe(
+        Date.parse(NOW) + 6 * 86_400_000 + 60_000,
+      );
+    } finally {
+      lease.mockRestore();
+      spy.mockRestore();
     }
   });
 

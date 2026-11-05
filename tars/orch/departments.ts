@@ -411,8 +411,12 @@ ${extra}`;
     if (kind === "check")
       return { result: "RETRY_SAFE", reason: `kontrola ${this.checker.name}: lokálně jen diagnostika; GPT v prohlížeči hlídá vlastní journal odeslaných promptů (blockingAttempt, grant gpt-retry)` };
     const name = kind === "create" ? "draft-v0.md" : `draft-v${order.fix_rounds}.md`;
-    const orphan = prev.phase === "FINISHED" ? undefined : renameOrphan(ctx.store.orderDir(order.id), name, prev.attempt);
-    return { result: "RETRY_SAFE", reason: orphan ? `${name} bez FINISHED přejmenován na ${orphan}` : `${kind}: bez výstupu, bez externích účinků` };
+    // FIX3 nález 1: FINISHED ok:false nedokládá, že draft nevznikl (create mohl draft uložit a čtení pak selhat EIO).
+    // Existující draft se proto před novým create/revise vždy přejmenuje na orphan kopii, nikdy se nepřepíše.
+    const finishedOk = prev.phase === "FINISHED" && prev.finished?.ok === true;
+    const orphan = finishedOk ? undefined : renameOrphan(ctx.store.orderDir(order.id), name, prev.attempt);
+    const why = prev.phase === "FINISHED" ? "z pokusu FINISHED ok:false" : "bez FINISHED";
+    return { result: "RETRY_SAFE", reason: orphan ? `${name} ${why} přejmenován na ${orphan}` : `${kind}: bez výstupu, bez externích účinků` };
   }
 
   async create(order: Order, ctx: DeptContext) {
