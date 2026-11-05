@@ -270,7 +270,7 @@ function gate(nowS: number): { ticked: boolean; reason?: string; out: string } {
       TARS_GATE_NOW: String(nowS),
       TICKLOG: log,
       TARS_GATE_TICK: `printf '%s\\n' "$TARS_GATE_START" >> "$TICKLOG"`,
-    },
+    } as unknown as NodeJS.ProcessEnv,
   });
   expect(r.status).toBe(0);
   const after = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
@@ -641,7 +641,8 @@ describe("PR 4c: automatické pokračování po resetu (wake-gate PR 2), jediný
     writeGateOutcome(dir, String(wake.epoch), "ran", new Date(resumeAt + 1000));
     expect(tB.status).not.toBe("paused");
     expect(storeA.holdsLease()).toBe(false);
-    expect(leaseB.fence).toBeGreaterThan(wake.written_fence);
+    expect(wake.written_fence).not.toBeNull();
+    expect(leaseB.fence).toBeGreaterThan(wake.written_fence as number);
 
     // krok bez duplikátu: create přesně 2 pokusy (limit, pak úspěch), žádný třetí; dítě voláno 2×
     const create = attemptsOf("create-r0");
