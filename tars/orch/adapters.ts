@@ -201,11 +201,13 @@ export function runProcess(
     let strayPipe = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      killGroup(p.pid, "SIGTERM");
+      // FIX2 nález 1: signál skupině jen dokud vedoucí nebyl sklizen (`exit` nepřišel). Do té doby jeho PID, a tedy
+      // ID skupiny, nemůže patřit nikomu jinému (identita ověřena přímo před signálem). Po `exit` se nesignalizuje nic.
+      if (exitAt === undefined) killGroup(p.pid, "SIGTERM");
       setTimeout(() => {
-        // Vedoucí ještě nesklizen = skupina je jistě naše: SIGKILL celé skupině. Po `exit` rozhoduje settleGroup
-        // (identita členů), tady se nesignalizuje. Drží-li proudy proces i 5 s po konci vedoucího, zavřou se (jinak
-        // `close` nepřijde) a pokus nesmí do FINISHED.
+        // Vedoucí ještě nesklizen = skupina je jistě naše: SIGKILL celé skupině. Po `exit` se nesignalizuje (settleGroup
+        // jen čeká na konec skupiny). Drží-li proudy proces i 5 s po konci vedoucího, zavřou se (jinak `close`
+        // nepřijde) a pokus nesmí do FINISHED.
         const unstick = () => {
           if (closed) return;
           strayPipe = true;
@@ -231,14 +233,14 @@ export function runProcess(
       clearTimeout(timer);
       const end = Date.now();
       // FIX1 nález 1: `close` hlavního dítěte nedokládá konec skupiny. Výsledek až po doloženém konci (settleGroup:
-      // členové skupiny → SIGTERM → SIGKILL → ověření). Nedoložený konec = pokus nesmí do FINISHED (HOLD).
+      // čeká, zda skupina sama zanikne; FIX2 nález 1: po `exit` vedoucího bez signálu). Nedoložený konec = HOLD.
       const done = (ended: boolean, note: string) => {
         if (!ended) stderr += `TARS: konec skupiny procesů nedoložen (${note.slice(0, 300)})\n`;
         if (attempt?.onSettled && p.pid) attempt.onSettled(p.pid, ended, note);
         resolve({ code, stdout, stderr, timedOut, duration_ms: Date.now() - t0, received_at: new Date(end).toISOString(), groupEnded: ended });
       };
       if (!p.pid) return done(true, "proces nevznikl");
-      void settleGroup(p.pid, exitAt ?? end)
+      void settleGroup(p.pid)
         .then((s) => (strayPipe ? done(false, `stdout/stderr drženy po konci vedoucího (proces mimo skupinu); ${s.note}`) : done(s.ended, s.note)))
         .catch((e) => done(false, String((e as Error)?.message ?? e)));
     });

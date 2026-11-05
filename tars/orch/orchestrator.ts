@@ -16,7 +16,6 @@ import {
   reconcileAll,
   runInAttempt,
   sha256,
-  writeAllDurable,
   type ProcessProbe,
 } from "./attempts";
 import type { CardRegistry } from "./cards";
@@ -2413,22 +2412,17 @@ export class Orchestrator {
     const out: AttemptOutput<T> = { outcome: r };
     if (r.ok && r.draft_file && r.draft_file !== "wt") {
       // FIX1 nález 4: draft (skutečný výstup kroku) se uloží trvale PŘED FINISHED: celé bajty + fsync souboru +
-      // atomický rename + fsync adresáře. Bez toho by pád OS po FINISHED mohl draft ztratit (RESUME → UNKNOWN).
-      let text: string | undefined;
+      // atomický rename + fsync adresáře (writeDurable z PR 1). Bez toho by pád OS po FINISHED mohl draft ztratit.
+      // FIX2 nález 2: jakákoli chyba čtení, trvalého zápisu nebo hashe = pokus FINISHED ok:false a throw, nikdy
+      // FINISHED ok:true bez trvalého draftu a jeho draft_sha256 (žádné potlačení chyby).
       try {
-        text = this.d.store.readFile(order.id, r.draft_file);
-      } catch {
-        /* draft nejde přečíst: RESUME pak není možný (UNKNOWN) */
-      }
-      if (text !== undefined) {
-        try {
-          writeAllDurable(path.join(this.d.store.orderDir(order.id), r.draft_file), text);
-        } catch (e) {
-          const why = `draft ${r.draft_file} nejde uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
-          J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })) });
-          throw new Error(why);
-        }
+        const text = this.d.store.readFile(order.id, r.draft_file);
+        writeDurable(path.join(this.d.store.orderDir(order.id), r.draft_file), text);
         out.draft_sha256 = sha256(text);
+      } catch (e) {
+        const why = `draft ${r.draft_file} nejde přečíst nebo uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+        J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })) });
+        throw new Error(why);
       }
     }
     const sha = J.writeOutput(rec, JSON.stringify(out));

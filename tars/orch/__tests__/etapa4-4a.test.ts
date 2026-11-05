@@ -425,9 +425,8 @@ describe("§7 runProcess: detached skupina, TARS_ATTEMPT_ID, kill -pgid", () => 
     expect(pidExists(gpid)).toBe(false);
   });
 
-  it("FIX1 nález 1: vnuk ignorující SIGTERM přežije close rodiče → SIGKILL skupiny podle doloženého konce skupiny, výsledek až při prázdné skupině", async () => {
+  it("FIX2 nález 1: vnuk ignorující SIGTERM přežije konec vedoucího → po `exit` vedoucího se nic nesignalizuje (identitu skupiny nejde ověřit), konec skupiny nedoložen = groupEnded false (HOLD)", async () => {
     const pidFile = path.join(dir, "gpid");
-    const t0 = Date.now();
     const r = await runProcess(
       "/bin/sh",
       [
@@ -447,10 +446,23 @@ describe("§7 runProcess: detached skupina, TARS_ATTEMPT_ID, kill -pgid", () => 
       }
     });
     expect(r.timedOut).toBe(true);
-    // close rodiče přišel hned po SIGTERM; výsledek ale čekal na SIGKILL vnuka (≥ 5 s po SIGTERM).
-    expect(Date.now() - t0).toBeGreaterThan(5000);
+    expect(r.groupEnded).toBe(false);
+    expect(r.stderr).toMatch(/konec skupiny procesů nedoložen/);
+    expect(r.stderr).toMatch(/nic se nesignalizuje/);
+    // SIGKILL po `exit` vedoucího neodešel: vnuk (ignoruje SIGTERM) dál běží.
+    expect(pidExists(gpid)).toBe(true);
+  }, 30_000);
+
+  it("FIX2 nález 1: skupina, která po konci vedoucího sama zanikne → groupEnded true, bez signálu", async () => {
+    const r = await runProcess(
+      "/bin/sh",
+      ["-c", `${process.execPath} -e "setTimeout(()=>{},300)" >/dev/null 2>&1 & exit 0`],
+      "",
+      dir,
+      20_000,
+    );
     expect(r.groupEnded).toBe(true);
-    expect(pidExists(gpid)).toBe(false);
+    expect(r.timedOut).toBe(false);
   }, 30_000);
 
   it("FIX1 nález 1: pod pokusem nedoložený konec skupiny zapíše onSettled → unsettled (pokus nesmí do FINISHED)", async () => {
@@ -466,58 +478,40 @@ describe("§7 runProcess: detached skupina, TARS_ATTEMPT_ID, kill -pgid", () => 
     expect(scope.unsettled).toEqual(["4242: člen bez identity"]);
   });
 
-  it("FIX1 nález 1+2: settleGroup — prázdná skupina = konec; člen spuštěný po exit vedoucího (možná recyklace) se nesignalizuje; SIGTERM → SIGKILL → ověření", async () => {
-    const exitAt = Date.parse("2026-11-05T10:00:10Z");
-    const old = { pid: 9001, startMs: Date.parse("2026-11-05T10:00:00Z") };
-    const late = { pid: 9002, startMs: Date.parse("2026-11-05T10:00:10Z") };
-    const kills: string[] = [];
-    const kill = (g: number, s: NodeJS.Signals) => (
-      kills.push(`${s} -${g}`),
-      true
-    );
+  it("FIX2 nález 1: settleGroup nikdy nesignalizuje — prázdná skupina = konec; členové po konci vedoucího (i starší než jeho konec, např. cizí proces po setpgid do recyklované skupiny) = ended false; ps selhal = ended false", async () => {
     const sleep = async () => {};
-    expect(
-      await settleGroup(77, exitAt, { list: () => [], kill, sleep }),
-    ).toMatchObject({ ended: true });
-    expect(kills).toEqual([]);
-
-    const foreign = await settleGroup(77, exitAt, {
-      list: () => [old, late],
-      kill,
-      sleep,
+    expect(await settleGroup(77, { list: () => [], sleep })).toMatchObject({
+      ended: true,
     });
-    expect(foreign.ended).toBe(false);
-    expect(foreign.note).toMatch(/bez doložené identity/);
-    expect(kills).toEqual([]);
-
+    // cizí proces spuštěný dávno před koncem vedoucího, vstoupil do recyklované skupiny 77 (setpgid)
+    const olderForeign = {
+      pid: 9001,
+      startMs: Date.parse("2026-11-05T09:00:00Z"),
+    };
+    const held = await settleGroup(77, {
+      list: () => [olderForeign],
+      sleep,
+      waitMs: 0,
+    });
+    expect(held.ended).toBe(false);
+    expect(held.note).toMatch(/bez doložené identity skupiny/);
+    expect(held.note).toMatch(/nic se nesignalizuje/);
     expect(
-      (await settleGroup(77, exitAt, { list: () => undefined, kill, sleep }))
-        .ended,
+      (await settleGroup(77, { list: () => undefined, sleep })).ended,
     ).toBe(false);
-
-    // člen ignoruje SIGTERM, SIGKILL ho ukončí
+    // člen sám skončí během čekání → konec doložen
     let n = 0;
-    const seq = await settleGroup(77, exitAt, {
-      list: () => (kills.includes("SIGKILL -77") && n++ > 0 ? [] : [old]),
-      kill,
-      sleep,
-      termWaitMs: 0,
-      killWaitMs: 50,
-    });
-    expect(seq.ended).toBe(true);
-    expect(kills).toEqual(["SIGTERM -77", "SIGKILL -77"]);
-
-    // po SIGKILL stále běží → ended false
-    kills.length = 0;
-    const stuck = await settleGroup(77, exitAt, {
-      list: () => [old],
-      kill,
-      sleep,
-      termWaitMs: 0,
-      killWaitMs: 0,
-    });
-    expect(stuck.ended).toBe(false);
-    expect(stuck.note).toMatch(/po SIGKILL stále běží/);
+    expect(
+      (
+        await settleGroup(77, {
+          list: () => (n++ < 2 ? [olderForeign] : []),
+          sleep,
+          waitMs: 10_000,
+        })
+      ).ended,
+    ).toBe(true);
+    // API nemá kill: settleGroup signál poslat neumí (statická záruka)
+    expect(settleGroup.toString()).not.toMatch(/kill/i);
   });
 });
 
@@ -879,6 +873,75 @@ describe("§7 reconciler", () => {
     expect(pidExists(spid)).toBe(true);
   });
 
+  it("FIX2 nález 1: po SIGTERM vedoucí zmizel, ve skupině běží člen spuštěný dávno předtím (cizí proces po recyklaci pgid a setpgid) → HOLD, SIGKILL neodeslán", async () => {
+    const j = J();
+    const r = startedRec(j, "2026-11-04T11:00:00.000Z"); // deadline uplynul
+    const leader = proc({ pid: 4242, lstart: LST });
+    const foreignOld = proc({
+      pid: 3000,
+      pgid: 4242,
+      startMs: Date.parse("2026-11-04T08:00:00Z"),
+    });
+    // výpisy: úvodní, těsně před SIGTERM (vedoucí ověřen), těsně před SIGKILL (vedoucí chybí, člen běží)
+    const probe = new FakeProbe([[leader], [leader], [foreignOld]]);
+    const res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("hold");
+    expect(res.reason).toMatch(/bez doložené identity/);
+    expect(res.reason).toMatch(/SIGKILL neodeslán/);
+    expect(probe.kills).toEqual([{ pgid: 4242, sig: "SIGTERM" }]);
+    expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
+  });
+
+  it("FIX2 nález 1: identita se ověřuje z čerstvého výpisu těsně před SIGTERM — vedoucí mezitím zmizel → 0 signálů", async () => {
+    const j = J();
+    const r = startedRec(j, "2026-11-04T11:00:00.000Z");
+    const leader = proc({ pid: 4242, lstart: LST });
+    const member = proc({ pid: 4243, pgid: 4242 });
+    const probe = new FakeProbe([[leader, member], [member]]);
+    const res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("hold");
+    expect(res.reason).toMatch(/SIGTERM neodeslán/);
+    expect(probe.kills).toEqual([]);
+  });
+
+  it("FIX2 nález 1: doložený zánik skupiny se zapíše trvale (groups_ended); pgid se pak už nikdy nesignalizuje, ani když v něm později běží vedoucí se shodným lstart", async () => {
+    const j = J();
+    const r = startedRec(j, "2026-11-04T11:00:00.000Z");
+    // skupina zanikla, ale po INTENT běží nevyloučitelný proces → HOLD (pokus zůstává neukončený)
+    const unclear = proc({
+      pid: 5000,
+      pgid: 5000,
+      envHidden: true,
+      startMs: Date.parse(NOW) + 2000,
+    });
+    let res = await reconcileAttempt(j, r, new FakeProbe([[unclear]]), at(NOW));
+    expect(res.action).toBe("hold");
+    expect(j.get(r.attempt_id)!.groups_ended).toEqual([4242]);
+    // další tick: pgid 4242 znovu obsazen (recyklace) procesem se stejným lstart (stejná sekunda) a členem
+    const again = new FakeProbe([
+      [proc({ pid: 4242, lstart: LST }), proc({ pid: 4243, pgid: 4242 })],
+    ]);
+    res = await reconcileAttempt(j, j.get(r.attempt_id)!, again, at(NOW));
+    expect(again.kills).toEqual([]);
+    expect(res.action).toBe("abandoned");
+    // trvalost: záznam je v souboru pokusu
+    const f = path.join(dir, ORDER_ID, "attempts", "create-r0-a1.json");
+    expect(
+      (JSON.parse(fs.readFileSync(f, "utf8")) as AttemptRecord).groups_ended,
+    ).toEqual([4242]);
+  });
+
+  it("FIX2 nález 1: skupina zanikne po SIGTERM → zánik zapsán, SIGKILL se neposílá", async () => {
+    const j = J();
+    const r = startedRec(j, "2026-11-04T11:00:00.000Z");
+    const leader = proc({ pid: 4242, lstart: LST });
+    const probe = new FakeProbe([[leader], [leader], []]);
+    const res = await reconcileAttempt(j, r, probe, at(NOW));
+    expect(res.action).toBe("abandoned");
+    expect(probe.kills).toEqual([{ pgid: 4242, sig: "SIGTERM" }]);
+    expect(j.get(r.attempt_id)!.groups_ended).toEqual([4242]);
+  });
+
   it("orphan test 4: recyklovaný PID (jiný lstart) se nezabije, pokus ABANDONED", async () => {
     const j = J();
     const r = startedRec(j, "2026-11-04T11:00:00.000Z"); // deadline už uplynul
@@ -1016,6 +1079,97 @@ describe("§7 reconciler", () => {
     } finally {
       sRename.mockRestore();
       sFsync.mockRestore();
+    }
+  });
+
+  it("FIX2 nález 2: chyba čtení draftu (EIO) po create → FINISHED ok:false (ne ok:true bez draft_sha256), přechod se neaplikuje", async () => {
+    const realRead = store.readFile.bind(store);
+    let fail = true;
+    const spy = vi
+      .spyOn(store, "readFile")
+      .mockImplementation((id: string, name: string) => {
+        if (fail && name === "draft-v0.md")
+          throw Object.assign(new Error("EIO: i/o error, read"), {
+            code: "EIO",
+          });
+        return realRead(id, name);
+      });
+    try {
+      const creator = new FakeAdapter("gpt", "c", () => DRAFT);
+      const o = orch(
+        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+      );
+      let thrown: unknown;
+      try {
+        await o.step(seed("DOING"));
+      } catch (e) {
+        thrown = e;
+      }
+      fail = false;
+      expect(String((thrown as Error)?.message ?? "")).toMatch(/EIO/);
+      expect(store.load(ORDER_ID).state).toBe("DOING");
+      const recs = J().list(ORDER_ID, "create-r0");
+      expect(recs).toHaveLength(1);
+      expect(recs[0].phase).toBe("FINISHED");
+      expect(recs[0].finished!.ok).toBe(false);
+      const out = JSON.parse(
+        fs.readFileSync(
+          path.join(dir, ORDER_ID, recs[0].output_path),
+          "utf8",
+        ),
+      ) as { error?: string; outcome?: unknown; draft_sha256?: string };
+      expect(out.outcome).toBeUndefined();
+      expect(out.draft_sha256).toBeUndefined();
+      expect(out.error).toMatch(/nejde přečíst nebo uložit trvale.*EIO/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("FIX2 nález 2: selhání trvalého zápisu draftu (fsync) → FINISHED ok:false, přechod se neaplikuje", async () => {
+    const realFsync = fs.fsyncSync;
+    let armed = false;
+    const realRename = fs.renameSync;
+    const sRename = vi.spyOn(fs, "renameSync").mockImplementation((a, b) => realRename(a, b));
+    const sOpen = vi.spyOn(fs, "openSync");
+    const sFsync = vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
+      if (armed) {
+        armed = false;
+        throw Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" });
+      }
+      return realFsync(fd);
+    });
+    const realRead = store.readFile.bind(store);
+    const sRead = vi
+      .spyOn(store, "readFile")
+      .mockImplementation((id: string, name: string) => {
+        const t = realRead(id, name);
+        if (name === "draft-v0.md") armed = true; // první fsync po přečtení draftu = fsync jeho trvalé kopie
+        return t;
+      });
+    try {
+      const o = orch(
+        new CopyDepartment(
+          new FakeAdapter("gpt", "c", () => DRAFT),
+          new FakeAdapter("claude", "k", () => PASS),
+        ),
+      );
+      let thrown: unknown;
+      try {
+        await o.step(seed("DOING"));
+      } catch (e) {
+        thrown = e;
+      }
+      expect(String((thrown as Error)?.message ?? "")).toMatch(/fsync/);
+      expect(store.load(ORDER_ID).state).toBe("DOING");
+      const rec = J().list(ORDER_ID, "create-r0")[0];
+      expect(rec.phase).toBe("FINISHED");
+      expect(rec.finished!.ok).toBe(false);
+    } finally {
+      sRead.mockRestore();
+      sFsync.mockRestore();
+      sOpen.mockRestore();
+      sRename.mockRestore();
     }
   });
 
