@@ -5,7 +5,14 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ChatGptWebChecker, type WebBrowser } from "../chatgpt-web";
+import type { TextAdapter } from "../adapters";
+import {
+  blockingAttempt,
+  ChatGptWebChecker,
+  readJournal,
+  type WebBrowser,
+} from "../chatgpt-web";
+import { DisplayAsleepError, McpBrowser } from "../mcp-browser";
 import {
   DISPATCH_DEFAULTS,
   observeMode,
@@ -129,6 +136,101 @@ describe("sonda displeje (display.ts)", () => {
     expect(r2.waitReview).toBe(true);
     expect(r2.error).toMatch(/displej spí/);
     expect(browserRuns).toBe(0);
+  });
+
+  it("FIX2 nález 2: první sonda vzhůru, druhá (McpBrowser.run) spí nebo selže → submitted:false, pokus nespálený, WAITING_REVIEW „displej spí“, další běh posílá bez gpt-retry", async () => {
+    for (const second of ["asleep", "throws"] as const) {
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tars-e4pr2-fix2-"));
+      let driverRuns = 0;
+      const driver = {
+        async run() {
+          driverRuns++;
+          throw new Error("ovladač se nesmí spustit");
+        },
+      } as unknown as TextAdapter;
+      let probes = 0;
+      const probe = () => {
+        probes++;
+        if (probes === 1) return { awake: true, reason: "displej vzhůru" };
+        if (second === "throws") throw new Error("osascript");
+        return { awake: false, reason: "displej spí" };
+      };
+      const mb = new McpBrowser(driver, {
+        script: path.join(cwd, "nesmi-bezet.sh"), // neexistuje: start Chrome by selhal jinou chybou
+        gate: "/repo/gate.ts",
+        profileDir: cwd,
+        displayAwake: probe,
+      });
+      const c = new ChatGptWebChecker(mb, { displayAwake: probe });
+      const r = await c.run("Posuď zadání.", {
+        cwd,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(probes).toBe(2);
+      expect(driverRuns).toBe(0);
+      // pokus prokazatelně neodeslaný: v deníku nezůstal (ani sending, ani burned), nic neblokuje
+      const j = readJournal(cwd)!;
+      expect(j.some((e) => e.state === "burned")).toBe(false);
+      expect(j.some((e) => e.state === "sending")).toBe(false);
+      expect(blockingAttempt(j)).toBeUndefined();
+      expect(r).toMatchObject({ ok: false, waitReview: true, limit: false });
+      expect(r.error).toMatch(/displej spí/);
+      expect(r.error).toMatch(/nic neodesláno/);
+      expect(c.lastRecord).toMatchObject({
+        status: "WAITING_REVIEW",
+        submits: 0,
+      });
+
+      // po probuzení: další běh dojde až k prohlížeči (žádné „spálený, jen gpt-retry“)
+      let sends = 0;
+      const browser2: WebBrowser = {
+        async run(
+          _steps: unknown,
+          _shots: string,
+          onSent?: (s: { submitted: boolean | "unknown" }) => void,
+        ) {
+          sends++;
+          onSent?.({ submitted: false });
+          throw new Error("konec testu");
+        },
+      } as unknown as WebBrowser;
+      const c2 = new ChatGptWebChecker(browser2, {
+        displayAwake: () => ({ awake: true, reason: "displej vzhůru" }),
+      });
+      const r2 = await c2.run("Posuď zadání.", {
+        cwd,
+        outputSchema: REVIEW_SCHEMA,
+      });
+      expect(sends).toBe(1);
+      expect(r2.error).not.toMatch(/spálený|gpt-retry/);
+    }
+  });
+
+  it("FIX2 nález 2: McpBrowser.run při odmítnutí sondou hlásí onSent submitted:false a nic nespustí", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tars-e4pr2-fix2-"));
+    let driverRuns = 0;
+    const driver = {
+      async run() {
+        driverRuns++;
+        throw new Error("ovladač se nesmí spustit");
+      },
+    } as unknown as TextAdapter;
+    const mb = new McpBrowser(driver, {
+      script: path.join(cwd, "nesmi-bezet.sh"),
+      gate: "/repo/gate.ts",
+      profileDir: cwd,
+      displayAwake: () => ({ awake: false, reason: "displej spí" }),
+    });
+    const sent: unknown[] = [];
+    const shots = path.join(cwd, "shots");
+    await expect(
+      mb.run([{ kind: "goto", url: "about:blank" }], shots, (s) =>
+        sent.push(s),
+      ),
+    ).rejects.toBeInstanceOf(DisplayAsleepError);
+    expect(sent).toEqual([{ submitted: false }]);
+    expect(driverRuns).toBe(0);
+    expect(fs.existsSync(shots)).toBe(false);
   });
 });
 

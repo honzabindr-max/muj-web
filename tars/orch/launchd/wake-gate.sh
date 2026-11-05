@@ -2,32 +2,41 @@
 # TARS minutová brána probuzení (etapa 4 PR 2, NAVRH-v6 §10.2). launchd ji spouští každou minutu
 # (StartCalendarInterval, po probuzení Macu doběhne jednou). Rozhodne, zda spustit plný tick, a nic víc.
 #
-# Čistý /bin/sh: jen date, cat, ls, mkdir, mv, kill -0, read, printf, od + tr (nonce zámku) a aritmetika $(( )).
+# Čistý /bin/sh: jen date, cat, mkdir, ln, mv, kill -0, read, printf, od + tr (nonce) a aritmetika $(( )).
 # Bez node, modelu a guardu.
-# Zámek brány má identitu "pid start nonce"; mrtvý zámek se převezme jen renamem na unikátní jméno s ověřením
-# obsahu po přesunu, uvolní se jen vlastní zámek.
+#
+# Výlučnost (FIX2 nález 1): žádný sdílený zámek, který by se přebíral přesunem. Generace = první řádek
+# last-gate-start (0, když chybí). Právo spustit tick z generace G vzniká jedinou atomickou create-only operací:
+# `ln` souboru s identitou brány ("pid start nonce") na unikátní jméno claims/G/<n>. link(2) selže, když jméno
+# existuje, a soubor má obsah od první chvíle (žádný stav „zámek bez PID“). Pro jedno jméno uspěje nejvýš jedna brána.
+# Mrtvý nárok (držitel neběží) se jen označí souborem claims/G/<n>.dead a brána zkusí další jméno <n+1>; nikdy ho
+# nepřesouvá ani nevrací. Nárok <n+1> vznikne jen po smrti držitele <n>, takže v generaci žije nejvýš jeden držitel.
+# Těsně před startem brána znovu ověří vlastnictví: last-gate-start je stále G a claims/G/<n> nese její identitu.
+# Teprve pak zapíše last-gate-start = "now\nidentita" (tmp + mv), čímž generaci G uzavře, a spustí tick.
+# Druhý řádek last-gate-start (identita) drží předchozí tick: dokud jeho brána žije, další tick nezačne.
+#
 # Plný tick se spustí, když platí jedno z:
 #   (a) next-wake.epoch <= now a last-gate-start < next-wake.epoch (probuzení platí a od té doby žádný tick nezačal),
 #   (c) re-entry po locked / guard_alarm: next-wake.epoch <= now, poslední spuštění (last-gate-start >= epoch) má
 #       výsledek locked nebo guard_alarm, k = počet takových výsledků s názvem >= epoch, 1 <= k <= 5,
 #       now >= last-gate-start + backoff(k) (1, 2, 5, 10, 30 min),
 #   (b) pojistka: od last-gate-start uplynulo >= 30 min (nebo last-gate-start chybí).
-# next-wake brána jen čte (pole epoch), nikdy ho nezapisuje. Nic nemaže: zámky se přejmenují do archivu.
+# next-wake brána jen čte (pole epoch), nikdy ho nezapisuje. Nic nemaže: nároky i identity zůstávají jako záznam.
 #
 # Prostředí:
 #   TARS_RUNS_DIR    adresář runs/ (výchozí $HOME/Projects/muj-web/runs)
 #   TARS_GATE_TICK   příkaz plného ticku (spustí se přes /bin/sh -c, dostane TARS_GATE_START=<epoch>); povinný
 #   TARS_GATE_NOW    jen testy: falešné hodiny (epocha v sekundách)
-#   TARS_GATE_TEST_HOOK  jen testy: příkaz spuštěný v bodě převzetí zámku (TARS_GATE_HOOK_POINT=after-stale-read)
+#   TARS_GATE_TEST_HOOK  jen testy: příkaz spuštěný v pojmenovaném bodě (TARS_GATE_HOOK_POINT=after-dead-claim
+#                        po zjištění mrtvého nároku, before-start po získání nároku před ověřením a startem)
 #   TARS_GATE_SAFETY_S    pojistka (výchozí 1800 s)
-#   TARS_GATE_LOCK_MAX_S  zámek živého PID starší než tolik sekund = zastaralý (ochrana před recyklací PID, výchozí 43200)
+#   TARS_GATE_LOCK_MAX_S  identita živého PID starší než tolik sekund = mrtvá (ochrana před recyklací PID, výchozí 43200)
 
 RUNS=${TARS_RUNS_DIR:-$HOME/Projects/muj-web/runs}
 W=$RUNS/wake
-L=$W/gate.lock.d
 SAFETY_S=${TARS_GATE_SAFETY_S:-1800}
 LOCK_MAX_S=${TARS_GATE_LOCK_MAX_S:-43200}
-HAVE_LOCK=0
+MAX_CLAIMS=20
 
 is_num() {
   case $1 in
@@ -44,7 +53,7 @@ fi
 is_num "$SAFETY_S" || SAFETY_S=1800
 is_num "$LOCK_MAX_S" || LOCK_MAX_S=43200
 
-if ! mkdir -p "$W/outcomes" "$W/stale-locks" "$W/gate-locks"; then
+if ! mkdir -p "$W/outcomes" "$W/claims" "$W/gate-ids"; then
   echo "wake-gate: nejde založit $W" >&2
   exit 1
 fi
@@ -60,6 +69,13 @@ first_line() {
   printf '%s' "$fl"
 }
 
+# Generace teď: první řádek last-gate-start, jen číslo (jinak prázdná).
+lgs_now() {
+  g=$(first_line "$W/last-gate-start")
+  is_num "$g" || g=""
+  printf '%s' "$g"
+}
+
 backoff() {
   case $1 in
     1) echo 60 ;;
@@ -70,108 +86,31 @@ backoff() {
   esac
 }
 
-# Identita zámku: "pid start nonce" (nonce z /dev/urandom; PID i čas se mohou opakovat, nonce ne).
-NONCE=$(od -An -tx1 -N8 /dev/urandom 2>/dev/null | tr -d ' \n')
-case $NONCE in
-  '' | *[!0-9a-f]*) NONCE="x$$x$NOW" ;;
-esac
-ID="$$ $NOW $NONCE"
-
-take_lock() {
-  if mkdir "$L" 2>/dev/null; then
-    HAVE_LOCK=1
-    printf '%s\n' "$ID" >"$L/pid"
-    return 0
-  fi
-  return 1
+# Žije držitel identity "pid start nonce"? Mrtvý = bez čísla PID, PID neběží, nebo je identita starší než LOCK_MAX_S.
+alive_id() {
+  set -f
+  # shellcheck disable=SC2086
+  set -- $1
+  set +f
+  is_num "${1:-}" || return 1
+  kill -0 "$1" 2>/dev/null || return 1
+  if is_num "${2:-}" && [ $((NOW - $2)) -ge "$LOCK_MAX_S" ]; then return 1; fi
+  return 0
 }
 
-# Uvolní jen vlastní zámek: když v $L/pid není naše identita (zámek převzal nebo obnovil někdo jiný), nesahá na něj.
-release_lock() {
-  if [ "$HAVE_LOCK" = 1 ]; then
-    HAVE_LOCK=0
-    if [ "$(first_line "$L/pid")" != "$ID" ]; then
-      log "zámek už nepatří této bráně, neuvolňuji ho"
-      return 0
-    fi
-    day=$((NOW / 86400))
-    mkdir -p "$W/gate-locks/$day" && mv "$L" "$W/gate-locks/$day/$NOW-$$-$NONCE"
-  fi
-}
-
-# Jen testy: příkaz spuštěný v pojmenovaném bodě (souběh dvou bran nad mrtvým zámkem).
+# Jen testy: příkaz spuštěný v pojmenovaném bodě (souběh bran nad mrtvým nárokem).
 test_hook() {
   if [ -n "${TARS_GATE_TEST_HOOK:-}" ]; then
     TARS_GATE_HOOK_POINT=$1 /bin/sh -c "$TARS_GATE_TEST_HOOK"
   fi
 }
 
-trap release_lock EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-# ── zámek brány (není lease, nic v runs/<wo>/ neodemyká) ──
-if ! take_lock; then
-  holder=""
-  started=""
-  seen=$(first_line "$L/pid")
-  pidless=0
-  [ -f "$L/pidless-seen" ] && pidless=1
-  set -f
-  # shellcheck disable=SC2086
-  set -- $seen
-  set +f
-  holder=${1:-}
-  started=${2:-}
-  stale=0
-  if is_num "$holder"; then
-    if kill -0 "$holder" 2>/dev/null; then
-      if is_num "$started" && [ $((NOW - started)) -ge "$LOCK_MAX_S" ]; then stale=1; fi
-    else
-      stale=1
-    fi
-  elif [ "$pidless" = 1 ]; then
-    # Zámek bez PID už při minulém spuštění: držitel spadl mezi mkdir a zápisem PID.
-    stale=1
-  else
-    : >"$L/pidless-seen" 2>/dev/null
-  fi
-  if [ "$stale" != 1 ]; then
-    log "skip: zámek drží jiná brána (pid ${holder:-?})"
-    exit 0
-  fi
-  test_hook after-stale-read
-  # Převzetí: rename na unikátní jméno (atomické), pak ověření, že přesunutý zámek je právě ten zastaralý, který
-  # jsme přečetli. Jiný obsah = mezitím ho převzala jiná brána a tohle je její živý zámek → vrátit (mkdir je
-  # create-only) a skončit bez ticku.
-  moved="$W/stale-locks/$NOW-$$-$NONCE"
-  if ! mv "$L" "$moved" 2>/dev/null; then
-    log "skip: zastaralý zámek nejde přesunout (mezitím ho převzala jiná brána)"
-    exit 0
-  fi
-  got=$(first_line "$moved/pid")
-  same=0
-  if [ -n "$seen" ]; then
-    [ "$got" = "$seen" ] && same=1
-  elif [ -z "$got" ] && [ -f "$moved/pidless-seen" ]; then
-    same=1
-  fi
-  if [ "$same" != 1 ]; then
-    if mkdir "$L" 2>/dev/null; then
-      printf '%s\n' "$got" >"$L/pid"
-      log "skip: přesunutý zámek nebyl ten zastaralý (pid ${got%% *}), vrácen do gate.lock.d"
-    else
-      log "skip: přesunutý zámek nebyl ten zastaralý (pid ${got%% *}) a nejde vrátit, zámek drží jiná brána"
-    fi
-    exit 0
-  fi
-  log "zastaralý zámek (pid ${holder:-?}) přesunut do stale-locks/$NOW-$$-$NONCE"
-  if ! take_lock; then
-    log "skip: zámek mezitím získala jiná brána"
-    exit 0
-  fi
-fi
+# Identita brány: "pid start nonce" (nonce z /dev/urandom; PID i čas se mohou opakovat, nonce ne).
+NONCE=$(od -An -tx1 -N8 /dev/urandom 2>/dev/null | tr -d ' \n')
+case $NONCE in
+  '' | *[!0-9a-f]*) NONCE="x$$x$NOW" ;;
+esac
+ID="$$ $NOW $NONCE"
 
 # ── stav ──
 NW=""
@@ -187,9 +126,16 @@ if [ -f "$RUNS/next-wake" ]; then
   # Nečitelný next-wake = neplatí; spoléhá se na pojistku (b).
 fi
 LGS=""
+LGS_ID=""
 if [ -f "$W/last-gate-start" ]; then
-  LGS=$(first_line "$W/last-gate-start")
-  is_num "$LGS" || LGS=""
+  {
+    read -r LGS || true
+    read -r LGS_ID || true
+  } <"$W/last-gate-start"
+  if ! is_num "$LGS"; then
+    LGS=""
+    LGS_ID=""
+  fi
 fi
 
 # ── rozhodnutí ──
@@ -222,24 +168,95 @@ if [ -z "$REASON" ]; then
 fi
 if [ -z "$REASON" ]; then exit 0; fi
 
+# Předchozí tick ještě běží (jeho brána žije): další nezačne.
+if [ -n "$LGS_ID" ] && alive_id "$LGS_ID"; then
+  log "skip: tick generace $LGS ještě běží (pid ${LGS_ID%% *})"
+  exit 0
+fi
+if [ -n "$LGS" ] && [ "$NOW" -le "$LGS" ]; then
+  log "skip: hodiny nejsou za generací $LGS"
+  exit 0
+fi
+
 if [ -z "${TARS_GATE_TICK:-}" ]; then
   log "chyba: TARS_GATE_TICK není nastavený, tick nespuštěn"
   exit 1
 fi
 
-# ── start: last-gate-start přes tmp + mv (shell neumí fsync; ztráta = nejvýš jeden tick navíc) ──
-if ! printf '%s\n' "$NOW" >"$W/last-gate-start.tmp.$$" || ! mv -f "$W/last-gate-start.tmp.$$" "$W/last-gate-start"; then
+# ── nárok na generaci: create-only ln na unikátní jméno ──
+GEN=${LGS:-0}
+CD=$W/claims/$GEN
+DAY=$((NOW / 86400))
+IDF=$W/gate-ids/$DAY/$NOW-$$-$NONCE
+if ! mkdir -p "$CD" "$W/gate-ids/$DAY" || ! printf '%s\n' "$ID" >"$IDF"; then
+  log "chyba: nárok na generaci $GEN nejde připravit, tick nespuštěn"
+  exit 1
+fi
+N=0
+while :; do
+  if ln "$IDF" "$CD/$N" 2>/dev/null; then break; fi
+  if [ ! -f "$CD/$N" ]; then
+    log "chyba: nárok $GEN/$N nejde vytvořit, tick nespuštěn"
+    exit 1
+  fi
+  holder=$(first_line "$CD/$N")
+  if alive_id "$holder"; then
+    log "skip: generaci $GEN drží jiná brána (nárok $N, pid ${holder%% *})"
+    exit 0
+  fi
+  test_hook after-dead-claim
+  if [ "$(lgs_now)" != "$LGS" ]; then
+    log "skip: generace $GEN už pokročila (nárok $N dokončen)"
+    exit 0
+  fi
+  # Mrtvý nárok se jen označí (nikdy nepřesouvá); další brána zkusí stejné další jméno a uspěje nejvýš jedna.
+  if [ ! -f "$CD/$N.dead" ]; then
+    printf '%s %s\n' "$NOW" "$ID" >"$CD/$N.dead" 2>/dev/null
+    log "mrtvý nárok $GEN/$N (pid ${holder%% *}) označen, zkouším $GEN/$((N + 1))"
+  fi
+  N=$((N + 1))
+  if [ "$N" -ge "$MAX_CLAIMS" ]; then
+    log "skip: $MAX_CLAIMS mrtvých nároků v generaci $GEN, tick nespuštěn"
+    exit 0
+  fi
+done
+
+# ── opětovné ověření vlastnictví těsně před startem ──
+test_hook before-start
+if [ "$(lgs_now)" != "$LGS" ]; then
+  log "skip: generace $GEN mezitím pokročila, nárok $GEN/$N se nepoužije"
+  exit 0
+fi
+if [ "$(first_line "$CD/$N")" != "$ID" ]; then
+  log "skip: nárok $GEN/$N nenese identitu této brány"
+  exit 0
+fi
+
+# ── start: last-gate-start "now\nidentita" přes tmp + mv (shell neumí fsync; ztráta = nejvýš jeden tick navíc) ──
+TMP=$W/last-gate-start.tmp.$$.$NONCE
+if ! printf '%s\n%s\n' "$NOW" "$ID" >"$TMP" || ! mv -f "$TMP" "$W/last-gate-start"; then
   log "chyba: last-gate-start nejde zapsat, tick nespuštěn"
   exit 1
 fi
 case $REASON in
-  a) log "tick reason=a next_wake=$NW wake_late_by_s=$((NOW - NW))" ;;
-  c) log "tick reason=c next_wake=$NW k=$K" ;;
-  *) log "tick reason=b" ;;
+  a) log "tick reason=a next_wake=$NW wake_late_by_s=$((NOW - NW)) claim=$GEN/$N" ;;
+  c) log "tick reason=c next_wake=$NW k=$K claim=$GEN/$N" ;;
+  *) log "tick reason=b claim=$GEN/$N" ;;
 esac
 TARS_GATE_START=$NOW
 export TARS_GATE_START
 /bin/sh -c "$TARS_GATE_TICK"
 rc=$?
+# Konec ticku: identitu z last-gate-start odebrat (jen když tam je ještě naše), ať recyklovaný PID této brány
+# později neblokuje další tick. Generaci nikdo jiný posunout nemohl: dokud brána žije, ostatní končí skipem.
+if [ "$(first_line "$W/last-gate-start")" = "$NOW" ]; then
+  {
+    read -r _l1 || true
+    read -r cur || true
+  } <"$W/last-gate-start"
+  if [ "$cur" = "$ID" ]; then
+    printf '%s\n' "$NOW" >"$TMP" && mv -f "$TMP" "$W/last-gate-start"
+  fi
+fi
 log "tick end rc=$rc"
 exit 0

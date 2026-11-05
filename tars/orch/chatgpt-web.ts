@@ -16,6 +16,7 @@ import path from "node:path";
 import type { AdapterResult, RunOpts, TextAdapter } from "./adapters";
 import {
   BrowserLaunchError,
+  DisplayAsleepError,
   DriverLimitError,
   RuleViolation,
   UiUnknownError,
@@ -863,6 +864,10 @@ export function waitReason(e: unknown): string {
   const msg = String((e as Error)?.message ?? e)
     .split("\n")[0]
     .slice(0, 200);
+  // FIX2 nález 2: displej usnul mezi první a druhou sondou; nic se neodeslalo, pokus se nepočítá (první, aby text
+  // důvodu sondy nespadl do jiné větve).
+  if (e instanceof DisplayAsleepError)
+    return `${msg}; pokus GPT v prohlížeči se neprovedl, nic neodesláno`;
   if (/nepřihlá|log ?in|sign ?up|přihlásit|přihlášen/i.test(msg))
     return "profil TARS-agent není přihlášen do ChatGPT (TARS se nepřihlašuje)";
   if (e instanceof DriverLimitError)
@@ -1169,6 +1174,10 @@ export class ChatGptWebChecker implements TextAdapter {
       });
       reads = r.rawReads;
     } catch (e) {
+      // FIX2 nález 2: druhá sonda displeje (McpBrowser.run) odmítla start před Chrome = prokazatelně nic neodesláno,
+      // i kdyby prohlížeč nehlásil onSent. Pokus se odstraní (nespálí), zakázka čeká s důvodem „displej spí“.
+      if (e instanceof DisplayAsleepError && report === undefined)
+        report = { submitted: false };
       settle();
       const kinds = scanRunFiles(runDirs);
       if (kinds.length) return rejected(kinds, "neověřeno");

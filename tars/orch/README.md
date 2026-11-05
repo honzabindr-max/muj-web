@@ -202,10 +202,12 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
 - **`launchd/wake-gate.sh`** (čistý `/bin/sh`, bez node, modelu a guardu) běží každou minutu z
   `work.good-inventions.tars-orch.wake-gate.plist` (`StartCalendarInterval`, po probuzení Macu doběhne jednou). Plný tick
   (`TARS_GATE_TICK`) spustí jen při (a) platném `runs/next-wake` bez ticku od jeho platnosti, (c) re-entry po `locked` /
-  `guard_alarm` s backoffem 1, 2, 5, 10, 30 min (nejvýš 5×), nebo (b) pojistce 30 min. Zámek brány `runs/wake/gate.lock.d`,
-  záznamy `runs/wake/` (`last-gate-start`, `outcomes/`, `gate.log` s `wake_late_by_s`, `gate-locks/<den>/`, `stale-locks/`).
-  Zámek nese identitu `pid start nonce`; mrtvý zámek se převezme jen renamem na unikátní jméno s ověřením obsahu po
-  přesunu (jiný obsah = cizí živý zámek, vrátí se a brána skončí bez ticku); brána uvolní jen vlastní zámek.
+  `guard_alarm` s backoffem 1, 2, 5, 10, 30 min (nejvýš 5×), nebo (b) pojistce 30 min. Záznamy `runs/wake/`
+  (`last-gate-start`, `outcomes/`, `gate.log` s `wake_late_by_s`, `claims/<generace>/<n>`, `gate-ids/<den>/`).
+  Výlučnost (FIX2): generace = první řádek `last-gate-start`; právo na tick vzniká jedinou create-only operací `ln` souboru
+  s identitou `pid start nonce` na `claims/<generace>/<n>` (uspěje nejvýš jedna brána). Mrtvý nárok se jen označí
+  (`<n>.dead`) a zkusí se `<n+1>`; nic se nepřesouvá. Před startem brána znovu ověří, že generace trvá a nárok je její, pak
+  zapíše `last-gate-start` = `now` + identita (běžící tick blokuje další) a po ticku identitu odebere.
 - **`runs/next-wake`** zapisuje jen tick pod lease ve `finally` (`wake.ts`, `reconcileNextWake`): doložené převzetí →
   `runs/wake/consumed/`, neúspěch pod lease → nový soubor s backoffem a starý do `runs/wake/superseded/`. Nic se nemaže.
   `cli.ts tick` s `TARS_GATE_START` zapíše jednou `runs/wake/outcomes/<epoch>` (`ran` | `locked` | `guard_alarm`).

@@ -410,7 +410,14 @@ export class McpBrowser {
         `složka běhu prohlížeče musí být shots nebo shots-* (je ${path.basename(shotsDir)})`,
       );
     // FIX1 nález 3: před jakýmkoli zápisem a před Chrome (platí i pro loginCheck, který jde přes run).
-    this.assertDisplayAwake();
+    // FIX2 nález 2: odmítnutí sondou je prokazatelně „nic neodesláno“ (Chrome ani ovladač nezačaly), volající to
+    // dostane přes onSent jako submitted:false, aby pokus nespálil.
+    try {
+      this.assertDisplayAwake();
+    } catch (e) {
+      onSent?.({ submitted: false });
+      throw e;
+    }
     // Fresh artifacts for every run: nothing left by an earlier run (reads, screenshots, gate state) may pass as new.
     fs.mkdirSync(shotsDir, { recursive: true });
     fs.rmSync(path.join(shotsDir, "reads"), { recursive: true, force: true });
