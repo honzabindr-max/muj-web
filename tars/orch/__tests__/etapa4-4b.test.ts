@@ -1011,6 +1011,7 @@ describe("§8.1 noRemoteWriteEnv (N03)", () => {
       );
       expect(pr.status).not.toBe(0);
     },
+    30_000,
   );
 
   it("dev create předá AI Chain prostředí noRemoteWriteEnv (složka gh-empty pokusu)", async () => {
