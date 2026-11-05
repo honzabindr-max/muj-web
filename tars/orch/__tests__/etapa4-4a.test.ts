@@ -2199,6 +2199,8 @@ describe("CI 4a (2): statická hranice třídy A", () => {
         'tars/orch/guard/tars-guard.proposed.sh: rules=$(gh api "repos/$slug/rules/branches/main" --jq \'[.[].type]|join(",")\' 2>/dev/null); rc=$?',
         // obecný execFileSync (čtení tokenu Notion, main), ne gh ani git
         'tars/orch/notion-token.ts: execFileSync(file, [...args], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] });',
+        // Etapa 4 PR 2: sonda displeje, spouští jen /usr/bin/osascript (display.ts probeDisplay), ne gh ani git
+        "tars/orch/display.ts: execFileSync(cmd, args, {",
       ].sort(),
     );
   });

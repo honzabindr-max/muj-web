@@ -144,6 +144,8 @@ function orch(
     stateLockWaitMs?: number;
     /** Replaces the mock guard, e.g. the real runGuardWithI8 on a fake hook script. */
     guard?: () => GuardResult;
+    /** Etapa 4 PR 2: cesta k dispatch.json (bez ní tick režim nečte). */
+    dispatchFile?: string;
   } = {},
 ) {
   const supervisor = new MockAdapter("claude", "opus", opts.supervisor ?? [{ text: BRIEF() }]);
@@ -179,6 +181,7 @@ function orch(
     ownerPing: opts.ownerPing,
     panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
     sources: new SourceLoader(opts.sourcesNotion ?? notion, dir, path.join(dir, "sources-cache")),
+    dispatchFile: opts.dispatchFile,
   });
   return { o, supervisor, creator, checker, notion, gate, browser };
 }
@@ -187,10 +190,39 @@ function orch(
 describe("state machine", () => {
   it("happy path NEW → DONE", () => {
     let o = blank();
-    for (const ev of [{ type: "planned" }, { type: "start", preflight: OKP }, { type: "created" }, { type: "verdict", verdict: "PASS" }, { type: "delivered", owner_needed: false }] as const)
+    for (const ev of [{ type: "planned" }, { type: "start", preflight: OKP }, { type: "created" }, { type: "verdict", verdict: "PASS" }] as const)
       o = transition(o, ev, NOW);
+    // Etapa 4 PR 2 (readbackBlocker): DONE bez vlastníka jen s read-backem, který sedí s odeslaným obsahem.
+    const H = "c".repeat(64);
+    const url = "https://app.notion.com/p/x";
+    o = { ...o, delivered_url: url, meta: { delivered_hash: H, readback: JSON.stringify({ url, hash: H, verified_at: NOW }) } };
+    o = transition(o, { type: "delivered", owner_needed: false }, NOW);
     expect(o.state).toBe("DONE");
     expect(o.history.map((h) => h.to)).toEqual(["PLANNED", "DOING", "CHECKING", "DELIVERED", "DONE"]);
+  });
+
+  it("etapa 4 PR 2: delivered bez vlastníka → DONE jen s read-backem shodným s delivered_hash (readbackBlocker)", () => {
+    const H = "c".repeat(64);
+    const G = "d".repeat(64);
+    const url = "https://app.notion.com/p/x";
+    const rb = (hash: string, u = url) => JSON.stringify({ url: u, hash, verified_at: NOW });
+    const d = (meta: Record<string, string>, u: string | null = url): Order => ({ ...blank("DELIVERED"), delivered_url: u ?? undefined, meta });
+    const ev = { type: "delivered", owner_needed: false } as const;
+    const cases: Array<[Order, RegExp]> = [
+      [d({ delivered_hash: H, readback: rb(H) }, null), /chybí delivered_url/],
+      [d({ readback: rb(H) }), /chybí delivered_hash/],
+      [d({ delivered_hash: "abc", readback: rb(H) }), /chybí delivered_hash/],
+      [d({ delivered_hash: H }), /čeká na read-back/],
+      [d({ delivered_hash: H, readback: rb(H, "https://app.notion.com/p/y") }), /jiné URL/],
+      [d({ delivered_hash: H, readback: rb(G) }), /neshoduje s odeslaným obsahem/],
+    ];
+    for (const [o, why] of cases) {
+      expect(() => transition(o, ev, NOW)).toThrow(TransitionError);
+      expect(() => transition(o, ev, NOW)).toThrow(why);
+    }
+    expect(transition(d({ delivered_hash: H, readback: rb(H) }), ev, NOW).state).toBe("DONE");
+    // Cesta přes vlastníka se nemění: bez read-backu do WAITING_OWNER.
+    expect(transition(d({}), { type: "delivered", owner_needed: true }, NOW).state).toBe("WAITING_OWNER");
   });
 
   it("owner gate: DELIVERED → WAITING_OWNER → DONE / FAILED", () => {
@@ -324,6 +356,77 @@ describe("orchestrator (mock adapters)", () => {
     expect((await o.tick()).status).toBe("paused"); // too early
     t += 60 * 60_000;
     expect(await o.tick()).toMatchObject({ state: "DONE" });
+  });
+
+  it("etapa 4 PR 2: tick pod lease zapíše runs/next-wake při PAUSED, po obnově ho zkonzumuje do wake/consumed (nic se nemaže)", async () => {
+    let t = new Date(NOW).getTime();
+    const { o } = orch({ now: () => new Date(t), creator: [{ ok: false, limit: true, error: "usage limit" }, { text: DRAFT }] });
+    const nwFile = path.join(dir, "next-wake");
+    expect((await o.tick()).status).toBe("paused");
+    const paused = store.listOrders()[0];
+    const nw = JSON.parse(fs.readFileSync(nwFile, "utf8"));
+    expect(nw).toMatchObject({
+      epoch: Math.ceil(Date.parse(paused.resume_after!) / 1000),
+      order_id: paused.id,
+      state_version: paused.version,
+      resume_after: paused.resume_after,
+      attempt: 0,
+    });
+    expect(fs.readFileSync(nwFile, "utf8").startsWith('{"epoch":')).toBe(true);
+    t += 10 * 60_000;
+    expect((await o.tick()).status).toBe("paused"); // too early: stejný cíl, soubor zůstává
+    expect(JSON.parse(fs.readFileSync(nwFile, "utf8"))).toEqual(nw);
+    t += 60 * 60_000;
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    expect(fs.existsSync(nwFile)).toBe(false);
+    const consumed = fs.readdirSync(path.join(dir, "wake", "consumed"));
+    expect(consumed).toEqual([`${nw.epoch}-${paused.id}.json`]);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "wake", "consumed", consumed[0]), "utf8"))).toMatchObject({ reason: "taken_over", new_state: "DONE" });
+  });
+
+  it("etapa 4 PR 2: tick bez lease (locked, guard ALARM) next-wake nemění a dispatch nečte", async () => {
+    const { o } = orch({ alarm: true, dispatchFile: path.join(dir, "dispatch.json") });
+    fs.writeFileSync(path.join(dir, "next-wake"), "{rozbité");
+    expect((await o.tick()).status).toBe("guard_alarm");
+    expect(fs.readFileSync(path.join(dir, "next-wake"), "utf8")).toBe("{rozbité");
+    expect(fs.existsSync(path.join(dir, "wake"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "dispatch-mode.json"))).toBe(false);
+    const other = new Store(dir);
+    expect(other.acquireLock()).toBe(true);
+    try {
+      const { o: o2 } = orch({ dispatchFile: path.join(dir, "dispatch.json") });
+      expect((await o2.tick()).status).toBe("locked");
+      expect(fs.readFileSync(path.join(dir, "next-wake"), "utf8")).toBe("{rozbité");
+      expect(fs.existsSync(path.join(dir, "wake"))).toBe(false);
+      expect(fs.existsSync(path.join(dir, "dispatch-mode.json"))).toBe(false);
+    } finally {
+      other.releaseLock();
+    }
+  });
+
+  it("etapa 4 PR 2: hold → run: tick pod lease zaznamená režim; první tick v run nesmí začít nic nového, rozpracované pokračuje", async () => {
+    let t = new Date(NOW).getTime();
+    const dispatchFile = path.join(dir, "dispatch.json");
+    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"hold"}');
+    const { o } = orch({ now: () => new Date(t), dispatchFile, creator: [{ ok: false, limit: true, error: "usage limit" }, { text: DRAFT }] });
+    expect((await o.tick()).status).toBe("paused");
+    expect(o.lastDispatch).toMatchObject({ mode: "hold", may_start_new: false });
+    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"run"}');
+    t += 70 * 60_000;
+    // první tick po přechodu: rozpracovaná zakázka se obnoví a dokončí, dispatcher nic nového nesmí
+    expect(await o.tick()).toMatchObject({ state: "DONE" });
+    expect(o.lastDispatch).toMatchObject({ mode: "run", may_start_new: false, previous: "hold" });
+    expect(store.listOrders()).toHaveLength(1);
+    expect(store.readLog(100).some((e) => e.result === "dispatch: mode run (předtím hold)")).toBe(true);
+    t += 60_000;
+    await o.tick();
+    expect(o.lastDispatch).toMatchObject({ mode: "run", may_start_new: true });
+    // nevalidní soubor = hold (fail-closed) a důvod v logu
+    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"run","x":1}');
+    t += 60_000;
+    await o.tick();
+    expect(o.lastDispatch).toMatchObject({ mode: "hold", may_start_new: false });
+    expect(store.readLog(100).some((e) => /neznámý klíč/.test(e.reason ?? ""))).toBe(true);
   });
 
   it("TARS-GUARD ALARM stops before any model call", async () => {
