@@ -18,7 +18,11 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import type { RemoteSnapshot } from "./remote-snapshot";
 import { writeDurable } from "./store";
+
+/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit (re-export v orchestrator.ts). */
+export const LIMIT_WARNING_LOST = "varování limitu nešlo uložit";
 
 export type AttemptPhase =
   | "INTENT"
@@ -68,7 +72,12 @@ export interface AttemptRecord {
     at: string;
   };
   abandoned?: { reason: string; kill_evidence: string; at: string };
-  hold?: { reason: string; at: string };
+  /** FIX1 (PR 4b) nález 7: `previous` = dřívější důvody HOLD (nejstarší první); nový HOLD je nepřepíše. */
+  /**
+   * FIX2 (PR 4b) nález 2: `limit_reason` = první důvod HOLD začínající LIMIT_WARNING_LOST. Trvalý a samostatný:
+   * ořez `previous` ho nevytlačí a každý další HOLD ho přenese beze změny.
+   */
+  hold?: { reason: string; at: string; previous?: string[]; limit_reason?: string };
   /**
    * FIX2 nález 1: skupiny (pgid), jejichž zánik je doložen (žádný člen a vedoucí chybí nebo má jiný lstart). Takový
    * pgid se už nikdy nesignalizuje, i kdyby v něm později něco běželo (recyklace ID).
@@ -76,6 +85,10 @@ export interface AttemptRecord {
   groups_ended?: number[];
   /** §8: zapíše se jednou, před dalším pokusem stejného kroku. */
   reconcile?: { result: RetryDecision; reason: string; at: string };
+  /** PR 4b (§8.2): snímek vzdálených zápisů před INTENT (jen kroky s možným vzdáleným zápisem, dev create/revise). */
+  remote_before?: RemoteSnapshot;
+  /** PR 4b (§8.2): snímek po konci dítěte (FINISHED nebo ABANDONED); zapíše se jen jednou. */
+  remote_after?: RemoteSnapshot;
   updated_at: string;
 }
 
@@ -193,6 +206,7 @@ export class AttemptJournal {
       decision_check: string;
       fence?: number;
       output_path?: string;
+      remote_before?: RemoteSnapshot;
     },
   ): AttemptRecord {
     const prev = this.latest(order, step);
@@ -228,8 +242,18 @@ export class AttemptJournal {
       deadline: x.deadline,
       decision_check: x.decision_check,
       intent_at: at,
+      ...(x.remote_before ? { remote_before: x.remote_before } : {}),
       updated_at: at,
     });
+  }
+
+  /** PR 4b (§8.2): snímek po konci dítěte. Jen u pokusu se snímkem před, jen jednou, bez změny fáze. */
+  setRemoteAfter(id: string, snap: RemoteSnapshot): AttemptRecord {
+    const prev = this.get(id);
+    if (!prev) throw new AttemptError(`pokus ${id} nemá záznam`);
+    if (!prev.remote_before) throw new AttemptError(`pokus ${id} nemá snímek před (§8.2)`);
+    if (prev.remote_after) return prev;
+    return this.write({ ...prev, remote_after: snap, updated_at: this.now() });
   }
 
   started(id: string, child: AttemptChild): AttemptRecord {
@@ -263,8 +287,20 @@ export class AttemptJournal {
   }
 
   holdAttempt(id: string, reason: string): AttemptRecord {
+    // FIX1 (PR 4b) nález 7: další HOLD (reconciler) nepřepíše dřívější důvod (např. „varování limitu nešlo uložit“).
+    const prev = this.get(id)?.hold;
+    const history = prev ? [...(prev.previous ?? []), prev.reason] : [];
+    const previous = history.slice(-10);
+    const r = reason.slice(0, 500);
+    // FIX2 (PR 4b) nález 2: limitní důvod se drží samostatně, ořez historie ho nikdy neodstraní.
+    const limit_reason = prev?.limit_reason ?? [...history, r].find((x) => x.startsWith(LIMIT_WARNING_LOST));
     return this.move(id, "HOLD", {
-      hold: { reason: reason.slice(0, 500), at: this.now() },
+      hold: {
+        reason: r,
+        at: this.now(),
+        ...(previous.length ? { previous } : {}),
+        ...(limit_reason ? { limit_reason } : {}),
+      },
     });
   }
 

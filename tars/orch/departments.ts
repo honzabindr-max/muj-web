@@ -6,12 +6,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { AdapterResult, AiChain, TextAdapter } from "./adapters";
+import { childEnv, noRemoteWriteEnv, remoteWriteConfigProblem, type AdapterResult, type AiChain, type TextAdapter } from "./adapters";
 import { artifactHash } from "./approval";
-import { RetryRefusedError, sha256, type AttemptJournal, type AttemptRecord, type RetryDecision } from "./attempts";
+import { AttemptJournal, currentAttempt, RetryRefusedError, sha256, type AttemptRecord, type RetryDecision } from "./attempts";
+import { unjournaledWrites, type JournaledWrites, type RemoteProbe, type RemoteSnapshot } from "./remote-snapshot";
 import {
   aggregateVerdict,
   CHUNK_LIMIT,
+  coverageProblem,
   invokeChecker,
   MAX_CHUNKS,
   planDiffChunks,
@@ -124,6 +126,8 @@ export interface DeptContext {
   repoRoot: string;
   /** Etapa 4 / PR 4a: journal pokusů; každé volání kontrolora je samostatný pokus (invocation_id receiptu). */
   attempts?: AttemptJournal;
+  /** Etapa 4 / PR 4b (§8.2): snímky vzdálených zápisů (git ls-remote, gh pr list, gh run list) v prostředí orchestrátoru. */
+  remoteProbe?: RemoteProbe;
 }
 
 export interface DepartmentRunner {
@@ -162,6 +166,18 @@ export interface DepartmentRunner {
   reconcileRetry?(kind: StepKind, order: Order, ctx: DeptContext, prev: AttemptRecord): { result: RetryDecision; reason: string };
   /** Etapa 4 / PR 4a (§7): deadline pokusu kroku (pak ho reconciler smí ukončit). Výchozí 40 min. */
   attemptDeadlineMs?(kind: StepKind): number;
+  /**
+   * Etapa 4 / PR 4b (§8.2): snímek vzdálených zápisů pro krok, jehož dítě by mohlo zapisovat na GitHub (dev create,
+   * revise). undefined = krok snímky nepotřebuje. `since` = ISO okamžik INTENT (stejný pro snímek před i po).
+   */
+  remoteSnapshot?(kind: StepKind, order: Order, ctx: DeptContext, since: string): RemoteSnapshot | undefined;
+  /** PR 4b (§8.2): problém dvojice snímků pokusu (EXTERNAL_UNJOURNALED, chybějící nebo neúplný snímek), jinak undefined. */
+  remoteProblem?(order: Order, ctx: DeptContext, rec: AttemptRecord): string | undefined;
+  /**
+   * PR 4b (§6.2.3, §6.2.2 bod 6, třída B): brána před vzdáleným zápisem (gh-push, gh-draft-pr). Vrací důvod HOLD
+   * (REVIEW_MISMATCH, REVIEW_COVERAGE), jinak undefined. Bez metody oddělení na GitHub nezapisuje.
+   */
+  effectGate?(order: Order, ctx: DeptContext): string | undefined;
   /** Department-level rule: does delivery always need the owner (e.g. PR into main)? */
   alwaysOwner: boolean;
   /** Creator specialist role (definition in .claude/agents/**). */
@@ -533,6 +549,63 @@ function gitOut(cwd: string, args: string[]): { ok: boolean; out: string } {
 const OID = /^[0-9a-f]{40}$/;
 
 /**
+ * Etapa 4 / PR 4b (NAVRH-v6 §6.2.3 git, §6.2.2 bod 6; třída B): brána před gh-push a gh-draft-pr. Platí jen receipt,
+ * na který odkazuje state.json. Vyžaduje: verdikt PASS, druh git, reviewer_family ≠ creatorFamily, review_id
+ * přepočitatelné z částí, každá část s pokusem FINISHED ok a verdiktem PASS, output_sha256 = spojení otisků výstupů
+ * částí, reviewed_git_commit_oid = HEAD worktree (expected_git_commit_oid) a úplné pokrytí diffu přepočítaného jako
+ * `git diff <reviewed_base_oid>..<HEAD>` (pevná báze z receiptu: posun origin/main nic nerozbije ani nezamaskuje).
+ * Vrací důvod HOLD (REVIEW_MISMATCH | REVIEW_COVERAGE), jinak undefined.
+ */
+/** FIX1 (PR 4b) nález 1: OID, který receipt (s odkazem ze state.json) doložil jako zkontrolovaný; jinak undefined. */
+export function reviewedGitOid(order: Order, ctx: DeptContext): string | undefined {
+  const rc = readReviewReceipt(ctx.store.orderDir(order.id), {
+    review_id: order.meta.review_receipt_id,
+    sha256: order.meta.review_receipt_sha256,
+  });
+  const oid = rc?.reviewed_git_commit_oid ?? "";
+  return OID.test(oid) ? oid : undefined;
+}
+
+export function gitReviewGate(order: Order, ctx: DeptContext, wt: string, creatorFamily: ModelFamily): string | undefined {
+  const rc = readReviewReceipt(ctx.store.orderDir(order.id), {
+    review_id: order.meta.review_receipt_id,
+    sha256: order.meta.review_receipt_sha256,
+  });
+  if (!rc) return "REVIEW_MISMATCH: chybí platný review receipt s odkazem ze state.json";
+  if (rc.order_id !== order.id) return `REVIEW_MISMATCH: receipt patří zakázce ${rc.order_id}`;
+  if (rc.verdict !== "PASS") return `REVIEW_MISMATCH: verdikt receiptu ${rc.verdict}`;
+  if (rc.reviewed_artifact_kind !== "git") return `REVIEW_MISMATCH: druh artefaktu ${rc.reviewed_artifact_kind}`;
+  if (rc.reviewer_family === creatorFamily) return "REVIEW_MISMATCH: reviewer_family = creatorFamily";
+  const head = gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
+  if (!OID.test(head)) return "REVIEW_MISMATCH: HEAD worktree nejde určit";
+  if (rc.reviewed_git_commit_oid !== head) return `REVIEW_MISMATCH: zkontrolován ${rc.reviewed_git_commit_oid ?? "?"}, HEAD je ${head}`;
+  const base = rc.reviewed_base_oid ?? "";
+  if (!OID.test(base)) return "REVIEW_COVERAGE: reviewed_base_oid chybí nebo má špatný formát";
+  const chunks = rc.chunks ?? [];
+  if (!ctx.attempts) return "REVIEW_MISMATCH: bez journalu pokusů nejde ověřit invocation_id";
+  const outs: string[] = [];
+  for (const c of chunks) {
+    if (!c.invocation_id) return `REVIEW_MISMATCH: část ${c.index} bez invocation_id`;
+    let a: AttemptRecord | undefined;
+    try {
+      a = ctx.attempts.get(c.invocation_id);
+    } catch {
+      a = undefined;
+    }
+    if (!a || a.order !== order.id || a.phase !== "FINISHED" || !a.finished?.ok) return `REVIEW_MISMATCH: část ${c.index}: pokus ${c.invocation_id} nemá FINISHED`;
+    if (c.verdict !== "PASS") return `REVIEW_MISMATCH: část ${c.index}: verdikt ${c.verdict}`;
+    outs.push(a.finished.output_sha256);
+  }
+  if (sha256(outs.join("")) !== rc.output_sha256) return "REVIEW_MISMATCH: output_sha256 nesedí s výstupy částí";
+  if (rc.review_id !== reviewId(order.id, rc.step_id, chunks.map((c) => c.invocation_id))) return "REVIEW_MISMATCH: review_id nesedí s částmi";
+  const d = gitOut(wt, ["diff", `${base}..${head}`]);
+  if (!d.ok) return `REVIEW_COVERAGE: git diff ${base}..${head} selhal`;
+  const cp = coverageProblem(rc, d.out);
+  if (cp) return `REVIEW_COVERAGE: ${cp}`;
+  return undefined;
+}
+
+/**
  * Etapa 4 / PR 4a (§8, §14): interní záznam a reconcile STÁVAJÍCÍHO push v `deliver` — journal `<wo>/push/r<n>`,
  * soubor runs/<wo>/push/r<n>-a<k>.json (writeDurable, nic se nepřepisuje). Receipt = OID z `git ls-remote`. Záznam
  * nemění, kdy a jak se push volá (rozhodování o push a brána zápisu na GitHub jsou PR 4b, třída B).
@@ -585,8 +658,9 @@ export class PushJournal {
   }
 
   /** PREPARED před push, s reconcile proti předchozímu záznamu stejného kola (§8: shoda OID → RESUME). */
-  begin(orderId: string, round: number, wt: string, branch: string): PushRecord {
-    const head = gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
+  /** FIX1 (PR 4b) nález 1: `oid` = commit, který se odešle (zkontrolovaný); bez něj HEAD worktree (PR 4a). */
+  begin(orderId: string, round: number, wt: string, branch: string, oid?: string): PushRecord {
+    const head = oid ?? gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
     const expected = OID.test(head) ? head : null;
     const remote = lsRemoteHead(wt, branch);
     const prev = this.list(orderId, round).at(-1);
@@ -653,12 +727,79 @@ export class DevDepartment implements DepartmentRunner {
   }
 
   /**
-   * §8 + §14 PR 4a: do PR 4b chybí dvojice snímků vzdálených zápisů (§8.2), takže retry dev create/revise se vždy
-   * odmítne (throw, fail-closed: žádné nové volání AI Chain, žádný push). Kontrola (codex read-only) je RETRY_SAFE.
+   * §8 + §8.2 (PR 4b): retry dev create/revise jen s dvojicí snímků vzdálených zápisů v pokusu. Bez snímku před = throw
+   * (CI 4b: neúplný 4a retry neotevře). Snímek po chybí (ABANDONED po pádu) = pořídí se teď (dítě je doloženě mrtvé).
+   * Nežurnálovaný vzdálený zápis nebo nepoužitelný snímek = UNKNOWN (HOLD, rozhodne vlastník), nikdy RETRY_SAFE.
+   * Pak lokální stav: worktree neexistuje, nebo je čistý a HEAD = origin/main či HEAD ze snímku před → RETRY_SAFE.
+   * Kontrola (codex read-only) je RETRY_SAFE.
    */
-  reconcileRetry(kind: StepKind, order: Order, _ctx: DeptContext, prev: AttemptRecord): { result: RetryDecision; reason: string } {
+  reconcileRetry(kind: StepKind, order: Order, ctx: DeptContext, prev: AttemptRecord): { result: RetryDecision; reason: string } {
     if (kind === "check") return { result: "RETRY_SAFE", reason: `review ${this.reviewer.name} (read-only): bez účinků` };
-    throw new RetryRefusedError(`retry dev kroku ${kind} (${order.id}, ${prev.attempt_id}) odmítnut: chybí dvojice snímků vzdálených zápisů (§8.2, PR 4b)`);
+    if (!prev.remote_before) throw new RetryRefusedError(`retry dev kroku ${kind} (${order.id}, ${prev.attempt_id}) odmítnut: chybí dvojice snímků vzdálených zápisů (§8.2)`);
+    let rec = prev;
+    if (!rec.remote_after) {
+      const after = this.remoteSnapshot(kind, order, ctx, prev.remote_before.since);
+      if (!after || !ctx.attempts) throw new RetryRefusedError(`retry dev kroku ${kind} (${order.id}, ${prev.attempt_id}) odmítnut: snímek po nejde pořídit (chybí sonda nebo journal)`);
+      rec = ctx.attempts.setRemoteAfter(rec.attempt_id, after);
+    }
+    const problem = this.remoteProblem(order, ctx, rec);
+    if (problem) return { result: "UNKNOWN", reason: problem };
+    const { wt } = this.worktree(order);
+    if (!fs.existsSync(wt)) return { result: "RETRY_SAFE", reason: "§8.2 nic nového; worktree neexistuje" };
+    const st = gitOut(wt, ["status", "--porcelain"]);
+    if (!st.ok) return { result: "UNKNOWN", reason: "git status worktree selhal" };
+    if (st.out.trim()) return { result: "UNKNOWN", reason: "worktree má neuložené změny po pokusu" };
+    const head = gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
+    const main = gitOut(wt, ["rev-parse", "origin/main"]).out.trim();
+    if (OID.test(head) && head === main) return { result: "RETRY_SAFE", reason: "§8.2 nic nového; worktree čistý, HEAD = origin/main" };
+    const before = prev.remote_before;
+    if (OID.test(head) && before.ok && before.worktree_head === head) return { result: "RETRY_SAFE", reason: "§8.2 nic nového; worktree čistý, HEAD beze změny od snímku před pokusem" };
+    return { result: "UNKNOWN", reason: `worktree HEAD ${head || "?"}: commity mimo pokus` };
+  }
+
+  /** PR 4b (§8.2): jen create a revise (dítě AI Chain s gitem); kontrola je read-only. */
+  remoteSnapshot(kind: StepKind, order: Order, ctx: DeptContext, since: string): RemoteSnapshot | undefined {
+    if (kind === "check") return undefined;
+    const at = new Date().toISOString();
+    if (!ctx.remoteProbe) return { ok: false, at, since, error: "chybí sonda vzdálených zápisů (§8.2)" };
+    let s: RemoteSnapshot;
+    try {
+      s = ctx.remoteProbe.snapshot(ctx.repoRoot, since);
+    } catch (e) {
+      return { ok: false, at, since, error: String((e as Error)?.message ?? e).slice(0, 300) };
+    }
+    if (!s.ok) return s;
+    const { wt } = this.worktree(order);
+    const h = fs.existsSync(wt) ? gitOut(wt, ["rev-parse", "HEAD"]).out.trim() : null;
+    return { ...s, worktree_head: h === null ? null : OID.test(h) ? h : null };
+  }
+
+  /** PR 4b (§8.2): co journal zakázky vysvětluje (receipty push všech kol, doručený PR). */
+  private journaled(order: Order, ctx: DeptContext): JournaledWrites {
+    const { branch } = this.worktree(order);
+    const d = new PushJournal(ctx.store.runsDir).dir(order.id);
+    const pushes: JournaledWrites["pushes"] = [];
+    if (fs.existsSync(d))
+      for (const f of fs.readdirSync(d).filter((x) => /^r\d+-a\d+\.json$/.test(x))) {
+        const r = JSON.parse(fs.readFileSync(path.join(d, f), "utf8")) as PushRecord;
+        if (r.receipt?.git_oid) pushes.push({ ref: `refs/heads/${branch}`, oid: r.receipt.git_oid });
+      }
+    return { pushes, pr_urls: order.delivered_url ? [order.delivered_url] : [] };
+  }
+
+  /** PR 4b (§8.2): EXTERNAL_UNJOURNALED nebo nepoužitelná dvojice snímků → důvod HOLD; jinak undefined. */
+  remoteProblem(order: Order, ctx: DeptContext, rec: AttemptRecord): string | undefined {
+    try {
+      const un = unjournaledWrites(rec.remote_before, rec.remote_after, this.journaled(order, ctx));
+      return un.length ? `EXTERNAL_UNJOURNALED: ${un.join("; ")}`.slice(0, 480) : undefined;
+    } catch (e) {
+      return `UNKNOWN (§8.2): ${String((e as Error)?.message ?? e)}`.slice(0, 480);
+    }
+  }
+
+  /** PR 4b (§6.2.3, §6.2.2 bod 6): brána review receiptu a pokrytí diffu před gh-push a gh-draft-pr. */
+  effectGate(order: Order, ctx: DeptContext): string | undefined {
+    return gitReviewGate(order, ctx, this.worktree(order).wt, this.creatorFamily);
   }
 
   attemptDeadlineMs(kind: StepKind): number {
@@ -687,7 +828,16 @@ export class DevDepartment implements DepartmentRunner {
       `${briefMarkdown(order.brief!)}\n\n## Zákazy\n- Žádný merge, deploy, DB zápis, dispatch workflow, nákup ani placené API.\n- Neměnit zamčené kontrakty MEZI VÁMI.\n- Neprovádět commit ani push (to dělá orchestrátor).\n\n## Kanonické zdroje (přečti před návrhem)\n${orderSourcePaths(ctx, order)}\n${extra}`,
     );
     stageAiChainPrompts(dir, path.join(path.dirname(this.chain.runSh), "prompts"), this.sentinelSpec);
-    const r = await this.chain.run(zadani, wt, dir);
+    // PR 4b (§8.1, třída B): dítě AI Chain (a každý jeho vnuk) běží bez prostředků k vzdálenému zápisu.
+    const att = currentAttempt();
+    const p = att ? AttemptJournal.parseId(att.id) : undefined;
+    const ghEmpty = path.join(dir, "attempts", p ? `${p.step}-a${p.attempt}.gh-empty` : "bez-pokusu.gh-empty");
+    const boundary = noRemoteWriteEnv(ghEmpty);
+    // FIX1 (PR 4b) nález 3: co prostředí neumí vyřadit (URL-specifický extraHeader/helper, jiný pushurl, insteadOf),
+    // zastaví krok PŘED spuštěním dítěte: HOLD, žádné volání.
+    const why = remoteWriteConfigProblem(wt, { ...childEnv(), ...boundary });
+    if (why) return { ok: false, hold: why, error: `HOLD ${why}`, model: this.creatorModel(), draft_file: "wt" };
+    const r = await this.chain.run(zadani, wt, dir, undefined, boundary);
     if (r.ok) {
       git(wt, ["add", "-A"]);
       git(wt, ["commit", "-q", "-m", `feat(tars): ${order.brief!.title} (${order.id}, r${order.fix_rounds})`]);
@@ -796,12 +946,33 @@ ${verdictFormatFor(this.reviewer)}`;
 
   async deliver(order: Order, _ctx?: DeptContext, effect?: EffectTag): Promise<DeliverOutcome> {
     const { wt, branch } = this.worktree(order);
-    // PR 4a: jen záznam a reconcile kolem stávajícího push (journal <wo>/push/r<n>); volání push je beze změny.
-    const pj = _ctx ? new PushJournal(_ctx.store.runsDir) : undefined;
-    const pushRec = pj?.begin(order.id, order.fix_rounds, wt, branch);
-    const push = git(wt, ["push", "-q", "-u", "origin", branch]);
-    if (pj && pushRec) pj.end(order.id, order.fix_rounds, pushRec, push.ok, wt);
+    // PR 4b (§6.2.3, třída B): bez kontextu (journal pokusů, receipt) žádný zápis na GitHub; brána před push = HOLD.
+    if (!_ctx) {
+      const why = "REVIEW_MISMATCH: deliver bez kontextu zakázky, 0 push";
+      return { ok: false, hold: why, error: `HOLD ${why}`, effect_absent: true };
+    }
+    const gate = this.effectGate(order, _ctx);
+    if (gate) return { ok: false, hold: gate, error: `HOLD ${gate}`, effect_absent: true };
+    // FIX1 (PR 4b) nález 1: odešle se přesně OID, který doložil receipt brány (`<oid>:refs/heads/tars/<id>`), ne
+    // lokální větev: commit na jiné větvi nebo detached HEAD při revise nemůže odeslat dříve odmítnutý commit.
+    const oid = reviewedGitOid(order, _ctx);
+    if (!oid) {
+      const why = "REVIEW_MISMATCH: zkontrolovaný OID z receiptu nejde určit, 0 push";
+      return { ok: false, hold: why, error: `HOLD ${why}`, effect_absent: true };
+    }
+    // PR 4a: záznam a reconcile kolem push (journal <wo>/push/r<n>).
+    const pj = new PushJournal(_ctx.store.runsDir);
+    const pushRec = pj.begin(order.id, order.fix_rounds, wt, branch, oid);
+    const refspec = `${oid}:refs/heads/${branch}`;
+    const push = git(wt, ["push", "-q", "origin", refspec]);
+    const pushed = pj.end(order.id, order.fix_rounds, pushRec, push.ok, wt);
     if (!push.ok) return { ok: false, error: "git push failed", effect_absent: true }; // no PR exists before the push
+    // PR 4b: draft PR jen nad přesně zkontrolovaným commitem, který je doloženě na vzdálené větvi (receipt push).
+    const gate2 = this.effectGate(order, _ctx);
+    if (gate2 || pushed.state !== "EFFECT_DONE" || pushed.receipt?.git_oid !== pushed.expected_git_commit_oid) {
+      const why = `${gate2 ?? `REVIEW_MISMATCH: push ${pushed.state}, vzdálená větev ≠ zkontrolovaný commit`}, 0 PR`;
+      return { ok: false, hold: why, error: `HOLD ${why}` };
+    }
     const op = effect ? `\nOperace TARS: \`${effect.marker}\`` : "";
     const body = `${briefMarkdown(order.brief!)}\n\n---\nVytvořeno TARS-ORCH v0, zakázka \`${order.id}\`. Tvůrce: ${this.creatorModel()}. Kontrolor: ${this.checkerModel()}. Kol oprav: ${order.fix_rounds}.${op}\n**DRAFT — NEMERGOVAT bez GO vlastníka.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
     const r = spawnSync("gh", ["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", `feat(tars): ${order.brief!.title}`, "--body", body], {
@@ -810,9 +981,8 @@ ${verdictFormatFor(this.reviewer)}`;
     });
     const url = /https:\/\/github\.com\/\S+\/pull\/\d+/.exec(r.stdout ?? "")?.[0];
     if (!url) return { ok: false, error: "gh pr create failed" };
-    // DR-039: the artifact the owner's GO is bound to is the pushed head commit of the PR.
-    const head = git(wt, ["rev-parse", "HEAD"]);
-    return { ok: true, url, model: "gh", content: head.ok && /^[0-9a-f]{40}\s*$/.test(head.out) ? head.out.trim() : undefined };
+    // DR-039: the artifact the owner's GO is bound to is the pushed head commit of the PR (= zkontrolovaný OID).
+    return { ok: true, url, model: "gh", content: oid };
   }
 
   /**

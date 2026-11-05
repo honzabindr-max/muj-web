@@ -1,12 +1,14 @@
 // Model adapters (§7): claude -p (opus|sonnet), codex exec, ai-chain run.sh.
 // All run on subscriptions: API-key env vars are stripped so no CLI silently falls back
 // to paid API billing (paid API calls = 0 without owner GO).
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 import { currentAttempt, killGroup, settleGroup } from "./attempts";
+import { reportLimitWarning } from "./limit-guard";
 import { limitWarning } from "./reset";
+import { redactSecretsUnbounded } from "./secret-scan";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
 
@@ -142,12 +144,139 @@ const STRIP_ENV = [
   "OPENAI_API_KEY",
   "CLAUDE_CODE_USE_BEDROCK",
   "CLAUDE_CODE_USE_VERTEX",
+  // Etapa 4 PR 4b (§8.1, třída B): žádný token GitHubu z env pro žádné dítě. Vlastní volání gh/git orchestrátoru
+  // (deliver, snímky §8.2) běží v prostředí orchestrátoru, ne přes childEnv.
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+  // FIX1 (PR 4b): žádné dítě nepotřebuje agenta SSH ani vlastní SSH příkaz gitu; bez nich nemá cestu push přes SSH
+  // ani při porušení I5 (klíč v agentovi). Vlastní git orchestrátoru běží v jeho prostředí.
+  "SSH_AUTH_SOCK",
+  "SSH_AGENT_PID",
+  "GIT_SSH",
+  "GIT_SSH_COMMAND",
 ];
 
 export function childEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of STRIP_ENV) delete env[k];
+  // §8.1: GIT_CONFIG_* a GH_CONFIG_DIR orchestrátoru dítě nedědí; hranici skládá noRemoteWriteEnv.
+  for (const k of Object.keys(env)) if (/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS)$/.test(k) || k === "GH_CONFIG_DIR") delete env[k];
   return env;
+}
+
+/** §8.1: cíl push, který nikdy neexistuje. */
+export const PUSH_BLOCKED_URL = "file:///nonexistent/tars-push-blocked";
+
+/**
+ * Etapa 4 PR 4b (NAVRH-v6 §8.1, vrstva 1): prostředí dítěte dev create/revise bez prostředků k vzdálenému zápisu.
+ * `gh` dostane prázdnou konfiguraci (není přihlášený), git nemá žádný credential helper (ani osxkeychain ze systémové
+ * konfigurace, ani `gh auth git-credential` z ~/.gitconfig) a push míří na neexistující cíl. GIT_CONFIG_* mají přednost
+ * před soubory konfigurace a dědí je každý vnuk. Hranice platí proti omylu, ne proti úmyslu (§8.1, §15 bod 6);
+ * úmyslné obejití odhalí snímky §8.2. `ghEmptyDir` = attempts/<id>/gh-empty (vytvoří se 0700).
+ *
+ * FIX1 (PR 4b) nález 3: vícehodnotové klíče se nejdřív vyprázdní (prázdná hodnota = reset seznamu, git ≥ 2.46):
+ * `remote.origin.pushurl` (jinak by git zkusil i dřívější pushurl ze souborů), `http.extraHeader`, credential helpery.
+ * `url.<blokováno>.pushInsteadOf` přesměruje push na GitHub z jakéhokoli remote i z explicitní URL; SSH příkaz je
+ * `/usr/bin/false`. Co env neumí vyřadit (URL-specifický extraHeader nebo helper, jiný pushurl, insteadOf ze souborů),
+ * hlásí `remoteWriteConfigProblem` → HOLD před spuštěním dítěte.
+ */
+export function noRemoteWriteEnv(ghEmptyDir: string): Record<string, string> {
+  fs.mkdirSync(ghEmptyDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(ghEmptyDir, 0o700);
+  const cfg: Array<[string, string]> = [
+    ["credential.helper", ""],
+    ["credential.https://github.com.helper", ""],
+    ["credential.https://gist.github.com.helper", ""],
+    ["remote.origin.pushurl", ""],
+    ["remote.origin.pushurl", PUSH_BLOCKED_URL],
+    ["http.extraHeader", ""],
+    ["http.https://github.com.extraHeader", ""],
+    ...PUSH_REWRITE_PREFIXES.map((p): [string, string] => [`url.${PUSH_BLOCKED_URL}.pushInsteadOf`, p]),
+    ["core.sshCommand", "/usr/bin/false"],
+  ];
+  const env: Record<string, string> = {
+    GH_CONFIG_DIR: ghEmptyDir,
+    GIT_CONFIG_COUNT: String(cfg.length),
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "/usr/bin/false",
+    SSH_ASKPASS: "/usr/bin/false",
+    GIT_SSH_COMMAND: "/usr/bin/false",
+    GH_PROMPT_DISABLED: "1",
+  };
+  cfg.forEach(([k, v], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = k;
+    env[`GIT_CONFIG_VALUE_${i}`] = v;
+  });
+  return env;
+}
+
+/** Začátky URL GitHubu, jejichž push `pushInsteadOf` přesměruje na PUSH_BLOCKED_URL. */
+export const PUSH_REWRITE_PREFIXES = [
+  "https://github.com/",
+  "http://github.com/",
+  "git@github.com:",
+  "ssh://git@github.com/",
+  "https://gist.github.com/",
+];
+
+/** Credential helpery, které noRemoteWriteEnv vyprázdní stejným klíčem (stejná specifičnost URL = reset platí). */
+const RESET_CREDENTIAL_KEYS = new Set([
+  "credential.helper",
+  "credential.https://github.com.helper",
+  "credential.https://gist.github.com.helper",
+]);
+
+/** Rozsahy `git config --show-scope`; jiný text se do důvodu HOLD nepropíše. */
+const GIT_CONFIG_SCOPES = new Set(["system", "global", "local", "worktree", "command"]);
+
+/**
+ * FIX1 (PR 4b) nález 3: ověření, že pod `env` (childEnv + noRemoteWriteEnv) v `cwd` nezbývá žádná funkční cesta
+ * zápisu, kterou env nevyřadí. Čte jen JMÉNA klíčů (hodnoty mohou nést tajemství), mimo rozsah `command` (to je env):
+ * - `http.*extraheader` v souboru (URL-specifický klíč s konkrétnější URL má přednost před resetem z env),
+ * - `remote.<jiný než origin>.pushurl` (pushInsteadOf se na explicitní pushurl nepoužije),
+ * - `url.*.insteadof` / `url.*.pushinsteadof` ze souborů (delší shoda by přebila přesměrování),
+ * - `credential.<url>.helper` mimo klíče, které env vyprázdní,
+ * a efektivní push URL originu musí být jen PUSH_BLOCKED_URL. Vrací důvod HOLD, jinak undefined.
+ */
+export function remoteWriteConfigProblem(cwd: string, env: NodeJS.ProcessEnv): string | undefined {
+  const run = (args: string[]) => spawnSync("git", args, { cwd, env, encoding: "utf8", timeout: 30_000 });
+  const c = run([
+    "config",
+    "--show-scope",
+    "--name-only",
+    "--get-regexp",
+    "^(http\\..*extraheader|remote\\..*\\.pushurl|url\\..*insteadof|credential\\..*helper)$",
+  ]);
+  // exit 1 = žádný klíč nevyhovuje (v pořádku); jiná chyba = nejde ověřit
+  if (c.status !== 0 && c.status !== 1) return `§8.1: konfiguraci gitu dítěte nejde ověřit (git config exit ${c.status ?? "?"})`;
+  // FIX2 (PR 4b) nález 1: název klíče může nést tajemství (`url.https://<token>@github.com/.insteadOf`), proto důvod
+  // HOLD nese jen pevnou kategorii a rozsah z pevného výčtu, nikdy název klíče ani hodnotu.
+  const bad = new Set<string>();
+  for (const line of (c.stdout ?? "").split("\n")) {
+    const [scope, name] = line.trim().split(/\t/);
+    if (!scope || !name || scope === "command") continue;
+    const lower = name.toLowerCase();
+    const where = GIT_CONFIG_SCOPES.has(scope) ? scope : "jiný rozsah";
+    if (/^http\..*extraheader$/.test(lower)) bad.add(`${where}: http.*.extraHeader`);
+    else if (/^url\..*insteadof$/.test(lower))
+      bad.add(`${where}: url.*.insteadOf / pushInsteadOf (URL může nést přihlašovací údaj)`);
+    else if (/^remote\..*\.pushurl$/.test(lower)) {
+      if (lower !== "remote.origin.pushurl") bad.add(`${where}: remote.<jiný než origin>.pushurl`);
+    } else if (/^credential\..*helper$/.test(lower) && !RESET_CREDENTIAL_KEYS.has(name))
+      bad.add(`${where}: credential.<url>.helper mimo resetované klíče`);
+  }
+  if (bad.size)
+    return redactSecretsUnbounded(
+      `§8.1: konfigurace gitu nese cestu zápisu, kterou prostředí dítěte nevyřadí: ${[...bad].join(", ")}`,
+    ).slice(0, 480);
+  const u = run(["remote", "get-url", "--push", "--all", "origin"]);
+  if (u.status !== 0) return `§8.1: push URL originu nejde ověřit (git remote exit ${u.status ?? "?"})`;
+  const urls = (u.stdout ?? "").split("\n").filter((l) => l.trim());
+  if (urls.length !== 1 || urls[0] !== PUSH_BLOCKED_URL)
+    return `§8.1: efektivní push URL originu není jen blokovaný cíl (${urls.length} URL)`;
+  return undefined;
 }
 
 interface ProcResult {
@@ -291,6 +420,10 @@ export class ClaudeCli implements TextAdapter {
       isError = true;
     }
     const limit = isError && looksLikeLimit(`${text}\n${r.stderr}`);
+    // Etapa 4 PR 4b, bod 1: doložené varování jde do sinku jako první věc po návratu procesu (malý create-only záznam),
+    // dřív než volající zapíše draft, výstup pokusu nebo limit-warning.json.
+    const warning = limit ? undefined : limitWarning(r.stderr, [prompt, text]);
+    if (warning) reportLimitWarning({ source: "claude", text: warning, received_at: r.received_at, model: this.model });
     return {
       ok: !isError && !r.timedOut && text.trim().length > 0,
       text,
@@ -303,7 +436,7 @@ export class ClaudeCli implements TextAdapter {
       duration_ms: r.duration_ms,
       // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
       // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
-      ...limitFields(limit, envelopeError, limitWarning(r.stderr, [prompt, text]), r.received_at, "claude"),
+      ...limitFields(limit, envelopeError, warning, r.received_at, "claude"),
     };
   }
 }
@@ -387,12 +520,16 @@ export class AiChain {
   ) {
     this.model = `ai-chain (Opus architekt → ${implementerModel} implementer)`;
   }
-  /** cwd = order dir: ai-chain writes its runs/<ts>/ there. projectDir = git worktree. */
+  /**
+   * cwd = order dir: ai-chain writes its runs/<ts>/ there. projectDir = git worktree. `env` = navíc prostředí dítěte
+   * (PR 4b §8.1: noRemoteWriteEnv); IMPLEMENTER_MODEL ho nepřepíše.
+   */
   async run(
     zadaniFile: string,
     projectDir: string,
     cwd: string,
     timeoutMs = 90 * 60_000,
+    env: Record<string, string> = {},
   ): Promise<AdapterResult & { status: string }> {
     const r = await runProcess(
       "bash",
@@ -400,7 +537,7 @@ export class AiChain {
       "",
       cwd,
       timeoutMs,
-      { IMPLEMENTER_MODEL: this.implementerModel },
+      { ...env, IMPLEMENTER_MODEL: this.implementerModel },
     );
     const final = latestFile(path.join(cwd, "runs"), "05-final.md");
     const text = final ? fs.readFileSync(final, "utf8") : "";

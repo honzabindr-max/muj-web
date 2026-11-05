@@ -14,6 +14,7 @@ import {
   GroupNotEndedError,
   isTerminalAttempt,
   journalScope,
+  LIMIT_WARNING_LOST,
   psProbe,
   reconcileAll,
   runInAttempt,
@@ -96,6 +97,8 @@ import {
   type DeptAvailability,
 } from "./supervisor";
 import { callChecker } from "./departments";
+import { GuardSession, LimitGuard, runWithLimitSink, setFallbackLimitSink, type LimitNote } from "./limit-guard";
+import { gitHubRemoteProbe, type RemoteProbe } from "./remote-snapshot";
 import type { Department, LogEntry, Order } from "./types";
 
 /** Odkud zápis řádku zná jeho ID (opravný PR „panel“, kolo 2, bod 1). */
@@ -169,6 +172,8 @@ export interface OrchestratorDeps {
   processProbe?: ProcessProbe;
   /** Etapa 4 / PR 4a (§7): čekání po SIGTERM skupiny pokusu, než přijde SIGKILL (ExitTimeOut, výchozí 5 s). */
   attemptExitTimeoutMs?: number;
+  /** Etapa 4 / PR 4b (§8.2): sonda snímků vzdálených zápisů (výchozí skutečný git/gh); testy ji podvrhnou. */
+  remoteProbe?: RemoteProbe;
 }
 
 /** Etapa 4 / PR 4a: výsledek kroku modelu spuštěného jako pokus (§7, §8). */
@@ -187,8 +192,8 @@ interface AttemptOutput<T> {
 export const RESET_MARGIN_MS = 60_000;
 /** Q4-B: trvalý záznam doložených varování CLI o blížícím se limitu, po zdrojích (runs/, FIX1 nález 6). */
 export const LIMIT_WARNING_FILE = "limit-warning.json";
-/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit. */
-export const LIMIT_WARNING_LOST = "varování limitu nešlo uložit";
+/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit (definice v attempts.ts). */
+export { LIMIT_WARNING_LOST };
 
 /** Blokace Q4-B jednoho zdroje (účet CLI) v runs/limit-warning.json; `until` = ISO konec blokace. */
 type WarningRecord = { until: string } & Record<string, unknown>;
@@ -206,6 +211,12 @@ export type TickResult =
   | { status: "waiting_owner"; order: string }
   /** Etapa 4 PR 1, Q4-B: doložené varování CLI o blížícím se limitu; nová zakázka nezačne do `until`. */
   | { status: "limit_warning"; until: string }
+  /**
+   * Etapa 4 PR 4b, bod 1: varování limitu neuloženo nebo neověřeno (nevyřešený sentinel runs/limit-guard/*.pending.json
+   * nebo blokace v paměti). Globální HOLD bez vypršení: žádný krok modelu, žádné opakování, žádná nová zakázka do
+   * ručního ověření vlastníkem (`cli.ts owner limit-hold OVERENO`).
+   */
+  | { status: "limit_hold"; reason: string }
   | { status: "waiting_review"; order: string; reason?: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
@@ -306,8 +317,14 @@ export class Orchestrator {
   private probe: ProcessProbe;
   /** Pokus kroku ještě běží na pozadí (reconciler: waiting_background): tick nespouští další krok. */
   private attemptWaiting = false;
-  /** FIX4: konec blokace z varování limitu, které nešlo uložit (ms). Platí po celou dobu běhu orchestrátoru. */
-  private unsavedWarningUntil?: number;
+  /** PR 4b, bod 1: sentinely a malé create-only záznamy varování (runs/limit-guard/). */
+  private limitGuard: LimitGuard;
+  /** PR 4b, bod 1: varování neuloženo v tomto běhu (blokace v paměti, bez vypršení; na disku drží sentinel). */
+  private limitHoldMem?: string;
+  /** PR 4b, bod 1: blokace v paměti bez sentinelu na disku (zápis selhal): zkusí se zapsat při nejbližší možnosti. */
+  private limitHoldMarkerPending = false;
+  /** Varování uložená v runs/limit-guard v tomto běhu (source|text): selhání velkého limit-warning.json je pak jen log. */
+  private guardSaved = new Set<string>();
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -317,12 +334,34 @@ export class Orchestrator {
     this.now = d.now ?? (() => new Date());
     this.attempts = new AttemptJournal(d.store.runsDir, () => this.iso());
     this.probe = d.processProbe ?? psProbe;
+    this.limitGuard = new LimitGuard(d.store.runsDir, {
+      now: () => this.now(),
+      untilOf: (n, received) => {
+        const p = parseReset(n.text, received, this.d.resetTz ?? "Europe/Prague");
+        return p.ok
+          ? { until: new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS).toISOString(), reset_source: p.source }
+          : {
+              until: new Date(Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000).toISOString(),
+              reset_source: "nedoloženo",
+            };
+      },
+    });
+    // FIX1 (PR 4b) nález 6: varování z volání mimo hlídaný úsek se uloží; nejde-li to, blokace (nic se nezahodí).
+    setFallbackLimitSink((n) => {
+      try {
+        this.limitGuard.record(`mimo-usek/${this.iso()}/${process.pid}`, n);
+        this.guardSaved.add(`${n.source}|${n.text}`);
+      } catch (e) {
+        this.raiseLimitHold(`varování mimo hlídaný úsek (${n.source}): ${String((e as Error)?.message ?? e).slice(0, 200)}`, false);
+      }
+    });
     this.ctx = {
       store: d.store,
       notion: d.notion,
       draftParentId: d.draftParentId,
       repoRoot: d.repoRoot,
       attempts: this.attempts,
+      remoteProbe: d.remoteProbe ?? gitHubRemoteProbe,
     };
     this.effects = new EffectJournal(d.store.runsDir, () => this.iso());
     // Merge PR #99 + etapa 3: index pod stejným (re-entrantním) stavovým zámkem jako fence zámku panelu.
@@ -1479,6 +1518,13 @@ export class Orchestrator {
       await this.catchUpPanel();
       await this.pollOwnerDecisions();
       await this.retryOwnerPings();
+      // PR 4b, bod 1: nevyřešené „varování neuloženo / neověřeno“ = globální HOLD (jen čtení a obnova výše). Žádný krok
+      // modelu, žádné opakování (RETRY_SAFE), žádná nová zakázka; platí i po restartu a po HOLD → UNKNOWN.
+      const held = this.limitHoldReason();
+      if (held) {
+        this.log({ order: "-", kind: "error", role: "orchestrator", result: "HOLD (varování limitu)", reason: held });
+        return { status: "limit_hold", reason: held };
+      }
       const orders = this.d.store.listOrders();
       let order = orders.find((o) => isActionable(o.state));
       if (!order) {
@@ -1486,12 +1532,6 @@ export class Orchestrator {
         // WIP limit 1: no new order while the owner has an undecided card.
         if (waiting) return { status: "waiting_owner", order: waiting.id };
         // Q4-B: po doloženém varování CLI o blížícím se limitu nezačínat novou zakázku (rozpracovaná pokračuje výše).
-        // FIX4: varování z tohoto běhu, které nešlo uložit (ENOSPC), blokuje i bez limit-warning.json.
-        if ((this.unsavedWarningUntil ?? 0) > this.now().getTime())
-          return {
-            status: "limit_warning",
-            until: new Date(this.unsavedWarningUntil!).toISOString(),
-          };
         const warn = this.activeLimitWarning();
         if (warn) return { status: "limit_warning", until: warn };
         order = this.newOrder();
@@ -1532,6 +1572,9 @@ export class Orchestrator {
         order = await this.step(order);
         // PR 4a: pokus kroku běží na pozadí (osiřelé dítě před deadline): žádný druhý pokus, tick končí.
         if (this.attemptWaiting) break;
+        // PR 4b, bod 1: varování v tomto ticku neuloženo → žádný další krok.
+        const h = this.limitHoldReason();
+        if (h) return { status: "limit_hold", reason: h };
       }
       if (order.state === "PAUSED")
         return {
@@ -1549,11 +1592,115 @@ export class Orchestrator {
         };
       return { status: "advanced", order: order.id, state: order.state };
     } finally {
+      // PR 4b, bod 1: blokace jen v paměti se při nejbližší možnosti zapíše i na disk (sentinel bez vypršení).
+      this.flushLimitHoldMarker();
       await this.flushPanel();
       this.tickPingKeys = undefined;
       this.reconcileWake();
       this.d.store.releaseLock();
     }
+  }
+
+  /** PR 4b, bod 1: důvod globálního HOLD z varování limitu (paměť nebo nevyřešený sentinel na disku), jinak undefined. */
+  private limitHoldReason(): string | undefined {
+    this.flushLimitHoldMarker();
+    let pending: ReturnType<LimitGuard["pending"]>;
+    try {
+      // FIX1 (PR 4b) nález 7: pokus v HOLD „varování neuloženo“ bez jakékoli stopy v runs/limit-guard (sentinel
+      // smazán ručně nebo ztracen) = sentinel se obnoví a blokace platí dál, dokud ji vlastník neověří.
+      const missing = this.limitHoldsWithoutSentinel();
+      for (const id of missing)
+        try {
+          this.limitGuard.restore(id);
+        } catch {
+          // obnova nejde zapsat: blokuje důvod níže (journal), ne obejití
+        }
+      const still = missing.filter((id) => !this.limitGuard.knows(id));
+      if (still.length)
+        return `${LIMIT_WARNING_LOST}: sentinel pokusu chybí a nejde obnovit (${still.slice(0, 3).join(", ")}); do ručního ověření žádný krok ani nová zakázka`.slice(0, 500);
+      pending = this.limitGuard.pending();
+    } catch (e) {
+      return `runs/limit-guard nebo journal pokusů nejde přečíst (fail-closed): ${String((e as Error)?.message ?? e).slice(0, 200)}`;
+    }
+    if (pending.length)
+      return `${LIMIT_WARNING_LOST} nebo neověřeno: ${pending.length} nevyřešený sentinel (${pending
+        .slice(0, 3)
+        .map((p) => p.key)
+        .join(", ")}); do ručního ověření vlastníkem žádný krok ani nová zakázka`.slice(0, 500);
+    if (this.limitHoldMem) return this.limitHoldMem;
+    return undefined;
+  }
+
+  /**
+   * FIX1 (PR 4b) nález 7: ID pokusů s trvalým důvodem HOLD LIMIT_WARNING_LOST (i po HOLD → ABANDONED reconcilerem),
+   * o kterých runs/limit-guard nic neví (ani nevyřešený, ani ověřený sentinel).
+   */
+  private limitHoldsWithoutSentinel(): string[] {
+    const out: string[] = [];
+    for (const o of this.d.store.listOrders())
+      for (const a of this.attempts.list(o.id))
+        if (
+          a.hold &&
+          [a.hold.limit_reason ?? "", a.hold.reason, ...(a.hold.previous ?? [])].some((x) =>
+            x.startsWith(LIMIT_WARNING_LOST),
+          ) &&
+          !this.limitGuard.knows(a.attempt_id)
+        )
+          out.push(a.attempt_id);
+    return out;
+  }
+
+  /** PR 4b, bod 1: varování neuloženo → blokace v paměti hned, sentinel na disku hned, jinak při nejbližší možnosti. */
+  private raiseLimitHold(reason: string, sentinelOnDisk: boolean): void {
+    this.limitHoldMem ??= `${LIMIT_WARNING_LOST}: ${reason}`.slice(0, 500);
+    if (!sentinelOnDisk) this.limitHoldMarkerPending = true;
+    this.flushLimitHoldMarker();
+    this.log({ order: "-", kind: "error", role: "orchestrator", result: "HOLD (varování limitu neuloženo)", reason: reason.slice(0, 300) });
+  }
+
+  private flushLimitHoldMarker(): void {
+    if (!this.limitHoldMarkerPending) return;
+    try {
+      this.limitGuard.open(`hold/${this.iso()}/${process.pid}`);
+      this.limitHoldMarkerPending = false;
+    } catch {
+      // disk pořád nejde: blokace drží paměť a zkusí se znovu
+    }
+  }
+
+  /**
+   * PR 4b, bod 1: hlídané volání modelu. Sentinel PŘED voláním (throw = volání neproběhne), varování adaptéru jdou do
+   * sinku hned po návratu procesu, na konci se uloží i varování z výsledku (`notesOf`). Neuloženo = sentinel zůstane
+   * a blokace platí i v paměti; vrací `lost` s důvodem.
+   */
+  private async guarded<T>(
+    key: string,
+    fn: () => Promise<T>,
+    notesOf: (v: T) => LimitNote[],
+  ): Promise<{ v: T; lost?: string }> {
+    const s = new GuardSession(this.limitGuard, key);
+    this.limitGuard.open(key);
+    let v: T;
+    try {
+      v = await runWithLimitSink(s.sink, fn);
+    } catch (e) {
+      this.closeGuard(s, []);
+      throw e;
+    }
+    const lost = this.closeGuard(s, notesOf(v));
+    return lost ? { v, lost } : { v };
+  }
+
+  private closeGuard(s: GuardSession, notes: LimitNote[]): string | undefined {
+    const all = [...notes];
+    const ok = s.finish(all);
+    if (ok) {
+      for (const n of all) this.guardSaved.add(`${n.source}|${n.text}`);
+      return undefined;
+    }
+    const why = `${s.key}: ${s.lost.join("; ")}`;
+    this.raiseLimitHold(why, true);
+    return why;
   }
 
   /**
@@ -2431,6 +2578,19 @@ export class Orchestrator {
       }
     }
     if (prev?.phase === "FINISHED" && prev.finished?.ok) {
+      // FIX1 (PR 4b) nález 2: pokus se snímkem před smí RESUME jen s uloženým snímkem po a bez problému §8.2
+      // (EXTERNAL_UNJOURNALED). Chybí snímek po (pád mezi FINISHED a snímkem, starší záznam) = HOLD, žádné doplnění.
+      if (prev.remote_before) {
+        const remote = !prev.remote_after
+          ? "UNKNOWN (§8.2): FINISHED bez snímku po, nežurnálovaný zápis dítěte nejde vyloučit"
+          : dept.remoteProblem
+            ? dept.remoteProblem(order, this.ctx, prev)
+            : "UNKNOWN (§8.2): oddělení neumí vyhodnotit snímky";
+        if (remote) {
+          if (!prev.reconcile) J.setReconcile(prev.attempt_id, "UNKNOWN", remote);
+          return { kind: "hold", reason: `pokus ${prev.attempt_id}: ${remote}` };
+        }
+      }
       // FINISHED, přechod neaplikován (krok je pořád na řadě): výstup se shodným sha256 → použít bez volání modelu.
       const resumed = this.resumeOutput<T>(order, prev);
       if (!prev.reconcile)
@@ -2483,8 +2643,17 @@ export class Orchestrator {
           reason: `reconcile ${prev.attempt_id} = ${d.result}: ${d.reason}`,
         };
     }
+    // PR 4b, bod 1: nevyřešené „varování neuloženo“ nepustí žádný nový pokus (ani RETRY_SAFE).
+    const held = this.limitHoldReason();
+    if (held) return { kind: "wait", reason: held };
+    // PR 4b (§8.2): snímek vzdálených zápisů PŘED INTENT (dev create/revise). Nejde pořídit = HOLD, žádné volání.
+    const since = this.iso();
+    const remote_before = dept.remoteSnapshot?.(kind, order, this.ctx, since);
+    if (remote_before && !remote_before.ok)
+      return { kind: "hold", reason: `§8.2 snímek vzdálených zápisů před pokusem nejde pořídit: ${remote_before.error}` };
     const deadlineMs = dept.attemptDeadlineMs?.(kind) ?? 40 * 60_000;
     const rec = J.intent(order.id, step, {
+      ...(remote_before ? { remote_before } : {}),
       input_sha256: sha256(
         JSON.stringify({
           step,
@@ -2501,14 +2670,50 @@ export class Orchestrator {
     });
     let r: T;
     const scope = journalScope(J, rec.attempt_id, processStartTime);
+    // PR 4b, bod 1: sentinel PŘED spawn (malý create-only zápis). Nejde zapsat = volání modelu neproběhne.
+    const guard = new GuardSession(this.limitGuard, rec.attempt_id);
+    try {
+      this.limitGuard.open(rec.attempt_id);
+    } catch (e) {
+      const why = `sentinel varování limitu nejde zapsat, volání neproběhlo: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+      try {
+        J.holdAttempt(rec.attempt_id, why);
+      } catch {
+        // INTENT bez STARTED: reconciler doloží, že nic neběží
+      }
+      return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${why}` };
+    }
+    // Varování neuloženo: sentinel zůstal na disku, blokace i v paměti; pokus do HOLD (jde-li ho zapsat).
+    const holdLost = (lost: string): AttemptRun<T> => {
+      try {
+        J.holdAttempt(rec.attempt_id, `${LIMIT_WARNING_LOST}: ${lost}`);
+      } catch {
+        // ani záznam pokusu nejde zapsat: rozhoduje sentinel (globální HOLD do ručního ověření)
+      }
+      return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${LIMIT_WARNING_LOST}` };
+    };
+    // PR 4b (§8.2): snímek po konci dítěte (jen když existuje snímek před). Problém = důvod HOLD.
+    const remoteAfter = (): string | undefined => {
+      if (!remote_before || !dept.remoteSnapshot) return undefined;
+      try {
+        const after = dept.remoteSnapshot(kind, order, this.ctx, since);
+        const cur = after ? J.setRemoteAfter(rec.attempt_id, after) : J.get(rec.attempt_id)!;
+        return dept.remoteProblem ? dept.remoteProblem(order, this.ctx, cur) : "UNKNOWN (§8.2): oddělení neumí vyhodnotit snímky";
+      } catch (e) {
+        return `UNKNOWN (§8.2): snímek po pokusu nejde uložit: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+      }
+    };
     // FIX1 nález 1: konec skupiny některého procesu kroku (nebo vnitřního volání) nedoložen → HOLD, ne FINISHED.
     const holdUnsettled = (why: string): AttemptRun<T> => {
       J.holdAttempt(rec.attempt_id, why);
       return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${why}` };
     };
     try {
-      r = await runInAttempt(scope, run);
+      r = await runInAttempt(scope, () => runWithLimitSink(guard.sink, run));
     } catch (e) {
+      // Varování z adaptérů už prošla sinkem hned po návratu procesu; tady se jen rozhodne o sentinelu.
+      const lost = this.closeGuard(guard, []);
+      if (lost) return holdLost(lost);
       if (e instanceof GroupNotEndedError || scope.unsettled?.length)
         return holdUnsettled(
           e instanceof GroupNotEndedError
@@ -2519,9 +2724,15 @@ export class Orchestrator {
         rec,
         JSON.stringify({ error: String((e as Error)?.message ?? e) }),
       );
+      // FIX1 (PR 4b) nález 2: snímek po i tady PŘED FINISHED; problém §8.2 = pokus do HOLD.
+      const remote = remoteAfter();
+      if (remote) return holdUnsettled(remote);
       J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: sha });
       throw e;
     }
+    // PR 4b, bod 1: PRVNÍ věc po návratu procesu: varování výsledku (malé create-only záznamy), před draftem i journalem.
+    const lost = this.closeGuard(guard, r.limit_warnings ?? []);
+    if (lost) return holdLost(lost);
     if (scope.unsettled?.length)
       return holdUnsettled(
         `konec skupiny procesů nedoložen: ${scope.unsettled.join("; ")}`,
@@ -2532,6 +2743,7 @@ export class Orchestrator {
       // atomický rename + fsync adresáře (writeDurable z PR 1). Bez toho by pád OS po FINISHED mohl draft ztratit.
       // FIX2 nález 2: jakákoli chyba čtení, trvalého zápisu nebo hashe = pokus FINISHED ok:false a throw, nikdy
       // FINISHED ok:true bez trvalého draftu a jeho draft_sha256 (žádné potlačení chyby).
+      // PR 4b: varování jsou v té chvíli už uložená (runs/limit-guard), tato cesta je neztratí.
       try {
         const text = this.d.store.readFile(order.id, r.draft_file);
         writeDurable(
@@ -2541,87 +2753,17 @@ export class Orchestrator {
         out.draft_sha256 = sha256(text);
       } catch (e) {
         const why = `draft ${r.draft_file} nejde přečíst nebo uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
-        // FIX3 nález 2: doložená varování CLI z úspěšného volání se zapíší (pod lease) i na chybové cestě, před throw.
-        // FIX4: když ani varování nejde uložit, pokus jde do HOLD (ne FINISHED) a blokace platí v paměti.
-        if (
-          !this.keepLimitWarning(
-            order,
-            r,
-            kind === "check" ? "checker" : "creator",
-            rec.attempt_id,
-          )
-        )
-          throw new Error(why);
-        J.finished(rec.attempt_id, {
-          exit: null,
-          ok: false,
-          output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })),
-        });
+        J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })) });
         throw new Error(why);
       }
     }
-    try {
-      const sha = J.writeOutput(rec, JSON.stringify(out));
-      J.finished(rec.attempt_id, {
-        exit: r.ok ? 0 : 1,
-        ok: r.ok,
-        output_sha256: sha,
-      });
-    } catch (e) {
-      // FIX4: výstup s varováním limitu se neuložil → varování uložit hned (jinak HOLD + blokace v paměti).
-      if (r.limit_warnings?.length)
-        this.keepLimitWarning(
-          order,
-          r,
-          kind === "check" ? "checker" : "creator",
-          rec.attempt_id,
-        );
-      throw e;
-    }
+    const sha = J.writeOutput(rec, JSON.stringify(out));
+    // FIX1 (PR 4b) nález 2: snímek po se uloží PŘED FINISHED. Problém §8.2 = pokus do HOLD (nikdy FINISHED ok:true,
+    // ze kterého by po restartu šlo RESUME); pád mezi snímkem a FINISHED nechá pokus neukončený = reconciler.
+    const remote = remoteAfter();
+    if (remote) return holdUnsettled(remote);
+    J.finished(rec.attempt_id, { exit: r.ok ? 0 : 1, ok: r.ok, output_sha256: sha });
     return { kind: "run", r, resumed: false };
-  }
-
-  /**
-   * FIX4 (Codex kolo 4): doložená varování výsledku kroku se uloží dřív, než pokus skončí chybou. Když zápis
-   * limit-warning.json selže (ENOSPC), blokace nové zakázky platí v paměti orchestrátoru a pokus jde do HOLD s důvodem
-   * LIMIT_WARNING_LOST (jde-li zapsat aspoň záznam pokusu). Vrací false = varování neuloženo.
-   */
-  private keepLimitWarning(
-    order: Order,
-    r: StepOutcome,
-    role: LogEntry["role"],
-    attemptId: string,
-  ): boolean {
-    try {
-      this.noteLimitWarning(order, r, role);
-      return true;
-    } catch (e) {
-      const now = this.now();
-      for (const n of r.limit_warnings ?? []) {
-        const received = n.received_at ?? now.toISOString();
-        const p = parseReset(
-          n.text,
-          received,
-          this.d.resetTz ?? "Europe/Prague",
-        );
-        const until = p.ok
-          ? Date.parse(p.at_utc) + RESET_MARGIN_MS
-          : Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000;
-        this.unsavedWarningUntil = Math.max(
-          this.unsavedWarningUntil ?? 0,
-          until,
-        );
-      }
-      try {
-        this.attempts.holdAttempt(
-          attemptId,
-          `${LIMIT_WARNING_LOST}: ${String((e as Error)?.message ?? e).slice(0, 300)}`,
-        );
-      } catch {
-        // Ani záznam pokusu nejde zapsat: pokus zůstane STARTED a opakování hlídá limitStateBeforeRetry.
-      }
-      return false;
-    }
   }
 
   /**
@@ -2660,7 +2802,7 @@ export class Orchestrator {
     }
     if (!r) return undefined;
     try {
-      this.noteLimitWarning(order, r, role);
+      this.writeLimitWarning(order, r, role);
       return undefined;
     } catch (e) {
       return `${LIMIT_WARNING_LOST}, opakování odloženo: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
@@ -2848,6 +2990,24 @@ export class Orchestrator {
     r: StepOutcome,
     role: LogEntry["role"],
   ): void {
+    try {
+      this.writeLimitWarning(order, r, role);
+    } catch (e) {
+      // PR 4b, bod 1: autorita jsou malé záznamy runs/limit-guard. Varování uložená tam = selhání souhrnu je jen log.
+      // Varování bez záznamu (volání mimo hlídanou cestu) = globální HOLD v paměti a sentinel při nejbližší možnosti.
+      const why = `limit-warning.json nejde zapsat: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+      const notes = r.limit_warnings ?? [];
+      if (notes.every((n) => this.guardSaved.has(`${n.source}|${n.text}`)))
+        this.log({ order: order.id, kind: "error", role, result: "souhrn varování neuložen (záznamy v runs/limit-guard platí)", reason: why });
+      else this.raiseLimitHold(`${order.id}: ${why}`, false);
+    }
+  }
+
+  private writeLimitWarning(
+    order: Order,
+    r: StepOutcome,
+    role: LogEntry["role"],
+  ): void {
     const notes = r.limit_warnings ?? [];
     if (!notes.length) return;
     if (!this.d.store.holdsLease()) return;
@@ -2932,9 +3092,16 @@ export class Orchestrator {
     return out;
   }
 
-  /** Q4-B: ISO nejpozdějšího `until` platných blokací ze všech zdrojů, jinak undefined. */
+  /**
+   * Q4-B: ISO nejpozdějšího `until` platných blokací ze všech zdrojů, jinak undefined. PR 4b: i z malých záznamů
+   * runs/limit-guard (uložených hned po návratu procesu, nezávisle na limit-warning.json).
+   */
   private activeLimitWarning(): string | undefined {
-    const live = Object.values(this.liveWarningSources(this.now().getTime()));
+    const nowMs = this.now().getTime();
+    const live = [
+      ...Object.values(this.liveWarningSources(nowMs)),
+      ...Object.values(this.limitGuard.live(nowMs)),
+    ];
     if (!live.length) return undefined;
     return new Date(
       Math.max(...live.map((s) => Date.parse(s.until))),
@@ -3025,9 +3192,17 @@ export class Orchestrator {
               supSources,
               requiredByDept,
             );
-            const r = await this.d.supervisor.run(prompt, {
-              cwd: this.d.store.orderDir(order.id),
-            });
+            // PR 4b, bod 1: hlídané volání (sentinel před, varování hned po návratu procesu).
+            const sg = await this.guarded(
+              `${order.id}/supervisor/a${attempt}/${this.now().getTime()}`,
+              () =>
+                this.d.supervisor.run(prompt, {
+                  cwd: this.d.store.orderDir(order.id),
+                }),
+              (x) => warningsOf(x, this.d.supervisor.model),
+            );
+            if (sg.lost) return order;
+            const r = sg.v;
             this.log({
               order: order.id,
               kind: "call",
@@ -3084,23 +3259,26 @@ export class Orchestrator {
             loaded.filter((l) => required.includes(l.key)),
           );
           // Supervisor card, bod 6: the brief is checked by a model of the other family.
-          const {
-            r: c,
-            v,
-            findings: cFindings,
-          } = await callChecker(
-            this.d.briefChecker,
-            buildBriefCheckPrompt(
-              brief,
-              handoff,
-              card,
-              capsule,
-              required,
-              deptSources,
-              Boolean(this.d.briefChecker.supportsOutputSchema),
-            ),
-            this.d.store.orderDir(order.id),
+          const cg = await this.guarded(
+            `${order.id}/brief-check/a${attempt}/${this.now().getTime()}`,
+            () =>
+              callChecker(
+                this.d.briefChecker,
+                buildBriefCheckPrompt(
+                  brief,
+                  handoff,
+                  card,
+                  capsule,
+                  required,
+                  deptSources,
+                  Boolean(this.d.briefChecker.supportsOutputSchema),
+                ),
+                this.d.store.orderDir(order.id),
+              ),
+            (x) => warningsOf(x.r, this.d.briefChecker.model),
           );
+          if (cg.lost) return order;
+          const { r: c, v, findings: cFindings } = cg.v;
           this.log({
             order: order.id,
             kind: "call",
@@ -3220,6 +3398,8 @@ export class Orchestrator {
           result: r.ok ? "ok" : "error",
           reason: r.error,
         });
+        // FIX1 (PR 4b) nález 3: hranici dítěte nejde zaručit (konfigurace gitu) = HOLD, ne chyba tvůrce.
+        if (r.hold) return this.attemptBlocked(order, { kind: "hold", reason: r.hold });
         const b = this.bad(order, r, "creator");
         if (b) return b;
         const created = {
@@ -3301,6 +3481,8 @@ export class Orchestrator {
           result: r.ok ? "ok" : "error",
           reason: r.error,
         });
+        // FIX1 (PR 4b) nález 3: hranici dítěte nejde zaručit (konfigurace gitu) = HOLD, ne chyba tvůrce.
+        if (r.hold) return this.attemptBlocked(order, { kind: "hold", reason: r.hold });
         const b = this.bad(order, r, "creator");
         if (b) return b;
         const revised = {
@@ -3334,6 +3516,12 @@ export class Orchestrator {
             const problem = finalBodyProblem(o, this.d.store);
             if (problem)
               return this.attemptBlocked(o, { kind: "hold", reason: problem });
+          }
+          // Etapa 4 / PR 4b (§6.2.3, §6.2.2 bod 6, třída B): brána review receiptu a pokrytí diffu před gh-push a
+          // gh-draft-pr. Jakýkoli nesoulad = HOLD, 0 push, 0 PR (journal efektu se vůbec nezaloží).
+          if (dept!.effectGate) {
+            const gate = dept!.effectGate(o, this.ctx);
+            if (gate) return this.attemptBlocked(o, { kind: "hold", reason: gate });
           }
           // Etapa 3: the delivery is journaled (PREPARED → write → receipt); after a crash it is looked up by its marker.
           const del = o;
@@ -3386,6 +3574,9 @@ export class Orchestrator {
           if (run.kind === "hold") return this.hold(o, run.op, run.reason);
           if (run.kind === "failed") {
             const e = run.error;
+            // PR 4b: brána uvnitř deliver (před push nebo před draft PR) = HOLD, ne FAIL.
+            if (e instanceof DeliverFailure && e.outcome.hold)
+              return this.attemptBlocked(o, { kind: "hold", reason: e.outcome.hold });
             const r: StepOutcome =
               e instanceof DeliverFailure
                 ? e.outcome
@@ -3591,18 +3782,25 @@ export class Orchestrator {
       } catch {
         /* draft nejde přečíst → záložní objekt */
       }
-      const data = await buildCardData(o, draft, o.delivered_url, {
-        adapter: this.d.cardAdapter,
-        cwd: this.d.store.orderDir(o.id),
-        onFallback: (reason) =>
-          this.safeLog({
-            order: o.id,
-            kind: "info",
-            role: "orchestrator",
-            result: "card-data: záložní objekt",
-            reason,
+      // FIX1 (PR 4b) nález 6: volání modelu karty jako hlídané volání (sentinel před, varování hned do sinku).
+      // Sentinel nejde zapsat = throw = sekce vynechána, volání neproběhne.
+      const { v: data } = await this.guarded(
+        `${o.id}/card-data/${this.now().getTime()}`,
+        () =>
+          buildCardData(o, draft, o.delivered_url, {
+            adapter: this.d.cardAdapter,
+            cwd: this.d.store.orderDir(o.id),
+            onFallback: (reason) =>
+              this.safeLog({
+                order: o.id,
+                kind: "info",
+                role: "orchestrator",
+                result: "card-data: záložní objekt",
+                reason,
+              }),
           }),
-      });
+        () => [],
+      );
       return cardDataSection(data);
     } catch (e) {
       this.safeLog({
