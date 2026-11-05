@@ -3268,7 +3268,7 @@ export class Orchestrator {
         }
         const reasons = [
           ...(dept!.alwaysOwner
-            ? ["výstup je PR do main — merge dělá vlastník (DR-022)"]
+            ? ["výstup je PR do main — merge dělá TARS po GO vlastníka na kartě (DR-024)"]
             : []),
           ...o.brief!.owner_decisions,
           ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map(

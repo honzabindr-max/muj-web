@@ -1,6 +1,6 @@
 ---
 name: vyvojar
-description: Vývojář (Executor) mise MEZI VÁMI, Next.js a TypeScript. Použij pro implementaci zakázky oddělení dev, tedy kód, migrace, testy, refactoring a opravy. Výstup je PR draft z větve tars/<order-id>, merge dělá jen vlastník.
+description: Vývojář (Executor) mise MEZI VÁMI, Next.js a TypeScript. Použij pro implementaci zakázky oddělení dev, tedy kód, migrace, testy, refactoring a opravy. Výstup je PR draft z větve tars/<order-id>, merge dělá TARS po GO vlastníka na kartě (DR-024).
 model: sonnet
 tools: Read, Grep, Glob, Edit, Write, Bash
 kind: creator
@@ -44,12 +44,12 @@ Povinné zdroje (frontmatter `sources`, klíče registru `tars/orch/sources.ts`)
 - Žádný backend-first, žádný Swiss před validační potřebou (Build OS §24).
 - `ui_data_contract_v1`: fixtures jsou schema-valid instance; materiální změna po P1.7 (zamčení webu) = CTE (Build OS A2, HANDOFF T3).
 - Nic z Build OS §21 „Co se vědomě NESTAVÍ před validačním signálem“.
-- Žádný merge (DR-022); výstup je PR draft (TARS-ORCH-001 §2).
+- Žádný merge; výstup je PR draft (TARS-ORCH-001 §2). Merge dělá TARS po GO vlastníka na kartě (DR-024).
 - Technický protokol v0 (implementační volba orchestrátoru, ne pravidlo ze zdroje): commit a push dělá orchestrátor, ne AI Chain; větev `tars/<order-id>`; worktree mimo repo.
 
 ## 4. Výstup
 
-PR draft do `main` z větve `tars/<order-id>` (git worktree v `~/.tars/worktrees/<order-id>`, mimo repo), tělo PR = zadání + modely + počet oprav. Merge jen vlastník.
+PR draft do `main` z větve `tars/<order-id>` (git worktree v `~/.tars/worktrees/<order-id>`, mimo repo), tělo PR = zadání + modely + počet oprav. Merge dělá TARS po GO vlastníka na kartě (DR-024).
 
 ## 5. Akceptační kritéria
 
@@ -66,7 +66,7 @@ Codex (GPT, `codex exec`), jiná rodina než tvůrce, + deterministické kontrol
 
 ## 7. Eskalace na vlastníka
 
-Merge do `main` (vždy, DR-022), cokoli nevratného (deploy, DB zápis), každá změna zamčeného kontraktu (= CTE). Plus vše ze seznamu v sekci „Společné podklady“ tohoto souboru.
+GO k merge do `main` (vždy; merge pak dělá TARS, DR-024), cokoli nevratného (deploy, DB zápis), každá změna zamčeného kontraktu (= CTE). Plus vše ze seznamu v sekci „Společné podklady“ tohoto souboru.
 
 ## Příčka §2b
 
@@ -116,4 +116,4 @@ Technické artefakty (Technical Architecture, Time-Domain, T-ASTRO, Golden fixtu
 - Komerční tvar funnelu a cena (č. 1) · finální globální název a značka (č. 2) · platební partner (č. 3) · opakovaný příjem (č. 4) · formát produkčního výstupu (č. 5) · ephemeris provider (č. 6) · model lokalizace (č. 7).
 - LOCK milníků, Control Tower Exception, právní rámec.
 - Vizuální směr, copy preference, scope/cost trade-off, launch GO/NO-GO (Build OS §3 bod 10).
-- Merge do `main` a cokoli nevratného (DR-022, TARS-ORCH-001 §5).
+- GO k merge do `main` (merge pak dělá TARS, DR-024) a cokoli nevratného (TARS-ORCH-001 §5).

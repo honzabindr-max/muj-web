@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
 import { auditHealth, collectSnapshot, formatHealth } from "./audit-health";
 import { CardRegistry } from "./cards";
-import { ChatGptWebChecker } from "./chatgpt-web";
+import {
+  ChatGptWebChecker,
+  GPT_SMOKE_PROMPT,
+  smokeSaidOk,
+} from "./chatgpt-web";
 import {
   CopyDepartment,
   DevDepartment,
@@ -267,7 +271,7 @@ async function main() {
       return;
     }
     case "gpt-smoke": {
-      // Harmless live check of the P16 v3 path: one prompt "Odpověz jen slovem OK." in ChatGPT mode Chat (no project).
+      // Harmless live check of the P16 v3 path: one prompt GPT_SMOKE_PROMPT in ChatGPT mode Chat (no project).
       // Needs the TARS-agent profile logged in to ChatGPT (ordinary account); only the owner logs in, TARS never does.
       const lock = new Store(runsDir);
       if (!lock.acquireLock()) throw new Error("běží jiná zakázka (lock)");
@@ -280,11 +284,11 @@ async function main() {
         );
         fs.mkdirSync(dir, { recursive: true });
         const gpt = makeGptWeb();
-        const r = await gpt.run("Odpověz jen slovem OK.", { cwd: dir });
+        const r = await gpt.run(GPT_SMOKE_PROMPT, { cwd: dir });
         console.log(
           JSON.stringify({
             ok: r.ok,
-            said_ok: r.ok && /\bOK\b/.test(r.text),
+            said_ok: r.ok && smokeSaidOk(r.text),
             model: gpt.model,
             model_matches: gpt.lastRecord?.model_matches ?? false,
             reason: gpt.lastRecord?.reason,
