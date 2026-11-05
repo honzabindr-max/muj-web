@@ -16,6 +16,7 @@ import {
   LedgerPublishUnsupported,
   publishOnce,
   readPublished,
+  rooted,
   type PublishOptions,
 } from "../publish";
 import {
@@ -145,7 +146,10 @@ function readAckLedger(
 ): AckLedger | undefined {
   let r: ReturnType<typeof readPublished>;
   try {
-    r = readPublished(ackLedgerFile(runsDir, eventId, n), opts);
+    r = readPublished(
+      ackLedgerFile(runsDir, eventId, n),
+      rooted(runsDir, opts),
+    );
   } catch (e) {
     if (e instanceof DurabilityHold)
       throw new InboxHold("LEDGER_NOT_DURABLE", e.message);
@@ -315,6 +319,25 @@ async function send(
 }
 
 /**
+ * FIX1 (Codex kolo 1, nález 2): před každým opakovaným PATCH (ledger z dřívějška, EFFECT_ABSENT) se přečte aktuální
+ * „Přijetí TARS“. PATCH smí odejít jen tehdy, když pole stále nese text, ze kterého ledger vychází
+ * (`prev_text_sha256`). Cokoli jiného, včetně změny vlastníka mezi pokusy, je `ACK_MISMATCH` (HOLD): nic se nepřepíše.
+ */
+async function assertBeforeRetry(
+  ctx: AckCtx,
+  op: string,
+  L: AckLedger,
+): Promise<void> {
+  assertRun(ctx.mode, "ACK PATCH");
+  const rb = sha256Hex(await readBack(ctx));
+  if (rb !== L.prev_text_sha256)
+    throw new InboxHold(
+      "ACK_MISMATCH",
+      `${op}: Přijetí TARS se před opakovaným zápisem změnilo, bez přepisu`,
+    );
+}
+
+/**
  * Jeden krok ACK pro událost: dokončí rozpracovaný krok r<k> podle tabulky mapy v4 §2.3, nebo (když jsou všechny
  * předchozí `EFFECT_DONE`) založí krok r<n> se stavem `desired`. Nikdy nepočítá text znovu (R2-ACK), nikdy nezačne
  * r<n+1> před `EFFECT_DONE` r<n> (R1-ACK), nový PATCH jen z prázdného stavu nebo z `EFFECT_ABSENT` (R3-ACK).
@@ -337,7 +360,7 @@ async function ackStepInner(
   desired: AckState,
 ): Promise<AckOutcome> {
   const ev = ctx.event;
-  const opts = ctx.publish ?? {};
+  const opts = rooted(ctx.runsDir, ctx.publish);
   let lastDone: AckLedger | undefined;
   let n = 0;
   let rec: EffectRecord | undefined;
@@ -372,6 +395,7 @@ async function ackStepInner(
           "ACK_LEDGER_CORRUPT",
           `${op}: prev_text_sha256 nesedí na předchozí krok`,
         );
+      await assertBeforeRetry(ctx, op, L);
       return send(ctx, op, rec, L); // ledger z předchozího pokusu: jeho text, ne nově spočítaný (R2-ACK)
     }
     if (lastDone?.state === desired) return { kind: "noop", n: lastDone.n };
@@ -440,7 +464,10 @@ async function ackStepInner(
 
   if (rec.state === "EFFECT_UNKNOWN")
     throw new InboxHold("EFFECT_UNKNOWN", `${op}: rozhoduje vlastník`);
-  if (rec.state === "EFFECT_ABSENT") return send(ctx, op, rec, L); // R3-ACK: stejný operation_id, stejný text
+  if (rec.state === "EFFECT_ABSENT") {
+    await assertBeforeRetry(ctx, op, L);
+    return send(ctx, op, rec, L); // R3-ACK: stejný operation_id, stejný text
+  }
 
   // PREPARED: výsledek posledního pokusu neznámý → jen read-back, nikdy slepý PATCH
   const rb = sha256Hex(await readBack(ctx));

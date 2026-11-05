@@ -17,6 +17,7 @@ import {
   LedgerPublishUnsupported,
   publishOnce,
   readPublished,
+  rooted,
   type PublishOptions,
 } from "../publish";
 import {
@@ -355,7 +356,10 @@ function readScopeLedger(
 ): Buffer | undefined {
   let r: ReturnType<typeof readPublished>;
   try {
-    r = readPublished(scopeLedgerFile(runsDir, ev.event_id), opts);
+    r = readPublished(
+      scopeLedgerFile(runsDir, ev.event_id),
+      rooted(runsDir, opts),
+    );
   } catch (e) {
     if (e instanceof DurabilityHold)
       throw new InboxHold("LEDGER_NOT_DURABLE", e.message);
@@ -609,7 +613,7 @@ function preconditions(ctx: ScopeCtx, snap: ScopeSnapshot): void {
 async function scopeTickInner(ctx: ScopeCtx): Promise<ScopeOutcome> {
   const ev = ctx.event;
   const op = scopeOp(ev.event_id);
-  const opts = ctx.publish ?? {};
+  const opts = rooted(ctx.runsDir, ctx.publish);
   const rec0 = ctx.journal.get(op);
   if (rec0 && rec0.subject !== ev.event_id)
     throw new InboxHold("EVENT8_COLLISION", `${op} patří jiné události`);

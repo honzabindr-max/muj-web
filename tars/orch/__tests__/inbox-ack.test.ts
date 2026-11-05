@@ -24,7 +24,9 @@ import {
   eventFile,
   eventId,
   isSuperseded,
+  pageBindingFile,
   readEvent,
+  readPageBinding,
   writeAckDurable,
 } from "../inbox/event";
 import { checkTrustedMap } from "../inbox/identity";
@@ -156,6 +158,61 @@ describe("událost podání (v6 §2.1)", () => {
     expect((await w.observe(r.id)).kind).toBe("seen");
     r.props["Zadání"] = ["jiné zadání"];
     expect(await holdCode(w.observe(r.id))).toBe("MUTATED");
+  });
+
+  it("FIX1 nález 3: změna request_id (i se zadáním) nebo generation na už pozorovaném řádku → MUTATED, žádná nová událost ani ACK, vazba beze změny", async () => {
+    const w = makeWorld(dir);
+    const r = w.addRequest();
+    const a = await w.observe(r.id);
+    expect((await ackStep(w.ackCtx(a.event), "ACKED")).kind).toBe("done");
+    const pid = r.id.replace(/-/g, "").toLowerCase();
+    const bindingBytes = fs.readFileSync(pageBindingFile(dir, pid));
+    expect(readPageBinding(dir, pid)).toMatchObject({
+      request_id: "rq-20261105-test",
+      generation: 1,
+      event_id: a.event.event_id,
+    });
+    const events = () =>
+      fs
+        .readdirSync(path.join(dir, "inbox", "events"))
+        .filter((f) => f.endsWith(".json"));
+    const patches = w.fake.patches().length;
+
+    r.props.request_id = ["rq-jine"];
+    r.props["Zadání"] = ["jiné zadání"];
+    expect(await holdCode(w.observe(r.id))).toBe("MUTATED");
+    r.props["Zadání"] = ["test, nic nedělat"];
+    expect(await holdCode(w.observe(r.id))).toBe("MUTATED"); // i beze změny zadání
+    r.props.request_id = ["rq-20261105-test"];
+    r.props.generation = 2;
+    expect(await holdCode(w.observe(r.id))).toBe("MUTATED");
+
+    expect(events()).toEqual([`${a.event.event_id}.json`]);
+    expect(w.fake.patches()).toHaveLength(patches);
+    expect(
+      fs.readFileSync(pageBindingFile(dir, pid)).equals(bindingBytes),
+    ).toBe(true);
+    // původní identita → opět seen
+    r.props.generation = 1;
+    expect(await w.observe(r.id)).toEqual({ kind: "seen", event: a.event });
+  });
+
+  it("FIX1 nález 3: vazbu řádku založil jiný proces s jinou identitou (CONFLICT) → MUTATED, událost nevznikne", async () => {
+    const w = makeWorld(dir);
+    const r = w.addRequest();
+    const pid = r.id.replace(/-/g, "").toLowerCase();
+    publishOnce(
+      pageBindingFile(dir, pid),
+      JSON.stringify({
+        v: 1,
+        page_id: pid,
+        request_id: "rq-cizi",
+        generation: 1,
+        event_id: eventId(pid, "rq-cizi", 1),
+      }),
+    );
+    expect(await holdCode(w.observe(r.id))).toBe("MUTATED");
+    expect(fs.existsSync(path.join(dir, "inbox", "events"))).toBe(false);
   });
 
   it("dva řádky se stejným request_id#generation → oba DUPLICATE, 0 událostí", async () => {
@@ -411,6 +468,83 @@ describe("ACK „Přijetí TARS“ (mapa v4 §2.3)", () => {
     const [a, b] = w.fake.patches();
     expect(a.body!.equals(b.body!)).toBe(true);
     expect(w.journal.get(ackOp(ev.event_id, 0))?.attempts).toBe(2);
+  });
+
+  it("FIX1 nález 2: r0 hotové, PATCH r1 → 429 (EFFECT_ABSENT), vlastník mezitím upraví Přijetí TARS → retry ACK_MISMATCH, 0 dalších PATCH, text vlastníka zůstane", async () => {
+    const w = makeWorld(dir);
+    const r = w.addRequest();
+    const ev = (await w.observe(r.id)).event;
+    expect((await ackStep(w.ackCtx(ev), "ACKED")).kind).toBe("done");
+    let reject = true;
+    w.fake.onPatch = () => {
+      if (reject) throw new NotionRestError(429, "rate_limited");
+    };
+    expect(await ackStep(w.ackCtx(ev), "CLAIMED")).toMatchObject({
+      kind: "hold",
+      code: "EFFECT_RETRY",
+    });
+    expect(w.journal.get(ackOp(ev.event_id, 1))?.state).toBe("EFFECT_ABSENT");
+    reject = false;
+    r.props["Přijetí TARS"] = ["vlastník: počkej"];
+    const before = w.fake.patches().length;
+    expect(await ackStep(w.ackCtx(ev), "CLAIMED")).toMatchObject({
+      kind: "hold",
+      code: "ACK_MISMATCH",
+    });
+    expect(w.fake.patches()).toHaveLength(before);
+    expect(r.props["Přijetí TARS"]).toEqual(["vlastník: počkej"]);
+    expect(w.journal.get(ackOp(ev.event_id, 1))?.state).toBe("EFFECT_ABSENT");
+    // bez zásahu vlastníka (pole = text r0) retry projde jako dřív
+    const r0 = JSON.parse(
+      fs.readFileSync(ackLedgerFile(dir, ev.event_id, 0), "utf8"),
+    ) as AckLedger;
+    r.props["Přijetí TARS"] = [r0.text];
+    expect(await ackStep(w.ackCtx(ev), "CLAIMED")).toMatchObject({
+      kind: "done",
+      n: 1,
+    });
+  });
+
+  it("FIX1 nález 2: r0 EFFECT_ABSENT, vlastník vyplní prázdné Přijetí TARS → ACK_MISMATCH, 0 PATCH navíc", async () => {
+    const w = makeWorld(dir);
+    const r = w.addRequest();
+    const ev = (await w.observe(r.id)).event;
+    let reject = true;
+    w.fake.onPatch = () => {
+      if (reject) throw new NotionRestError(429, "rate_limited");
+    };
+    expect(await ackStep(w.ackCtx(ev), "ACKED")).toMatchObject({
+      code: "EFFECT_RETRY",
+    });
+    reject = false;
+    r.props["Přijetí TARS"] = ["ručně"];
+    expect(await ackStep(w.ackCtx(ev), "ACKED")).toMatchObject({
+      kind: "hold",
+      code: "ACK_MISMATCH",
+    });
+    expect(w.fake.patches()).toHaveLength(1);
+    expect(r.props["Přijetí TARS"]).toEqual(["ručně"]);
+  });
+
+  it("FIX1 nález 2: ledger r0 bez journalu (pád před prepare), vlastník mezitím vyplní Přijetí TARS → ACK_MISMATCH, 0 PATCH", async () => {
+    const w = makeWorld(dir);
+    const r = w.addRequest();
+    const ev = (await w.observe(r.id)).event;
+    await ackStep(
+      w.ackCtx(ev, {
+        point: (p) => {
+          if (p === "ledger-published") throw new Error("pád");
+        },
+      }),
+      "ACKED",
+    ).catch(() => undefined);
+    expect(fs.existsSync(ackLedgerFile(dir, ev.event_id, 0))).toBe(true);
+    r.props["Přijetí TARS"] = ["ručně"];
+    expect(await ackStep(w.ackCtx(ev), "ACKED")).toMatchObject({
+      kind: "hold",
+      code: "ACK_MISMATCH",
+    });
+    expect(w.fake.patches()).toHaveLength(0);
   });
 
   it("test 3: crash injection (ledger|prepare|PATCH|done) → na r<n> nejvýš 1 úspěšný PATCH, r1 nikdy před EFFECT_DONE r0", async () => {

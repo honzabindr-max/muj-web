@@ -12,7 +12,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { EffectRecord } from "../effects";
-import { DurabilityHold, LedgerPublishUnsupported, publishOnce, readPublished, type PublishOptions } from "../publish";
+import {
+  DurabilityHold,
+  LedgerPublishUnsupported,
+  publishOnce,
+  readPublished,
+  rooted,
+  type PublishOptions,
+} from "../publish";
 import { InboxHold, assertLease, type LeaseView } from "./common";
 
 export interface SendIntent {
@@ -31,7 +38,11 @@ export function intentDir(runsDir: string, op: string): string {
   return path.join(runsDir, "inbox", "send", order, `${step}-${round}`);
 }
 
-export const intentFile = (runsDir: string, op: string, attempt: number): string => path.join(intentDir(runsDir, op), `a${attempt}.json`);
+export const intentFile = (
+  runsDir: string,
+  op: string,
+  attempt: number,
+): string => path.join(intentDir(runsDir, op), `a${attempt}.json`);
 
 /** Čísla pokusů, pro které existuje záměr (jen `a<n>.json`, tmp a značky se ignorují). */
 export function intentAttempts(runsDir: string, op: string): number[] {
@@ -45,12 +56,18 @@ export function intentAttempts(runsDir: string, op: string): number[] {
     .sort((a, b) => a - b);
 }
 
-function readIntent(runsDir: string, op: string, attempt: number, opts: PublishOptions): SendIntent | undefined {
+function readIntent(
+  runsDir: string,
+  op: string,
+  attempt: number,
+  opts: PublishOptions,
+): SendIntent | undefined {
   let r: ReturnType<typeof readPublished>;
   try {
-    r = readPublished(intentFile(runsDir, op, attempt), opts);
+    r = readPublished(intentFile(runsDir, op, attempt), rooted(runsDir, opts));
   } catch (e) {
-    if (e instanceof DurabilityHold) throw new InboxHold("LEDGER_NOT_DURABLE", e.message);
+    if (e instanceof DurabilityHold)
+      throw new InboxHold("LEDGER_NOT_DURABLE", e.message);
     throw e;
   }
   if (r.state === "absent") return undefined;
@@ -66,14 +83,30 @@ function readIntent(runsDir: string, op: string, attempt: number, opts: PublishO
  * který journal nezná a není náš (`SEND_INTENT_FOREIGN`), souběžná generace záměr založila dřív (`SEND_INTENT_CONFLICT`),
  * lease už neplatí (`LEASE_LOST`). Záměr se vrací až po doložené trvanlivosti (publishOnce, N-11).
  */
-export function claimSend(inp: { runsDir: string; op: string; record: EffectRecord | undefined; lease: LeaseView; contentHash: string; now: () => string; publish?: PublishOptions }): number {
+export function claimSend(inp: {
+  runsDir: string;
+  op: string;
+  record: EffectRecord | undefined;
+  lease: LeaseView;
+  contentHash: string;
+  now: () => string;
+  publish?: PublishOptions;
+}): number {
   const known = inp.record?.attempts ?? 0;
   const attempt = known + 1;
   for (const m of intentAttempts(inp.runsDir, inp.op)) {
     if (m <= known) continue;
     const x = readIntent(inp.runsDir, inp.op, m, inp.publish ?? {});
-    const ours = m === attempt && x?.lease_token === inp.lease.token && x?.fence === inp.lease.fence && x?.content_hash === inp.contentHash;
-    if (!ours) throw new InboxHold("SEND_INTENT_FOREIGN", `${inp.op}: pokus ${m} má záměr odeslání bez záznamu v journalu (jiná generace lease nebo pád), nový pokus nevznikne`);
+    const ours =
+      m === attempt &&
+      x?.lease_token === inp.lease.token &&
+      x?.fence === inp.lease.fence &&
+      x?.content_hash === inp.contentHash;
+    if (!ours)
+      throw new InboxHold(
+        "SEND_INTENT_FOREIGN",
+        `${inp.op}: pokus ${m} má záměr odeslání bez záznamu v journalu (jiná generace lease nebo pád), nový pokus nevznikne`,
+      );
   }
   assertLease(inp.lease, "před záměrem odeslání");
   const intent: SendIntent = {
@@ -88,17 +121,34 @@ export function claimSend(inp: { runsDir: string; op: string; record: EffectReco
   };
   let r: string;
   try {
-    r = publishOnce(intentFile(inp.runsDir, inp.op, attempt), JSON.stringify(intent) + "\n", inp.publish);
+    r = publishOnce(
+      intentFile(inp.runsDir, inp.op, attempt),
+      JSON.stringify(intent) + "\n",
+      rooted(inp.runsDir, inp.publish),
+    );
   } catch (e) {
-    if (e instanceof LedgerPublishUnsupported) throw new InboxHold("LEDGER_PUBLISH_UNSUPPORTED", e.message);
-    if (e instanceof DurabilityHold) throw new InboxHold("LEDGER_NOT_DURABLE", e.message);
+    if (e instanceof LedgerPublishUnsupported)
+      throw new InboxHold("LEDGER_PUBLISH_UNSUPPORTED", e.message);
+    if (e instanceof DurabilityHold)
+      throw new InboxHold("LEDGER_NOT_DURABLE", e.message);
     throw e;
   }
-  if (r === "CONFLICT") throw new InboxHold("SEND_INTENT_CONFLICT", `${inp.op}: záměr pokusu ${attempt} založila jiná generace lease`);
+  if (r === "CONFLICT")
+    throw new InboxHold(
+      "SEND_INTENT_CONFLICT",
+      `${inp.op}: záměr pokusu ${attempt} založila jiná generace lease`,
+    );
   return attempt;
 }
 
 /** Po `journal.prepare`: journal musí nést právě náš pokus, jinak se mezi záměrem a prepare vmísil jiný zapisovatel. */
-export function assertPreparedAttempt(rec: EffectRecord, attempt: number): void {
-  if (rec.state !== "PREPARED" || rec.attempts !== attempt) throw new InboxHold("SEND_INTENT_CONFLICT", `${rec.operation_id}: journal má pokus ${rec.attempts}, záměr ${attempt}`);
+export function assertPreparedAttempt(
+  rec: EffectRecord,
+  attempt: number,
+): void {
+  if (rec.state !== "PREPARED" || rec.attempts !== attempt)
+    throw new InboxHold(
+      "SEND_INTENT_CONFLICT",
+      `${rec.operation_id}: journal má pokus ${rec.attempts}, záměr ${attempt}`,
+    );
 }

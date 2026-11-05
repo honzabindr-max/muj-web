@@ -87,9 +87,15 @@ async function prepared() {
   return { w, row, ev, base: { rowId: row.id, eventId: ev.event_id } };
 }
 
-/** Model filesystemu s výpadkem napájení: nová položka adresáře je trvalá až po fsync adresáře. */
+/**
+ * Model filesystemu s výpadkem napájení: nová položka adresáře (soubor i podadresář) je trvalá až po fsync adresáře.
+ * FIX1 nález 1: adresáře jsou modelované; `mkdirDurable` se chová jako skutečný (fsync rodiče jen u NOVĚ vytvořených
+ * adresářů), `mkdirNoSync` = proces, který adresář založil a spadl před fsync rodiče. Výpadek smaže netrvalé položky
+ * a všechno pod ztraceným adresářem.
+ */
 class PowerLossFs implements PublishFs {
   entries = new Map<string, { data: Buffer; durable: boolean }>();
+  dirs = new Map<string, { durable: boolean }>([["/", { durable: true }]]);
   private fds = new Map<number, string>();
   private next = 3;
   failDirSync = false;
@@ -99,6 +105,7 @@ class PowerLossFs implements PublishFs {
   }
   openSync(p: string, flags: string): number {
     if (flags === "wx") {
+      if (!this.dirs.has(path.dirname(p))) throw this.err("ENOENT");
       if (this.entries.has(p)) throw this.err("EEXIST");
       this.entries.set(p, { data: Buffer.alloc(0), durable: false });
     } else if (!this.entries.has(p)) throw this.err("ENOENT");
@@ -115,6 +122,7 @@ class PowerLossFs implements PublishFs {
     this.fds.delete(fd);
   }
   linkSync(a: string, b: string): void {
+    if (!this.dirs.has(path.dirname(b))) throw this.err("ENOENT");
     if (this.entries.has(b)) throw this.err("EEXIST");
     this.entries.set(b, { data: this.entries.get(a)!.data, durable: false });
   }
@@ -131,13 +139,36 @@ class PowerLossFs implements PublishFs {
   }
   fsyncDir(d: string): void {
     if (this.failDirSync) throw this.err("EIO");
+    if (!this.dirs.has(d)) throw this.err("ENOENT");
     this.dirSyncs.push(d);
     for (const [p, e] of this.entries)
       if (path.dirname(p) === d) e.durable = true;
+    for (const [p, e] of this.dirs)
+      if (p !== d && path.dirname(p) === d) e.durable = true;
   }
-  mkdirDurable(): void {}
+  /** `mkdir -p` bez fsync; vrací nově vytvořené adresáře od nejhlubšího. */
+  mkdirNoSync(dir: string): string[] {
+    const made: string[] = [];
+    for (let d = dir; !this.dirs.has(d); d = path.dirname(d)) made.push(d);
+    for (const d of [...made].reverse()) this.dirs.set(d, { durable: false });
+    return made;
+  }
+  /** Stejné chování jako store.ts `mkdirDurable`: fsync rodiče jen u nově vytvořených adresářů, existující nic. */
+  mkdirDurable(dir: string): void {
+    for (const d of this.mkdirNoSync(dir)) this.fsyncDir(path.dirname(d));
+  }
   powerLoss(): void {
-    for (const [p, e] of this.entries) if (!e.durable) this.entries.delete(p);
+    for (const [p, e] of this.dirs) if (!e.durable) this.dirs.delete(p);
+    const alive = (p: string): boolean => {
+      for (let d = path.dirname(p); ; d = path.dirname(d)) {
+        if (!this.dirs.has(d)) return false;
+        if (d === "/") return true;
+      }
+    };
+    for (const p of [...this.dirs.keys()])
+      if (p !== "/" && !alive(p)) this.dirs.delete(p);
+    for (const [p, e] of this.entries)
+      if (!e.durable || !alive(p)) this.entries.delete(p);
   }
 }
 
@@ -210,6 +241,91 @@ describe("N-11: záznam se přijme až po doložené trvanlivosti", () => {
     expect(fsm.readFileSync(durableMarker(f)).toString()).toBe(
       `${sha256Hex("L\n")}\n`,
     );
+  });
+
+  it("FIX1 nález 1: A založí adresář scope události a spadne před fsync rodiče; B publikuje do existujícího adresáře → fsync celé cesty od runs/ dolů a ledger výpadek přežije", () => {
+    const f = "/data/runs/inbox/scope/e/r0.json";
+    // kontrola modelu: dřívější chování (mkdirDurable nad existujícím adresářem + fsync jen adresáře souboru) ledger ztratí
+    const old = new PowerLossFs();
+    old.mkdirDurable("/data");
+    old.mkdirNoSync(path.dirname(f)); // proces A, pád před fsync rodiče
+    old.mkdirDurable(path.dirname(f)); // B: adresář existuje → žádný fsync
+    const fd = old.openSync(f, "wx");
+    old.writeSync(fd, Buffer.from("L\n"), 0, 2);
+    old.closeSync(fd);
+    old.fsyncDir(path.dirname(f));
+    old.powerLoss();
+    expect(old.existsSync(f)).toBe(false);
+
+    const fsm = new PowerLossFs();
+    fsm.mkdirDurable("/data");
+    fsm.mkdirNoSync(path.dirname(f));
+    expect(publishOnce(f, "L\n", { fs: fsm, root: "/data/runs" })).toBe(
+      "CREATED",
+    );
+    for (const d of [
+      "/data/runs/inbox/scope/e",
+      "/data/runs/inbox/scope",
+      "/data/runs/inbox",
+      "/data/runs",
+      "/data",
+    ])
+      expect(fsm.dirSyncs, d).toContain(d);
+    fsm.powerLoss();
+    expect(fsm.existsSync(f)).toBe(true);
+    expect(fsm.readFileSync(durableMarker(f)).toString()).toBe(
+      `${sha256Hex("L\n")}\n`,
+    );
+  });
+
+  it("FIX1 nález 1: čtenář bez značky (A spadl po link, adresáře bez fsync rodiče) provede bariéru celé cesty; záznam mimo kořen = DurabilityHold", () => {
+    const f = "/data/runs/inbox/ack/e/r0.json";
+    const fsm = new PowerLossFs();
+    fsm.mkdirDurable("/data");
+    fsm.mkdirNoSync(path.dirname(f));
+    const fd = fsm.openSync(f, "wx"); // A: link proběhl, pak pád (bez fsync adresářů)
+    fsm.writeSync(fd, Buffer.from("L\n"), 0, 2);
+    fsm.closeSync(fd);
+    const got = readPublished(f, { fs: fsm, root: "/data/runs" });
+    expect(got.state).toBe("present");
+    fsm.powerLoss();
+    expect(fsm.existsSync(f)).toBe(true);
+
+    expect(() =>
+      publishOnce("/jinde/x.json", "L\n", {
+        fs: new PowerLossFs(),
+        root: "/data/runs",
+      }),
+    ).toThrow(DurabilityHold);
+  });
+
+  it("FIX1 nález 1: scope tick v run režimu publikuje ledger s kořenem runs/ (rodič runs/ i runs/ synchronizovány před POST)", async () => {
+    const { w, ev } = await prepared();
+    const syncs: string[] = [];
+    const spy: PublishFs = {
+      ...nodePublishFs,
+      fsyncDir: (d) => {
+        syncs.push(d);
+        nodePublishFs.fsyncDir(d);
+      },
+    };
+    let postSyncs = -1;
+    const out = await scopeTick(
+      w.scopeCtx(ev, {
+        publish: { fs: spy },
+        point: (p: string) => {
+          if (p === "before-post") postSyncs = syncs.length;
+        },
+      }),
+    );
+    expect(out.kind).toBe("done");
+    const lf = scopeLedgerFile(dir, ev.event_id);
+    const before = syncs.slice(0, postSyncs);
+    for (let d = path.dirname(lf); ; d = path.dirname(d)) {
+      expect(before, d).toContain(d);
+      if (d === dir) break;
+    }
+    expect(before).toContain(path.dirname(dir));
   });
 
   it("bariéra selže (EIO na fsync adresáře) → DurabilityHold; ve scope ticku LEDGER_NOT_DURABLE, 0 prepare, 0 HTTP", async () => {

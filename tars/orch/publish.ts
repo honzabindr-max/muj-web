@@ -55,6 +55,43 @@ export type PublishPoint =
 export interface PublishOptions {
   fs?: PublishFs;
   point?: (p: PublishPoint, file: string) => void;
+  /**
+   * FIX1 (Codex kolo 1, nález 1): kořen trvalé cesty, typicky `runs/`. Před přijetím záznamu se fsyncne každý adresář
+   * od adresáře záznamu až po kořen a nakonec i rodič kořene (položka `runs/` v něm), i když adresáře už existovaly.
+   * Bez kořene se synchronizuje celá cesta až k `/` (přísnější, nikdy slabší).
+   */
+  root?: string;
+}
+
+/** Volby publikace s kořenem trvalé cesty `runsDir` (FIX1 nález 1); kořen předaný volajícím (testy) má přednost. */
+export const rooted = (
+  runsDir: string,
+  opts: PublishOptions | undefined,
+): PublishOptions => ({ ...opts, root: opts?.root ?? runsDir });
+
+/**
+ * FIX1 nález 1: trvanlivost celé cesty k záznamu. `mkdirDurable` synchronizuje jen nově vytvořené adresáře; adresář,
+ * který založil jiný proces a spadl před fsync rodiče, by výpadek mohl smazat i s ledgerem. Proto se před každým
+ * přijetím záznamu (publikace i čtení bez značky) fsyncne každý rodič od adresáře záznamu po kořen a rodič kořene.
+ * Záznam mimo kořen = `DurabilityHold`.
+ */
+function syncPath(
+  ops: PublishFs,
+  file: string,
+  root: string | undefined,
+): void {
+  const top = path.resolve(root ?? path.parse(path.resolve(file)).root);
+  let d = path.resolve(path.dirname(file));
+  const rel = path.relative(top, d);
+  if (rel.startsWith("..") || path.isAbsolute(rel))
+    throw new DurabilityHold(file, `záznam leží mimo kořen ${top}`);
+  for (;;) {
+    ops.fsyncDir(d);
+    if (d === top) break;
+    d = path.dirname(d);
+  }
+  const parent = path.dirname(top);
+  if (parent !== top) ops.fsyncDir(parent);
 }
 
 /** CREATED = tento volající záznam založil; IDENTICAL = existuje se stejnými bajty; CONFLICT = existuje s jinými bajty. */
@@ -169,7 +206,7 @@ export function ensureDurable(
     } finally {
       ops.closeSync(fd);
     }
-    ops.fsyncDir(path.dirname(file));
+    syncPath(ops, file, opts.root);
     opts.point?.("barrier-synced", file);
     const m = linkOnce(ops, marker, want);
     try {
@@ -212,7 +249,7 @@ export function publishOnce(
     return "IDENTICAL";
   }
   try {
-    ops.fsyncDir(path.dirname(file));
+    syncPath(ops, file, opts.root); // adresář záznamu + všichni rodiče po kořen, i existující (FIX1 nález 1)
     opts.point?.("dir-synced", file);
     const m = linkOnce(
       ops,
