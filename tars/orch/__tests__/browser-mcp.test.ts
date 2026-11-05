@@ -34,6 +34,7 @@ import {
   browserSettings,
   BrowserLaunchError,
   buildTask,
+  DisplayAsleepError,
   DriverLimitError,
   McpBrowser,
   playwrightMcpConfig,
@@ -1427,6 +1428,7 @@ describe("McpBrowser", () => {
     failStart = false,
     state: Partial<GateState> | null = {},
     runsDir?: string,
+    displayAwake?: () => { awake: boolean; reason: string },
   ) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mb-"));
     cleanup.push(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -1470,6 +1472,7 @@ describe("McpBrowser", () => {
         gate: "/repo/gate.ts",
         profileDir: dir,
         runsDir,
+        displayAwake,
       }),
       shots,
       seen,
@@ -1480,6 +1483,44 @@ describe("McpBrowser", () => {
   }
   const OK = (url = "https://claude.ai/design/p/1") => ({
     text: `hotovo\nFINAL_URL: ${url}\nRESULT: OK`,
+  });
+
+  it("FIX1 nález 3: spící displej, nejistota nebo výjimka sondy = DisplayAsleepError, žádný start Chrome ani ovladače (i loginCheck)", async () => {
+    const probes: Array<() => { awake: boolean; reason: string }> = [
+      () => ({ awake: false, reason: "displej spí" }),
+      () => ({ awake: false, reason: "sonda displeje: není macOS" }),
+      () => {
+        throw new Error("osascript");
+      },
+    ];
+    for (const p of probes) {
+      const r = rig(() => OK(), false, {}, undefined, p);
+      fs.mkdirSync(path.join(r.dir, "Default")); // profil existuje
+      await expect(
+        r.browser.run([{ kind: "goto", url: "about:blank" }], r.shots),
+      ).rejects.toBeInstanceOf(DisplayAsleepError);
+      await expect(
+        r.browser.loginCheck("https://claude.ai/new", r.shots),
+      ).rejects.toBeInstanceOf(BrowserLaunchError);
+      expect(r.calls()).toEqual([]); // tars-browser.sh start se nespustil
+      expect(r.seen).toHaveLength(0); // ovladač se nespustil
+      expect(fs.existsSync(r.shots)).toBe(false); // nic se nezapsalo
+    }
+    const awake = rig(
+      () => OK("about:blank"),
+      false,
+      {},
+      undefined,
+      () => ({
+        awake: true,
+        reason: "displej vzhůru",
+      }),
+    );
+    await awake.browser.run(
+      [{ kind: "goto", url: "about:blank" }],
+      awake.shots,
+    );
+    expect(awake.calls()).toEqual(["start", "stop"]);
   });
 
   it("runs the plan through the driver with MCP config, tool allowlist, no built-in tools and hooks; returns reads as data", async () => {

@@ -983,6 +983,12 @@ class Pages implements NotionClient {
     this.pages.push(md);
     return { url: `https://app.notion.com/p/mock${this.pages.length}` };
   }
+  /** Etapa 4 PR 2: DONE bez vlastníka až po read-backu (readbackBlocker); stránka se vrací tak, jak byla zapsána. */
+  async readPage(url: string) {
+    const md = this.pages[Number(/mock(\d+)$/.exec(url)?.[1]) - 1];
+    if (md === undefined) throw new Error("page not found");
+    return md;
+  }
 }
 
 function setup(o: { briefBrowser?: FakeBrowser; copyBrowser?: FakeBrowser }) {

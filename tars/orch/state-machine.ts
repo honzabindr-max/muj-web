@@ -2,7 +2,7 @@
 // NEW → PLANNED → DOING → CHECKING → (FIXING ≤ 3) → DELIVERED → WAITING_OWNER → DONE
 // side states: PAUSED (subscription limit), WAITING_REVIEW (GPT v prohlížeči nedostupný, P16 v2), FAILED, UNKNOWN.
 
-import { goBlocker } from "./approval";
+import { goBlocker, readbackBlocker } from "./approval";
 import type { Order, OrderState } from "./types";
 
 export const MAX_FIX_ROUNDS = 3;
@@ -60,7 +60,13 @@ function target(order: Order, ev: OrderEvent): OrderState {
       if (s === "FIXING") return "CHECKING";
       break;
     case "delivered":
-      if (s === "DELIVERED") return ev.owner_needed ? "WAITING_OWNER" : "DONE";
+      if (s === "DELIVERED") {
+        if (ev.owner_needed) return "WAITING_OWNER";
+        // Etapa 4 PR 2 (NAVRH-v6 §6.1): DONE bez vlastníka jen s read-backem, který sedí s odeslaným obsahem.
+        const blocker = readbackBlocker(order);
+        if (blocker) throw new TransitionError(`delivered → DONE zamítnuto: ${blocker}`);
+        return "DONE";
+      }
       break;
     case "owner":
       if (s === "WAITING_OWNER") {
