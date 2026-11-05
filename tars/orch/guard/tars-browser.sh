@@ -157,8 +157,13 @@ start() {
   mkdir -p "$runs"
   # Atomicky (noclobber): dva souběžné starty nepřepíšou pid soubor jeden druhému.
   ( set -C; echo "0" > "$pidfile" ) 2>/dev/null || fail "předchozí Chrome TARS-agent nebyl zavřen ($pidfile) – spusť stop"
+  # Smoke 4. 11., pokus 2: každý browser_click skončil „Timeout 5000ms … waiting for element to be visible, enabled and
+  # stable“ (Chat i Vybrat model). Playwright měří stabilitu přes requestAnimationFrame a Chrome ho v zakrytém okně
+  # (jiné okno navrchu, jiná plocha) přiškrtí; tyto přepínače vypínají jen přiškrcování, nic jiného nemění.
   nohup "$chrome" "--user-data-dir=$prof" "--remote-debugging-port=$port" "--remote-debugging-address=127.0.0.1" \
-    --no-first-run --no-default-browser-check about:blank >/dev/null 2>&1 &
+    --no-first-run --no-default-browser-check \
+    --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling \
+    about:blank >/dev/null 2>&1 &
   own=$!
   echo "$own $(proc_start "$own")" > "$pidfile"
   disown 2>/dev/null
