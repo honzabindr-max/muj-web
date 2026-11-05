@@ -2,17 +2,32 @@
 // "Kód hlídá, LLM rozhoduje": every gate, limit and record lives here, not in a prompt.
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
 import { parseReset } from "./reset";
 import { artifactHash, goBlocker, readbackBlocker } from "./approval";
 import { observeMode, readDispatch, type ModeObservation } from "./dispatch";
 import { reconcileNextWake } from "./wake";
+import {
+  AttemptJournal,
+  GroupNotEndedError,
+  isTerminalAttempt,
+  journalScope,
+  psProbe,
+  reconcileAll,
+  runInAttempt,
+  sha256,
+  type ProcessProbe,
+} from "./attempts";
 import type { CardRegistry } from "./cards";
 import {
   briefMarkdown,
+  finalBodyProblem,
+  finalBodyRef,
   type DepartmentRunner,
   type DeptContext,
+  type StepKind,
   type StepOutcome,
   warningsOf,
 } from "./departments";
@@ -63,7 +78,13 @@ import {
   TransitionError,
   type OrderEvent,
 } from "./state-machine";
-import { PanelLockHoldError, type PanelLease, type Store } from "./store";
+import {
+  PanelLockHoldError,
+  processStartTime,
+  writeDurable,
+  type PanelLease,
+  type Store,
+} from "./store";
 import {
   acceptableCheckNotes,
   BriefError,
@@ -144,12 +165,30 @@ export interface OrchestratorDeps {
   dispatchFile?: string;
   /** Etapa 4 PR 2 (§10.2 bod 3): `false` vypne životní cyklus `runs/next-wake` ve `finally` ticku (výchozí zapnuto). */
   nextWake?: boolean;
+  /** Etapa 4 / PR 4a (§7): sonda procesů reconcileru (výchozí `ps`); testy ji podvrhnou. */
+  processProbe?: ProcessProbe;
+  /** Etapa 4 / PR 4a (§7): čekání po SIGTERM skupiny pokusu, než přijde SIGKILL (ExitTimeOut, výchozí 5 s). */
+  attemptExitTimeoutMs?: number;
+}
+
+/** Etapa 4 / PR 4a: výsledek kroku modelu spuštěného jako pokus (§7, §8). */
+type AttemptRun<T> =
+  | { kind: "run"; r: T; resumed: boolean }
+  | { kind: "hold"; reason: string }
+  | { kind: "wait"; reason: string };
+
+/** Uložený výstup pokusu: výsledek kroku + sha256 souboru draftu, který krok vytvořil (RESUME ho ověří). */
+interface AttemptOutput<T> {
+  outcome: T;
+  draft_sha256?: string;
 }
 
 /** Q4-A (§10.2): rezerva po doloženém resetu limitu. */
 export const RESET_MARGIN_MS = 60_000;
 /** Q4-B: trvalý záznam doložených varování CLI o blížícím se limitu, po zdrojích (runs/, FIX1 nález 6). */
 export const LIMIT_WARNING_FILE = "limit-warning.json";
+/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit. */
+export const LIMIT_WARNING_LOST = "varování limitu nešlo uložit";
 
 /** Blokace Q4-B jednoho zdroje (účet CLI) v runs/limit-warning.json; `until` = ISO konec blokace. */
 type WarningRecord = { until: string } & Record<string, unknown>;
@@ -262,6 +301,13 @@ export class Orchestrator {
    * inboxu (PR 3/5); první tick po přechodu hold → run nezačne nic nového, jen pokračuje v rozpracovaném.
    */
   lastDispatch: ModeObservation | undefined;
+  /** Etapa 4 / PR 4a (§7): pokusy o krok (runs/<id>/attempts/). */
+  private attempts: AttemptJournal;
+  private probe: ProcessProbe;
+  /** Pokus kroku ještě běží na pozadí (reconciler: waiting_background): tick nespouští další krok. */
+  private attemptWaiting = false;
+  /** FIX4: konec blokace z varování limitu, které nešlo uložit (ms). Platí po celou dobu běhu orchestrátoru. */
+  private unsavedWarningUntil?: number;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -269,11 +315,14 @@ export class Orchestrator {
         "brief checker must be another model family than the supervisor",
       );
     this.now = d.now ?? (() => new Date());
+    this.attempts = new AttemptJournal(d.store.runsDir, () => this.iso());
+    this.probe = d.processProbe ?? psProbe;
     this.ctx = {
       store: d.store,
       notion: d.notion,
       draftParentId: d.draftParentId,
       repoRoot: d.repoRoot,
+      attempts: this.attempts,
     };
     this.effects = new EffectJournal(d.store.runsDir, () => this.iso());
     // Merge PR #99 + etapa 3: index pod stejným (re-entrantním) stavovým zámkem jako fence zámku panelu.
@@ -1422,8 +1471,11 @@ export class Orchestrator {
     if (g.alarm) return { status: "guard_alarm", summary: g.summary };
     if (!this.d.store.acquireLock()) return { status: "locked" };
     this.tickPingKeys = new Set();
+    this.attemptWaiting = false;
     try {
       this.observeDispatch();
+      // Etapa 4 / PR 4a (§7): reconciler na začátku ticku, pod lease.
+      await this.reconcileAttempts();
       await this.catchUpPanel();
       await this.pollOwnerDecisions();
       await this.retryOwnerPings();
@@ -1434,6 +1486,12 @@ export class Orchestrator {
         // WIP limit 1: no new order while the owner has an undecided card.
         if (waiting) return { status: "waiting_owner", order: waiting.id };
         // Q4-B: po doloženém varování CLI o blížícím se limitu nezačínat novou zakázku (rozpracovaná pokračuje výše).
+        // FIX4: varování z tohoto běhu, které nešlo uložit (ENOSPC), blokuje i bez limit-warning.json.
+        if ((this.unsavedWarningUntil ?? 0) > this.now().getTime())
+          return {
+            status: "limit_warning",
+            until: new Date(this.unsavedWarningUntil!).toISOString(),
+          };
         const warn = this.activeLimitWarning();
         if (warn) return { status: "limit_warning", until: warn };
         order = this.newOrder();
@@ -1472,6 +1530,8 @@ export class Orchestrator {
         if (order.state === "DELIVERED" && this.d.guard().alarm)
           return { status: "guard_alarm", summary: "ALARM before delivery" };
         order = await this.step(order);
+        // PR 4a: pokus kroku běží na pozadí (osiřelé dítě před deadline): žádný druhý pokus, tick končí.
+        if (this.attemptWaiting) break;
       }
       if (order.state === "PAUSED")
         return {
@@ -2305,6 +2365,375 @@ export class Orchestrator {
     );
   }
 
+  /** Etapa 4 / PR 4a (§7): reconciler všech neukončených pokusů (začátek ticku, pod lease). Chyba se jen zaloguje. */
+  private async reconcileAttempts(): Promise<void> {
+    try {
+      const ids = this.d.store
+        .listOrders()
+        .map((o) => o.id)
+        .filter((id) =>
+          this.attempts.list(id).some((r) => !isTerminalAttempt(r)),
+        );
+      if (!ids.length) return;
+      const res = await reconcileAll(this.attempts, ids, this.probe, {
+        now: this.now(),
+        exitTimeoutMs: this.d.attemptExitTimeoutMs,
+      });
+      for (const x of res)
+        this.log({
+          order: x.attempt_id.split("/")[0],
+          kind: x.action === "hold" ? "error" : "info",
+          role: "orchestrator",
+          result: `reconciler: ${x.action}`,
+          reason: `${x.attempt_id}: ${x.reason}`,
+        });
+    } catch (e) {
+      this.log({
+        order: "-",
+        kind: "error",
+        role: "orchestrator",
+        result: "reconciler selhal",
+        reason: String((e as Error)?.message ?? e).slice(0, 300),
+      });
+    }
+  }
+
+  /**
+   * Etapa 4 / PR 4a (§7, §8): krok modelu jako pokus. INTENT před spawn, STARTED po spawn (runProcess v kontextu
+   * pokusu), FINISHED až po trvalém uložení výstupu; teprve potom volající aplikuje přechod. Opakování kroku:
+   * předchozí neukončený pokus projde reconcilerem; FINISHED s výstupem se shodným sha256 = RESUME (bez nového volání
+   * modelu); jinak rozhodne reconcile adaptéru (RETRY_SAFE, nebo throw/UNKNOWN = HOLD, žádné volání).
+   */
+  private async attemptStep<T extends StepOutcome & { draft_file?: string }>(
+    order: Order,
+    dept: DepartmentRunner,
+    kind: StepKind,
+    run: () => Promise<T>,
+  ): Promise<AttemptRun<T>> {
+    const J = this.attempts;
+    const step = `${kind}-r${order.fix_rounds}`;
+    let prev = J.latest(order.id, step);
+    if (prev && !isTerminalAttempt(prev)) {
+      const res = await reconcileAll(J, [order.id], this.probe, {
+        now: this.now(),
+        exitTimeoutMs: this.d.attemptExitTimeoutMs,
+      });
+      const mine = res.find((x) => x.attempt_id === prev!.attempt_id);
+      prev = J.get(prev.attempt_id)!;
+      if (!isTerminalAttempt(prev)) {
+        if (mine?.action === "waiting_background")
+          return { kind: "wait", reason: `${prev.attempt_id}: ${mine.reason}` };
+        return {
+          kind: "hold",
+          reason: `pokus ${prev.attempt_id}: ${mine?.reason ?? prev.hold?.reason ?? prev.phase}`,
+        };
+      }
+    }
+    if (prev?.phase === "FINISHED" && prev.finished?.ok) {
+      // FINISHED, přechod neaplikován (krok je pořád na řadě): výstup se shodným sha256 → použít bez volání modelu.
+      const resumed = this.resumeOutput<T>(order, prev);
+      if (!prev.reconcile)
+        J.setReconcile(
+          prev.attempt_id,
+          resumed ? "RESUME" : "UNKNOWN",
+          resumed
+            ? "výstup FINISHED se shodným sha256"
+            : "výstup FINISHED chybí, nebo nesedí sha256 (výstupu nebo draftu)",
+        );
+      if (!resumed)
+        return {
+          kind: "hold",
+          reason: `pokus ${prev.attempt_id}: výstup FINISHED nejde použít (UNKNOWN)`,
+        };
+      return { kind: "run", r: resumed, resumed: true };
+    }
+    if (prev && !prev.reconcile) {
+      // FIX4: bez doloženého stavu varování limitu žádné RETRY_SAFE; zakázka zůstane rozpracovaná (žádná nová).
+      const limitWhy = this.limitStateBeforeRetry(order, kind, prev);
+      if (limitWhy)
+        return {
+          kind: "wait",
+          reason: `pokus ${prev.attempt_id}: ${limitWhy}`,
+        };
+      let d: { result: "RESUME" | "RETRY_SAFE" | "UNKNOWN"; reason: string };
+      try {
+        d = dept.reconcileRetry
+          ? dept.reconcileRetry(kind, order, this.ctx, prev)
+          : {
+              result: "UNKNOWN",
+              reason: `oddělení ${dept.name} nemá reconcile před opakováním (§8)`,
+            };
+      } catch (e) {
+        // Fail-closed: opakování odmítnuto (dev do PR 4b). Žádné volání, žádný účinek; záznam reconcile zůstane chybět.
+        return {
+          kind: "hold",
+          reason: `opakování kroku odmítnuto: ${String((e as Error)?.message ?? e).slice(0, 300)}`,
+        };
+      }
+      if (d.result === "RESUME")
+        d = {
+          result: "UNKNOWN",
+          reason: `RESUME bez výstupu FINISHED: ${d.reason}`,
+        };
+      J.setReconcile(prev.attempt_id, d.result, d.reason);
+      if (d.result !== "RETRY_SAFE")
+        return {
+          kind: "hold",
+          reason: `reconcile ${prev.attempt_id} = ${d.result}: ${d.reason}`,
+        };
+    }
+    const deadlineMs = dept.attemptDeadlineMs?.(kind) ?? 40 * 60_000;
+    const rec = J.intent(order.id, step, {
+      input_sha256: sha256(
+        JSON.stringify({
+          step,
+          version: order.version ?? 0,
+          brief: order.brief,
+          draft_file: order.draft_file,
+          last_issues: order.last_issues,
+        }),
+      ),
+      deadline: new Date(this.now().getTime() + deadlineMs).toISOString(),
+      decision_check:
+        "legacy wo-* bez scope receiptu (revalidace rozhodnutí přijde s PR 5, §3.3)",
+      ...(order.fence !== undefined ? { fence: order.fence } : {}),
+    });
+    let r: T;
+    const scope = journalScope(J, rec.attempt_id, processStartTime);
+    // FIX1 nález 1: konec skupiny některého procesu kroku (nebo vnitřního volání) nedoložen → HOLD, ne FINISHED.
+    const holdUnsettled = (why: string): AttemptRun<T> => {
+      J.holdAttempt(rec.attempt_id, why);
+      return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${why}` };
+    };
+    try {
+      r = await runInAttempt(scope, run);
+    } catch (e) {
+      if (e instanceof GroupNotEndedError || scope.unsettled?.length)
+        return holdUnsettled(
+          e instanceof GroupNotEndedError
+            ? String(e.message).slice(0, 400)
+            : `konec skupiny procesů nedoložen: ${scope.unsettled!.join("; ")}`,
+        );
+      const sha = J.writeOutput(
+        rec,
+        JSON.stringify({ error: String((e as Error)?.message ?? e) }),
+      );
+      J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: sha });
+      throw e;
+    }
+    if (scope.unsettled?.length)
+      return holdUnsettled(
+        `konec skupiny procesů nedoložen: ${scope.unsettled.join("; ")}`,
+      );
+    const out: AttemptOutput<T> = { outcome: r };
+    if (r.ok && r.draft_file && r.draft_file !== "wt") {
+      // FIX1 nález 4: draft (skutečný výstup kroku) se uloží trvale PŘED FINISHED: celé bajty + fsync souboru +
+      // atomický rename + fsync adresáře (writeDurable z PR 1). Bez toho by pád OS po FINISHED mohl draft ztratit.
+      // FIX2 nález 2: jakákoli chyba čtení, trvalého zápisu nebo hashe = pokus FINISHED ok:false a throw, nikdy
+      // FINISHED ok:true bez trvalého draftu a jeho draft_sha256 (žádné potlačení chyby).
+      try {
+        const text = this.d.store.readFile(order.id, r.draft_file);
+        writeDurable(
+          path.join(this.d.store.orderDir(order.id), r.draft_file),
+          text,
+        );
+        out.draft_sha256 = sha256(text);
+      } catch (e) {
+        const why = `draft ${r.draft_file} nejde přečíst nebo uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+        // FIX3 nález 2: doložená varování CLI z úspěšného volání se zapíší (pod lease) i na chybové cestě, před throw.
+        // FIX4: když ani varování nejde uložit, pokus jde do HOLD (ne FINISHED) a blokace platí v paměti.
+        if (
+          !this.keepLimitWarning(
+            order,
+            r,
+            kind === "check" ? "checker" : "creator",
+            rec.attempt_id,
+          )
+        )
+          throw new Error(why);
+        J.finished(rec.attempt_id, {
+          exit: null,
+          ok: false,
+          output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })),
+        });
+        throw new Error(why);
+      }
+    }
+    try {
+      const sha = J.writeOutput(rec, JSON.stringify(out));
+      J.finished(rec.attempt_id, {
+        exit: r.ok ? 0 : 1,
+        ok: r.ok,
+        output_sha256: sha,
+      });
+    } catch (e) {
+      // FIX4: výstup s varováním limitu se neuložil → varování uložit hned (jinak HOLD + blokace v paměti).
+      if (r.limit_warnings?.length)
+        this.keepLimitWarning(
+          order,
+          r,
+          kind === "check" ? "checker" : "creator",
+          rec.attempt_id,
+        );
+      throw e;
+    }
+    return { kind: "run", r, resumed: false };
+  }
+
+  /**
+   * FIX4 (Codex kolo 4): doložená varování výsledku kroku se uloží dřív, než pokus skončí chybou. Když zápis
+   * limit-warning.json selže (ENOSPC), blokace nové zakázky platí v paměti orchestrátoru a pokus jde do HOLD s důvodem
+   * LIMIT_WARNING_LOST (jde-li zapsat aspoň záznam pokusu). Vrací false = varování neuloženo.
+   */
+  private keepLimitWarning(
+    order: Order,
+    r: StepOutcome,
+    role: LogEntry["role"],
+    attemptId: string,
+  ): boolean {
+    try {
+      this.noteLimitWarning(order, r, role);
+      return true;
+    } catch (e) {
+      const now = this.now();
+      for (const n of r.limit_warnings ?? []) {
+        const received = n.received_at ?? now.toISOString();
+        const p = parseReset(
+          n.text,
+          received,
+          this.d.resetTz ?? "Europe/Prague",
+        );
+        const until = p.ok
+          ? Date.parse(p.at_utc) + RESET_MARGIN_MS
+          : Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000;
+        this.unsavedWarningUntil = Math.max(
+          this.unsavedWarningUntil ?? 0,
+          until,
+        );
+      }
+      try {
+        this.attempts.holdAttempt(
+          attemptId,
+          `${LIMIT_WARNING_LOST}: ${String((e as Error)?.message ?? e).slice(0, 300)}`,
+        );
+      } catch {
+        // Ani záznam pokusu nejde zapsat: pokus zůstane STARTED a opakování hlídá limitStateBeforeRetry.
+      }
+      return false;
+    }
+  }
+
+  /**
+   * FIX4: před opakováním kroku (reconcile RETRY_SAFE) musí být stav varování limitu z předchozího pokusu doložen.
+   * FINISHED: varování z uloženého výsledku se zapíší znovu (zápis mohl po FINISHED selhat). Pokus bez FINISHED
+   * (ABANDONED, i z HOLD LIMIT_WARNING_LOST): varování mohlo přijít a ztratit se → zapíše se nedoložená blokace
+   * na `pauseMinutes` (fail-closed). Zápis selže → důvod čekat (bez RETRY_SAFE; zakázka zůstane rozpracovaná).
+   */
+  private limitStateBeforeRetry(
+    order: Order,
+    kind: StepKind,
+    prev: ReturnType<AttemptJournal["get"]> & object,
+  ): string | undefined {
+    const role = kind === "check" ? "checker" : "creator";
+    let r: StepOutcome | undefined;
+    if (prev.phase === "FINISHED") {
+      try {
+        const o = JSON.parse(
+          this.attempts.readOutput(prev) ?? "null",
+        ) as AttemptOutput<StepOutcome> | null;
+        r = o?.outcome?.limit_warnings?.length ? o.outcome : undefined;
+      } catch {
+        r = undefined;
+      }
+    } else {
+      r = {
+        ok: false,
+        limit_warnings: [
+          {
+            source: "neověřeno",
+            text: `pokus ${prev.attempt_id} skončil bez FINISHED: varování limitu neověřeno`,
+            received_at: this.iso(),
+          },
+        ],
+      };
+    }
+    if (!r) return undefined;
+    try {
+      this.noteLimitWarning(order, r, role);
+      return undefined;
+    } catch (e) {
+      return `${LIMIT_WARNING_LOST}, opakování odloženo: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+    }
+  }
+
+  /** RESUME: výstup FINISHED se shodným sha256 a (u draftu) soubor draftu se stejným obsahem. Jinak undefined. */
+  private resumeOutput<T extends { draft_file?: string }>(
+    order: Order,
+    rec: ReturnType<AttemptJournal["get"]> & object,
+  ): T | undefined {
+    const text = this.attempts.readOutput(rec);
+    if (!text) return undefined;
+    try {
+      const o = JSON.parse(text) as AttemptOutput<T>;
+      if (!o || typeof o !== "object" || !o.outcome) return undefined;
+      const f = o.outcome.draft_file;
+      if (f && f !== "wt") {
+        if (!o.draft_sha256) return undefined;
+        if (sha256(this.d.store.readFile(order.id, f)) !== o.draft_sha256)
+          return undefined;
+      }
+      return o.outcome;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Pokus nejde spustit: běží na pozadí (tick končí, stav beze změny), nebo HOLD (UNKNOWN s důvodem). */
+  private attemptBlocked(
+    order: Order,
+    a: { kind: "hold" | "wait"; reason: string },
+  ): Order {
+    if (a.kind === "wait") {
+      this.attemptWaiting = true;
+      this.log({
+        order: order.id,
+        kind: "info",
+        role: "orchestrator",
+        result: "waiting_background",
+        reason: a.reason,
+      });
+      return order;
+    }
+    return this.apply(
+      order,
+      { type: "unknown", reason: `HOLD: ${a.reason}`.slice(0, 500) },
+      { role: "orchestrator", result: "HOLD (pokus)", reason: a.reason },
+    );
+  }
+
+  /**
+   * Etapa 4 / PR 4a (§6.2.1): hned po create/revise, před kontrolou, jedno neměnné finální tělo
+   * `final-body-r<n>.md` (writeDurable, zapíše se jen jednou). Do stavu jde jeho otisk (artifactHash).
+   */
+  private finalBodyMeta(
+    o: Order,
+    dept: DepartmentRunner,
+  ): { meta?: Record<string, string>; hold?: string } {
+    if (!dept.finalBody || !o.draft_file) return {};
+    const body = dept.finalBody(o, this.ctx);
+    const file = `final-body-r${o.fix_rounds}.md`;
+    const p = path.join(this.d.store.orderDir(o.id), file);
+    if (fs.existsSync(p)) {
+      if (fs.readFileSync(p, "utf8") !== body)
+        return {
+          hold: `BODY_MISMATCH: ${file} už existuje s jiným obsahem (nepřepisuje se)`,
+        };
+    } else writeDurable(p, body);
+    return {
+      meta: { final_body_file: file, final_body_sha256: artifactHash(body) },
+    };
+  }
+
   /** Common handling of a model step outcome: review unavailable → WAITING_REVIEW, limit → PAUSED, error → FAILED. */
   private bad(
     order: Order,
@@ -2428,9 +2857,7 @@ export class Orchestrator {
       const p = parseReset(n.text, received, this.d.resetTz ?? "Europe/Prague");
       const until = p.ok
         ? new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS)
-        : new Date(
-            Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000,
-          );
+        : new Date(Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000);
       const rec: WarningRecord = {
         observed_at: now.toISOString(),
         received_at: received,
@@ -2777,7 +3204,11 @@ export class Orchestrator {
         );
       }
       case "DOING": {
-        const r = await dept!.create(order, this.ctx);
+        const a = await this.attemptStep(order, dept!, "create", () =>
+          dept!.create(order, this.ctx),
+        );
+        if (a.kind !== "run") return this.attemptBlocked(order, a);
+        const r = a.r;
         this.log({
           order: order.id,
           kind: "call",
@@ -2790,12 +3221,16 @@ export class Orchestrator {
         });
         const b = this.bad(order, r, "creator");
         if (b) return b;
+        const created = {
+          ...order,
+          draft_file: r.draft_file,
+          meta: { ...order.meta, ...(r.meta ?? {}) },
+        };
+        const fb = this.finalBodyMeta(created, dept!);
+        if (fb.hold)
+          return this.attemptBlocked(order, { kind: "hold", reason: fb.hold });
         return this.apply(
-          {
-            ...order,
-            draft_file: r.draft_file,
-            meta: { ...order.meta, ...(r.meta ?? {}) },
-          },
+          { ...created, meta: { ...created.meta, ...(fb.meta ?? {}) } },
           { type: "created" },
           {
             role: "creator",
@@ -2806,7 +3241,11 @@ export class Orchestrator {
         );
       }
       case "CHECKING": {
-        const r = await dept!.check(order, this.ctx);
+        const a = await this.attemptStep(order, dept!, "check", () =>
+          dept!.check(order, this.ctx),
+        );
+        if (a.kind !== "run") return this.attemptBlocked(order, a);
+        const r = a.r;
         this.log({
           order: order.id,
           kind: "call",
@@ -2817,10 +3256,24 @@ export class Orchestrator {
           result: r.verdict ?? (r.ok ? "ok" : "error"),
           reason: r.error ?? r.issues?.join(" | ").slice(0, 500),
         });
+        // PR 4a: DIFF_TOO_LARGE, BODY_MISMATCH, nečitelná báze → HOLD, nikdy PASS ani tiché selhání.
+        if (r.hold)
+          return this.attemptBlocked(order, { kind: "hold", reason: r.hold });
         const b = this.bad(order, r, "checker");
         if (b) return b;
+        // §6.2.3: platí jen receipt, na který odkazuje state.json (zápis přes Store.save s CAS).
+        const checked = r.review_receipt
+          ? {
+              ...order,
+              meta: {
+                ...order.meta,
+                review_receipt_id: r.review_receipt.review_id,
+                review_receipt_sha256: r.review_receipt.sha256,
+              },
+            }
+          : order;
         return this.apply(
-          order,
+          checked,
           { type: "verdict", verdict: r.verdict!, issues: r.issues },
           {
             role: "checker",
@@ -2832,7 +3285,11 @@ export class Orchestrator {
         );
       }
       case "FIXING": {
-        const r = await dept!.revise(order, this.ctx);
+        const a = await this.attemptStep(order, dept!, "revise", () =>
+          dept!.revise(order, this.ctx),
+        );
+        if (a.kind !== "run") return this.attemptBlocked(order, a);
+        const r = a.r;
         this.log({
           order: order.id,
           kind: "call",
@@ -2845,15 +3302,19 @@ export class Orchestrator {
         });
         const b = this.bad(order, r, "creator");
         if (b) return b;
-        return this.apply(
-          {
-            ...order,
-            draft_file: r.draft_file ?? order.draft_file,
-            meta: {
-              ...order.meta,
-              ...((r as { meta?: Record<string, string> }).meta ?? {}),
-            },
+        const revised = {
+          ...order,
+          draft_file: r.draft_file ?? order.draft_file,
+          meta: {
+            ...order.meta,
+            ...((r as { meta?: Record<string, string> }).meta ?? {}),
           },
+        };
+        const fb = this.finalBodyMeta(revised, dept!);
+        if (fb.hold)
+          return this.attemptBlocked(order, { kind: "hold", reason: fb.hold });
+        return this.apply(
+          { ...revised, meta: { ...revised.meta, ...(fb.meta ?? {}) } },
           { type: "revised" },
           {
             role: "creator",
@@ -2866,6 +3327,13 @@ export class Orchestrator {
       case "DELIVERED": {
         let o = order;
         if (!o.delivered_url) {
+          // Etapa 4 / PR 4a (§6.2.1 bod 5): finální tělo se odešle jen tehdy, když jeho soubor sedí se stavem a s receiptem
+          // PASS nad přesně tímto tělem. Jinak HOLD (BODY_MISMATCH) a žádný zápis do Notionu.
+          if (finalBodyRef(o)) {
+            const problem = finalBodyProblem(o, this.d.store);
+            if (problem)
+              return this.attemptBlocked(o, { kind: "hold", reason: problem });
+          }
           // Etapa 3: the delivery is journaled (PREPARED → write → receipt); after a crash it is looked up by its marker.
           const del = o;
           const run = await this.runEffect(
@@ -2939,7 +3407,9 @@ export class Orchestrator {
         }
         const reasons = [
           ...(dept!.alwaysOwner
-            ? ["výstup je PR do main — merge dělá TARS po GO vlastníka na kartě (DR-024)"]
+            ? [
+                "výstup je PR do main — merge dělá TARS po GO vlastníka na kartě (DR-024)",
+              ]
             : []),
           ...o.brief!.owner_decisions,
           ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map(

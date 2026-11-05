@@ -180,6 +180,8 @@ describe("version / CAS (Store.save)", () => {
     const { o, calls } = make(s, {
       create: async () => {
         make(cli).o.abort("wo-own", "owner cancelled");
+        // FIX2 (4a nález 2): draft musí existovat, jinak je krok FINISHED ok:false ještě před CAS.
+        fs.writeFileSync(path.join(dir, "wo-own", "late.md"), "draft\n");
         return { ok: true, draft_file: "late.md" };
       },
     });
@@ -206,6 +208,8 @@ describe("version / CAS (Store.save)", () => {
     const { o, calls } = make(s, {
       create: async () => {
         await gate; // the worker hangs; meanwhile the owner aborts
+        // FIX2 (4a nález 2): draft musí existovat, jinak je krok FINISHED ok:false ještě před CAS.
+        fs.writeFileSync(path.join(dir, "wo-own", "late.md"), "draft\n");
         return { ok: true, draft_file: "late.md" };
       },
     });
@@ -382,6 +386,8 @@ describe("tick lease with fence", () => {
           path.join(dir, ".lock"),
           JSON.stringify(foreignLease()),
         );
+        // FIX2 (4a nález 2): draft musí existovat, jinak je krok FINISHED ok:false ještě před CAS.
+        fs.writeFileSync(path.join(dir, "wo-own", "d.md"), "draft\n");
         return { ok: true, draft_file: "d.md" };
       },
     });
