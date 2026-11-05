@@ -1252,6 +1252,16 @@ exec -a "$0" "${process.execPath}" -e 'require("http").createServer((q,r)=>r.end
         .split(" ")[0],
     );
     expect(alive(pid)).toBe(true);
+    // Smoke 4. 11., pokus 2: a covered window must not throttle requestAnimationFrame (Playwright "stable" check).
+    const cmd = spawnSync("ps", ["-ww", "-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+    }).stdout;
+    for (const f of [
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+    ])
+      expect(cmd).toContain(f);
     expect(sh(e, "verify", extra).status).toBe(0);
     const m = sh(e, "mcp", { ...extra, TARS_BROWSER_DRYRUN: "1" });
     expect(m.stdout).toContain(`--cdp-endpoint http://127.0.0.1:${p}`);
