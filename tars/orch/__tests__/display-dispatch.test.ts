@@ -242,7 +242,12 @@ describe("dispatch.json (mode, fail-closed hold)", () => {
     const repoFile = path.join(__dirname, "..", "dispatch.json");
     const r = readDispatch(repoFile, runs());
     expect(r.invalid).toBeUndefined();
-    expect(r.config).toEqual(DISPATCH_DEFAULTS);
+    // Jediný rozdíl proti výchozím hodnotám: allowlist pilotní soukromé stránky
+    // (karta fable-q-noc-1, GO vlastníka 6. 11. 2026; stránka ověřena public_url = null).
+    expect(r.config).toEqual({
+      ...DISPATCH_DEFAULTS,
+      private_draft_parents: ["3cf0ae49f50781c7a42cf5ea8fe8aae7"],
+    });
     expect(r.config.mode).toBe("hold");
     expect(r.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
