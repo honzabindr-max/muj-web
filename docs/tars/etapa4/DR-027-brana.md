@@ -1,14 +1,22 @@
-# DR-027 brána „nejdřív hotové“ — etapa 4 (PR 0), verze 2
+# DR-027 brána „nejdřív hotové“ — etapa 4 (PR 0), verze 2.1
 
-Stav: **návrh verdiktu brány DR-027 pro etapu 4, verze 2 po nezávislé kontrole GPT (4. 11. 2026).** Brána **není uzavřená**: autor podle DR-027 (Zbrojíř) chybí, viz §1. Do rozhodnutí vlastníka je stav brány **HOLD pro práci, která na ní závisí**, ne globální STOP.
+Stav: **návrh verdiktu brány DR-027 pro etapu 4, verze 2.1 po nezávislé kontrole GPT kolo 2 (5. 11. 2026).** Autorství brány je vyřešeno DR-041 (5. 11. 2026, GO A), viz §1. Brána **ještě není ratifikovaná**: chybí doložený Codex PASS nad touto verzí (kolo 5), viz §10. Do ratifikace je stav brány **HOLD pro práci, která na ní závisí** (PR 3, PR 4c, PR 5), ne globální STOP.
 Datum: 5. 11. 2026. Zpracoval: Claude Code (Opus 5.5), větev `tars/etapa4-0`.
-Vstup: návrh etapy 4 v6 §12 (předběžný průzkum), schválený dodatek v6.1 (body Radaru), nezávislá kontrola GPT brány v1 (nálezy G-01 až G-08).
+Vstup: návrh etapy 4 v6 §12 (předběžný průzkum), schválený dodatek v6.1 (body Radaru), nezávislá kontrola GPT brány v1 (nálezy G-01 až G-08), kontrola GPT kolo 2 (nálezy N-03, N-04), Codex kolo 4 (pojistka hooků §7), rozhodnutí vlastníka DR-041.
+
+## 0a. Co se změnilo proti verzi 2
+
+| Nález | Co je ve v2.1 jinak | Kde |
+| --- | --- | --- |
+| N-03 G-01 stále „čeká“ | G-01 = vyřešeno DR-041 (5. 11. 2026, GO A). Nová sekce ratifikace: GPT kolo 2 PASS S VÝHRADAMI, Codex PASS čeká na kolo 5 | hlavička, §0, §1, §9, §10 |
+| N-04 (zbytek G-04) chybí placené služby | Matice doplněna o pět hostovaných / placených služeb s existencí, placeným režimem, provozní závislostí, datem a důvodem vyřazení podle R1/R2/R3 | §4.1 |
+| Codex kolo 4 | Pojistka hooků ověřuje konkrétní ochrany před povolením nástrojů (už ve fa0b385), beze změny | §7 |
 
 ## 0. Co se změnilo proti verzi 1
 
 | Nález GPT | Co je ve v2 jinak | Kde |
 | --- | --- | --- |
-| G-01 chybí Zbrojíř | Neřešeno, čeká na rozhodnutí vlastníka (výjimka nebo role Zbrojíře) | §1 |
+| G-01 chybí Zbrojíř | Vyřešeno DR-041 (5. 11. 2026, GO A): jednorázová výjimka, autor = stavitel | §1 |
 | G-02 watchdog vs. v6.1 | Watchdog = PŘEVZÍT pro PR 4c po PR 1, s limity a testy podle v6.1. PR 0 nic nezapíná | §5 řádek W5, §6 |
 | G-03 čtvrtý typ verdiktu | Verdikt oblasti jen PŘEVZÍT / PŘEVZÍT VZORY / STAVĚT VLASTNÍ. NEPŘEVZÍT je jen stav odmítnutého kandidáta | §2, §5 |
 | G-04 chybí matice průzkumu | Nová matice kategorie → registry → datum → nejbližší kandidát → důvod vyřazení | §4 |
@@ -17,15 +25,13 @@ Vstup: návrh etapy 4 v6 §12 (předběžný průzkum), schválený dodatek v6.1
 | G-07 licence jako jediný důvod | Licence nikde není jediný důvod. Deklarace oddělená od právního ověření | §3, §5 |
 | G-08 reprodukovatelnost | Verze nebo commit SHA a datum ověření u rozhodujících kandidátů | §3 |
 
-## 1. Role Zbrojíř — čeká na rozhodnutí vlastníka
+## 1. Role Zbrojíř — vyřešeno DR-041 (5. 11. 2026, GO A)
 
-- DR-027 ukládá průzkum a verdikt Zbrojíři. Návrh v6 §12 a plán PR 0 počítají s plnou bránou se Zbrojířem.
-- V repu `muj-web` role Zbrojíř neexistuje (ověřeno ve v1: žádná karta v `.claude/agents/`, žádné oddělení v `tars/orch/`). Role je popsaná jen mimo repo, radar dnes plní týdenní cloudová úloha.
-- Tento dokument zpracoval Claude Code bez Zbrojíře. Nezávislá kontrola GPT chybějícího autora nenahrazuje.
-- **Stav: čeká na rozhodnutí vlastníka (výjimka nebo role Zbrojíře).** Možnosti:
-  1. jednorázová výjimka vlastníka z DR-027 pro PR 0 s uvedeným rozsahem, nebo
-  2. malý verzovaný kontrakt role Zbrojíře v repu, který tento verdikt vydá nebo ratifikuje.
-- Do rozhodnutí: brána jako uzavřená = **FAIL**. Stavba, která podle DR-027 bod 3 potřebuje verdikt (PR 3, PR 4c, PR 5), čeká. Opravy textů PR 0 (DR-022 → DR-024) na bráně nezávisí.
+- DR-027 ukládá průzkum a verdikt Zbrojíři. V repu `muj-web` role Zbrojíř neexistuje (ověřeno ve v1: žádná karta v `.claude/agents/`, žádné oddělení v `tars/orch/`).
+- **Vyřešeno DR-041 (5. 11. 2026, GO A).** Vlastník schválil jednorázovou výjimku z DR-027 jen pro tuto bránu etapy 4: autor brány je stavitel (Claude Code) místo Zbrojíře. G-01 je uzavřený a znovu se nepředkládá.
+- DR-041 má dvě podmínky ratifikace: nezávislá kontrola GPT po opravách **a** Codex PASS. Stav obou je v §10.
+- Výjimka neuděluje implementační GO a nenahrazuje Codex. Platí jen pro tuto bránu, ne pro další etapy.
+- Opravy textů PR 0 (DR-022 → DR-024) na bráně nezávisí.
 
 ## 2. Pravidla brány (DR-027)
 
@@ -99,6 +105,20 @@ Prohledáno 5. 11. 2026 mezi 00:45 a 01:45 CET, jen čtení. Nic se neinstaloval
 | Skilly | lokální `~/.claude/skills` (2), repo `.claude/skills` (1), seznam skillů v session, web (skill indexy) | `notion queue dispatcher resume` | žádný skill s frontou nebo claimem | — | Skilly jsou instrukce pro model, ne trvalý proces pod lease. Pro dispatcher nepoužitelné |
 
 **Lokální vs. cloud:** lokální katalogy (pluginy, skilly, agenti) nemají kandidáta pro frontu, claim ani dispatcher. Cloudové registry (MCP, GitHub, npm) mají kandidáty jen pro dílčí části. Každý z nich obchází alespoň jeden z R1, R3 nebo R5.
+
+### 4.1 Placené a hostované služby (N-04, zbytek G-04)
+
+DR-027 bod 1 výslovně žádá placené služby. Prohledáno 5. 11. 2026 kolem 03:20 CET, jen čtení veřejných stránek s ceníkem a dokumentací (WebFetch). Žádná registrace, žádný účet, žádný nákup, žádná zkušební verze. Ceny jsou údaj ceníku v den čtení, ne nabídka.
+
+| # | Služba (třída) | Existence a placený režim (čteno 5. 11. 2026) | Provozní závislosti pro TARS | Stav | Důvod vyřazení |
+| --- | --- | --- | --- | --- | --- |
+| H1 | Inngest Cloud (hostovaná durable execution) | Ceník: Free 0 USD (50 000 spuštění), Pro od 99 USD/měsíc, Business od 499 USD/měsíc. Režim `connect`: worker otevře odchozí WebSocket, nepotřebuje veřejný endpoint | Účet a klíč u třetí strany, stav běhu a historie kroků v cizím cloudu, nový SDK | odmítnut | R1 (nová služba, závislost, u vyššího objemu náklad). R3: kroky a idempotence žijí v modelu Inngest, ne v `Store`/`EffectJournal` s fence. Odchozí WebSocket řeší R2, ostatní ne. Vzor zůstává E1 |
+| H2 | Trigger.dev Cloud (hostované úlohy) | Ceník: Free 0 USD (5 USD kreditů), Hobby 10 USD/měsíc, Pro 50 USD/měsíc. Kód úloh běží na spravovaných strojích Trigger.dev | Kód a prostředí úlohy mimo Mac, účet a klíč u třetí strany | odmítnut | R2: úloha neběží na Macu pod launchd a nemá přihlášení předplatného `claude -p` / `codex exec`. R3: mimo lease, fence a TARS-GUARD. R1: nová služba a náklad. Vzor zůstává E2 |
+| H3 | Vercel Queues / Vercel Workflows (hostovaná fronta na platformě, kde už běží web) | Docs: Queues „Beta on all plans“, at-least-once, push i poll mód, Workflows stojí na Queues. Platba za operace (stránka „Pricing and limits“) | Nová fronta na Vercelu, token projektu na Macu pro poll mód, nový tok dat Mac ↔ Vercel | odmítnut | R1: nový tok dat a nová služba, i když platforma je stejná (karta DR-025). R5: podání by vznikalo mimo Notion. R3: doručení at-least-once a retry Vercelu nejsou claim pod fence, duplicitu by stejně musel chytat `EffectJournal`. Beta = nejistá stabilita kontraktu |
+| H4 | Notion database automations, akce „Send webhook“ (hostovaný push z Notionu) | Help center: jen placené plány Notion. POST na libovolnou URL, jen vlastnosti řádku, bez autentizace, max. 5 webhooků na automatizaci, při chybě se automatizace pozastaví a musí se ručně obnovit | Přijímač s veřejnou URL (Mac je za NAT, takže hostovaná funkce nebo tunel), placený plán | odmítnut | R2: potřebuje veřejný endpoint. R1: přijímač je nová služba. R4: tiché pozastavení automatizace = ztracené události bez HOLD. Bez autentizace webhooku nejde ověřit původ. Vzor jako I2: událost je jen signál, stav vždy z REST |
+| H5 | Claude Code cloud sessions a cloud scheduled tasks (routines) | Docs: plány Pro, Max, Ultra, Team. Bez zvláštní ceny za VM, čerpá stejné limity předplatného. Běží v izolované VM Anthropicu | Repo z GitHubu, přihlášení přes GitHub App nebo `/web-setup`, síť VM podle prostředí | odmítnut | R2: neběží na Macu pod launchd, nemá lokální `runs/`. R3: mimo lease, fence, journal a TARS-GUARD (hooky z Macu se nenačtou). Radar dnes používá cloudovou úlohu, to je jiná, read-only role. Viz D2 |
+
+Závěr §4.1: žádná placená ani hostovaná služba nesplní R1–R3 současně. Verdikty oblastí v §5 se nemění. Hostované služby přidávají jen vzory, které už pokrývají E1, E2 a I2.
 
 ## 5. Verdikty
 
@@ -223,8 +243,19 @@ Závěr: B je dražší a navíc nesplní R3/R5. A je levnější a nemění bez
 
 - **Verdikty oblastí:** I PŘEVZÍT, F STAVĚT VLASTNÍ, E PŘEVZÍT VZORY, W PŘEVZÍT (W5 až v PR 4c), C PŘEVZÍT, R STAVĚT VLASTNÍ, D STAVĚT VLASTNÍ, N PŘEVZÍT.
 - **Žádná nová služba, framework, závislost ani náklad.** Nic se neinstaluje a nic nezapíná.
-- **Brána není uzavřená:** G-01 čeká na rozhodnutí vlastníka (výjimka nebo role Zbrojíře). Do té doby HOLD pro PR 3, PR 4c a PR 5.
+- **Autorství:** G-01 vyřešeno DR-041 (5. 11. 2026, GO A).
+- **Brána není ratifikovaná:** chybí Codex PASS nad verzí 2.1 (§10). Do té doby HOLD pro PR 3, PR 4c a PR 5.
 - **Otevřené:** tvar JSONL limitu Codexu (PR 4a), názvy proměnných watchdogu proti nainstalované verzi (PR 4c), důkaz načtení hooků v `-p` (§7).
+
+## 10. Ratifikace podle DR-041
+
+| Podmínka DR-041 | Stav | Důkaz |
+| --- | --- | --- |
+| Výjimka z autorství (autor = stavitel) | **platí** | DR-041, 5. 11. 2026, GO A vlastníka |
+| Nezávislá kontrola GPT po opravách G-02 až G-08 | **PASS S VÝHRADAMI** (kolo 2, 5. 11. 2026) | výhrady N-03 a N-04 zapracovány ve v2.1 (§0a, §1, §4.1) |
+| Codex PASS nad konkrétní verzí brány | **čeká na kolo 5** (nad verzí 2.1) | zatím nedoloženo. Kolo 4 vedlo k opravě §7 (commit `fa0b385`), to není PASS |
+
+Brána je ratifikovaná až tehdy, když Codex kolo 5 vrátí PASS a do této tabulky se doplní odkaz na review, commit kontrolované verze a datum. Do té doby se nepíše „uzavřená“ ani „ratifikovaná“.
 
 ## Zdroje
 
@@ -236,6 +267,7 @@ Závěr: B je dražší a navíc nesplní R3/R5. A je levnější a nemění bez
 - SessionEnd: https://github.com/anthropics/claude-code/issues/41577
 - Node: https://github.com/nodejs/node/issues/65052
 - Notion webhooks: https://developers.notion.com/reference/webhooks-events-delivery
+- Hostované služby (§4.1, čteno 5. 11. 2026): https://www.inngest.com/pricing , https://www.inngest.com/docs/setup/connect , https://trigger.dev/pricing , https://vercel.com/docs/queues , https://www.notion.com/help/webhook-actions , https://code.claude.com/docs/en/claude-code-on-the-web
 - MCP registry: https://registry.modelcontextprotocol.io/v0/servers?search=notion , https://registry.modelcontextprotocol.io/v0/servers?search=queue
 - GitHub: https://github.com/mixpeek/amux , https://github.com/OrchestratorInc/agent-orchestrator , https://github.com/terryso/claude-auto-resume , https://github.com/wong2/claude-plugins , https://github.com/keng1304/claude-codex-bridge , https://github.com/inngest/inngest , https://github.com/triggerdotdev/trigger.dev , https://github.com/temporalio/temporal , https://github.com/Unitech/pm2 , https://github.com/Supervisor/supervisor , https://github.com/lolmatina/queue-lite
 - npm: https://www.npmjs.com/package/workflow , https://www.npmjs.com/package/@visulima/workflow , https://www.npmjs.com/package/@dbos-inc/dbos-sdk , https://www.npmjs.com/package/tokenmaxxing , https://www.npmjs.com/package/@inharness-ai/sqlite-queue , https://www.npmjs.com/package/@zbil/liteque , https://www.npmjs.com/package/@lomatina/queue-lite
