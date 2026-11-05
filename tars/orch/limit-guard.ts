@@ -21,6 +21,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { mkdirDurable } from "./store";
+
 export const LIMIT_GUARD_DIR = "limit-guard";
 
 /** Jedno doložené varování CLI o blížícím se limitu (stejný tvar jako LimitWarningNote v departments.ts). */
@@ -71,12 +73,20 @@ function fsyncDir(dir: string): void {
 
 /**
  * Malý create-only zápis (O_EXCL) s fsync souboru i adresáře. EEXIST = throw s kódem EEXIST (volající rozhodne).
+ * FIX1 (PR 4b) nález 4: `fs.writeSync` smí zapsat méně bajtů; zapisuje se ve smyčce, zápis bez postupu = chyba.
  * Chyba po vytvoření souboru = soubor se zkusí odstranit (neúplný záznam nesmí vypadat jako uložený) a throw.
+ * Neodstraněný neúplný záznam varování je nečitelný = trvalá blokace (pending), ne obejití.
  */
 function createOnly(file: string, text: string): void {
+  const buf = Buffer.from(text, "utf8");
   const fd = fs.openSync(file, "wx", 0o600);
   try {
-    fs.writeSync(fd, text);
+    let off = 0;
+    while (off < buf.length) {
+      const n = fs.writeSync(fd, buf, off, buf.length - off);
+      if (!(n > 0)) throw new Error(`createOnly: krátký zápis ${off}/${buf.length} B do ${path.basename(file)}`);
+      off += n;
+    }
     fs.fsyncSync(fd);
   } catch (e) {
     fs.closeSync(fd);
@@ -91,6 +101,22 @@ function createOnly(file: string, text: string): void {
   fsyncDir(path.dirname(file));
 }
 
+/** Uložený záznam jednoho varování `<klíč>.w-<otisk>.json`. */
+const WARNING_FILE = /\.w-[0-9a-f]{16}\.json$/;
+
+/** Čitelný záznam varování (JSON, `source`, platný čas `until`), jinak undefined = nečitelný. */
+function readWarning(p: string): (Partial<GuardWarning> & { until: string; source: string }) | undefined {
+  try {
+    const j = JSON.parse(fs.readFileSync(p, "utf8")) as Partial<GuardWarning>;
+    if (!j || typeof j !== "object") return undefined;
+    if (typeof j.until !== "string" || !Number.isFinite(Date.parse(j.until))) return undefined;
+    if (typeof j.source !== "string") return undefined;
+    return j as Partial<GuardWarning> & { until: string; source: string };
+  } catch {
+    return undefined;
+  }
+}
+
 export class LimitGuard {
   constructor(
     private runsDir: string,
@@ -98,8 +124,6 @@ export class LimitGuard {
       now: () => Date;
       /** konec blokace z varování (doložený reset + rezerva, jinak pauseMinutes od přijetí) */
       untilOf: (n: LimitNote, received: string) => { until: string; reset_source: string };
-      /** nečitelný záznam varování blokuje pauseMinutes od zápisu (fail-closed, jako limit-warning.json) */
-      pauseMs: number;
     },
   ) {}
 
@@ -107,11 +131,20 @@ export class LimitGuard {
     return path.join(this.runsDir, LIMIT_GUARD_DIR);
   }
 
+  /** FIX1 (PR 4b) nález 5: nový adresář limit-guard trvale (fsync rodiče runs/ i dalších nově vzniklých úrovní). */
+  private ensureDir(): void {
+    mkdirDurable(this.dir());
+  }
+
+  private pendingFile(key: string): string {
+    return path.join(this.dir(), `${guardBase(key)}.pending.json`);
+  }
+
   /** Sentinel před voláním modelu. Throw = volání se nesmí spustit (nic se nezapsalo, nebo existuje cizí sentinel). */
   open(key: string): void {
-    fs.mkdirSync(this.dir(), { recursive: true });
+    this.ensureDir();
     createOnly(
-      path.join(this.dir(), `${guardBase(key)}.pending.json`),
+      this.pendingFile(key),
       JSON.stringify({ v: 1, key, opened_at: this.o.now().toISOString(), pid: process.pid }) + "\n",
     );
   }
@@ -138,17 +171,18 @@ export class LimitGuard {
       ...(n.model ? { model: n.model } : {}),
     };
     try {
-      fs.mkdirSync(this.dir(), { recursive: true });
+      this.ensureDir();
       createOnly(f, JSON.stringify(rec) + "\n");
     } catch (e) {
-      if ((e as NodeJS.ErrnoException)?.code === "EEXIST" && fs.statSync(f).size > 0) return;
+      // Stejné varování podruhé: platí jen čitelný záznam (neúplný blokuje trvale přes pending()).
+      if ((e as NodeJS.ErrnoException)?.code === "EEXIST" && readWarning(f)) return;
       throw e;
     }
   }
 
   /** Volání skončilo a všechna jeho varování jsou uložena: sentinel pryč (unlink nepotřebuje volné místo). */
   resolve(key: string): void {
-    fs.unlinkSync(path.join(this.dir(), `${guardBase(key)}.pending.json`));
+    fs.unlinkSync(this.pendingFile(key));
     try {
       fsyncDir(this.dir());
     } catch {
@@ -156,14 +190,16 @@ export class LimitGuard {
     }
   }
 
-  /** Nevyřešené sentinely (i nečitelné: existence souboru stačí). */
+  /**
+   * Nevyřešené sentinely (i nečitelné: existence souboru stačí). FIX1 (PR 4b) nález 4: nečitelný záznam varování
+   * (neúplný zápis, poškození) je taky nevyřešený = trvalá blokace do ručního ověření, ne výchozí hodina.
+   */
   pending(): PendingGuard[] {
     const d = this.dir();
     if (!fs.existsSync(d)) return [];
-    return fs
-      .readdirSync(d)
+    const files = fs.readdirSync(d).sort();
+    const sentinels = files
       .filter((f) => f.endsWith(".pending.json"))
-      .sort()
       .map((f) => {
         try {
           const j = JSON.parse(fs.readFileSync(path.join(d, f), "utf8")) as { key?: unknown; opened_at?: unknown };
@@ -176,43 +212,69 @@ export class LimitGuard {
           return { key: f, file: f };
         }
       });
+    const unreadable = files
+      .filter((f) => WARNING_FILE.test(f) && !readWarning(path.join(d, f)))
+      .map((f) => ({ key: `nečitelný záznam varování ${f}`, file: f }));
+    return [...sentinels, ...unreadable];
   }
 
-  /** Nevypršené blokace z uložených varování, po souborech. Nečitelný záznam = pauseMs od zápisu souboru. */
+  /**
+   * FIX1 (PR 4b) nález 7: o klíči existuje stopa na disku (nevyřešený sentinel, nebo sentinel ověřený vlastníkem).
+   * Throw = adresář nejde přečíst (volající rozhodne fail-closed).
+   */
+  knows(key: string): boolean {
+    if (fs.existsSync(this.pendingFile(key))) return true;
+    const d = this.dir();
+    if (!fs.existsSync(d)) return false;
+    const pre = `${guardBase(key)}.verified-`;
+    return fs.readdirSync(d).some((f) => f.startsWith(pre));
+  }
+
+  /** FIX1 (PR 4b) nález 7: obnova chybějícího sentinelu (už existující = nic). Throw = nejde zapsat. */
+  restore(key: string): void {
+    try {
+      this.open(key);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== "EEXIST") throw e;
+    }
+  }
+
+  /** Nevypršené blokace z uložených čitelných varování, po souborech. Nečitelný záznam blokuje přes pending(). */
   live(nowMs: number): Record<string, { until: string; source: string; reset_source: string }> {
     const d = this.dir();
     if (!fs.existsSync(d)) return {};
     const out: Record<string, { until: string; source: string; reset_source: string }> = {};
     for (const f of fs.readdirSync(d)) {
-      if (!/\.w-[0-9a-f]{16}\.json$/.test(f)) continue;
-      const p = path.join(d, f);
-      let until = NaN;
-      let source = "nečitelný";
-      let reset_source = "nedoloženo";
-      try {
-        const j = JSON.parse(fs.readFileSync(p, "utf8")) as Partial<GuardWarning>;
-        until = Date.parse(String(j.until ?? ""));
-        if (typeof j.source === "string") source = j.source;
-        if (typeof j.reset_source === "string") reset_source = j.reset_source;
-      } catch {
-        until = NaN;
-      }
-      if (!Number.isFinite(until)) until = fs.statSync(p).mtimeMs + this.o.pauseMs;
-      if (until > nowMs) out[f] = { until: new Date(until).toISOString(), source, reset_source };
+      if (!WARNING_FILE.test(f)) continue;
+      const j = readWarning(path.join(d, f));
+      if (!j) continue;
+      const until = Date.parse(j.until);
+      if (until > nowMs)
+        out[f] = {
+          until: new Date(until).toISOString(),
+          source: j.source,
+          reset_source: typeof j.reset_source === "string" ? j.reset_source : "nedoloženo",
+        };
     }
     return out;
   }
 
   /**
    * Ruční ověření vlastníkem (stav účtu CLI zkontrolovaný mimo TARS): každý nevyřešený sentinel se přejmenuje na
-   * `<jméno>.verified-<čas>.json` (nic se nemaže, stopa zůstane). Vrací počet uvolněných sentinelů.
+   * `<jméno>.verified-<čas>.json`, nečitelný záznam varování na `<jméno>.unreadable.verified-<čas>.json` (nic se
+   * nemaže, stopa zůstane). Vrací počet uvolněných položek.
    */
   verifyAll(): number {
     const stamp = this.o.now().toISOString().replace(/[-:.]/g, "");
     let n = 0;
     for (const p of this.pending()) {
       const from = path.join(this.dir(), p.file);
-      fs.renameSync(from, from.replace(/\.pending\.json$/, `.verified-${stamp}.json`));
+      fs.renameSync(
+        from,
+        WARNING_FILE.test(p.file)
+          ? from.replace(/\.json$/, `.unreadable.verified-${stamp}.json`)
+          : from.replace(/\.pending\.json$/, `.verified-${stamp}.json`),
+      );
       n++;
     }
     if (n) fsyncDir(this.dir());
@@ -229,9 +291,19 @@ export function runWithLimitSink<T>(sink: (n: LimitNote) => void, fn: () => Prom
   return sinkStore.run(sink, fn);
 }
 
+let fallbackSink: ((n: LimitNote) => void) | undefined;
+
+/**
+ * FIX1 (PR 4b) nález 6: záložní sink pro varování z volání mimo hlídaný úsek (žádné aktivní `runWithLimitSink`).
+ * Orchestrátor ho nastaví tak, že varování uloží (a když to nejde, zvedne blokaci); nic se tiše nezahodí.
+ */
+export function setFallbackLimitSink(s: ((n: LimitNote) => void) | undefined): void {
+  fallbackSink = s;
+}
+
 /** Adaptér volá hned po rozboru výstupu procesu, před čímkoli dalším. Nikdy nevyhodí chybu. */
 export function reportLimitWarning(n: LimitNote): void {
-  const s = sinkStore.getStore();
+  const s = sinkStore.getStore() ?? fallbackSink;
   if (!s) return;
   try {
     s(n);

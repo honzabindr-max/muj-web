@@ -244,7 +244,6 @@ function limitGuardOf(dir: string): LimitGuard {
   return new LimitGuard(dir, {
     now: () => new Date(),
     untilOf: () => ({ until: new Date().toISOString(), reset_source: "nedoloženo" }),
-    pauseMs: 0,
   });
 }
 

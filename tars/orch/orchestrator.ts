@@ -94,7 +94,7 @@ import {
   type DeptAvailability,
 } from "./supervisor";
 import { callChecker } from "./departments";
-import { GuardSession, LimitGuard, runWithLimitSink, type LimitNote } from "./limit-guard";
+import { GuardSession, LimitGuard, runWithLimitSink, setFallbackLimitSink, type LimitNote } from "./limit-guard";
 import { gitHubRemoteProbe, type RemoteProbe } from "./remote-snapshot";
 import type { Department, LogEntry, Order } from "./types";
 
@@ -329,7 +329,15 @@ export class Orchestrator {
               reset_source: "nedoloženo",
             };
       },
-      pauseMs: (d.pauseMinutes ?? 60) * 60_000,
+    });
+    // FIX1 (PR 4b) nález 6: varování z volání mimo hlídaný úsek se uloží; nejde-li to, blokace (nic se nezahodí).
+    setFallbackLimitSink((n) => {
+      try {
+        this.limitGuard.record(`mimo-usek/${this.iso()}/${process.pid}`, n);
+        this.guardSaved.add(`${n.source}|${n.text}`);
+      } catch (e) {
+        this.raiseLimitHold(`varování mimo hlídaný úsek (${n.source}): ${String((e as Error)?.message ?? e).slice(0, 200)}`, false);
+      }
     });
     this.ctx = {
       store: d.store,
@@ -1580,9 +1588,21 @@ export class Orchestrator {
     this.flushLimitHoldMarker();
     let pending: ReturnType<LimitGuard["pending"]>;
     try {
+      // FIX1 (PR 4b) nález 7: pokus v HOLD „varování neuloženo“ bez jakékoli stopy v runs/limit-guard (sentinel
+      // smazán ručně nebo ztracen) = sentinel se obnoví a blokace platí dál, dokud ji vlastník neověří.
+      const missing = this.limitHoldsWithoutSentinel();
+      for (const id of missing)
+        try {
+          this.limitGuard.restore(id);
+        } catch {
+          // obnova nejde zapsat: blokuje důvod níže (journal), ne obejití
+        }
+      const still = missing.filter((id) => !this.limitGuard.knows(id));
+      if (still.length)
+        return `${LIMIT_WARNING_LOST}: sentinel pokusu chybí a nejde obnovit (${still.slice(0, 3).join(", ")}); do ručního ověření žádný krok ani nová zakázka`.slice(0, 500);
       pending = this.limitGuard.pending();
     } catch (e) {
-      return `runs/limit-guard nejde přečíst (fail-closed): ${String((e as Error)?.message ?? e).slice(0, 200)}`;
+      return `runs/limit-guard nebo journal pokusů nejde přečíst (fail-closed): ${String((e as Error)?.message ?? e).slice(0, 200)}`;
     }
     if (pending.length)
       return `${LIMIT_WARNING_LOST} nebo neověřeno: ${pending.length} nevyřešený sentinel (${pending
@@ -1591,6 +1611,23 @@ export class Orchestrator {
         .join(", ")}); do ručního ověření vlastníkem žádný krok ani nová zakázka`.slice(0, 500);
     if (this.limitHoldMem) return this.limitHoldMem;
     return undefined;
+  }
+
+  /**
+   * FIX1 (PR 4b) nález 7: ID pokusů s trvalým důvodem HOLD LIMIT_WARNING_LOST (i po HOLD → ABANDONED reconcilerem),
+   * o kterých runs/limit-guard nic neví (ani nevyřešený, ani ověřený sentinel).
+   */
+  private limitHoldsWithoutSentinel(): string[] {
+    const out: string[] = [];
+    for (const o of this.d.store.listOrders())
+      for (const a of this.attempts.list(o.id))
+        if (
+          a.hold &&
+          [a.hold.reason, ...(a.hold.previous ?? [])].some((x) => x.startsWith(LIMIT_WARNING_LOST)) &&
+          !this.limitGuard.knows(a.attempt_id)
+        )
+          out.push(a.attempt_id);
+    return out;
   }
 
   /** PR 4b, bod 1: varování neuloženo → blokace v paměti hned, sentinel na disku hned, jinak při nejbližší možnosti. */
@@ -2447,6 +2484,19 @@ export class Orchestrator {
       }
     }
     if (prev?.phase === "FINISHED" && prev.finished?.ok) {
+      // FIX1 (PR 4b) nález 2: pokus se snímkem před smí RESUME jen s uloženým snímkem po a bez problému §8.2
+      // (EXTERNAL_UNJOURNALED). Chybí snímek po (pád mezi FINISHED a snímkem, starší záznam) = HOLD, žádné doplnění.
+      if (prev.remote_before) {
+        const remote = !prev.remote_after
+          ? "UNKNOWN (§8.2): FINISHED bez snímku po, nežurnálovaný zápis dítěte nejde vyloučit"
+          : dept.remoteProblem
+            ? dept.remoteProblem(order, this.ctx, prev)
+            : "UNKNOWN (§8.2): oddělení neumí vyhodnotit snímky";
+        if (remote) {
+          if (!prev.reconcile) J.setReconcile(prev.attempt_id, "UNKNOWN", remote);
+          return { kind: "hold", reason: `pokus ${prev.attempt_id}: ${remote}` };
+        }
+      }
       // FINISHED, přechod neaplikován (krok je pořád na řadě): výstup se shodným sha256 → použít bez volání modelu.
       const resumed = this.resumeOutput<T>(order, prev);
       if (!prev.reconcile)
@@ -2569,9 +2619,10 @@ export class Orchestrator {
         rec,
         JSON.stringify({ error: String((e as Error)?.message ?? e) }),
       );
-      J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: sha });
+      // FIX1 (PR 4b) nález 2: snímek po i tady PŘED FINISHED; problém §8.2 = pokus do HOLD.
       const remote = remoteAfter();
-      if (remote) return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${remote}` };
+      if (remote) return holdUnsettled(remote);
+      J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: sha });
       throw e;
     }
     // PR 4b, bod 1: PRVNÍ věc po návratu procesu: varování výsledku (malé create-only záznamy), před draftem i journalem.
@@ -2597,9 +2648,11 @@ export class Orchestrator {
       }
     }
     const sha = J.writeOutput(rec, JSON.stringify(out));
-    J.finished(rec.attempt_id, { exit: r.ok ? 0 : 1, ok: r.ok, output_sha256: sha });
+    // FIX1 (PR 4b) nález 2: snímek po se uloží PŘED FINISHED. Problém §8.2 = pokus do HOLD (nikdy FINISHED ok:true,
+    // ze kterého by po restartu šlo RESUME); pád mezi snímkem a FINISHED nechá pokus neukončený = reconciler.
     const remote = remoteAfter();
-    if (remote) return { kind: "hold", reason: `pokus ${rec.attempt_id}: ${remote}` };
+    if (remote) return holdUnsettled(remote);
+    J.finished(rec.attempt_id, { exit: r.ok ? 0 : 1, ok: r.ok, output_sha256: sha });
     return { kind: "run", r, resumed: false };
   }
 
@@ -3234,6 +3287,8 @@ export class Orchestrator {
           result: r.ok ? "ok" : "error",
           reason: r.error,
         });
+        // FIX1 (PR 4b) nález 3: hranici dítěte nejde zaručit (konfigurace gitu) = HOLD, ne chyba tvůrce.
+        if (r.hold) return this.attemptBlocked(order, { kind: "hold", reason: r.hold });
         const b = this.bad(order, r, "creator");
         if (b) return b;
         const created = {
@@ -3314,6 +3369,8 @@ export class Orchestrator {
           result: r.ok ? "ok" : "error",
           reason: r.error,
         });
+        // FIX1 (PR 4b) nález 3: hranici dítěte nejde zaručit (konfigurace gitu) = HOLD, ne chyba tvůrce.
+        if (r.hold) return this.attemptBlocked(order, { kind: "hold", reason: r.hold });
         const b = this.bad(order, r, "creator");
         if (b) return b;
         const revised = {
@@ -3565,18 +3622,25 @@ export class Orchestrator {
       } catch {
         /* draft nejde přečíst → záložní objekt */
       }
-      const data = await buildCardData(o, draft, o.delivered_url, {
-        adapter: this.d.cardAdapter,
-        cwd: this.d.store.orderDir(o.id),
-        onFallback: (reason) =>
-          this.safeLog({
-            order: o.id,
-            kind: "info",
-            role: "orchestrator",
-            result: "card-data: záložní objekt",
-            reason,
+      // FIX1 (PR 4b) nález 6: volání modelu karty jako hlídané volání (sentinel před, varování hned do sinku).
+      // Sentinel nejde zapsat = throw = sekce vynechána, volání neproběhne.
+      const { v: data } = await this.guarded(
+        `${o.id}/card-data/${this.now().getTime()}`,
+        () =>
+          buildCardData(o, draft, o.delivered_url, {
+            adapter: this.d.cardAdapter,
+            cwd: this.d.store.orderDir(o.id),
+            onFallback: (reason) =>
+              this.safeLog({
+                order: o.id,
+                kind: "info",
+                role: "orchestrator",
+                result: "card-data: záložní objekt",
+                reason,
+              }),
           }),
-      });
+        () => [],
+      );
       return cardDataSection(data);
     } catch (e) {
       this.safeLog({

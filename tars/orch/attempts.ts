@@ -69,7 +69,8 @@ export interface AttemptRecord {
     at: string;
   };
   abandoned?: { reason: string; kill_evidence: string; at: string };
-  hold?: { reason: string; at: string };
+  /** FIX1 (PR 4b) nález 7: `previous` = dřívější důvody HOLD (nejstarší první); nový HOLD je nepřepíše. */
+  hold?: { reason: string; at: string; previous?: string[] };
   /**
    * FIX2 nález 1: skupiny (pgid), jejichž zánik je doložen (žádný člen a vedoucí chybí nebo má jiný lstart). Takový
    * pgid se už nikdy nesignalizuje, i kdyby v něm později něco běželo (recyklace ID).
@@ -279,8 +280,11 @@ export class AttemptJournal {
   }
 
   holdAttempt(id: string, reason: string): AttemptRecord {
+    // FIX1 (PR 4b) nález 7: další HOLD (reconciler) nepřepíše dřívější důvod (např. „varování limitu nešlo uložit“).
+    const prev = this.get(id)?.hold;
+    const previous = prev ? [...(prev.previous ?? []), prev.reason].slice(-10) : [];
     return this.move(id, "HOLD", {
-      hold: { reason: reason.slice(0, 500), at: this.now() },
+      hold: { reason: reason.slice(0, 500), at: this.now(), ...(previous.length ? { previous } : {}) },
     });
   }
 

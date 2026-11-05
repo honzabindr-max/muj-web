@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { noRemoteWriteEnv, type AdapterResult, type AiChain, type TextAdapter } from "./adapters";
+import { childEnv, noRemoteWriteEnv, remoteWriteConfigProblem, type AdapterResult, type AiChain, type TextAdapter } from "./adapters";
 import { artifactHash } from "./approval";
 import { AttemptJournal, currentAttempt, RetryRefusedError, sha256, type AttemptRecord, type RetryDecision } from "./attempts";
 import { unjournaledWrites, type JournaledWrites, type RemoteProbe, type RemoteSnapshot } from "./remote-snapshot";
@@ -556,6 +556,16 @@ const OID = /^[0-9a-f]{40}$/;
  * `git diff <reviewed_base_oid>..<HEAD>` (pevná báze z receiptu: posun origin/main nic nerozbije ani nezamaskuje).
  * Vrací důvod HOLD (REVIEW_MISMATCH | REVIEW_COVERAGE), jinak undefined.
  */
+/** FIX1 (PR 4b) nález 1: OID, který receipt (s odkazem ze state.json) doložil jako zkontrolovaný; jinak undefined. */
+export function reviewedGitOid(order: Order, ctx: DeptContext): string | undefined {
+  const rc = readReviewReceipt(ctx.store.orderDir(order.id), {
+    review_id: order.meta.review_receipt_id,
+    sha256: order.meta.review_receipt_sha256,
+  });
+  const oid = rc?.reviewed_git_commit_oid ?? "";
+  return OID.test(oid) ? oid : undefined;
+}
+
 export function gitReviewGate(order: Order, ctx: DeptContext, wt: string, creatorFamily: ModelFamily): string | undefined {
   const rc = readReviewReceipt(ctx.store.orderDir(order.id), {
     review_id: order.meta.review_receipt_id,
@@ -648,8 +658,9 @@ export class PushJournal {
   }
 
   /** PREPARED před push, s reconcile proti předchozímu záznamu stejného kola (§8: shoda OID → RESUME). */
-  begin(orderId: string, round: number, wt: string, branch: string): PushRecord {
-    const head = gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
+  /** FIX1 (PR 4b) nález 1: `oid` = commit, který se odešle (zkontrolovaný); bez něj HEAD worktree (PR 4a). */
+  begin(orderId: string, round: number, wt: string, branch: string, oid?: string): PushRecord {
+    const head = oid ?? gitOut(wt, ["rev-parse", "HEAD"]).out.trim();
     const expected = OID.test(head) ? head : null;
     const remote = lsRemoteHead(wt, branch);
     const prev = this.list(orderId, round).at(-1);
@@ -821,7 +832,12 @@ export class DevDepartment implements DepartmentRunner {
     const att = currentAttempt();
     const p = att ? AttemptJournal.parseId(att.id) : undefined;
     const ghEmpty = path.join(dir, "attempts", p ? `${p.step}-a${p.attempt}.gh-empty` : "bez-pokusu.gh-empty");
-    const r = await this.chain.run(zadani, wt, dir, undefined, noRemoteWriteEnv(ghEmpty));
+    const boundary = noRemoteWriteEnv(ghEmpty);
+    // FIX1 (PR 4b) nález 3: co prostředí neumí vyřadit (URL-specifický extraHeader/helper, jiný pushurl, insteadOf),
+    // zastaví krok PŘED spuštěním dítěte: HOLD, žádné volání.
+    const why = remoteWriteConfigProblem(wt, { ...childEnv(), ...boundary });
+    if (why) return { ok: false, hold: why, error: `HOLD ${why}`, model: this.creatorModel(), draft_file: "wt" };
+    const r = await this.chain.run(zadani, wt, dir, undefined, boundary);
     if (r.ok) {
       git(wt, ["add", "-A"]);
       git(wt, ["commit", "-q", "-m", `feat(tars): ${order.brief!.title} (${order.id}, r${order.fix_rounds})`]);
@@ -937,10 +953,18 @@ ${verdictFormatFor(this.reviewer)}`;
     }
     const gate = this.effectGate(order, _ctx);
     if (gate) return { ok: false, hold: gate, error: `HOLD ${gate}`, effect_absent: true };
+    // FIX1 (PR 4b) nález 1: odešle se přesně OID, který doložil receipt brány (`<oid>:refs/heads/tars/<id>`), ne
+    // lokální větev: commit na jiné větvi nebo detached HEAD při revise nemůže odeslat dříve odmítnutý commit.
+    const oid = reviewedGitOid(order, _ctx);
+    if (!oid) {
+      const why = "REVIEW_MISMATCH: zkontrolovaný OID z receiptu nejde určit, 0 push";
+      return { ok: false, hold: why, error: `HOLD ${why}`, effect_absent: true };
+    }
     // PR 4a: záznam a reconcile kolem push (journal <wo>/push/r<n>).
     const pj = new PushJournal(_ctx.store.runsDir);
-    const pushRec = pj.begin(order.id, order.fix_rounds, wt, branch);
-    const push = git(wt, ["push", "-q", "-u", "origin", branch]);
+    const pushRec = pj.begin(order.id, order.fix_rounds, wt, branch, oid);
+    const refspec = `${oid}:refs/heads/${branch}`;
+    const push = git(wt, ["push", "-q", "origin", refspec]);
     const pushed = pj.end(order.id, order.fix_rounds, pushRec, push.ok, wt);
     if (!push.ok) return { ok: false, error: "git push failed", effect_absent: true }; // no PR exists before the push
     // PR 4b: draft PR jen nad přesně zkontrolovaným commitem, který je doloženě na vzdálené větvi (receipt push).
@@ -957,9 +981,8 @@ ${verdictFormatFor(this.reviewer)}`;
     });
     const url = /https:\/\/github\.com\/\S+\/pull\/\d+/.exec(r.stdout ?? "")?.[0];
     if (!url) return { ok: false, error: "gh pr create failed" };
-    // DR-039: the artifact the owner's GO is bound to is the pushed head commit of the PR.
-    const head = git(wt, ["rev-parse", "HEAD"]);
-    return { ok: true, url, model: "gh", content: head.ok && /^[0-9a-f]{40}\s*$/.test(head.out) ? head.out.trim() : undefined };
+    // DR-039: the artifact the owner's GO is bound to is the pushed head commit of the PR (= zkontrolovaný OID).
+    return { ok: true, url, model: "gh", content: oid };
   }
 
   /**

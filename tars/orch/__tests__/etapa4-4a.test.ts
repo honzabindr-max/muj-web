@@ -2027,6 +2027,11 @@ describe("CI 4a (2): statická hranice třídy A", () => {
       '"GITHUB_TOKEN"',
       '"GH_ENTERPRISE_TOKEN"',
       '"GITHUB_ENTERPRISE_TOKEN"',
+      // PR 4b FIX1: agent SSH a SSH příkaz gitu se dítěti nepředávají
+      '"SSH_AUTH_SOCK"',
+      '"SSH_AGENT_PID"',
+      '"GIT_SSH"',
+      '"GIT_SSH_COMMAND"',
     ]);
   });
 
@@ -2065,10 +2070,11 @@ describe("CI 4a (2): statická hranice třídy A", () => {
     // Stav na main @ c965265: tři čtení/zápisy přes `gh pr`, jeden `git push` v DevDepartment.deliver a dvě čtení
     // `gh api` v návrhu guardu. PR 4a nic nepřidává ani nemění. PR 4b (třída B) přidává jen: dvě čtení (`gh pr list`,
     // `gh run list`) ve snímcích §8.2 a text hlášky/dokumentace pravidla TARS_ATTEMPT_ID v bash-preflight.py (žádné
-    // volání). Volání push a vytvoření PR v deliver jsou textově beze změny (brána je před nimi).
+    // volání). Vytvoření PR v deliver je textově beze změny (brána je před ním); push od FIX1 odesílá refspec zkontrolovaného OID.
     expect(hits.sort()).toEqual(
       [
-        'tars/orch/departments.ts: const push = git(wt, ["push", "-q", "-u", "origin", branch]);',
+        // PR 4b FIX1 nález 1: push odešle přesně zkontrolovaný OID (refspec <oid>:refs/heads/tars/<id>)
+        'tars/orch/departments.ts: const push = git(wt, ["push", "-q", "origin", refspec]);',
         'tars/orch/departments.ts: const r = spawnSync("gh", ["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", `feat(tars): ${order.brief!.title}`, "--body", body], {',
         'tars/orch/departments.ts: const r = spawnSync("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "50", "--json", "url,body"], { encoding: "utf8", timeout: 60_000 });',
         'tars/orch/departments.ts: const r = spawnSync("gh", ["pr", "view", order.delivered_url, "--json", "headRefOid", "--jq", ".headRefOid"], { encoding: "utf8", timeout: 60_000 });',

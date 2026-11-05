@@ -14,6 +14,8 @@ import {
   childEnv,
   noRemoteWriteEnv,
   PUSH_BLOCKED_URL,
+  PUSH_REWRITE_PREFIXES,
+  remoteWriteConfigProblem,
   type TextAdapter,
 } from "../adapters";
 import {
@@ -36,7 +38,7 @@ import {
   runWithLimitSink,
   type LimitNote,
 } from "../limit-guard";
-import { Orchestrator } from "../orchestrator";
+import { LIMIT_WARNING_LOST, Orchestrator } from "../orchestrator";
 import {
   headsSha256,
   parseLsRemote,
@@ -160,7 +162,6 @@ const guardFor = (d: string) =>
   new LimitGuard(d, {
     now: () => new Date(NOW),
     untilOf: () => ({ until: NOW, reset_source: "test" }),
-    pauseMs: 0,
   });
 
 const guardFiles = (re: RegExp) => {
@@ -620,6 +621,13 @@ describe("bod 1: varování limitu + ENOSPC (Codex PR 4a kolo 5)", () => {
 
 // ───────────────────────────── §8.1 hranice práv dítěte (N03 testy 1–2) ─────────────────────────────
 
+/** Dvojice GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n v pořadí 0..COUNT-1. */
+const cfgPairs = (env: Record<string, string | undefined>) =>
+  Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, i) => [
+    env[`GIT_CONFIG_KEY_${i}`],
+    env[`GIT_CONFIG_VALUE_${i}`],
+  ]);
+
 const hasGh =
   spawnSync("sh", ["-c", "command -v gh"], { encoding: "utf8" }).status === 0;
 
@@ -653,17 +661,193 @@ describe("§8.1 noRemoteWriteEnv (N03)", () => {
     expect(fs.readdirSync(d)).toEqual([]);
     expect(env).toMatchObject({
       GH_CONFIG_DIR: d,
-      GIT_CONFIG_COUNT: "3",
-      GIT_CONFIG_KEY_0: "credential.helper",
-      GIT_CONFIG_VALUE_0: "",
-      GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
-      GIT_CONFIG_VALUE_1: "",
-      GIT_CONFIG_KEY_2: "remote.origin.pushurl",
-      GIT_CONFIG_VALUE_2: PUSH_BLOCKED_URL,
       GIT_TERMINAL_PROMPT: "0",
       GIT_ASKPASS: "/usr/bin/false",
       SSH_ASKPASS: "/usr/bin/false",
+      GIT_SSH_COMMAND: "/usr/bin/false",
     });
+    // FIX1 nález 3: vícehodnotové klíče nejdřív prázdnou hodnotou (reset seznamu), pak blokovaný cíl
+    expect(cfgPairs(env)).toEqual([
+      ["credential.helper", ""],
+      ["credential.https://github.com.helper", ""],
+      ["credential.https://gist.github.com.helper", ""],
+      ["remote.origin.pushurl", ""],
+      ["remote.origin.pushurl", PUSH_BLOCKED_URL],
+      ["http.extraHeader", ""],
+      ["http.https://github.com.extraHeader", ""],
+      ...PUSH_REWRITE_PREFIXES.map((p) => [
+        `url.${PUSH_BLOCKED_URL}.pushInsteadOf`,
+        p,
+      ]),
+      ["core.sshCommand", "/usr/bin/false"],
+    ]);
+  });
+
+  it("FIX1 nález 3: předem nastavený pushurl v .git/config se pod hranicí nepoužije (kontrola: dříve by push na něj prošel)", () => {
+    const { base, wt } = devRepo({ "a.txt": "a\n" });
+    const real = path.join(base, "real.git");
+    git(base, "init", "-q", "--bare", "-b", "main", real);
+    git(wt, "config", "--add", "remote.origin.pushurl", real);
+    const nonce = `${process.pid}-${Date.now()}`;
+    const env = {
+      ...childEnv(),
+      ...noRemoteWriteEnv(path.join(dir, "gh-empty")),
+    };
+    expect(git(wt, "remote", "get-url", "--push", "--all", "origin")).toBe(
+      real,
+    );
+    const urls = spawnSync(
+      "git",
+      ["remote", "get-url", "--push", "--all", "origin"],
+      {
+        cwd: wt,
+        env,
+        encoding: "utf8",
+      },
+    );
+    expect(urls.stdout.trim().split("\n")).toEqual([PUSH_BLOCKED_URL]);
+    const push = spawnSync(
+      "git",
+      ["push", "origin", `HEAD:refs/heads/tars/p-${nonce}`],
+      {
+        cwd: wt,
+        env,
+        encoding: "utf8",
+      },
+    );
+    expect(push.status).not.toBe(0);
+    expect(git(real, "for-each-ref", "--format=%(refname)")).toBe("");
+    // kontrola: stará hranice (jen přidaný blokovaný pushurl bez resetu) by na předem nastavený pushurl pushla
+    const old = spawnSync(
+      "git",
+      ["push", "origin", `HEAD:refs/heads/tars/old-${nonce}`],
+      {
+        cwd: wt,
+        env: {
+          ...childEnv(),
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "remote.origin.pushurl",
+          GIT_CONFIG_VALUE_0: PUSH_BLOCKED_URL,
+        },
+        encoding: "utf8",
+      },
+    );
+    expect(old.status).not.toBe(0);
+    expect(git(real, "for-each-ref", "--format=%(refname)")).toContain(
+      `refs/heads/tars/old-${nonce}`,
+    );
+  });
+
+  it("FIX1 nález 3: push na GitHub z jiného remote i z explicitní URL míří na blokovaný cíl (pushInsteadOf)", () => {
+    const { wt } = devRepo({ "a.txt": "a\n" });
+    git(wt, "remote", "add", "gh", "https://github.com/o/r.git");
+    git(wt, "remote", "add", "ghssh", "git@github.com:o/r.git");
+    const env = {
+      ...childEnv(),
+      ...noRemoteWriteEnv(path.join(dir, "gh-empty")),
+    };
+    for (const r of ["gh", "ghssh"]) {
+      const u = spawnSync("git", ["remote", "get-url", "--push", r], {
+        cwd: wt,
+        env,
+        encoding: "utf8",
+      });
+      // pushInsteadOf nahradí prefix: zbytek cesty zůstane za neexistujícím cílem
+      expect([r, u.stdout.trim()]).toEqual([
+        r,
+        expect.stringMatching(new RegExp(`^${PUSH_BLOCKED_URL}`)),
+      ]);
+      const push = spawnSync("git", ["push", r, "HEAD:refs/heads/x"], {
+        cwd: wt,
+        env,
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      expect(push.status).not.toBe(0);
+      expect(`${push.stderr}`).toMatch(/nonexistent\/tars-push-blocked/);
+    }
+  });
+
+  it("FIX1 nález 3: remoteWriteConfigProblem — čistá konfigurace projde; extraHeader, cizí pushurl, insteadOf a URL-specifický helper = HOLD (bez hodnoty v důvodu)", () => {
+    const env = () => ({
+      ...childEnv(),
+      ...noRemoteWriteEnv(path.join(dir, "gh-empty")),
+    });
+    const clean = devRepo({ "a.txt": "a\n" });
+    expect(remoteWriteConfigProblem(clean.wt, env())).toBeUndefined();
+    const cases: Array<[string, string, RegExp]> = [
+      [
+        "http.https://github.com/o/.extraheader",
+        "AUTHORIZATION: basic TAJNE-X",
+        /extraheader/i,
+      ],
+      ["http.extraheader", "AUTHORIZATION: basic TAJNE-X", /extraheader/i],
+      [
+        "remote.upstream.pushurl",
+        "https://github.com/o/r.git",
+        /remote\.upstream\.pushurl/,
+      ],
+      [
+        "url.https://example.com/.insteadOf",
+        "https://github.com/",
+        /insteadof/i,
+      ],
+      [
+        "credential.https://github.com/o.helper",
+        "store",
+        /credential\.https:\/\/github\.com\/o\.helper/,
+      ],
+    ];
+    for (const [k, v, re] of cases) {
+      git(clean.wt, "config", "--add", k, v);
+      const why = remoteWriteConfigProblem(clean.wt, env());
+      git(clean.wt, "config", "--unset-all", k);
+      expect([k, why]).toEqual([k, expect.stringMatching(re)]);
+      expect(why).not.toContain("TAJNE-X");
+      expect(remoteWriteConfigProblem(clean.wt, env())).toBeUndefined();
+    }
+  }, 30_000);
+
+  it("FIX1 nález 3: dev create s URL-specifickým extraHeader v konfiguraci → HOLD před spuštěním dítěte, 0 volání AI Chain", async () => {
+    const { bare, wt } = devRepo({ "a.txt": "a\n" });
+    git(
+      wt,
+      "config",
+      "--add",
+      "http.https://github.com/o/.extraheader",
+      "AUTHORIZATION: basic TAJNE-X",
+    );
+    const chain = okChain();
+    const dev = new DevDepartment(
+      chain as never,
+      new FakeAdapter("gpt", "codex", () => PASS),
+    );
+    const s = await orch(dev, { remoteProbe: bareProbe(bare) }).step(
+      seed("DOING"),
+    );
+    expect(chain.calls).toBe(0);
+    expect(s.state).not.toBe("CHECKING");
+    expect(JSON.stringify(store.load(ORDER_ID))).toMatch(/extraheader/i);
+    expect(JSON.stringify(store.load(ORDER_ID))).not.toContain("TAJNE-X");
+  });
+
+  it("FIX1: childEnv nepředá agenta SSH ani SSH příkaz gitu", () => {
+    const keys = [
+      "SSH_AUTH_SOCK",
+      "SSH_AGENT_PID",
+      "GIT_SSH",
+      "GIT_SSH_COMMAND",
+    ];
+    const old = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    cleanup.push(() => {
+      for (const k of keys) {
+        if (old[k] === undefined) delete process.env[k];
+        else process.env[k] = old[k];
+      }
+    });
+    for (const k of keys) process.env[k] = "/tmp/x";
+    const env = childEnv();
+    for (const k of keys) expect([k, env[k]]).toEqual([k, undefined]);
   });
 
   it("N03 test 1: push z dítěte s noRemoteWriteEnv selže přímo i přes node -e; bare repo beze změny (kontrola: bez hranice push projde)", () => {
@@ -779,7 +963,10 @@ describe("§8.1 noRemoteWriteEnv (N03)", () => {
     expect(env.GH_CONFIG_DIR).toBe(
       path.join(dir, ORDER_ID, "attempts", "create-r0-a1.gh-empty"),
     );
-    expect(env.GIT_CONFIG_VALUE_2).toBe(PUSH_BLOCKED_URL);
+    expect(cfgPairs(env)).toContainEqual([
+      "remote.origin.pushurl",
+      PUSH_BLOCKED_URL,
+    ]);
     expect(fs.statSync(env.GH_CONFIG_DIR).mode & 0o777).toBe(0o700);
   });
 });
@@ -813,6 +1000,8 @@ describe("§8.2 snímky vzdálených zápisů a EXTERNAL_UNJOURNALED", () => {
     );
     const a = J().list(ORDER_ID, "create-r0");
     expect(a).toHaveLength(1);
+    // FIX1 nález 2: snímek po PŘED FINISHED; problém §8.2 = pokus HOLD, nikdy FINISHED ok:true (RESUME po restartu)
+    expect(a[0].phase).toBe("HOLD");
     expect(a[0].remote_before?.ok).toBe(true);
     expect(
       a[0].remote_after?.ok && a[0].remote_after.heads["refs/heads/rogue"],
@@ -993,7 +1182,9 @@ describe("brána review receiptu před gh-push a gh-draft-pr", () => {
     const x = await checkedDev({ "a.txt": "a\n" });
     const d = await x.o.step(store.load(ORDER_ID));
     expect(d.delivered_url).toBe("https://github.com/o/r/pull/9");
-    expect(pushes(x.bins)).toEqual([`push -q -u origin tars/${ORDER_ID}`]);
+    expect(pushes(x.bins)).toEqual([
+      `push -q origin ${x.head}:refs/heads/tars/${ORDER_ID}`,
+    ]);
     expect(prCreates(x.bins)).toHaveLength(1);
     expect(git(x.bare, "rev-parse", `refs/heads/tars/${ORDER_ID}`)).toBe(
       x.head,
@@ -1222,5 +1413,207 @@ describe("brána review receiptu před gh-push a gh-draft-pr", () => {
     expect(dev.effectGate(o, devCtx())).toBe(
       "REVIEW_MISMATCH: output_sha256 nesedí s výstupy částí",
     );
+  });
+
+  it("FIX1 nález 1: větev tars/<id> stojí na jiném (dříve odmítnutém) commitu, HEAD odpojený na zkontrolovaném → push odešle zkontrolovaný OID, ne větev", async () => {
+    const x = await checkedDev({ "a.txt": "a\n" });
+    const main = git(x.wt, "rev-parse", "origin/main");
+    git(x.wt, "checkout", "-q", "--detach", x.head);
+    git(x.wt, "branch", "-f", `tars/${ORDER_ID}`, main);
+    const d = await x.o.step(store.load(ORDER_ID));
+    expect(d.delivered_url).toBe("https://github.com/o/r/pull/9");
+    expect(pushes(x.bins)).toEqual([
+      `push -q origin ${x.head}:refs/heads/tars/${ORDER_ID}`,
+    ]);
+    expect(git(x.bare, "rev-parse", `refs/heads/tars/${ORDER_ID}`)).toBe(
+      x.head,
+    );
+    expect(
+      new PushJournal(dir)
+        .list(ORDER_ID, 0)
+        .map((r) => [r.expected_git_commit_oid, r.receipt?.git_oid]),
+    ).toEqual([[x.head, x.head]]);
+  });
+});
+
+// ───────────────────────────── FIX1 (Codex PR 4b kolo 1) ─────────────────────────────
+
+describe("FIX1: snímek po před FINISHED, limit-guard (krátký zápis, nečitelný záznam, adresář, karta, chybějící sentinel)", () => {
+  const dept = (c: TextAdapter) =>
+    new CopyDepartment(c, new FakeAdapter("claude", "k", () => PASS));
+
+  it("nález 2: FINISHED ok:true se snímkem před, ale bez snímku po (pád mezi) → HOLD UNKNOWN, žádné RESUME ani volání", async () => {
+    const { bare } = devRepo({ "a.txt": "a\n" });
+    const probe = bareProbe(bare);
+    seed("DOING");
+    const j = J();
+    const r = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: NOW,
+      decision_check: "t",
+      remote_before: probe.snapshot(dir, NOW),
+    });
+    j.finished(r.attempt_id, {
+      exit: 0,
+      ok: true,
+      output_sha256: j.writeOutput(
+        r,
+        JSON.stringify({ outcome: { ok: true, draft_file: "wt" } }),
+      ),
+    });
+    const chain = okChain();
+    const dev = new DevDepartment(
+      chain as never,
+      new FakeAdapter("gpt", "codex", () => PASS),
+    );
+    const s = await orch(dev, { remoteProbe: probe }).step(
+      store.load(ORDER_ID),
+    );
+    expect(s.state).toBe("UNKNOWN");
+    expect(chain.calls).toBe(0);
+    expect(J().get(r.attempt_id)!.reconcile).toMatchObject({
+      result: "UNKNOWN",
+      reason: expect.stringMatching(/bez snímku po/),
+    });
+  });
+
+  it("nález 4: krátký zápis — createOnly dopíše zbytek ve smyčce; zápis bez postupu = chyba, nic neúplného nezůstane", () => {
+    const g = guardFor(dir);
+    const real = fs.writeSync.bind(fs) as (
+      fd: number,
+      b: Buffer,
+      o: number,
+      l: number,
+    ) => number;
+    let first = true;
+    const ws = vi.spyOn(fs, "writeSync").mockImplementation(((
+      fd: number,
+      b: Buffer,
+      o: number,
+      l: number,
+    ) => {
+      if (first) {
+        first = false;
+        return real(fd, b, o, Math.min(3, l));
+      }
+      return real(fd, b, o, l);
+    }) as never);
+    g.record("k1", { source: "claude", text: WARN6, received_at: NOW });
+    ws.mockRestore();
+    expect(warningFiles()).toHaveLength(1);
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(dir, LIMIT_GUARD_DIR, warningFiles()[0]),
+          "utf8",
+        ),
+      ).source,
+    ).toBe("claude");
+    const zero = vi.spyOn(fs, "writeSync").mockReturnValue(0);
+    expect(() => g.open("k2")).toThrow(/krátký zápis/);
+    zero.mockRestore();
+    expect(pendingFiles()).toEqual([]);
+  });
+
+  it("nález 4: nečitelný (neúplný) záznam varování = trvalá blokace, ne hodina; uvolní ho jen ověření vlastníkem", async () => {
+    const g = guardFor(dir);
+    g.open("k");
+    g.resolve("k");
+    const f = path.join(dir, LIMIT_GUARD_DIR, "x.w-0123456789abcdef.json");
+    fs.writeFileSync(f, '{"v":1,"until":"20');
+    fs.utimesSync(f, new Date(0), new Date(0)); // starý soubor: hodinová pauza od zápisu by dávno vypršela
+    expect(g.pending().map((p) => p.file)).toEqual([path.basename(f)]);
+    expect(g.live(Date.parse(NOW) + 365 * DAY)).toEqual({});
+    expect(await orch(dept(warnCreator())).tick()).toMatchObject({
+      status: "limit_hold",
+    });
+    expect(g.verifyAll()).toBe(1);
+    expect(g.pending()).toEqual([]);
+    expect(
+      fs
+        .readdirSync(path.join(dir, LIMIT_GUARD_DIR))
+        .some((n) => /^x\.w-0123456789abcdef\.unreadable\.verified-/.test(n)),
+    ).toBe(true);
+  });
+
+  it("nález 5: nový adresář limit-guard se zapíše trvale (fsync rodičovského runs/)", () => {
+    const runs = path.join(dir, "nove-runs");
+    fs.mkdirSync(runs);
+    const op = vi.spyOn(fs, "openSync");
+    guardFor(runs).open("k");
+    const dirOpens = op.mock.calls
+      .filter((c) => c[1] === "r")
+      .map((c) => String(c[0]));
+    op.mockRestore();
+    expect(dirOpens).toContain(runs);
+    expect(dirOpens).toContain(path.join(runs, LIMIT_GUARD_DIR));
+  });
+
+  it("nález 6: varování z adaptéru karty (mimo krok) se uloží; sentinel karty se vyřeší", async () => {
+    const card: TextAdapter = {
+      name: "card",
+      model: "sonnet",
+      family: "claude",
+      run: async () => {
+        reportLimitWarning({ source: "claude", text: WARN6, received_at: NOW });
+        return { ok: true, text: "{}", limit: false, duration_ms: 0 };
+      },
+    };
+    const o = orch(dept(warnCreator()), { cardAdapter: card });
+    seed("DELIVERED");
+    store.writeFile(ORDER_ID, "draft-v0.md", "# Draft\n\nText.");
+    const order = { ...store.load(ORDER_ID), draft_file: "draft-v0.md" };
+    let calls = 0;
+    const run0 = card.run.bind(card);
+    card.run = async (...a: Parameters<TextAdapter["run"]>) => {
+      calls++;
+      return run0(...a);
+    };
+    await (
+      o as unknown as { cardDataSection(o: Order): Promise<string> }
+    ).cardDataSection(order);
+    expect(calls).toBe(1);
+    expect(warningFiles()).toHaveLength(1);
+    expect(warningFiles()[0]).toMatch(/card-data/);
+    expect(pendingFiles()).toEqual([]);
+  });
+
+  it("nález 6: varování mimo jakýkoli hlídaný úsek jde do záložního sinku (uloží se, nezahodí)", () => {
+    orch(dept(warnCreator()));
+    reportLimitWarning({ source: "claude", text: WARN6, received_at: NOW });
+    expect(warningFiles()).toHaveLength(1);
+    expect(warningFiles()[0]).toMatch(/^mimo-usek/);
+  });
+
+  it("nález 7: pokus v HOLD „varování neuloženo“, sentinel ručně smazán, restart → sentinel se obnoví, blokace trvá do ověření", async () => {
+    seed("UNKNOWN");
+    const j = J();
+    const r = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: NOW,
+      decision_check: "t",
+    });
+    j.holdAttempt(r.attempt_id, `${LIMIT_WARNING_LOST}: ENOSPC`);
+    expect(pendingFiles()).toEqual([]); // sentinel smazán / ztracen
+    expect(await orch(dept(warnCreator())).tick()).toMatchObject({
+      status: "limit_hold",
+    });
+    expect(pendingFiles()).toHaveLength(1);
+    // reconciler mezitím pokus znovu HOLDl s jiným důvodem: původní důvod zůstal v hold.previous
+    const h = J().get(r.attempt_id)!.hold!;
+    expect([h.reason, ...(h.previous ?? [])]).toContain(
+      `${LIMIT_WARNING_LOST}: ENOSPC`,
+    );
+    // další restart: pořád blokace
+    expect(await orch(dept(warnCreator())).tick()).toMatchObject({
+      status: "limit_hold",
+    });
+    expect(guardFor(dir).verifyAll()).toBe(1);
+    // po ověření vlastníkem: stopa .verified- = pokus je vysvětlený, blokace z journalu už nevzniká
+    const after = orch(dept(warnCreator())) as unknown as {
+      limitHoldReason(): string | undefined;
+    };
+    expect(after.limitHoldReason()).toBeUndefined();
+    expect(pendingFiles()).toEqual([]);
   });
 });
