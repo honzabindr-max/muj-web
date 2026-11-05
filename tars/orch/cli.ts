@@ -19,6 +19,9 @@ import {
   type DepartmentRunner,
 } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
+import { refreshBrowserStatusWith } from "./browser-status";
+import { probeDisplay } from "./display";
+import { parseGateStart, writeGateOutcome } from "./wake";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import {
   BROWSER_CHECK_DIR,
@@ -99,41 +102,30 @@ function browserReady(): PreflightResult {
 }
 
 /** Rung 3 = Playwright MCP driven by Claude (sonnet), Chrome TARS-agent started and closed by guard/tars-browser.sh. */
+// FIX1 nález 3: každý start Chrome TARS-agent jen při probuzeném displeji (display.ts), i vizual a loginCheck.
 const makeBrowser = () =>
   new McpBrowser(new SecretScanningAdapter(new ClaudeCli("sonnet")), {
     runsDir,
+    displayAwake: () => probeDisplay(),
   });
 /** P16 v3: every non-code check = ChatGPT in the browser, mode Chat (subscription, never Work), GPT-6 · Vysoká. */
-const makeGptWeb = () => new ChatGptWebChecker(makeBrowser());
+// Zjištění 5. 11.: GPT v prohlížeči jen při probuzeném displeji (display.ts), jinak WAITING_REVIEW „displej spí“.
+const makeGptWeb = () =>
+  new ChatGptWebChecker(makeBrowser(), { displayAwake: () => probeDisplay() });
 
-async function refreshBrowserStatus(): Promise<PreflightResult> {
-  const b = makeBrowser();
-  let r: PreflightResult;
-  // The debugging port may only exist while TARS holds the run lock (I8).
-  const lockStore = new Store(runsDir);
-  if (!lockStore.acquireLock())
-    return { ok: false, reasons: ["běží jiná zakázka (lock)"] };
-  try {
-    // The wrapper accepts only a shots-* dir as the MCP output dir (Codex review kolo 3, nález 2).
-    r = await b.loginCheck(
-      "https://claude.ai/new",
-      path.join(runsDir, BROWSER_CHECK_DIR),
-    );
-  } catch (e) {
-    r = {
-      ok: false,
-      reasons: [`login check selhal: ${(e as Error).message.split("\n")[0]}`],
-    };
-  } finally {
-    lockStore.releaseLock();
-  }
-  fs.mkdirSync(runsDir, { recursive: true });
-  fs.writeFileSync(
-    browserStatusFile,
-    JSON.stringify({ ...r, checked_at: new Date().toISOString() }, null, 2),
-  );
-  return r;
-}
+/**
+ * FIX1 nález 3: sonda displeje před zámkem i před Chrome (browser-status.ts). Spící displej = nic se nespustí a
+ * uložený stav se nepřepíše. The debugging port may only exist while TARS holds the run lock (I8); the wrapper
+ * accepts only a shots-* dir as the MCP output dir (Codex review kolo 3, nález 2).
+ */
+const refreshBrowserStatus = (): Promise<PreflightResult> =>
+  refreshBrowserStatusWith({
+    displayAwake: () => probeDisplay(),
+    lock: new Store(runsDir),
+    browser: makeBrowser,
+    statusFile: browserStatusFile,
+    shotsDir: path.join(runsDir, BROWSER_CHECK_DIR),
+  });
 
 /**
  * Transport notices: always on stderr (launchd log); in runs/log.jsonl only when the message differs from the last
@@ -236,6 +228,8 @@ function build(): Orchestrator {
         ? undefined
         : { sink: panelSink, index: new PanelIndex(runsDir, store) }, // review kolo 3: index under the state lock
     ownerPing: new OwnerPing(stack.rest, { userId: ownerUserIdFromEnv() }), // bez tokenu (stack.rest) jen zaloguje
+    // Etapa 4 PR 2: režim dispatcheru (fail-closed hold). Řídí jen dispatcher inboxu (PR 3/5), ne zakázky supervizora.
+    dispatchFile: path.join(here, "dispatch.json"),
   });
 }
 
@@ -275,6 +269,17 @@ async function main() {
       // Rung 3 login check opens Chrome — only when the vizual department is in scope.
       if (enabledDepartments.includes("vizual")) await refreshBrowserStatus();
       const r = await build().tick();
+      // Etapa 4 PR 2 (§10.2 bod 4): výsledek pro minutovou bránu, jednou na spuštění brány (po `finally` ticku).
+      const gateStart = parseGateStart(process.env.TARS_GATE_START);
+      if (gateStart) {
+        try {
+          writeGateOutcome(runsDir, gateStart, r.status);
+        } catch (e) {
+          console.error(
+            `tars-orch: výsledek pro bránu nejde zapsat: ${(e as Error).message}`,
+          );
+        }
+      }
       console.log(JSON.stringify(r));
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;
       return;

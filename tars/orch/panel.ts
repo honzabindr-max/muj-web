@@ -459,18 +459,34 @@ export class RestPanelSink implements PanelSink {
         r.properties?.["Karta rozhodnutí"]?.url === opts.card);
     let cursor: string | undefined;
     const hits: string[] = [];
+    const cursors = new Set<string>();
     for (let page = 0; page < FIND_MAX_PAGES; page++) {
       const j = await this.api.request<{
         results?: FoundRow[];
         has_more?: boolean;
         next_cursor?: string | null;
+        request_status?: { type?: unknown } | null;
       }>("POST", `/v1/data_sources/${PANEL_DATA_SOURCE_ID}/query`, {
         filter: { property: "ID zakázky", rich_text: { equals: orderId } },
         sorts: [{ timestamp: "created_time", direction: "ascending" }],
         page_size: 25,
         ...(cursor ? { start_cursor: cursor } : {}),
       });
-      for (const r of (j.results ?? []).filter(matches))
+      // Etapa 4 PR 3 (mapa inboxu v4 §8.1): S1/S2 request_status ≠ complete, S7 chybný tvar, S6 opakovaný kurzor.
+      // Každá známka = neúplné čtení: nikdy závěr „řádek neexistuje“.
+      if (
+        j.request_status !== undefined &&
+        (j.request_status as { type?: unknown } | null)?.type !== "complete"
+      )
+        throw new Error(
+          "dohledání řádku nelze ověřit (request_status není complete)",
+        );
+      if (!Array.isArray(j.results) || typeof j.has_more !== "boolean")
+        throw new Error("dohledání řádku nelze ověřit (chybný tvar odpovědi)");
+      if (j.has_more && j.next_cursor && cursors.has(j.next_cursor))
+        throw new Error("dohledání řádku nelze ověřit (opakovaný kurzor)");
+      if (j.next_cursor) cursors.add(j.next_cursor);
+      for (const r of j.results.filter(matches))
         hits.push(r.id!.replace(/-/g, ""));
       if (!opts.unique && hits.length) return hits[0];
       if (opts.unique && hits.length > 1) throw new PanelRowDuplicate(hits);

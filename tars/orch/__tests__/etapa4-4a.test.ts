@@ -462,7 +462,10 @@ describe("§7 runProcess: detached skupina, TARS_ATTEMPT_ID, kill -pgid", () => 
   it("FIX2 nález 1: skupina, která po konci vedoucího sama zanikne → groupEnded true, bez signálu", async () => {
     const r = await runProcess(
       "/bin/sh",
-      ["-c", `${process.execPath} -e "setTimeout(()=>{},300)" >/dev/null 2>&1 & exit 0`],
+      [
+        "-c",
+        `${process.execPath} -e "setTimeout(()=>{},300)" >/dev/null 2>&1 & exit 0`,
+      ],
       "",
       dir,
       20_000,
@@ -594,32 +597,39 @@ describe("§7 reconciler", () => {
     ).toMatch(/ps selhal/);
   });
 
-  itDarwinPs("orphan test 2 (crash-after-spawn-before-PID): skutečný proces s TARS_ATTEMPT_ID (env čitelný přes ps -E) → HOLD, nic se nezabíjí", async () => {
-    const j = J();
-    const r = j.intent(ORDER_ID, "create-r0", {
-      input_sha256: "x",
-      deadline: "2026-11-04T13:00:00.000Z",
-      decision_check: "legacy",
-    });
-    const child = spawn(process.execPath, ["-e", "setTimeout(()=>{},30000)"], {
-      env: { ...process.env, TARS_ATTEMPT_ID: r.attempt_id },
-      stdio: "ignore",
-      detached: true,
-    });
-    cleanup.push(() => killGroup(child.pid, "SIGKILL"));
-    await waitFor(() =>
-      (psProbe.list() ?? []).some(
-        (p) => p.pid === child.pid && p.attemptId === r.attempt_id,
-      ),
-    );
-    const res = await reconcileAttempt(j, r, psProbe, {
-      now: new Date(),
-      uid: UID,
-    });
-    expect(res.action).toBe("hold");
-    expect(res.reason).toMatch(/TARS_ATTEMPT_ID/);
-    expect(pidExists(child.pid!)).toBe(true);
-  });
+  itDarwinPs(
+    "orphan test 2 (crash-after-spawn-before-PID): skutečný proces s TARS_ATTEMPT_ID (env čitelný přes ps -E) → HOLD, nic se nezabíjí",
+    async () => {
+      const j = J();
+      const r = j.intent(ORDER_ID, "create-r0", {
+        input_sha256: "x",
+        deadline: "2026-11-04T13:00:00.000Z",
+        decision_check: "legacy",
+      });
+      const child = spawn(
+        process.execPath,
+        ["-e", "setTimeout(()=>{},30000)"],
+        {
+          env: { ...process.env, TARS_ATTEMPT_ID: r.attempt_id },
+          stdio: "ignore",
+          detached: true,
+        },
+      );
+      cleanup.push(() => killGroup(child.pid, "SIGKILL"));
+      await waitFor(() =>
+        (psProbe.list() ?? []).some(
+          (p) => p.pid === child.pid && p.attemptId === r.attempt_id,
+        ),
+      );
+      const res = await reconcileAttempt(j, r, psProbe, {
+        now: new Date(),
+        uid: UID,
+      });
+      expect(res.action).toBe("hold");
+      expect(res.reason).toMatch(/TARS_ATTEMPT_ID/);
+      expect(pidExists(child.pid!)).toBe(true);
+    },
+  );
 
   /** Skutečný vedoucí `sh` (exec sleep) s vnukem node ve stejné skupině; pokus STARTED s lstart vedoucího. */
   async function realGroup(deadline: string) {
@@ -676,57 +686,63 @@ describe("§7 reconciler", () => {
     return { leader, gpid, j, r, scoped };
   }
 
-  itDarwinPs("orphan test 3 (FIX1 nález 2): rodič zabit, vnuk žije ve skupině bez vedoucího → identita nedoložena → HOLD, nic se nesignalizuje (ani po deadline)", async () => {
-    const { leader, gpid, j, r, scoped } = await realGroup(
-      new Date(Date.now() + 3600_000).toISOString(),
-    );
-    const exited = new Promise((res) => leader.on("exit", res));
-    process.kill(leader.pid!, "SIGKILL"); // rodič umře, vnuk zůstane ve skupině
-    await exited;
-    await waitFor(
-      () => !(psProbe.list() ?? []).some((p) => p.pid === leader.pid),
-    );
-    expect(pidExists(gpid)).toBe(true);
-    const sent: string[] = [];
-    const watch: ProcessProbe = {
-      ...scoped,
-      kill: (g, s) => (sent.push(`${s} -${g}`), scoped.kill(g, s)),
-    };
-    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, watch, {
-      now: new Date(Date.now() + 2 * 3600_000),
-      uid: UID,
-      exitTimeoutMs: 300,
-    });
-    expect(res.action).toBe("hold");
-    expect(res.reason).toMatch(/bez doložené identity/);
-    expect(sent).toEqual([]);
-    expect(pidExists(gpid)).toBe(true);
-    expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
-  });
+  itDarwinPs(
+    "orphan test 3 (FIX1 nález 2): rodič zabit, vnuk žije ve skupině bez vedoucího → identita nedoložena → HOLD, nic se nesignalizuje (ani po deadline)",
+    async () => {
+      const { leader, gpid, j, r, scoped } = await realGroup(
+        new Date(Date.now() + 3600_000).toISOString(),
+      );
+      const exited = new Promise((res) => leader.on("exit", res));
+      process.kill(leader.pid!, "SIGKILL"); // rodič umře, vnuk zůstane ve skupině
+      await exited;
+      await waitFor(
+        () => !(psProbe.list() ?? []).some((p) => p.pid === leader.pid),
+      );
+      expect(pidExists(gpid)).toBe(true);
+      const sent: string[] = [];
+      const watch: ProcessProbe = {
+        ...scoped,
+        kill: (g, s) => (sent.push(`${s} -${g}`), scoped.kill(g, s)),
+      };
+      const res = await reconcileAttempt(j, j.get(r.attempt_id)!, watch, {
+        now: new Date(Date.now() + 2 * 3600_000),
+        uid: UID,
+        exitTimeoutMs: 300,
+      });
+      expect(res.action).toBe("hold");
+      expect(res.reason).toMatch(/bez doložené identity/);
+      expect(sent).toEqual([]);
+      expect(pidExists(gpid)).toBe(true);
+      expect(j.get(r.attempt_id)!.phase).toBe("HOLD");
+    },
+  );
 
-  itDarwinPs("orphan test 3b: vedoucí se shodným lstart žije s vnukem — před deadline čeká, po deadline SIGTERM -pgid a ABANDONED s důkazem", async () => {
-    const { leader, gpid, j, r, scoped } = await realGroup(
-      new Date(Date.now() + 3600_000).toISOString(),
-    );
-    const wait = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
-      now: new Date(),
-      uid: UID,
-      exitTimeoutMs: 300,
-    });
-    expect(wait.action).toBe("waiting_background");
-    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
-      now: new Date(Date.now() + 2 * 3600_000),
-      uid: UID,
-      exitTimeoutMs: 300,
-    });
-    expect(res.action).toBe("abandoned");
-    await waitFor(() => pidExists(gpid) === false);
-    await waitFor(() => pidExists(leader.pid!) === false);
-    const rec = j.get(r.attempt_id)!;
-    expect(rec.abandoned!.kill_evidence).toMatch(
-      new RegExp(`SIGTERM -${leader.pid}: odesláno`),
-    );
-  });
+  itDarwinPs(
+    "orphan test 3b: vedoucí se shodným lstart žije s vnukem — před deadline čeká, po deadline SIGTERM -pgid a ABANDONED s důkazem",
+    async () => {
+      const { leader, gpid, j, r, scoped } = await realGroup(
+        new Date(Date.now() + 3600_000).toISOString(),
+      );
+      const wait = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
+        now: new Date(),
+        uid: UID,
+        exitTimeoutMs: 300,
+      });
+      expect(wait.action).toBe("waiting_background");
+      const res = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
+        now: new Date(Date.now() + 2 * 3600_000),
+        uid: UID,
+        exitTimeoutMs: 300,
+      });
+      expect(res.action).toBe("abandoned");
+      await waitFor(() => pidExists(gpid) === false);
+      await waitFor(() => pidExists(leader.pid!) === false);
+      const rec = j.get(r.attempt_id)!;
+      expect(rec.abandoned!.kill_evidence).toMatch(
+        new RegExp(`SIGTERM -${leader.pid}: odesláno`),
+      );
+    },
+  );
 
   it("FIX1 nález 2: recyklovaný pgid bez lstart / bez vedoucího → HOLD, 0 signálů; vlastní skupina ani neznámá vlastní skupina se nesignalizují", async () => {
     const past = "2026-11-04T11:00:00.000Z"; // deadline uplynul
@@ -837,47 +853,52 @@ describe("§7 reconciler", () => {
     expect(res.action).toBe("abandoned");
   });
 
-  itDarwinPs("FIX1 nález 3: skutečný potomek v nové session (detached = setsid) přežije konec skupiny → HOLD", async () => {
-    const pidFile = path.join(dir, "spid");
-    const j = J();
-    const r = j.intent(ORDER_ID, "create-r0", {
-      input_sha256: "x",
-      deadline: "2030-01-01T00:00:00.000Z",
-      decision_check: "legacy",
-    });
-    const leader = spawn(
-      process.execPath,
-      [
-        "-e",
-        `const c=require('child_process').spawn('/bin/sleep',['30'],{detached:true,stdio:'ignore'});require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref()`,
-      ],
-      { stdio: "ignore", detached: true },
-    );
-    await new Promise((res) => leader.on("exit", res));
-    const spid = Number(fs.readFileSync(pidFile, "utf8"));
-    cleanup.push(() => killGroup(spid, "SIGKILL"));
-    j.started(r.attempt_id, {
-      pid: leader.pid!,
-      pgid: leader.pid!,
-      lstart: "Wed Nov 4 12:00:00 2026",
-      cmd: "node",
-      at: NOW,
-    });
-    const scoped: ProcessProbe = {
-      list: () =>
-        psProbe.list()?.filter((p) => p.pid === spid || p.pgid === leader.pid),
-      kill: (g, s) => psProbe.kill(g, s),
-      sleep: (ms) => psProbe.sleep(ms),
-      ownPgid: psProbe.ownPgid,
-    };
-    const res = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
-      now: new Date(),
-      uid: UID,
-    });
-    expect(res.action).toBe("hold");
-    expect(res.reason).toContain(String(spid));
-    expect(pidExists(spid)).toBe(true);
-  });
+  itDarwinPs(
+    "FIX1 nález 3: skutečný potomek v nové session (detached = setsid) přežije konec skupiny → HOLD",
+    async () => {
+      const pidFile = path.join(dir, "spid");
+      const j = J();
+      const r = j.intent(ORDER_ID, "create-r0", {
+        input_sha256: "x",
+        deadline: "2030-01-01T00:00:00.000Z",
+        decision_check: "legacy",
+      });
+      const leader = spawn(
+        process.execPath,
+        [
+          "-e",
+          `const c=require('child_process').spawn('/bin/sleep',['30'],{detached:true,stdio:'ignore'});require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref()`,
+        ],
+        { stdio: "ignore", detached: true },
+      );
+      await new Promise((res) => leader.on("exit", res));
+      const spid = Number(fs.readFileSync(pidFile, "utf8"));
+      cleanup.push(() => killGroup(spid, "SIGKILL"));
+      j.started(r.attempt_id, {
+        pid: leader.pid!,
+        pgid: leader.pid!,
+        lstart: "Wed Nov 4 12:00:00 2026",
+        cmd: "node",
+        at: NOW,
+      });
+      const scoped: ProcessProbe = {
+        list: () =>
+          psProbe
+            .list()
+            ?.filter((p) => p.pid === spid || p.pgid === leader.pid),
+        kill: (g, s) => psProbe.kill(g, s),
+        sleep: (ms) => psProbe.sleep(ms),
+        ownPgid: psProbe.ownPgid,
+      };
+      const res = await reconcileAttempt(j, j.get(r.attempt_id)!, scoped, {
+        now: new Date(),
+        uid: UID,
+      });
+      expect(res.action).toBe("hold");
+      expect(res.reason).toContain(String(spid));
+      expect(pidExists(spid)).toBe(true);
+    },
+  );
 
   /** FIX3 A: falešný `ps` na PATH (simulace Linuxu / procps): `-E` odmítne, nebo vrátí nečitelný řádek. */
   async function withFakePs<R>(
@@ -1183,10 +1204,7 @@ describe("§7 reconciler", () => {
       expect(recs[0].phase).toBe("FINISHED");
       expect(recs[0].finished!.ok).toBe(false);
       const out = JSON.parse(
-        fs.readFileSync(
-          path.join(dir, ORDER_ID, recs[0].output_path),
-          "utf8",
-        ),
+        fs.readFileSync(path.join(dir, ORDER_ID, recs[0].output_path), "utf8"),
       ) as { error?: string; outcome?: unknown; draft_sha256?: string };
       expect(out.outcome).toBeUndefined();
       expect(out.draft_sha256).toBeUndefined();
@@ -1200,12 +1218,16 @@ describe("§7 reconciler", () => {
     const realFsync = fs.fsyncSync;
     let armed = false;
     const realRename = fs.renameSync;
-    const sRename = vi.spyOn(fs, "renameSync").mockImplementation((a, b) => realRename(a, b));
+    const sRename = vi
+      .spyOn(fs, "renameSync")
+      .mockImplementation((a, b) => realRename(a, b));
     const sOpen = vi.spyOn(fs, "openSync");
     const sFsync = vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
       if (armed) {
         armed = false;
-        throw Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" });
+        throw Object.assign(new Error("EIO: i/o error, fsync"), {
+          code: "EIO",
+        });
       }
       return realFsync(fd);
     });
@@ -1481,7 +1503,10 @@ describe("§8 reconcile adaptérů", () => {
     j.finished(r.attempt_id, {
       exit: 1,
       ok: false,
-      output_sha256: j.writeOutput(r, JSON.stringify({ outcome: { ok: false } })),
+      output_sha256: j.writeOutput(
+        r,
+        JSON.stringify({ outcome: { ok: false } }),
+      ),
     });
     const o = orch(dev);
     const held = await o.step(seed("DOING"));
@@ -1575,13 +1600,24 @@ describe("§8 reconcile adaptérů", () => {
       })) as never,
       new FakeAdapter("gpt", "codex", () => PASS),
     );
-    const ctx = { store, notion, draftParentId: PARENT, repoRoot: dir, attempts: J() };
+    const ctx = {
+      store,
+      notion,
+      draftParentId: PARENT,
+      repoRoot: dir,
+      attempts: J(),
+    };
     const o = devOrder({ state: "DELIVERED" });
     const r1 = await dev.deliver(o, ctx);
     expect(r1).toMatchObject({ ok: false, effect_absent: true });
     expect(r1.hold).toMatch(/^REVIEW_MISMATCH: chybí platný review receipt/);
-    expect(await dev.deliver(o)).toMatchObject({ ok: false, effect_absent: true });
-    expect(git(bare, "for-each-ref", "--format=%(refname)")).toBe("refs/heads/main");
+    expect(await dev.deliver(o)).toMatchObject({
+      ok: false,
+      effect_absent: true,
+    });
+    expect(git(bare, "for-each-ref", "--format=%(refname)")).toBe(
+      "refs/heads/main",
+    );
     expect(new PushJournal(dir).list(ORDER_ID, 0)).toEqual([]);
     expect(bins.git().filter((l) => /^push /.test(l))).toEqual([]);
     expect(bins.gh()).toEqual([]);
@@ -2091,6 +2127,8 @@ describe("CI 4a (2): statická hranice třídy A", () => {
         'tars/guard/bash-preflight.py: "Pokus TARS (TARS_ATTEMPT_ID) nesmí zapisovat na GitHub: git push, gh pr, gh workflow run "',
         'tars/guard/bash-preflight.py: "a gh api se zápisem jsou zamítnuté (NAVRH-v6 §8.1). Push a draft PR dělá jen orchestrátor po bráně review."',
         "tars/guard/bash-preflight.py: git push, gh pr, gh workflow run, gh api s -X/--method jiným než GET nebo s poli (-f/-F/--input), i v textu node -e,",
+        // Etapa 4 PR 2: sonda displeje, spouští jen /usr/bin/osascript (display.ts probeDisplay), ne gh ani git
+        "tars/orch/display.ts: execFileSync(cmd, args, {",
       ].sort(),
     );
   });

@@ -6,7 +6,9 @@ import path from "node:path";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
 import { parseReset } from "./reset";
-import { artifactHash, goBlocker } from "./approval";
+import { artifactHash, goBlocker, readbackBlocker } from "./approval";
+import { observeMode, readDispatch, type ModeObservation } from "./dispatch";
+import { reconcileNextWake } from "./wake";
 import {
   AttemptJournal,
   GroupNotEndedError,
@@ -158,6 +160,14 @@ export interface OrchestratorDeps {
   panelCreateGuardMs?: number;
   /** Nález 2: s jakým odstupem `catchUpPanel` znovu dohledává řádek zakázky v HOLD (výchozí 10 minut). */
   panelHoldRetryMs?: number;
+  /**
+   * Etapa 4 PR 2 (§6.3, §14): cesta k `dispatch.json`. Tick ji pod lease přečte (fail-closed: chybí/nevalidní = hold)
+   * a zaznamená pozorovaný režim (`runs/dispatch-mode.json`). Režim řídí jen novou práci dispatcheru inboxu (PR 3/5),
+   * stávající zakázky supervizora ne. Bez cesty se nic nečte ani nezapisuje.
+   */
+  dispatchFile?: string;
+  /** Etapa 4 PR 2 (§10.2 bod 3): `false` vypne životní cyklus `runs/next-wake` ve `finally` ticku (výchozí zapnuto). */
+  nextWake?: boolean;
   /** Etapa 4 / PR 4a (§7): sonda procesů reconcileru (výchozí `ps`); testy ji podvrhnou. */
   processProbe?: ProcessProbe;
   /** Etapa 4 / PR 4a (§7): čekání po SIGTERM skupiny pokusu, než přijde SIGKILL (ExitTimeOut, výchozí 5 s). */
@@ -297,6 +307,11 @@ export class Orchestrator {
   private ctx: DeptContext;
   /** Etapa 3: durable PREPARED / receipt of every external write (runs/<id>/effects/). */
   private effects: EffectJournal;
+  /**
+   * Etapa 4 PR 2: režim dispatcheru pozorovaný posledním tickem pod lease. `may_start_new` smí použít jen dispatcher
+   * inboxu (PR 3/5); první tick po přechodu hold → run nezačne nic nového, jen pokračuje v rozpracovaném.
+   */
+  lastDispatch: ModeObservation | undefined;
   /** Etapa 4 / PR 4a (§7): pokusy o krok (runs/<id>/attempts/). */
   private attempts: AttemptJournal;
   private probe: ProcessProbe;
@@ -1497,6 +1512,7 @@ export class Orchestrator {
     this.tickPingKeys = new Set();
     this.attemptWaiting = false;
     try {
+      this.observeDispatch();
       // Etapa 4 / PR 4a (§7): reconciler na začátku ticku, pod lease.
       await this.reconcileAttempts();
       await this.catchUpPanel();
@@ -1580,6 +1596,7 @@ export class Orchestrator {
       this.flushLimitHoldMarker();
       await this.flushPanel();
       this.tickPingKeys = undefined;
+      this.reconcileWake();
       this.d.store.releaseLock();
     }
   }
@@ -1684,6 +1701,78 @@ export class Orchestrator {
     const why = `${s.key}: ${s.lost.join("; ")}`;
     this.raiseLimitHold(why, true);
     return why;
+  }
+
+  /**
+   * Etapa 4 PR 2 (§6.3): pod lease přečte `dispatch.json` (fail-closed) a zaznamená režim. Chyba nic nezastaví:
+   * platí `hold` a `may_start_new = false`.
+   */
+  private observeDispatch(): void {
+    if (!this.d.dispatchFile) return;
+    const r = readDispatch(this.d.dispatchFile, this.d.store.runsDir);
+    try {
+      this.lastDispatch = observeMode(
+        this.d.store.runsDir,
+        r.config.mode,
+        this.now(),
+        r.revision,
+      );
+    } catch (e) {
+      this.lastDispatch = {
+        mode: "hold",
+        may_start_new: false,
+        changed: false,
+      };
+      this.safeLog({
+        order: "-",
+        kind: "error",
+        role: "orchestrator",
+        result: "dispatch: režim nejde zaznamenat, platí hold",
+        reason: String((e as Error)?.message ?? e).slice(0, 200),
+      });
+      return;
+    }
+    if (this.lastDispatch.changed || r.invalid)
+      this.safeLog({
+        order: "-",
+        kind: "info",
+        role: "orchestrator",
+        result: `dispatch: mode ${this.lastDispatch.mode}${this.lastDispatch.previous ? ` (předtím ${this.lastDispatch.previous})` : ""}`,
+        reason: r.invalid ?? (r.hold_file ? "runs/HOLD existuje" : undefined),
+      });
+  }
+
+  /**
+   * Etapa 4 PR 2 (§10.2 bod 3): zkonzumování / přeplánování `runs/next-wake` na konci ticku, jen dokud tento běh drží
+   * lease (tick bez lease `next-wake` nemění, bod 4). Chyba se jen zaloguje: brána má pojistku 30 min.
+   */
+  private reconcileWake(): void {
+    if (this.d.nextWake === false) return;
+    try {
+      if (!this.d.store.holdsLease()) return;
+      const r = reconcileNextWake(
+        this.d.store.runsDir,
+        this.d.store.listOrders(),
+        this.now(),
+        this.d.store.fence,
+      );
+      if (r.action !== "none" && r.action !== "kept")
+        this.safeLog({
+          order: r.next?.order_id ?? "-",
+          kind: "info",
+          role: "orchestrator",
+          result: `next-wake: ${r.action}${r.next ? ` epoch ${r.next.epoch} (attempt ${r.next.attempt})` : ""}`,
+          reason: r.reason,
+        });
+    } catch (e) {
+      this.safeLog({
+        order: "-",
+        kind: "error",
+        role: "orchestrator",
+        result: "next-wake: zápis selhal (brána spoléhá na pojistku 30 min)",
+        reason: String((e as Error)?.message ?? e).slice(0, 200),
+      });
+    }
   }
 
   /**
@@ -2430,7 +2519,9 @@ export class Orchestrator {
       const ids = this.d.store
         .listOrders()
         .map((o) => o.id)
-        .filter((id) => this.attempts.list(id).some((r) => !isTerminalAttempt(r)));
+        .filter((id) =>
+          this.attempts.list(id).some((r) => !isTerminalAttempt(r)),
+        );
       if (!ids.length) return;
       const res = await reconcileAll(this.attempts, ids, this.probe, {
         now: this.now(),
@@ -2520,7 +2611,11 @@ export class Orchestrator {
     if (prev && !prev.reconcile) {
       // FIX4: bez doloženého stavu varování limitu žádné RETRY_SAFE; zakázka zůstane rozpracovaná (žádná nová).
       const limitWhy = this.limitStateBeforeRetry(order, kind, prev);
-      if (limitWhy) return { kind: "wait", reason: `pokus ${prev.attempt_id}: ${limitWhy}` };
+      if (limitWhy)
+        return {
+          kind: "wait",
+          reason: `pokus ${prev.attempt_id}: ${limitWhy}`,
+        };
       let d: { result: "RESUME" | "RETRY_SAFE" | "UNKNOWN"; reason: string };
       try {
         d = dept.reconcileRetry
@@ -2536,10 +2631,17 @@ export class Orchestrator {
           reason: `opakování kroku odmítnuto: ${String((e as Error)?.message ?? e).slice(0, 300)}`,
         };
       }
-      if (d.result === "RESUME") d = { result: "UNKNOWN", reason: `RESUME bez výstupu FINISHED: ${d.reason}` };
+      if (d.result === "RESUME")
+        d = {
+          result: "UNKNOWN",
+          reason: `RESUME bez výstupu FINISHED: ${d.reason}`,
+        };
       J.setReconcile(prev.attempt_id, d.result, d.reason);
       if (d.result !== "RETRY_SAFE")
-        return { kind: "hold", reason: `reconcile ${prev.attempt_id} = ${d.result}: ${d.reason}` };
+        return {
+          kind: "hold",
+          reason: `reconcile ${prev.attempt_id} = ${d.result}: ${d.reason}`,
+        };
     }
     // PR 4b, bod 1: nevyřešené „varování neuloženo“ nepustí žádný nový pokus (ani RETRY_SAFE).
     const held = this.limitHoldReason();
@@ -2632,7 +2734,9 @@ export class Orchestrator {
     const lost = this.closeGuard(guard, r.limit_warnings ?? []);
     if (lost) return holdLost(lost);
     if (scope.unsettled?.length)
-      return holdUnsettled(`konec skupiny procesů nedoložen: ${scope.unsettled.join("; ")}`);
+      return holdUnsettled(
+        `konec skupiny procesů nedoložen: ${scope.unsettled.join("; ")}`,
+      );
     const out: AttemptOutput<T> = { outcome: r };
     if (r.ok && r.draft_file && r.draft_file !== "wt") {
       // FIX1 nález 4: draft (skutečný výstup kroku) se uloží trvale PŘED FINISHED: celé bajty + fsync souboru +
@@ -2642,7 +2746,10 @@ export class Orchestrator {
       // PR 4b: varování jsou v té chvíli už uložená (runs/limit-guard), tato cesta je neztratí.
       try {
         const text = this.d.store.readFile(order.id, r.draft_file);
-        writeDurable(path.join(this.d.store.orderDir(order.id), r.draft_file), text);
+        writeDurable(
+          path.join(this.d.store.orderDir(order.id), r.draft_file),
+          text,
+        );
         out.draft_sha256 = sha256(text);
       } catch (e) {
         const why = `draft ${r.draft_file} nejde přečíst nebo uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
@@ -2674,7 +2781,9 @@ export class Orchestrator {
     let r: StepOutcome | undefined;
     if (prev.phase === "FINISHED") {
       try {
-        const o = JSON.parse(this.attempts.readOutput(prev) ?? "null") as AttemptOutput<StepOutcome> | null;
+        const o = JSON.parse(
+          this.attempts.readOutput(prev) ?? "null",
+        ) as AttemptOutput<StepOutcome> | null;
         r = o?.outcome?.limit_warnings?.length ? o.outcome : undefined;
       } catch {
         r = undefined;
@@ -2713,7 +2822,8 @@ export class Orchestrator {
       const f = o.outcome.draft_file;
       if (f && f !== "wt") {
         if (!o.draft_sha256) return undefined;
-        if (sha256(this.d.store.readFile(order.id, f)) !== o.draft_sha256) return undefined;
+        if (sha256(this.d.store.readFile(order.id, f)) !== o.draft_sha256)
+          return undefined;
       }
       return o.outcome;
     } catch {
@@ -2908,9 +3018,7 @@ export class Orchestrator {
       const p = parseReset(n.text, received, this.d.resetTz ?? "Europe/Prague");
       const until = p.ok
         ? new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS)
-        : new Date(
-            Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000,
-          );
+        : new Date(Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000);
       const rec: WarningRecord = {
         observed_at: now.toISOString(),
         received_at: received,
@@ -3300,7 +3408,8 @@ export class Orchestrator {
           meta: { ...order.meta, ...(r.meta ?? {}) },
         };
         const fb = this.finalBodyMeta(created, dept!);
-        if (fb.hold) return this.attemptBlocked(order, { kind: "hold", reason: fb.hold });
+        if (fb.hold)
+          return this.attemptBlocked(order, { kind: "hold", reason: fb.hold });
         return this.apply(
           { ...created, meta: { ...created.meta, ...(fb.meta ?? {}) } },
           { type: "created" },
@@ -3385,7 +3494,8 @@ export class Orchestrator {
           },
         };
         const fb = this.finalBodyMeta(revised, dept!);
-        if (fb.hold) return this.attemptBlocked(order, { kind: "hold", reason: fb.hold });
+        if (fb.hold)
+          return this.attemptBlocked(order, { kind: "hold", reason: fb.hold });
         return this.apply(
           { ...revised, meta: { ...revised.meta, ...(fb.meta ?? {}) } },
           { type: "revised" },
@@ -3489,14 +3599,59 @@ export class Orchestrator {
         }
         const reasons = [
           ...(dept!.alwaysOwner
-            ? ["výstup je PR do main — merge dělá TARS po GO vlastníka na kartě (DR-024)"]
+            ? [
+                "výstup je PR do main — merge dělá TARS po GO vlastníka na kartě (DR-024)",
+              ]
             : []),
           ...o.brief!.owner_decisions,
           ...reservedDecisionHits(`${o.brief!.title}\n${o.brief!.goal}`).map(
             (k) => `zadání se dotýká: ${k}`,
           ),
         ];
-        const ownerNeeded = reasons.length > 0;
+        let ownerNeeded = reasons.length > 0;
+        let readbackMeta: Record<string, string> | undefined;
+        if (!ownerNeeded) {
+          // Etapa 4 PR 2 (NAVRH-v6 §6.1, `readbackBlocker`): DONE bez vlastníka jen po čerstvém read-backu, jehož otisk
+          // se rovná otisku odeslaného obsahu (`delivered_hash`). Selhané čtení = zůstává DELIVERED, další tick zkusí
+          // znovu. Jiný otisk nebo chybějící `delivered_hash` (např. doručení obnovené po pádu) = nikdy DONE a nikdy
+          // „skoro shoda“: zakázka jde na kartu vlastníka (GO vázané na otisk read-backu, DR-039), ne do tichého DONE.
+          let seen: string;
+          try {
+            seen = artifactHash(await this.readArtifact(o));
+          } catch (e) {
+            this.logOnce({
+              order: o.id,
+              kind: "info",
+              role: "transport",
+              result: "DONE odloženo: read-back doručeného obsahu selhal",
+              reason: String((e as Error)?.message ?? e).slice(0, 200),
+            });
+            return this.current(o.id);
+          }
+          const rb = JSON.stringify({
+            url: o.delivered_url,
+            hash: seen,
+            verified_at: this.iso(),
+          });
+          const blocker = readbackBlocker({
+            ...o,
+            meta: { ...o.meta, readback: rb },
+          });
+          if (blocker) {
+            this.log({
+              order: o.id,
+              kind: "error",
+              role: "orchestrator",
+              result:
+                "READBACK_MISMATCH: DONE bez vlastníka zamítnuto, přijetí rozhodne vlastník na kartě",
+              reason: blocker,
+            });
+            reasons.push(
+              `read-back nesedí s odeslaným obsahem (${blocker}) — DONE bez vlastníka zamítnuto (READBACK_MISMATCH)`,
+            );
+            ownerNeeded = true;
+          } else readbackMeta = { readback: rb };
+        }
         if (ownerNeeded && !o.owner_card_url) {
           // DR-039: no card without a fingerprint. Right before the card is written the DRAFT is read back; the hash of
           // exactly what was read (what the owner will see on the page) becomes approved_hash = artifact_hash. A failed
@@ -3605,6 +3760,8 @@ export class Orchestrator {
           };
           if (!this.persist(o)) return this.current(o.id);
         }
+        // Read-back ověřený výše (jen cesta bez vlastníka): zapíše se ve stejném zápisu jako přechod do DONE.
+        if (readbackMeta) o = { ...o, meta: { ...o.meta, ...readbackMeta } };
         return this.apply(
           o,
           { type: "delivered", owner_needed: ownerNeeded },

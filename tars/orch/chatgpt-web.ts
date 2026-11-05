@@ -16,6 +16,7 @@ import path from "node:path";
 import type { AdapterResult, RunOpts, TextAdapter } from "./adapters";
 import {
   BrowserLaunchError,
+  DisplayAsleepError,
   DriverLimitError,
   RuleViolation,
   UiUnknownError,
@@ -863,6 +864,10 @@ export function waitReason(e: unknown): string {
   const msg = String((e as Error)?.message ?? e)
     .split("\n")[0]
     .slice(0, 200);
+  // FIX2 nález 2: displej usnul mezi první a druhou sondou; nic se neodeslalo, pokus se nepočítá (první, aby text
+  // důvodu sondy nespadl do jiné větve).
+  if (e instanceof DisplayAsleepError)
+    return `${msg}; pokus GPT v prohlížeči se neprovedl, nic neodesláno`;
   if (/nepřihlá|log ?in|sign ?up|přihlásit|přihlášen/i.test(msg))
     return "profil TARS-agent není přihlášen do ChatGPT (TARS se nepřihlašuje)";
   if (e instanceof DriverLimitError)
@@ -881,6 +886,11 @@ export interface ChatGptWebOpts {
   timeoutMs?: number;
   nonce?: () => string;
   now?: () => Date;
+  /**
+   * Zjištění 5. 11.: stav displeje (display.ts). Když je zadaný, pokus proběhne jen při `awake: true`; jinak se
+   * vůbec neprovede (žádný Chrome, žádný zápis do deníku pokusů) a zakázka čeká ve WAITING_REVIEW.
+   */
+  displayAwake?: () => { awake: boolean; reason: string };
 }
 
 export class ChatGptWebChecker implements TextAdapter {
@@ -1009,6 +1019,20 @@ export class ChatGptWebChecker implements TextAdapter {
         duration_ms: Date.now() - t0,
       };
     };
+    // Zjištění 5. 11.: při spícím displeji se okno nekreslí a výběr modelu selže. Pokus se neprovede vůbec (před
+    // čtením deníku, před Chrome); `burn` je tu no-op, protože tento běh ještě nic nezapsal.
+    if (this.o.displayAwake) {
+      let d: { awake: boolean; reason: string };
+      try {
+        d = this.o.displayAwake();
+      } catch {
+        d = { awake: false, reason: "sonda displeje selhala" };
+      }
+      if (d.awake !== true)
+        return waiting(
+          `displej spí (${d.reason}); pokus GPT v prohlížeči se neprovedl`,
+        );
+    }
     const journal = readJournal(jdir);
     if (!journal)
       return waiting("deník pokusů nejde přečíst; nový prompt se neposílá");
@@ -1150,6 +1174,10 @@ export class ChatGptWebChecker implements TextAdapter {
       });
       reads = r.rawReads;
     } catch (e) {
+      // FIX2 nález 2: druhá sonda displeje (McpBrowser.run) odmítla start před Chrome = prokazatelně nic neodesláno,
+      // i kdyby prohlížeč nehlásil onSent. Pokus se odstraní (nespálí), zakázka čeká s důvodem „displej spí“.
+      if (e instanceof DisplayAsleepError && report === undefined)
+        report = { submitted: false };
       settle();
       const kinds = scanRunFiles(runDirs);
       if (kinds.length) return rejected(kinds, "neověřeno");

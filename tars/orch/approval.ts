@@ -79,3 +79,25 @@ export function goBlocker(
     return "obsah se po vydání karty změnil";
   return undefined;
 }
+
+/**
+ * Etapa 4 PR 2 (NAVRH-v6 §6.1, §6.4): důvod, proč `delivered` s `owner_needed = false` nesmí do DONE (undefined = smí).
+ * Platí současně:
+ *  - existuje `delivered_url` a `delivered_hash` (64 hex, otisk obsahu přesně tak, jak byl odeslán),
+ *  - existuje read-back stejné URL a jeho otisk se rovná `delivered_hash`.
+ * Žádná „skoro shoda“: jiný otisk = HOLD (READBACK_MISMATCH). Výsledek pro vlastníka (`owner_needed = true`) jde dál
+ * přes kartu a `goBlocker`.
+ */
+export function readbackBlocker(
+  o: Pick<Order, "meta" | "delivered_url">,
+): string | undefined {
+  if (!o.delivered_url) return "chybí delivered_url";
+  const sent = o.meta.delivered_hash;
+  if (!sent || !/^[0-9a-f]{64}$/.test(sent))
+    return "chybí delivered_hash (otisk odeslaného obsahu)";
+  const rb = parseReadback(o.meta.readback);
+  if (!rb) return "čeká na read-back";
+  if (rb.url !== o.delivered_url) return "read-back jiné URL než delivered_url";
+  if (rb.hash !== sent) return "read-back se neshoduje s odeslaným obsahem";
+  return undefined;
+}
