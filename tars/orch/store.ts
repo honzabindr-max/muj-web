@@ -487,6 +487,11 @@ export class Store {
     return this.lease?.fence;
   }
 
+  /** Etapa 4 PR 3 (N-12): token udělení, kterým se podepisuje záměr odeslání; undefined = lease nedrží. */
+  get leaseToken(): string | undefined {
+    return this.lease?.token;
+  }
+
   /** Does the lock on disk still carry this instance's token? */
   holdsLease(): boolean {
     return Boolean(this.lease) && this.readLease()?.token === this.lease!.token;
