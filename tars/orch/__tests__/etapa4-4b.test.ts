@@ -20,6 +20,7 @@ import {
 } from "../adapters";
 import {
   AttemptJournal,
+  reconcileAll,
   sha256,
   type ProcInfo,
   type ProcessProbe,
@@ -785,7 +786,7 @@ describe("§8.1 noRemoteWriteEnv (N03)", () => {
       [
         "remote.upstream.pushurl",
         "https://github.com/o/r.git",
-        /remote\.upstream\.pushurl/,
+        /remote\.<jiný než origin>\.pushurl/,
       ],
       [
         "url.https://example.com/.insteadOf",
@@ -795,7 +796,7 @@ describe("§8.1 noRemoteWriteEnv (N03)", () => {
       [
         "credential.https://github.com/o.helper",
         "store",
-        /credential\.https:\/\/github\.com\/o\.helper/,
+        /credential\.<url>\.helper/,
       ],
     ];
     for (const [k, v, re] of cases) {
@@ -830,6 +831,71 @@ describe("§8.1 noRemoteWriteEnv (N03)", () => {
     expect(JSON.stringify(store.load(ORDER_ID))).toMatch(/extraheader/i);
     expect(JSON.stringify(store.load(ORDER_ID))).not.toContain("TAJNE-X");
   });
+
+  it("FIX2 nález 1: token v názvu klíče url.<URL s tokenem>.insteadOf → HOLD jen s kategorií; token není v žádném souboru runs ani v logu", async () => {
+    // Token záměrně mimo vzory redaktoru: chránit musí to, že se název klíče do důvodu vůbec nedostane.
+    const TOKEN = "zcelaTAJNYtokenFIX2abc";
+    const KEY = `url.https://x-access-token:${TOKEN}@github.com/.insteadOf`;
+    const env = () => ({
+      ...childEnv(),
+      ...noRemoteWriteEnv(path.join(dir, "gh-empty")),
+    });
+    const { bare, wt } = devRepo({ "a.txt": "a\n" });
+    git(wt, "config", "--add", KEY, "https://github.com/");
+    git(
+      wt,
+      "config",
+      "--add",
+      `http.https://u:${TOKEN}@github.com/.extraheader`,
+      "x",
+    );
+    const why = remoteWriteConfigProblem(wt, env());
+    expect(why).toMatch(/url\.\*\.insteadOf/);
+    expect(why).toMatch(/http\.\*\.extraHeader/);
+    expect(why).not.toContain(TOKEN);
+    expect(why).not.toContain("x-access-token");
+
+    const logged: string[] = [];
+    for (const m of ["log", "error", "warn", "info"] as const)
+      vi.spyOn(console, m).mockImplementation((...a: unknown[]) => {
+        logged.push(a.map(String).join(" "));
+      });
+    const w0 = process.stderr.write.bind(process.stderr);
+    vi.spyOn(process.stderr, "write").mockImplementation(((
+      c: string | Uint8Array,
+      ...r: unknown[]
+    ) => {
+      logged.push(String(c));
+      return (w0 as (...x: unknown[]) => boolean)(c, ...r);
+    }) as typeof process.stderr.write);
+    const chain = okChain();
+    const dev = new DevDepartment(
+      chain as never,
+      new FakeAdapter("gpt", "codex", () => PASS),
+    );
+    const s = await orch(dev, { remoteProbe: bareProbe(bare) }).step(
+      seed("DOING"),
+    );
+    expect(chain.calls).toBe(0);
+    expect(s.state).not.toBe("CHECKING");
+    expect(JSON.stringify(store.load(ORDER_ID))).toMatch(/insteadOf/);
+    const files: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    };
+    walk(dir);
+    expect(files.some((f) => /attempts/.test(f))).toBe(true);
+    for (const f of files)
+      expect([f, fs.readFileSync(f, "utf8").includes(TOKEN)]).toEqual([
+        f,
+        false,
+      ]);
+    expect(logged.filter((l) => l.includes(TOKEN))).toEqual([]);
+  }, 30_000);
 
   it("FIX1: childEnv nepředá agenta SSH ani SSH příkaz gitu", () => {
     const keys = [
@@ -1615,5 +1681,46 @@ describe("FIX1: snímek po před FINISHED, limit-guard (krátký zápis, nečite
     };
     expect(after.limitHoldReason()).toBeUndefined();
     expect(pendingFiles()).toEqual([]);
+  });
+
+  it("FIX2 nález 2: HOLD „varování neuloženo“, 11× ps selže (reconciler HOLD), sentinel smazán, restart → limitní důvod přetrvá, sentinel se obnoví, blokace trvá", async () => {
+    seed("UNKNOWN");
+    const j = J();
+    const r = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: NOW,
+      decision_check: "t",
+    });
+    const LOST = `${LIMIT_WARNING_LOST}: ENOSPC`;
+    j.holdAttempt(r.attempt_id, LOST);
+    expect(await orch(dept(warnCreator())).tick()).toMatchObject({
+      status: "limit_hold",
+    });
+    expect(pendingFiles()).toHaveLength(1);
+    const psFails = new FakeProbe([undefined]);
+    for (let i = 0; i < 11; i++) {
+      const res = await reconcileAll(J(), [ORDER_ID], psFails, {
+        now: new Date(NOW),
+      });
+      expect(res.map((x) => x.action)).toContain("hold");
+    }
+    const h = J().get(r.attempt_id)!.hold!;
+    // historie je ořezaná na 10: původní důvod v ní už není, drží ho samostatné limit_reason
+    expect([h.reason, ...(h.previous ?? [])]).not.toContain(LOST);
+    expect(h.previous).toHaveLength(10);
+    expect(h.limit_reason).toBe(LOST);
+    // ruční smazání sentinelu + restart
+    for (const f of pendingFiles())
+      fs.rmSync(path.join(dir, LIMIT_GUARD_DIR, f));
+    expect(pendingFiles()).toEqual([]);
+    expect(
+      await orch(dept(warnCreator()), { processProbe: psFails }).tick(),
+    ).toMatchObject({ status: "limit_hold" });
+    expect(pendingFiles()).toHaveLength(1);
+    expect(J().get(r.attempt_id)!.hold!.limit_reason).toBe(LOST);
+    // další restart: pořád blokace
+    expect(
+      await orch(dept(warnCreator()), { processProbe: psFails }).tick(),
+    ).toMatchObject({ status: "limit_hold" });
   });
 });

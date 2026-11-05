@@ -12,6 +12,7 @@ import {
   GroupNotEndedError,
   isTerminalAttempt,
   journalScope,
+  LIMIT_WARNING_LOST,
   psProbe,
   reconcileAll,
   runInAttempt,
@@ -181,8 +182,8 @@ interface AttemptOutput<T> {
 export const RESET_MARGIN_MS = 60_000;
 /** Q4-B: trvalý záznam doložených varování CLI o blížícím se limitu, po zdrojích (runs/, FIX1 nález 6). */
 export const LIMIT_WARNING_FILE = "limit-warning.json";
-/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit. */
-export const LIMIT_WARNING_LOST = "varování limitu nešlo uložit";
+/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit (definice v attempts.ts). */
+export { LIMIT_WARNING_LOST };
 
 /** Blokace Q4-B jednoho zdroje (účet CLI) v runs/limit-warning.json; `until` = ISO konec blokace. */
 type WarningRecord = { until: string } & Record<string, unknown>;
@@ -1623,7 +1624,9 @@ export class Orchestrator {
       for (const a of this.attempts.list(o.id))
         if (
           a.hold &&
-          [a.hold.reason, ...(a.hold.previous ?? [])].some((x) => x.startsWith(LIMIT_WARNING_LOST)) &&
+          [a.hold.limit_reason ?? "", a.hold.reason, ...(a.hold.previous ?? [])].some((x) =>
+            x.startsWith(LIMIT_WARNING_LOST),
+          ) &&
           !this.limitGuard.knows(a.attempt_id)
         )
           out.push(a.attempt_id);

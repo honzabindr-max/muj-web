@@ -8,6 +8,7 @@ import path from "node:path";
 import { currentAttempt, killGroup, settleGroup } from "./attempts";
 import { reportLimitWarning } from "./limit-guard";
 import { limitWarning } from "./reset";
+import { redactSecretsUnbounded } from "./secret-scan";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
 
@@ -227,6 +228,9 @@ const RESET_CREDENTIAL_KEYS = new Set([
   "credential.https://gist.github.com.helper",
 ]);
 
+/** Rozsahy `git config --show-scope`; jiný text se do důvodu HOLD nepropíše. */
+const GIT_CONFIG_SCOPES = new Set(["system", "global", "local", "worktree", "command"]);
+
 /**
  * FIX1 (PR 4b) nález 3: ověření, že pod `env` (childEnv + noRemoteWriteEnv) v `cwd` nezbývá žádná funkční cesta
  * zápisu, kterou env nevyřadí. Čte jen JMÉNA klíčů (hodnoty mohou nést tajemství), mimo rozsah `command` (to je env):
@@ -247,18 +251,26 @@ export function remoteWriteConfigProblem(cwd: string, env: NodeJS.ProcessEnv): s
   ]);
   // exit 1 = žádný klíč nevyhovuje (v pořádku); jiná chyba = nejde ověřit
   if (c.status !== 0 && c.status !== 1) return `§8.1: konfiguraci gitu dítěte nejde ověřit (git config exit ${c.status ?? "?"})`;
-  const bad: string[] = [];
+  // FIX2 (PR 4b) nález 1: název klíče může nést tajemství (`url.https://<token>@github.com/.insteadOf`), proto důvod
+  // HOLD nese jen pevnou kategorii a rozsah z pevného výčtu, nikdy název klíče ani hodnotu.
+  const bad = new Set<string>();
   for (const line of (c.stdout ?? "").split("\n")) {
     const [scope, name] = line.trim().split(/\t/);
     if (!scope || !name || scope === "command") continue;
     const lower = name.toLowerCase();
-    if (/^http\..*extraheader$/.test(lower) || /^url\..*insteadof$/.test(lower)) bad.push(`${scope} ${name}`);
+    const where = GIT_CONFIG_SCOPES.has(scope) ? scope : "jiný rozsah";
+    if (/^http\..*extraheader$/.test(lower)) bad.add(`${where}: http.*.extraHeader`);
+    else if (/^url\..*insteadof$/.test(lower))
+      bad.add(`${where}: url.*.insteadOf / pushInsteadOf (URL může nést přihlašovací údaj)`);
     else if (/^remote\..*\.pushurl$/.test(lower)) {
-      if (lower !== "remote.origin.pushurl") bad.push(`${scope} ${name}`);
-    } else if (/^credential\..*helper$/.test(lower) && !RESET_CREDENTIAL_KEYS.has(name)) bad.push(`${scope} ${name}`);
+      if (lower !== "remote.origin.pushurl") bad.add(`${where}: remote.<jiný než origin>.pushurl`);
+    } else if (/^credential\..*helper$/.test(lower) && !RESET_CREDENTIAL_KEYS.has(name))
+      bad.add(`${where}: credential.<url>.helper mimo resetované klíče`);
   }
-  if (bad.length)
-    return `§8.1: konfigurace gitu nese cestu zápisu, kterou prostředí dítěte nevyřadí: ${bad.slice(0, 5).join(", ")}`.slice(0, 480);
+  if (bad.size)
+    return redactSecretsUnbounded(
+      `§8.1: konfigurace gitu nese cestu zápisu, kterou prostředí dítěte nevyřadí: ${[...bad].join(", ")}`,
+    ).slice(0, 480);
   const u = run(["remote", "get-url", "--push", "--all", "origin"]);
   if (u.status !== 0) return `§8.1: push URL originu nejde ověřit (git remote exit ${u.status ?? "?"})`;
   const urls = (u.stdout ?? "").split("\n").filter((l) => l.trim());

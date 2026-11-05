@@ -21,6 +21,9 @@ import path from "node:path";
 import type { RemoteSnapshot } from "./remote-snapshot";
 import { writeDurable } from "./store";
 
+/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit (re-export v orchestrator.ts). */
+export const LIMIT_WARNING_LOST = "varování limitu nešlo uložit";
+
 export type AttemptPhase =
   | "INTENT"
   | "STARTED"
@@ -70,7 +73,11 @@ export interface AttemptRecord {
   };
   abandoned?: { reason: string; kill_evidence: string; at: string };
   /** FIX1 (PR 4b) nález 7: `previous` = dřívější důvody HOLD (nejstarší první); nový HOLD je nepřepíše. */
-  hold?: { reason: string; at: string; previous?: string[] };
+  /**
+   * FIX2 (PR 4b) nález 2: `limit_reason` = první důvod HOLD začínající LIMIT_WARNING_LOST. Trvalý a samostatný:
+   * ořez `previous` ho nevytlačí a každý další HOLD ho přenese beze změny.
+   */
+  hold?: { reason: string; at: string; previous?: string[]; limit_reason?: string };
   /**
    * FIX2 nález 1: skupiny (pgid), jejichž zánik je doložen (žádný člen a vedoucí chybí nebo má jiný lstart). Takový
    * pgid se už nikdy nesignalizuje, i kdyby v něm později něco běželo (recyklace ID).
@@ -282,9 +289,18 @@ export class AttemptJournal {
   holdAttempt(id: string, reason: string): AttemptRecord {
     // FIX1 (PR 4b) nález 7: další HOLD (reconciler) nepřepíše dřívější důvod (např. „varování limitu nešlo uložit“).
     const prev = this.get(id)?.hold;
-    const previous = prev ? [...(prev.previous ?? []), prev.reason].slice(-10) : [];
+    const history = prev ? [...(prev.previous ?? []), prev.reason] : [];
+    const previous = history.slice(-10);
+    const r = reason.slice(0, 500);
+    // FIX2 (PR 4b) nález 2: limitní důvod se drží samostatně, ořez historie ho nikdy neodstraní.
+    const limit_reason = prev?.limit_reason ?? [...history, r].find((x) => x.startsWith(LIMIT_WARNING_LOST));
     return this.move(id, "HOLD", {
-      hold: { reason: reason.slice(0, 500), at: this.now(), ...(previous.length ? { previous } : {}) },
+      hold: {
+        reason: r,
+        at: this.now(),
+        ...(previous.length ? { previous } : {}),
+        ...(limit_reason ? { limit_reason } : {}),
+      },
     });
   }
 
