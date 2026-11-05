@@ -2942,6 +2942,12 @@ export class Orchestrator {
     meta: Record<string, string>;
   } {
     const now = this.now();
+    // PR 4c (DR-027 §6): neověřená verze CLI = tvar hlášky neověřený → nedoloženo, nikdy odhad.
+    if (r.reset_unverified)
+      return {
+        resume_after: new Date(now.getTime() + (this.d.pauseMinutes ?? 60) * 60_000).toISOString(),
+        meta: { reset_source: "nedoloženo", reset_reason: r.reset_unverified.slice(0, 200) },
+      };
     // FIX1 nález 1: čas resetu jen z hlášky strukturované obálky CLI (limit_text), nikdy z `error` (text modelu/stdout).
     const text = r.limit_text ?? "";
     const p = parseReset(
@@ -3220,6 +3226,7 @@ export class Orchestrator {
               model: this.d.supervisor.model,
               received_at: r.received_at,
               limit_text: r.limit_text,
+              reset_unverified: r.reset_unverified,
               limit_warnings: warningsOf(r, this.d.supervisor.model),
             };
             if (!r.ok) return this.bad(order, supOutcome, "supervisor")!;
@@ -3309,6 +3316,7 @@ export class Orchestrator {
             model: this.d.briefChecker.model,
             received_at: c.received_at,
             limit_text: c.limit_text,
+            reset_unverified: c.reset_unverified,
             limit_warnings: warningsOf(c, this.d.briefChecker.model),
           };
           if (!c.ok) return this.bad(order, chkOutcome, "checker")!;
