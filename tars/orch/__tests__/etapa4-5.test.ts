@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdapterResult, TextAdapter } from "../adapters";
 import { artifactHash } from "../approval";
@@ -32,7 +32,12 @@ import {
 } from "../inbox/decision";
 import { InboxDispatcher } from "../inbox/dispatcher";
 import { eventFile, eventId, type InboxEvent } from "../inbox/event";
-import { mergeVerdict, orderClass, requiredFor } from "../inbox/policy";
+import {
+  legacyStatus,
+  mergeVerdict,
+  orderClass,
+  requiredFor,
+} from "../inbox/policy";
 import {
   revalidateDecision,
   revokedFile,
@@ -1431,5 +1436,190 @@ describe("§14 cli.ts status: nedokončené claimy, wo-r*, brány, legacy", () =
     expect(text).toMatch(
       /WO-R wo-rffffffffffff +PLANNED +HOLD UNKNOWN \(bez události\)/,
     );
+  });
+});
+
+// ───────────────────────────── PR 5 FIX1 (Codex kolo 1: 5-K1-2, 5-K1-4, 5-K1-5, 5-K1-6) ─────────────────────────────
+
+const OWNER_ID = "1".repeat(32);
+const BOT_ID = "2".repeat(32);
+
+/** Panel s autorem posledního zápisu řádku: zápis TARS (upsert) přepíše `last_edited_by` na integraci. */
+class OriginPanel implements PanelSink {
+  decision: string | undefined;
+  editor = BOT_ID;
+  upserts = 0;
+  async readOwnerDecision() {
+    return this.decision;
+  }
+  async readOwnerRow() {
+    return { decision: this.decision, last_edited_by: this.editor };
+  }
+  async findRowByOrderId() {
+    return this.upserts ? "page1" : undefined;
+  }
+  async upsert(_row: PanelRow, page?: string) {
+    this.upserts++;
+    this.editor = BOT_ID;
+    return page ?? "page1";
+  }
+}
+
+const ownerOnly = {
+  verify: async (e: string | undefined) =>
+    e === OWNER_ID
+      ? { ok: true as const, editor: e }
+      : {
+          ok: false as const,
+          code: "OWNER_ORIGIN_UNVERIFIED" as const,
+          detail: "poslední zápis řádku neudělal vlastník",
+        },
+};
+
+describe("PR 5 FIX1", () => {
+  it("5-K1-2: GO vlastníka + dirty řádek v témž ticku → GO převzato (DONE), žádné OWNER_ORIGIN_UNVERIFIED", async () => {
+    seedDelivered(store, ["cena"]);
+    const notion = new FileNotion(path.join(dir, "notion.jsonl"));
+    const panel = new OriginPanel();
+    const index = new PanelIndex(dir);
+    const o = makeOrch(store, notion, {
+      panel: { sink: panel, index },
+      ownerOrigin: ownerOnly,
+    });
+    live.push(o);
+    await o.step(store.load(ORDER_ID));
+    await o.flushPanel();
+    expect(store.load(ORDER_ID).state).toBe("WAITING_OWNER");
+    const writes = panel.upserts;
+    // vlastník zadá GO (poslední zápis řádku je jeho); řádek je zároveň „dirty“ (dřívější zápis TARS selhal)
+    panel.decision = "GO";
+    panel.editor = OWNER_ID;
+    index.markDirty(ORDER_ID);
+    await o.tick();
+    await o.flushPanel();
+    expect(store.load(ORDER_ID).state).toBe("DONE");
+    // dorovnání řádku proběhlo, ale až po přečtení rozhodnutí
+    expect(panel.upserts).toBeGreaterThan(writes);
+    expect(
+      store
+        .readLog(500)
+        .some((e) =>
+          /OWNER_ORIGIN_UNVERIFIED/.test(`${e.result} ${e.reason ?? ""}`),
+        ),
+    ).toBe(false);
+  });
+
+  it("5-K1-4: GO odvoláno během čekání na data karty (model) → revalidace těsně před POST, 0 POST karty, HOLD", async () => {
+    seedDelivered(store, ["cena"]);
+    const notion = new FileNotion(path.join(dir, "notion.jsonl"));
+    const o = makeOrch(store, notion);
+    let revoked = false;
+    const orig = EffectGate.prototype.beforeTransition;
+    const bt = vi
+      .spyOn(EffectGate.prototype, "beforeTransition")
+      .mockImplementation(async function (this: EffectGate, ord, ctx) {
+        if (revoked && ctx.effects.includes("owner-card"))
+          return {
+            ok: false,
+            code: "REVOKED_OBSERVED",
+            detail: "GO odvoláno během čekání",
+          };
+        return orig.call(this, ord, ctx);
+      });
+    const cd = vi
+      .spyOn(
+        Orchestrator.prototype as unknown as {
+          cardDataSection: () => Promise<string>;
+        },
+        "cardDataSection",
+      )
+      .mockImplementation(async () => {
+        revoked = true; // vlastník odvolá GO, zatímco orchestrátor čeká na model
+        return "";
+      });
+    try {
+      const after = await o.step(store.load(ORDER_ID));
+      expect(cd).toHaveBeenCalledTimes(1);
+      expect(
+        bt.mock.calls.filter(([, c]) => c.effects.includes("owner-card")),
+      ).toHaveLength(2);
+      // DRAFT se doručil (1 POST), karta výsledku ne
+      expect(notion.creates).toBe(1);
+      expect(
+        notion.pages().filter((p) => p.title.startsWith("KARTA")),
+      ).toEqual([]);
+      expect(after.owner_card_url).toBeUndefined();
+      expect(store.load(ORDER_ID)).toMatchObject({
+        state: "UNKNOWN",
+        failure_reason: expect.stringMatching(/REVOKED_OBSERVED/),
+      });
+      expect(
+        new EffectJournal(dir).get(operationId(ORDER_ID, "owner-card", 0)),
+      ).toMatchObject({ state: "EFFECT_ABSENT" });
+    } finally {
+      bt.mockRestore();
+      cd.mockRestore();
+    }
+  });
+
+  it("5-K1-5: legacy WAITING_OWNER bez review receiptu → doporučená cesta (abort LEGACY_GATE) projde bez TransitionError; bez HOLD LEGACY_GATE abort z WAITING_OWNER dál zakázán", async () => {
+    const { o } = legacyWaiting();
+    await o.step(store.load(ORDER_ID));
+    const w = store.load(ORDER_ID);
+    expect(w.state).toBe("WAITING_OWNER");
+    // s review receiptem: o zakázce rozhoduje jen vlastník
+    expect(() => o.abort(ORDER_ID, "LEGACY_GATE")).toThrow(
+      /jen pro legacy zakázku v HOLD LEGACY_GATE/,
+    );
+    expect(store.load(ORDER_ID).state).toBe("WAITING_OWNER");
+    const meta = { ...w.meta };
+    delete meta.review_receipt_id;
+    delete meta.review_receipt_sha256;
+    store.save({ ...store.load(ORDER_ID), meta });
+    const path0 = legacyStatus(store.load(ORDER_ID), "copy");
+    expect(path0).toMatchObject({ state: "HOLD", code: "LEGACY_GATE" });
+    expect((path0 as { path: string }).path).toMatch(
+      /cli\.ts abort <id> "LEGACY_GATE"/,
+    );
+    const failed = o.abort(ORDER_ID, "LEGACY_GATE");
+    expect(failed.state).toBe("FAILED");
+    expect(store.load(ORDER_ID).state).toBe("FAILED");
+    expect(
+      store
+        .readLog(500)
+        .some((e) =>
+          /HOLD LEGACY_GATE: migrační abort z WAITING_OWNER/.test(
+            e.result ?? "",
+          ),
+        ),
+    ).toBe(true);
+  });
+
+  it("5-K1-6: claim s commitem + ACK, přepnutí run → hold → 0 kroků modelu a 0 efektů, zakázka čeká; DELIVERED v hold → 0 POST", async () => {
+    const x = world();
+    const ev = x.seedEvent();
+    x.scopeGo(ev);
+    await x.dispatcher.tick(tickInput(new TestLease(1)));
+    const id = woIdFor(ev.event_id);
+    expect(x.w.ackCalls).toEqual(["CLAIMED"]);
+    const { o, creator, checker, notion } = inboxOrch(x, { maxSteps: 3 });
+    privateDispatchFile(dir, { mode: "hold", inbox_types: ["fable"] });
+    const r = await o.tick();
+    expect(r).toEqual({ status: "dispatch_hold", order: id });
+    expect(creator.calls).toHaveLength(0);
+    expect(checker.calls).toHaveLength(0);
+    expect(notion.creates).toBe(0);
+    expect(store.load(id).state).toBe("NEW");
+    // zpět run: rozpracovaná zakázka pokračuje až k DELIVERED, pak znovu hold → 0 POST DRAFTu
+    privateDispatchFile(dir, { mode: "run", inbox_types: ["fable"] });
+    await o.tick();
+    expect(store.load(id).state).toBe("DELIVERED");
+    privateDispatchFile(dir, { mode: "hold", inbox_types: ["fable"] });
+    expect(await o.tick()).toEqual({ status: "dispatch_hold", order: id });
+    expect(notion.creates).toBe(0);
+    expect(store.load(id).state).toBe("DELIVERED");
+    expect(
+      new EffectJournal(dir).get(operationId(id, "deliver", 0)),
+    ).toBeUndefined();
   });
 });

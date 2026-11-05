@@ -128,6 +128,12 @@ export interface DeptContext {
   attempts?: AttemptJournal;
   /** Etapa 4 / PR 4b (§8.2): snímky vzdálených zápisů (git ls-remote, gh pr list, gh run list) v prostředí orchestrátoru. */
   remoteProbe?: RemoteProbe;
+  /**
+   * PR 5 FIX1 (5-K1-3): čerstvá revalidace brány efektu (scope / result GO) těsně před každým externím krokem
+   * doručení s víc kroky (push, pak draft PR). Vrací důvod HOLD, nebo undefined = smí se pokračovat. Předává ji
+   * orchestrátor při doručení.
+   */
+  recheck?: (phase: "push" | "pr") => Promise<string | undefined>;
 }
 
 export interface DepartmentRunner {
@@ -968,6 +974,9 @@ ${verdictFormatFor(this.reviewer)}`;
       const why = "REVIEW_MISMATCH: zkontrolovaný OID z receiptu nejde určit, 0 push";
       return { ok: false, hold: why, error: `HOLD ${why}`, effect_absent: true };
     }
+    // PR 5 FIX1 (5-K1-3): GO revalidované zvlášť před push a znovu před `gh pr create`.
+    const go0 = _ctx.recheck ? await _ctx.recheck("push") : undefined;
+    if (go0) return { ok: false, hold: `${go0}, 0 push`, error: `HOLD ${go0}, 0 push`, effect_absent: true };
     // PR 4a: záznam a reconcile kolem push (journal <wo>/push/r<n>).
     const pj = new PushJournal(_ctx.store.runsDir);
     const pushRec = pj.begin(order.id, order.fix_rounds, wt, branch, oid);
@@ -981,6 +990,8 @@ ${verdictFormatFor(this.reviewer)}`;
       const why = `${gate2 ?? `REVIEW_MISMATCH: push ${pushed.state}, vzdálená větev ≠ zkontrolovaný commit`}, 0 PR`;
       return { ok: false, hold: why, error: `HOLD ${why}` };
     }
+    const go1 = _ctx.recheck ? await _ctx.recheck("pr") : undefined;
+    if (go1) return { ok: false, hold: `${go1}, 0 PR`, error: `HOLD ${go1}, 0 PR` };
     const op = effect ? `\nOperace TARS: \`${effect.marker}\`` : "";
     const body = `${briefMarkdown(order.brief!)}\n\n---\nVytvořeno TARS-ORCH v0, zakázka \`${order.id}\`. Tvůrce: ${this.creatorModel()}. Kontrolor: ${this.checkerModel()}. Kol oprav: ${order.fix_rounds}.${op}\n**DRAFT — NEMERGOVAT bez GO vlastníka.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
     const r = spawnSync("gh", ["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", `feat(tars): ${order.brief!.title}`, "--body", body], {

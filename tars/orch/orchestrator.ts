@@ -116,7 +116,12 @@ import {
   type EffectCtx,
   type GateResult,
 } from "./effect-gate";
-import { EFFECT_PLAN, artifactKindOf, orderClass } from "./inbox/policy";
+import {
+  EFFECT_PLAN,
+  artifactKindOf,
+  legacyStatus,
+  orderClass,
+} from "./inbox/policy";
 import { OWNER_DECISION_PROPERTY, PANEL_DATA_SOURCE_ID } from "./panel";
 import { ResourceLocks } from "./resource-lock";
 import {
@@ -274,6 +279,8 @@ export type TickResult =
    */
   | { status: "limit_hold"; reason: string }
   | { status: "waiting_review"; order: string; reason?: string }
+  /** PR 5 FIX1 (5-K1-6): rozpracovaná zakázka wo-r* stojí, protože dispatch.json není v režimu run. */
+  | { status: "dispatch_hold"; order: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
 /** Etapa 3: outcome of one journaled external write (`runEffect`). */
@@ -295,6 +302,13 @@ class DeliverFailure extends Error {
 
 /** Review kolo 1: the order's row may exist (create of unclear outcome) and cannot be looked up: no write at all. */
 class PanelRowHold extends Error {}
+
+/** PR 5 FIX1 (5-K1-4): revalidace brány uvnitř efektu neprošla; nic se nezapsalo (EFFECT_ABSENT), zakázka HOLD. */
+class GateHoldError extends Error {
+  constructor(public readonly res: Extract<GateResult, { ok: false }>) {
+    super(`${res.code}: ${res.detail}`);
+  }
+}
 
 /**
  * Nález 4: dřívější vytvoření řádku má nejasný výsledek a ochranná doba ještě neuplynula. Žádný POST, žádný HOLD:
@@ -644,6 +658,15 @@ export class Orchestrator {
     }
   }
 
+  /** PR 5 FIX1 (5-K1-6): rozpracovaná inbox zakázka, která by jinak mohla běžet, ale dispatch.json není v režimu run. */
+  private dispatchHeld(all: Order[]): Order | undefined {
+    if (this.lastDispatch?.mode === "run" || !this.d.inbox) return undefined;
+    const inbox = this.d.inbox;
+    return all.find(
+      (o) => isActionable(o.state) && orderClass(o) === "inbox" && inbox.runnable(o).ok,
+    );
+  }
+
   /**
    * Etapa 4 PR 5: smí tick zakázku posunout? Legacy ano. `wo-r` bez události = HOLD UNKNOWN. Inbox jen s commitem,
    * ACK CLAIMED, bez odvolání, a jen když žádná jiná zakázka nečeká na vlastníka ani neběží (Q3-A, WIP 1).
@@ -653,6 +676,8 @@ export class Orchestrator {
     if (cls === "legacy") return true;
     if (cls === "unknown" || !this.d.inbox) return false;
     if (!this.d.inbox.runnable(o).ok) return false;
+    // PR 5 FIX1 (5-K1-6): `mode: "hold"` zastaví i rozpracovaný claim (s commitem a ACK) před dalším krokem a efektem.
+    if (this.lastDispatch?.mode !== "run") return false;
     return !all.some(
       (x) =>
         x.id !== o.id &&
@@ -1904,8 +1929,10 @@ export class Orchestrator {
     this.tickOverview = this.idleOverview();
     // Etapa 4 / PR 4a (§7): reconciler na začátku ticku, pod lease.
     await this.reconcileAttempts();
-    await this.catchUpPanel();
+    // PR 5 FIX1 (5-K1-2): rozhodnutí vlastníka se čte dřív, než TARS zapíše do řádků (dorovnání dirty řádků). Zápis
+    // TARS by změnil `last_edited_by` řádku na integraci a platné GO by se odmítlo jako OWNER_ORIGIN_UNVERIFIED.
     await this.pollOwnerDecisions();
+    await this.catchUpPanel();
     await this.retryOwnerPings();
     // Etapa 4 PR 5 (§5): obnova claimů inboxu před jakýmkoli novým claimem; nový claim jen v režimu run.
     await this.dispatchInbox();
@@ -1926,6 +1953,17 @@ export class Orchestrator {
       const waiting = orders.find((o) => o.state === "WAITING_OWNER");
       // WIP limit 1: no new order while the owner has an undecided card.
       if (waiting) return { status: "waiting_owner", order: waiting.id };
+      // PR 5 FIX1 (5-K1-6): rozpracovaný claim stojí v režimu hold; tick nezačne nic jiného (ani novou zakázku).
+      const stopped = this.dispatchHeld(orders);
+      if (stopped) {
+        this.logOnce({
+          order: stopped.id,
+          kind: "info",
+          role: "orchestrator",
+          result: "wo-r čeká: dispatch.json mode hold, žádný krok ani efekt",
+        });
+        return { status: "dispatch_hold", order: stopped.id };
+      }
       // Q4-B: po doloženém varování CLI o blížícím se limitu nezačínat novou zakázku (rozpracovaná pokračuje výše).
       const warn = this.activeLimitWarning();
       if (warn) return { status: "limit_warning", until: warn };
@@ -3154,6 +3192,7 @@ export class Orchestrator {
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
       if (
+        e instanceof GateHoldError ||
         (e instanceof DeliverFailure && e.effect_absent) ||
         (!(e instanceof DeliverFailure) && effectSurelyAbsent(e))
       )
@@ -4297,11 +4336,12 @@ export class Orchestrator {
           // Etapa 4 PR 5 (§6.1, §6.4, N13, N14): brána efektu těsně před EffectJournal.prepare: allowlist podle třídy
           // zakázky, review receipt nad tímto artefaktem, čerstvá revalidace vyžadovaných receiptů (wo-r*: scope GO),
           // legacy brána a u notion-draft soukromý cíl (`public_url === null`). Nesoulad = HOLD, 0 efekt.
-          const gateRes = await this.gate.beforeEffect(o, {
+          const effCtx: EffectCtx = {
             ...this.gateCtx(o, dept!, [...EFFECT_PLAN[this.effectDept(o, dept)]]),
             step: "deliver",
             draftParentId: this.d.draftParentId,
-          });
+          };
+          const gateRes = await this.gate.beforeEffect(o, effCtx);
           if (!gateRes.ok) return this.gateBlocked(o, gateRes);
           // §9: konfliktní zdroj efektu (rodičovská stránka DRAFTu / repo-git); obsazený nebo nejistý = žádný efekt teď.
           const resource =
@@ -4337,7 +4377,12 @@ export class Orchestrator {
                 let r: Awaited<ReturnType<DepartmentRunner["deliver"]>>;
                 let absent = false;
                 try {
-                  r = await dept!.deliver(del, this.ctx, effectTag(op));
+                  // PR 5 FIX1 (5-K1-3): oddělení s víc kroky (push, draft PR) revaliduje bránu před každým z nich.
+                  const recheck = async (): Promise<string | undefined> => {
+                    const g = await this.gate.recheck(del, effCtx);
+                    return g.ok ? undefined : `${g.code}: ${g.detail}`;
+                  };
+                  r = await dept!.deliver(del, { ...this.ctx, recheck }, effectTag(op));
                 } catch (e) {
                   absent = effectSurelyAbsent(e);
                   r = {
@@ -4510,6 +4555,7 @@ export class Orchestrator {
             this.gateCtx(o, dept!, ["owner-card"], true),
           );
           if (!cardGate.ok) return this.gateBlocked(o, cardGate);
+          const gateOrder = o;
           o = {
             ...o,
             meta: { ...o.meta, approved_hash: seen, artifact_hash: seen },
@@ -4529,6 +4575,12 @@ export class Orchestrator {
               const title = titleWithMarker(cardTitle, op);
               const text = ownerCard(cardOrder, reasons, dept!);
               const dataSection = await this.cardDataSection(cardOrder);
+              // PR 5 FIX1 (5-K1-4): čekání na model (data karty) může trvat minuty: GO se revaliduje těsně před POST.
+              const again = await this.gate.beforeTransition(
+                gateOrder,
+                this.gateCtx(gateOrder, dept!, ["owner-card"], true),
+              );
+              if (!again.ok) throw new GateHoldError(again);
               let card;
               try {
                 card = await this.d.notion.createPage(
@@ -4568,6 +4620,7 @@ export class Orchestrator {
           if (run.kind === "hold") return this.hold(o, run.op, run.reason);
           if (run.kind === "failed") {
             const e = run.error;
+            if (e instanceof GateHoldError) return this.gateBlocked(gateOrder, e.res);
             return this.bad(
               o,
               {
@@ -4663,17 +4716,44 @@ export class Orchestrator {
     }
   }
 
-  /** Manual abort by a human — counted as a manual intervention. */
+  /**
+   * Manual abort by a human — counted as a manual intervention. PR 5 FIX1 (5-K1-5): z WAITING_OWNER jen migrační
+   * cesta legacy zakázky, kterou brána drží v HOLD `LEGACY_GATE` (bez review receiptu nebo finálního těla); HOLD se
+   * zapíše do logu. Jinak o zakázce ve WAITING_OWNER rozhoduje jen vlastník (`owner GO|REJECT`).
+   */
   abort(id: string, reason: string): Order {
     return this.d.store.withStateLock(() => {
       const o = this.d.store.load(id);
+      let legacyGate = false;
+      if (o.state === "WAITING_OWNER") {
+        const ls =
+          orderClass(o) === "legacy" && o.brief
+            ? legacyStatus(o, this.effectDept(o))
+            : undefined;
+        if (ls?.state !== "HOLD")
+          throw new TransitionError(
+            `abort z WAITING_OWNER jen pro legacy zakázku v HOLD LEGACY_GATE; o zakázce ${id} rozhoduje vlastník (owner GO|REJECT)`,
+          );
+        this.log({
+          order: id,
+          kind: "error",
+          role: "orchestrator",
+          result: "HOLD LEGACY_GATE: migrační abort z WAITING_OWNER",
+          reason: ls.detail,
+        });
+        legacyGate = true;
+      }
       const counted = {
         ...o,
         manual_interventions: o.manual_interventions + 1,
       };
       return this.apply(
         counted,
-        { type: "fail", reason: `manual abort: ${reason}` },
+        {
+          type: "fail",
+          reason: `manual abort: ${reason}`,
+          ...(legacyGate ? { legacy_gate: true } : {}),
+        },
         { role: "orchestrator", result: "manual abort" },
       );
     }, this.d.stateLockWaitMs);

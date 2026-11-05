@@ -469,6 +469,29 @@ export class EffectGate {
     return { ok: true, checks: c.checks };
   }
 
+  /**
+   * PR 5 FIX1 (5-K1-3): čerstvá revalidace uvnitř efektu, který má víc externích kroků (gh-push, pak gh-draft-pr).
+   * Volá se těsně před každým krokem; brána musí být EFFECT_PREPARED z `beforeEffect` téhož kola. Kontroly jako
+   * `beforeEffect` (allowlist, legacy, review, scope, result) s neměnnými poli ze záznamu. Nesoulad = HOLD, 0 krok.
+   */
+  async recheck(o: Order, ctx: EffectCtx): Promise<GateResult> {
+    const f = gateFile(this.env.runsDir, o.id, ctx.step, o.fix_rounds);
+    const cur = readGate(f);
+    if (!cur || cur.state !== "EFFECT_PREPARED")
+      return {
+        ok: false,
+        code: "GATE_MISMATCH",
+        detail: `brána ${path.basename(f)} není EFFECT_PREPARED (${cur?.state ?? "chybí"})`,
+      };
+    const c = await this.common(
+      o,
+      ctx,
+      cur.fields.approved_payload_hash ?? undefined,
+    );
+    if (!c.ok) return this.hold(f, cur.fields, c);
+    return { ok: true, checks: c.checks };
+  }
+
   /** Po efektu: VERIFYING s `resource_id` (z receiptu EFFECT_DONE). */
   afterEffect(o: Order, step: string, resourceId: string): void {
     const f = gateFile(this.env.runsDir, o.id, step, o.fix_rounds);

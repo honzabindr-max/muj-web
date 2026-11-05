@@ -103,6 +103,11 @@ export function idleReasonOf(
         reason: "LIMIT_WARNING",
         detail: `nová zakázka nezačne do ${r.until}`,
       };
+    case "dispatch_hold":
+      return {
+        reason: "QUEUE_FULL",
+        detail: `zakázka ${r.order} stojí: dispatch.json mode hold`,
+      };
     default:
       return { reason: "QUEUE_FULL", detail: r.status };
   }
