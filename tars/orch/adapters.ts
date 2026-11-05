@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { limitWarning } from "./reset";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
 
@@ -61,6 +62,18 @@ export interface AdapterResult {
   waitReview?: boolean;
   error?: string;
   duration_ms: number;
+  /** Etapa 4 PR 1: ISO okamžik konce runProcess; od něj se počítá relativní reset (§10.3). */
+  received_at?: string;
+  /**
+   * Etapa 4 PR 1: hláška limitu (jen při limit), vstup pro parseReset. FIX1 nález 1: jen ze strukturované chybové
+   * obálky CLI (claude -p JSON s `is_error: true`), nikdy z textu modelu, stdout ani přepisu promptu. Bez obálky
+   * pole chybí a reset je „nedoloženo“ (pauseMinutes).
+   */
+  limit_text?: string;
+  /** Etapa 4 PR 1, Q4-B: doložené varování CLI o blížícím se limitu (řádek ze stderr), jen když limit není. */
+  limit_warning?: string;
+  /** FIX1 nález 6: zdroj limitu/varování (účet CLI: "claude", "codex", …); blokace Q4-B se vedou po zdrojích. */
+  limit_source?: string;
 }
 
 export interface TextAdapter {
@@ -73,10 +86,49 @@ export interface TextAdapter {
 }
 
 const LIMIT_RE =
-  /(usage limit|rate[ _-]?limit|limit reached|hit your (usage )?limit|out of (credits|messages)|quota exceeded|too many requests|\b429\b|resets? at \d)/i;
+  /(usage limit|rate[ _-]?limit|limit reached|hit your (usage )?limit|out of (credits|messages)|quota exceeded|too many requests|\b429\b|resets? at \d|try again (at|in)\b)/i;
+
+/**
+ * `system/api_retry` z claude stream-json s chybou rate_limit (§10.3): doklad, že jde o limit, ne čas resetu.
+ * Čas resetu z něj nikdy nebereme (parseReset jeho řádky ignoruje).
+ */
+export function isApiRetryRateLimit(streamJson: string): boolean {
+  for (const line of streamJson.split("\n")) {
+    if (!line.includes("api_retry")) continue;
+    let e: { type?: unknown; subtype?: unknown; error?: unknown; error_type?: unknown };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (e?.type !== "system" || e.subtype !== "api_retry") continue;
+    if (/rate[ _-]?limit/i.test(`${JSON.stringify(e.error ?? "")} ${JSON.stringify(e.error_type ?? "")}`)) return true;
+  }
+  return false;
+}
 
 export function looksLikeLimit(text: string): boolean {
-  return LIMIT_RE.test(text);
+  return LIMIT_RE.test(text) || isApiRetryRateLimit(text);
+}
+
+/**
+ * Pole limitu pro AdapterResult (FIX1 nálezy 1 a 2). `envelopeError` = text strukturované chybové obálky CLI, jinak
+ * undefined (žádný doložený čas resetu). `warning` = varování už ověřené `limitWarning` nad stderr bez promptu a textu
+ * modelu, jinak undefined. Při limitu se varování nezapisuje (pauzu řídí limit).
+ */
+function limitFields(
+  limit: boolean,
+  envelopeError: string | undefined,
+  warning: string | undefined,
+  receivedAt: string,
+  source: string,
+): Pick<AdapterResult, "limit_text" | "received_at" | "limit_warning" | "limit_source"> {
+  return {
+    received_at: receivedAt,
+    limit_source: source,
+    ...(limit && envelopeError ? { limit_text: envelopeError.slice(-4000) } : {}),
+    ...(!limit && warning ? { limit_warning: warning } : {}),
+  };
 }
 
 /** SQL/rows queries on Notion databases are rate-limited per workspace hour; no TARS call may ever make them. */
@@ -103,6 +155,8 @@ interface ProcResult {
   stderr: string;
   timedOut: boolean;
   duration_ms: number;
+  /** ISO okamžik konce procesu (§10.3: od něj se počítá relativní reset). */
+  received_at: string;
 }
 
 export function runProcess(
@@ -135,7 +189,8 @@ export function runProcess(
     p.stdin.on("error", () => undefined);
     p.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut, duration_ms: Date.now() - t0 });
+      const end = Date.now();
+      resolve({ code, stdout, stderr, timedOut, duration_ms: end - t0, received_at: new Date(end).toISOString() });
     });
     p.stdin.end(input);
   });
@@ -172,10 +227,13 @@ export class ClaudeCli implements TextAdapter {
     );
     let text = "";
     let isError = r.code !== 0;
+    // FIX1 nález 1: chybová obálka CLI (`is_error: true`) je jediný zdroj času resetu; text modelu ani stderr nejsou.
+    let envelopeError: string | undefined;
     try {
       const j = JSON.parse(r.stdout) as { result?: string; is_error?: boolean };
       text = j.result ?? "";
       isError = isError || Boolean(j.is_error);
+      if (j.is_error === true && typeof j.result === "string") envelopeError = j.result;
     } catch {
       text = r.stdout;
       isError = true;
@@ -191,6 +249,9 @@ export class ClaudeCli implements TextAdapter {
           ? `exit ${r.code}: ${(text || r.stderr).slice(0, 300)}`
           : undefined,
       duration_ms: r.duration_ms,
+      // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
+      // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
+      ...limitFields(limit, envelopeError, limitWarning(r.stderr, [prompt, text]), r.received_at, "claude"),
     };
   }
 }
@@ -239,16 +300,20 @@ export class CodexCli implements TextAdapter {
     const m = /^model: (.+)$/m.exec(r.stderr + r.stdout);
     if (m && this.model === "codex-default") this.model = m[1].trim();
     const failed = r.code !== 0 || r.timedOut || text.trim().length === 0;
+    const limit = failed && looksLikeLimit(r.stderr + r.stdout);
     return {
       ok: !failed,
       text,
-      limit: failed && looksLikeLimit(r.stderr + r.stdout),
+      limit,
       error: failed
         ? r.timedOut
           ? "timeout"
           : `exit ${r.code}: ${lastErrorLine(r.stderr + r.stdout)}`
         : undefined,
       duration_ms: r.duration_ms,
+      // FIX1 nálezy 1 a 2: `codex exec` vypisuje na stderr i přepis promptu a průběh modelu (včetně výstupu příkazů),
+      // takže původ žádného řádku nejde ověřit: čas resetu je vždy „nedoloženo“ a varování Q4-B se nebere.
+      ...limitFields(limit, undefined, undefined, r.received_at, "codex"),
     };
   }
 }
@@ -289,13 +354,16 @@ export class AiChain {
     const text = final ? fs.readFileSync(final, "utf8") : "";
     const status = (/^STATUS:\s*(.+)$/m.exec(text)?.[1] ?? "UNKNOWN").trim();
     const failed = r.code !== 0 || r.timedOut || !final;
+    const limit = failed && looksLikeLimit(r.stdout + r.stderr);
     return {
       ok: !failed,
       text,
       status,
-      limit: failed && looksLikeLimit(r.stdout + r.stderr),
+      limit,
       error: failed ? (r.timedOut ? "timeout" : `exit ${r.code}`) : undefined,
       duration_ms: r.duration_ms,
+      // FIX1 nálezy 1 a 2: run.sh míchá výstupy modelů a promptů; čas resetu „nedoloženo“, varování se nebere.
+      ...limitFields(limit, undefined, undefined, r.received_at, "claude"),
     };
   }
 }

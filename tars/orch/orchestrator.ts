@@ -1,8 +1,10 @@
 // Deterministic driver. One tick = guard → lock → resume/advance one order step by step.
 // "Kód hlídá, LLM rozhoduje": every gate, limit and record lives here, not in a prompt.
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
+import { parseReset } from "./reset";
 import { artifactHash, goBlocker } from "./approval";
 import type { CardRegistry } from "./cards";
 import {
@@ -10,6 +12,7 @@ import {
   type DepartmentRunner,
   type DeptContext,
   type StepOutcome,
+  warningsOf,
 } from "./departments";
 import {
   adapterPreflight,
@@ -48,7 +51,7 @@ import {
   type LoadedSource,
   type SourceLoader,
 } from "./sources";
-import { scanSecrets } from "./secret-scan";
+import { redactDeep, scanSecrets } from "./secret-scan";
 import {
   isActionable,
   isTerminal,
@@ -116,6 +119,8 @@ export interface OrchestratorDeps {
   mission?: string;
   now?: () => Date;
   pauseMinutes?: number;
+  /** Etapa 4 PR 1 (§10.3): IANA zóna pro čas resetu bez zóny v hlášce limitu (výchozí Europe/Prague). */
+  resetTz?: string;
   maxStepsPerTick?: number;
   /** How long `owner`/`abort`/the Notion decision wait for the short state lock (default 5000 ms). */
   stateLockWaitMs?: number;
@@ -131,6 +136,14 @@ export interface OrchestratorDeps {
   panelHoldRetryMs?: number;
 }
 
+/** Q4-A (§10.2): rezerva po doloženém resetu limitu. */
+export const RESET_MARGIN_MS = 60_000;
+/** Q4-B: trvalý záznam doložených varování CLI o blížícím se limitu, po zdrojích (runs/, FIX1 nález 6). */
+export const LIMIT_WARNING_FILE = "limit-warning.json";
+
+/** Blokace Q4-B jednoho zdroje (účet CLI) v runs/limit-warning.json; `until` = ISO konec blokace. */
+type WarningRecord = { until: string } & Record<string, unknown>;
+
 /** Výchozí ochranná doba po nejasném POST nového řádku (nález 4). */
 export const PANEL_CREATE_GUARD_MS = 10 * 60_000;
 /** Výchozí odstup dalšího dohledání řádku v HOLD (nález 2). */
@@ -142,6 +155,8 @@ export type TickResult =
   | { status: "locked" }
   | { status: "paused"; order: string; resume_after: string }
   | { status: "waiting_owner"; order: string }
+  /** Etapa 4 PR 1, Q4-B: doložené varování CLI o blížícím se limitu; nová zakázka nezačne do `until`. */
+  | { status: "limit_warning"; until: string }
   | { status: "waiting_review"; order: string; reason?: string }
   | { status: "advanced"; order: string; state: Order["state"] };
 
@@ -1402,6 +1417,9 @@ export class Orchestrator {
         const waiting = orders.find((o) => o.state === "WAITING_OWNER");
         // WIP limit 1: no new order while the owner has an undecided card.
         if (waiting) return { status: "waiting_owner", order: waiting.id };
+        // Q4-B: po doloženém varování CLI o blížícím se limitu nezačínat novou zakázku (rozpracovaná pokračuje výše).
+        const warn = this.activeLimitWarning();
+        if (warn) return { status: "limit_warning", until: warn };
         order = this.newOrder();
       }
       if (order.state === "PAUSED") {
@@ -2205,6 +2223,7 @@ export class Orchestrator {
     r: StepOutcome,
     role: LogEntry["role"],
   ): Order | undefined {
+    this.noteLimitWarning(order, r, role);
     if (r.ok) return undefined;
     if (r.waiting_review && role === "checker" && order.state === "CHECKING")
       return this.waitForReview(
@@ -2223,13 +2242,20 @@ export class Orchestrator {
       );
     }
     if (r.limit) {
-      const resume = new Date(
-        this.now().getTime() + (this.d.pauseMinutes ?? 60) * 60_000,
-      ).toISOString();
+      const { resume_after, meta } = this.resumeAfterLimit(r);
+      // Údaje o resetu z dřívější pauzy se nepřenášejí: platí jen doklad z této hlášky.
+      const kept = Object.fromEntries(
+        Object.entries(order.meta).filter(([k]) => !k.startsWith("reset_")),
+      );
       return this.apply(
-        order,
-        { type: "limit", resume_after: resume },
-        { role, model: r.model, reason: r.error },
+        { ...order, meta: { ...kept, ...meta } },
+        { type: "limit", resume_after },
+        {
+          role,
+          model: r.model,
+          reason: r.error,
+          result: `reset: ${meta.reset_source}`,
+        },
       );
     }
     this.log({
@@ -2245,6 +2271,158 @@ export class Orchestrator {
       { type: "fail", reason: `${role}: ${r.error ?? "unknown error"}` },
       { role, model: r.model },
     );
+  }
+
+  /**
+   * Etapa 4 PR 1 (§10.2 Q4-A, §10.3): `resume_after` po limitu. Doložený reset z hlášky → reset + 1 min.
+   * Nedoloženo → dnešní `pauseMinutes` od teď a `meta.reset_source = "nedoloženo"`.
+   */
+  private resumeAfterLimit(r: StepOutcome): {
+    resume_after: string;
+    meta: Record<string, string>;
+  } {
+    const now = this.now();
+    // FIX1 nález 1: čas resetu jen z hlášky strukturované obálky CLI (limit_text), nikdy z `error` (text modelu/stdout).
+    const text = r.limit_text ?? "";
+    const p = parseReset(
+      text,
+      r.received_at ?? now.toISOString(),
+      this.d.resetTz ?? "Europe/Prague",
+    );
+    if (p.ok) {
+      const resume = new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS);
+      if (resume > now)
+        return {
+          resume_after: resume.toISOString(),
+          meta: {
+            reset_source: p.source,
+            reset_at_utc: p.at_utc,
+            reset_at_local: p.at_local,
+            ...(p.raw_zone ? { reset_raw_zone: p.raw_zone } : {}),
+            reset_evidence: p.evidence_hash,
+          },
+        };
+    }
+    return {
+      resume_after: new Date(
+        now.getTime() + (this.d.pauseMinutes ?? 60) * 60_000,
+      ).toISOString(),
+      meta: {
+        reset_source: "nedoloženo",
+        reset_reason: (p.ok ? "reset + 1 min už uplynul" : p.reason).slice(
+          0,
+          200,
+        ),
+        reset_evidence: p.evidence_hash,
+      },
+    };
+  }
+
+  /**
+   * Q4-B: doložená varování CLI o blížícím se limitu se zapíší trvale do runs/limit-warning.json (jen pod lease ticku).
+   * Každé platí do doloženého resetu z varování + 1 min, jinak `pauseMinutes` od přijetí. FIX1 nález 6: záznam vede
+   * blokace po zdrojích (claude / codex / …). Nevypršenou blokaci zdroje nové varování jiného zdroje nepřepíše a
+   * varování téhož zdroje ji nezkrátí: platí nejpozdější `until` každého zdroje. Tick do nejpozdějšího `until` ze všech
+   * zdrojů nezačne novou zakázku; rozpracovaná zakázka pokračuje.
+   */
+  private noteLimitWarning(
+    order: Order,
+    r: StepOutcome,
+    role: LogEntry["role"],
+  ): void {
+    const notes = r.limit_warnings ?? [];
+    if (!notes.length) return;
+    if (!this.d.store.holdsLease()) return;
+    const now = this.now();
+    const sources = this.liveWarningSources(now.getTime());
+    for (const n of notes) {
+      const received = n.received_at ?? now.toISOString();
+      const p = parseReset(n.text, received, this.d.resetTz ?? "Europe/Prague");
+      const until = p.ok
+        ? new Date(Date.parse(p.at_utc) + RESET_MARGIN_MS)
+        : new Date(
+            Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000,
+          );
+      const rec: WarningRecord = {
+        observed_at: now.toISOString(),
+        received_at: received,
+        order: order.id,
+        role,
+        model: n.model ?? r.model,
+        source: n.source,
+        until: until.toISOString(),
+        reset_source: p.ok ? p.source : "nedoloženo",
+        evidence_hash: createHash("sha256").update(n.text).digest("hex"),
+        excerpt: n.text.slice(0, 300),
+      };
+      const prev = sources[n.source];
+      if (!prev || Date.parse(prev.until) < until.getTime())
+        sources[n.source] = rec;
+      this.log({
+        order: order.id,
+        kind: "info",
+        role,
+        model: n.model ?? r.model,
+        result: `varování CLI (${n.source}) o blížícím se limitu, nová zakázka nezačne do ${sources[n.source].until}`,
+        reason: rec.excerpt as string,
+      });
+    }
+    const latest = Math.max(
+      ...Object.values(sources).map((s) => Date.parse(s.until)),
+    );
+    this.d.store.writeRunsFile(
+      LIMIT_WARNING_FILE,
+      JSON.stringify(
+        redactDeep({ v: 2, until: new Date(latest).toISOString(), sources }),
+        null,
+        2,
+      ) + "\n",
+    );
+  }
+
+  /**
+   * Nevypršené blokace Q4-B po zdrojích z runs/limit-warning.json. Starý formát (jeden záznam s `until`) = zdroj
+   * "legacy". Nečitelný soubor nebo položka platí `pauseMinutes` od zápisu souboru (fail-closed, ne trvale).
+   */
+  private liveWarningSources(nowMs: number): Record<string, WarningRecord> {
+    const f = this.d.store.readRunsFile(LIMIT_WARNING_FILE);
+    if (!f) return {};
+    const fallback = f.mtimeMs + (this.d.pauseMinutes ?? 60) * 60_000;
+    const unreadable = (): WarningRecord => ({
+      until: new Date(fallback).toISOString(),
+      reset_source: "nedoloženo",
+      reason: "nečitelný záznam varování",
+    });
+    let j: unknown;
+    try {
+      j = JSON.parse(f.text);
+    } catch {
+      j = undefined;
+    }
+    if (!j || typeof j !== "object")
+      return fallback > nowMs ? { nečitelný: unreadable() } : {};
+    const o = j as { sources?: unknown };
+    const raw =
+      o.sources && typeof o.sources === "object"
+        ? (o.sources as Record<string, unknown>)
+        : { legacy: j };
+    const out: Record<string, WarningRecord> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const u = Date.parse(String((v as { until?: unknown })?.until ?? ""));
+      if (!Number.isFinite(u)) {
+        if (fallback > nowMs) out[k] = unreadable();
+      } else if (u > nowMs) out[k] = v as WarningRecord;
+    }
+    return out;
+  }
+
+  /** Q4-B: ISO nejpozdějšího `until` platných blokací ze všech zdrojů, jinak undefined. */
+  private activeLimitWarning(): string | undefined {
+    const live = Object.values(this.liveWarningSources(this.now().getTime()));
+    if (!live.length) return undefined;
+    return new Date(
+      Math.max(...live.map((s) => Date.parse(s.until))),
+    ).toISOString();
   }
 
   async step(order: Order): Promise<Order> {
@@ -2344,17 +2522,17 @@ export class Orchestrator {
               result: r.ok ? "ok" : "error",
               reason: r.error,
             });
-            if (!r.ok)
-              return this.bad(
-                order,
-                {
-                  ok: false,
-                  limit: r.limit,
-                  error: r.error,
-                  model: this.d.supervisor.model,
-                },
-                "supervisor",
-              )!;
+            const supOutcome: StepOutcome = {
+              ok: r.ok,
+              limit: r.limit,
+              error: r.error,
+              model: this.d.supervisor.model,
+              received_at: r.received_at,
+              limit_text: r.limit_text,
+              limit_warnings: warningsOf(r, this.d.supervisor.model),
+            };
+            if (!r.ok) return this.bad(order, supOutcome, "supervisor")!;
+            this.noteLimitWarning(order, supOutcome, "supervisor");
             supMs = r.duration_ms;
             try {
               brief = parseBrief(r.text);
@@ -2430,17 +2608,17 @@ export class Orchestrator {
               this.d.briefChecker.model,
             );
           }
-          if (!c.ok)
-            return this.bad(
-              order,
-              {
-                ok: false,
-                limit: c.limit,
-                error: c.error,
-                model: this.d.briefChecker.model,
-              },
-              "checker",
-            )!;
+          const chkOutcome: StepOutcome = {
+            ok: c.ok,
+            limit: c.limit,
+            error: c.error,
+            model: this.d.briefChecker.model,
+            received_at: c.received_at,
+            limit_text: c.limit_text,
+            limit_warnings: warningsOf(c, this.d.briefChecker.model),
+          };
+          if (!c.ok) return this.bad(order, chkOutcome, "checker")!;
+          this.noteLimitWarning(order, chkOutcome, "checker");
           this.d.store.writeFile(
             order.id,
             `brief-check-a${attempt}.md`,
