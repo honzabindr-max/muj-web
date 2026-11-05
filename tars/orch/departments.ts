@@ -379,7 +379,7 @@ function git(cwd: string, args: string[]): { ok: boolean; out: string } {
 export class DevDepartment implements DepartmentRunner {
   name = "Vývoj";
   cardRole = "vyvojar";
-  /** Output is a PR into main → merge is the owner's (DR-022). */
+  /** Output is a PR into main → TARS merges after the owner's GO on the card (DR-024). */
   alwaysOwner = true;
   creatorFamily: ModelFamily;
   checkerFamily: ModelFamily;
