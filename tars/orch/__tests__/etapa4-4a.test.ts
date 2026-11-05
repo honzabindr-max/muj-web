@@ -1342,6 +1342,187 @@ describe("§7 reconciler", () => {
     }
   });
 
+  const enospc = () =>
+    Object.assign(new Error("ENOSPC: no space left on device, write"), {
+      code: "ENOSPC",
+    });
+  const warnCreator = (text: string): TextAdapter & { calls: number } => {
+    const a = {
+      name: "fake",
+      model: "c",
+      family: "gpt" as const,
+      calls: 0,
+      run: async () => {
+        a.calls++;
+        return {
+          ok: true,
+          text,
+          limit: false,
+          duration_ms: 0,
+          limit_warning: "Approaching usage limit · resets in 6 days",
+          limit_source: "claude",
+          received_at: NOW,
+        };
+      },
+    };
+    return a;
+  };
+
+  it("FIX4: varování limitu + ENOSPC (zápis draftu i limit-warning.json i journalu selže) → žádná nová zakázka, žádné RETRY_SAFE bez uloženého stavu limitu", async () => {
+    const creator = warnCreator(DRAFT);
+    const eio = eioOnce();
+    const lease = vi.spyOn(store, "holdsLease").mockReturnValue(true);
+    const wr = vi
+      .spyOn(store, "writeRunsFile")
+      .mockImplementation(() => {
+        throw enospc();
+      });
+    const hold = vi
+      .spyOn(AttemptJournal.prototype, "holdAttempt")
+      .mockImplementation(() => {
+        throw enospc();
+      });
+    const dept = () =>
+      new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS));
+    const supervisor = vi.fn(async () => ({
+      ok: true,
+      text: "",
+      limit: false,
+      duration_ms: 0,
+    }));
+    const sup = { name: "s", model: "s", family: "claude" as const, run: supervisor };
+    try {
+      const o = orch(dept(), {
+        processProbe: new FakeProbe([[]]),
+        supervisor: sup,
+      });
+      await expect(o.step(seed("DOING"))).rejects.toThrow();
+      expect(store.readRunsFile("limit-warning.json")).toBeUndefined();
+      const a1 = J().list(ORDER_ID, "create-r0")[0];
+      expect(a1.finished).toBeUndefined();
+      expect(a1.reconcile).toBeUndefined();
+      // tentýž běh: varování drží paměť, nová zakázka nezačne (zakázka mimo aktivní stavy)
+      store.save({ ...store.load(ORDER_ID), state: "UNKNOWN" });
+      const t = await o.tick();
+      expect(t).toEqual({
+        status: "limit_warning",
+        until: new Date(Date.parse(NOW) + 6 * 86_400_000 + 60_000).toISOString(),
+      });
+      expect(supervisor).not.toHaveBeenCalled();
+      hold.mockRestore();
+
+      // nový proces (paměť pryč), disk pořád plný: pokus bez FINISHED → žádné RETRY_SAFE, zakázka zůstane rozpracovaná
+      store.save({ ...store.load(ORDER_ID), state: "DOING" });
+      const o2 = orch(dept(), {
+        processProbe: new FakeProbe([[]]),
+        supervisor: sup,
+      });
+      const s2 = await o2.step(store.load(ORDER_ID));
+      expect(s2.state).toBe("DOING");
+      expect(creator.calls).toBe(1);
+      expect(J().list(ORDER_ID, "create-r0")[0].reconcile).toBeUndefined();
+      const t2 = await o2.tick();
+      expect(t2).toMatchObject({ status: "advanced", order: ORDER_ID, state: "DOING" });
+      expect(supervisor).not.toHaveBeenCalled();
+      expect(creator.calls).toBe(1);
+
+      // místo uvolněno: nejdřív nedoložená blokace (pauseMinutes), teprve pak RETRY_SAFE
+      wr.mockRestore();
+      const s3 = await o2.step(store.load(ORDER_ID));
+      expect(s3.state).toBe("CHECKING");
+      expect(creator.calls).toBe(2);
+      expect(J().list(ORDER_ID, "create-r0")[0].reconcile?.result).toBe(
+        "RETRY_SAFE",
+      );
+      const f = JSON.parse(store.readRunsFile("limit-warning.json")!.text) as {
+        sources: Record<string, { until: string; reset_source: string }>;
+      };
+      expect(f.sources["neověřeno"]?.reset_source).toBe("nedoloženo");
+      expect(Date.parse(f.sources["neověřeno"]!.until)).toBe(
+        Date.parse(NOW) + 60 * 60_000,
+      );
+      // opakování samo vrátilo varování → uloženo i doložené (claude, 6 dní)
+      expect(Date.parse(f.sources.claude!.until)).toBe(
+        Date.parse(NOW) + 6 * 86_400_000 + 60_000,
+      );
+    } finally {
+      hold.mockRestore();
+      wr.mockRestore();
+      lease.mockRestore();
+      eio.mockRestore();
+    }
+  });
+
+  it("FIX4: limit-warning.json nejde zapsat, journal ano → pokus HOLD „varování limitu nešlo uložit“, ne FINISHED", async () => {
+    const creator = warnCreator(DRAFT);
+    const eio = eioOnce();
+    const lease = vi.spyOn(store, "holdsLease").mockReturnValue(true);
+    const wr = vi
+      .spyOn(store, "writeRunsFile")
+      .mockImplementation(() => {
+        throw enospc();
+      });
+    try {
+      const o = orch(
+        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+      );
+      await expect(o.step(seed("DOING"))).rejects.toThrow();
+      const a1 = J().list(ORDER_ID, "create-r0")[0];
+      expect(a1.phase).toBe("HOLD");
+      expect(a1.hold?.reason).toMatch(/^varování limitu nešlo uložit: ENOSPC/);
+      expect(a1.finished).toBeUndefined();
+    } finally {
+      wr.mockRestore();
+      lease.mockRestore();
+      eio.mockRestore();
+    }
+  });
+
+  it("FIX4: FINISHED ok:false s varováním v uloženém výsledku (zápis varování po FINISHED selhal) → před RETRY_SAFE se varování zapíše", async () => {
+    const j = J();
+    const rec = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: NOW,
+      decision_check: "t",
+    });
+    const out = JSON.stringify({
+      outcome: {
+        ok: false,
+        error: "x",
+        limit_warnings: [
+          {
+            source: "claude",
+            text: "Approaching usage limit · resets in 6 days",
+            received_at: NOW,
+          },
+        ],
+      },
+    });
+    j.finished(rec.attempt_id, {
+      exit: 1,
+      ok: false,
+      output_sha256: j.writeOutput(rec, out),
+    });
+    const lease = vi.spyOn(store, "holdsLease").mockReturnValue(true);
+    try {
+      const creator = new FakeAdapter("gpt", "c", () => DRAFT);
+      const o = orch(
+        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
+      );
+      const next = await o.step(seed("DOING"));
+      expect(next.state).toBe("CHECKING");
+      const f = JSON.parse(store.readRunsFile("limit-warning.json")!.text) as {
+        sources: Record<string, { until: string }>;
+      };
+      expect(Date.parse(f.sources.claude!.until)).toBe(
+        Date.parse(NOW) + 6 * 86_400_000 + 60_000,
+      );
+      expect(f.sources["neověřeno"]).toBeUndefined();
+    } finally {
+      lease.mockRestore();
+    }
+  });
+
   it("orchestrátor: osiřelý pokus běží na pozadí před deadline → žádný druhý pokus, stav beze změny", async () => {
     const creator = new FakeAdapter("gpt", "c", () => DRAFT);
     const j = J();

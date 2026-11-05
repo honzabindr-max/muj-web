@@ -177,6 +177,8 @@ interface AttemptOutput<T> {
 export const RESET_MARGIN_MS = 60_000;
 /** Q4-B: trvalý záznam doložených varování CLI o blížícím se limitu, po zdrojích (runs/, FIX1 nález 6). */
 export const LIMIT_WARNING_FILE = "limit-warning.json";
+/** FIX4: důvod HOLD pokusu, jehož doložené varování CLI o limitu nešlo trvale uložit. */
+export const LIMIT_WARNING_LOST = "varování limitu nešlo uložit";
 
 /** Blokace Q4-B jednoho zdroje (účet CLI) v runs/limit-warning.json; `until` = ISO konec blokace. */
 type WarningRecord = { until: string } & Record<string, unknown>;
@@ -289,6 +291,8 @@ export class Orchestrator {
   private probe: ProcessProbe;
   /** Pokus kroku ještě běží na pozadí (reconciler: waiting_background): tick nespouští další krok. */
   private attemptWaiting = false;
+  /** FIX4: konec blokace z varování limitu, které nešlo uložit (ms). Platí po celou dobu běhu orchestrátoru. */
+  private unsavedWarningUntil?: number;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -1466,6 +1470,9 @@ export class Orchestrator {
         // WIP limit 1: no new order while the owner has an undecided card.
         if (waiting) return { status: "waiting_owner", order: waiting.id };
         // Q4-B: po doloženém varování CLI o blížícím se limitu nezačínat novou zakázku (rozpracovaná pokračuje výše).
+        // FIX4: varování z tohoto běhu, které nešlo uložit (ENOSPC), blokuje i bez limit-warning.json.
+        if ((this.unsavedWarningUntil ?? 0) > this.now().getTime())
+          return { status: "limit_warning", until: new Date(this.unsavedWarningUntil!).toISOString() };
         const warn = this.activeLimitWarning();
         if (warn) return { status: "limit_warning", until: warn };
         order = this.newOrder();
@@ -2348,6 +2355,9 @@ export class Orchestrator {
       return { kind: "run", r: resumed, resumed: true };
     }
     if (prev && !prev.reconcile) {
+      // FIX4: bez doloženého stavu varování limitu žádné RETRY_SAFE; zakázka zůstane rozpracovaná (žádná nová).
+      const limitWhy = this.limitStateBeforeRetry(order, kind, prev);
+      if (limitWhy) return { kind: "wait", reason: `pokus ${prev.attempt_id}: ${limitWhy}` };
       let d: { result: "RESUME" | "RETRY_SAFE" | "UNKNOWN"; reason: string };
       try {
         d = dept.reconcileRetry
@@ -2422,14 +2432,100 @@ export class Orchestrator {
       } catch (e) {
         const why = `draft ${r.draft_file} nejde přečíst nebo uložit trvale: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
         // FIX3 nález 2: doložená varování CLI z úspěšného volání se zapíší (pod lease) i na chybové cestě, před throw.
-        this.noteLimitWarning(order, r, kind === "check" ? "checker" : "creator");
+        // FIX4: když ani varování nejde uložit, pokus jde do HOLD (ne FINISHED) a blokace platí v paměti.
+        if (!this.keepLimitWarning(order, r, kind === "check" ? "checker" : "creator", rec.attempt_id))
+          throw new Error(why);
         J.finished(rec.attempt_id, { exit: null, ok: false, output_sha256: J.writeOutput(rec, JSON.stringify({ error: why })) });
         throw new Error(why);
       }
     }
-    const sha = J.writeOutput(rec, JSON.stringify(out));
-    J.finished(rec.attempt_id, { exit: r.ok ? 0 : 1, ok: r.ok, output_sha256: sha });
+    try {
+      const sha = J.writeOutput(rec, JSON.stringify(out));
+      J.finished(rec.attempt_id, { exit: r.ok ? 0 : 1, ok: r.ok, output_sha256: sha });
+    } catch (e) {
+      // FIX4: výstup s varováním limitu se neuložil → varování uložit hned (jinak HOLD + blokace v paměti).
+      if (r.limit_warnings?.length)
+        this.keepLimitWarning(order, r, kind === "check" ? "checker" : "creator", rec.attempt_id);
+      throw e;
+    }
     return { kind: "run", r, resumed: false };
+  }
+
+  /**
+   * FIX4 (Codex kolo 4): doložená varování výsledku kroku se uloží dřív, než pokus skončí chybou. Když zápis
+   * limit-warning.json selže (ENOSPC), blokace nové zakázky platí v paměti orchestrátoru a pokus jde do HOLD s důvodem
+   * LIMIT_WARNING_LOST (jde-li zapsat aspoň záznam pokusu). Vrací false = varování neuloženo.
+   */
+  private keepLimitWarning(
+    order: Order,
+    r: StepOutcome,
+    role: LogEntry["role"],
+    attemptId: string,
+  ): boolean {
+    try {
+      this.noteLimitWarning(order, r, role);
+      return true;
+    } catch (e) {
+      const now = this.now();
+      for (const n of r.limit_warnings ?? []) {
+        const received = n.received_at ?? now.toISOString();
+        const p = parseReset(n.text, received, this.d.resetTz ?? "Europe/Prague");
+        const until = p.ok
+          ? Date.parse(p.at_utc) + RESET_MARGIN_MS
+          : Date.parse(received) + (this.d.pauseMinutes ?? 60) * 60_000;
+        this.unsavedWarningUntil = Math.max(this.unsavedWarningUntil ?? 0, until);
+      }
+      try {
+        this.attempts.holdAttempt(
+          attemptId,
+          `${LIMIT_WARNING_LOST}: ${String((e as Error)?.message ?? e).slice(0, 300)}`,
+        );
+      } catch {
+        // Ani záznam pokusu nejde zapsat: pokus zůstane STARTED a opakování hlídá limitStateBeforeRetry.
+      }
+      return false;
+    }
+  }
+
+  /**
+   * FIX4: před opakováním kroku (reconcile RETRY_SAFE) musí být stav varování limitu z předchozího pokusu doložen.
+   * FINISHED: varování z uloženého výsledku se zapíší znovu (zápis mohl po FINISHED selhat). Pokus bez FINISHED
+   * (ABANDONED, i z HOLD LIMIT_WARNING_LOST): varování mohlo přijít a ztratit se → zapíše se nedoložená blokace
+   * na `pauseMinutes` (fail-closed). Zápis selže → důvod čekat (bez RETRY_SAFE; zakázka zůstane rozpracovaná).
+   */
+  private limitStateBeforeRetry(
+    order: Order,
+    kind: StepKind,
+    prev: ReturnType<AttemptJournal["get"]> & object,
+  ): string | undefined {
+    const role = kind === "check" ? "checker" : "creator";
+    let r: StepOutcome | undefined;
+    if (prev.phase === "FINISHED") {
+      try {
+        const o = JSON.parse(this.attempts.readOutput(prev) ?? "null") as AttemptOutput<StepOutcome> | null;
+        r = o?.outcome?.limit_warnings?.length ? o.outcome : undefined;
+      } catch {
+        r = undefined;
+      }
+    } else {
+      r = {
+        ok: false,
+        limit_warnings: [
+          {
+            source: "neověřeno",
+            text: `pokus ${prev.attempt_id} skončil bez FINISHED: varování limitu neověřeno`,
+            received_at: this.iso(),
+          },
+        ],
+      };
+    }
+    if (!r) return undefined;
+    try {
+      this.noteLimitWarning(order, r, role);
+      return undefined;
+    } catch (e) {
+      return `${LIMIT_WARNING_LOST}, opakování odloženo: ${String((e as Error)?.message ?? e).slice(0, 300)}`;
+    }
   }
 
   /** RESUME: výstup FINISHED se shodným sha256 a (u draftu) soubor draftu se stejným obsahem. Jinak undefined. */
