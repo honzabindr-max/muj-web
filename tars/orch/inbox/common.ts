@@ -44,7 +44,9 @@ export type InboxHoldCode =
   | "FOREIGN_SCOPE_CARD"
   | "RECEIPT_KIND"
   | "RECEIPT_CONFLICT"
-  | "DECISION_UNREADABLE";
+  | "DECISION_UNREADABLE"
+  /** dodatek PR 5 (P20): poslední zápis řádku s rozhodnutím neudělal ověřený vlastník */
+  | "OWNER_ORIGIN_UNVERIFIED";
 
 export class InboxHold extends Error {
   constructor(

@@ -255,6 +255,22 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
 - `cli.ts` dispatcher inboxu **nezapojuje** (chybí konfigurace Inboxu z PR 3): žádná `wo-r*` v produkci nevznikne ani
   neběží.
 
+### Dodatek PR 5 po auditu pravidel
+
+- **Původ GO (P20, `owner-origin.ts`):** rozhodnutí z panelu (GO / REJECT) se přijme jen, když `last_edited_by.id`
+  řádku je ověřený vlastník: ID z `TARS_OWNER_NOTION_USER_ID` (launchd plist, žádná výchozí hodnota v kódu) a resolver
+  `GET /v1/users/{id}` vrátí osobu. Jinak HOLD `OWNER_ORIGIN_UNVERIFIED` (nic se nepřijme, zakázka čeká; vlastník zadá
+  rozhodnutí znovu). Totéž pro scope kartu Inboxu (`checkDecisionOrigin`, důvěryhodná mapa DR-042). Revalidace před
+  efektem dál porovnává jen hodnotu (TARS sám zapisuje jiné sloupce řádku).
+- **Kontrola prostojů (DR-033, `idle.ts`):** každý tick zapíše `runs/idle/status.json` (důvod nečinnosti
+  `idle_reason`, čas, přehled: připravená práce, čekání na vlastníka, zámky zdrojů, HOLD limitu, režim dispatcheru,
+  nepřevzatá rozhodnutí), při změně důvodu řádek `runs/idle/history.jsonl` a pole „Poslední krok“ řádku orchestrátoru
+  v panelu (`ID zakázky` = `tars-orchestrator`). Latence převzetí rozhodnutí: `runs/idle/go-latency.jsonl`. Nic
+  nespouští: práci dál spouští tick (a v `run` dispatcher inboxu).
+- **Codex (DR-030 doplněk):** `codex exec` vždy s `-m gpt-6.1-sol` a `-c model_reasoning_effort=<xhigh|high>`
+  (`codexEffort`: třída B nebo neurčená nebo 1. kolo diffu nad 20 000 znaků = `xhigh`; třída A s malým diffem nebo
+  2. kolo = `high`; třída z `meta.pr_class`). Hodnota jde do záznamu kroku i do pole „Kontrolor (model)“.
+
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 
 Jen před podstatným rozhodnutím (`kind`: nabidka | ux | znacka | cena | architektura | bezpecnost). Claude (Opus, bez nástrojů)

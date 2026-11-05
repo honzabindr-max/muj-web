@@ -18,7 +18,12 @@ import {
 import { InboxHold, canonicalJson, sha256Hex, type LeaseView } from "./common";
 import type { InboxEvent } from "./event";
 import type { InboxHttp } from "./http";
-import { checkTrustedMap, type TrustedIdentities } from "./identity";
+import {
+  checkTrustedMap,
+  creatorId,
+  resolveUser,
+  type TrustedIdentities,
+} from "./identity";
 import {
   bindScopeCard,
   loadVerifiedScopeLedger,
@@ -181,6 +186,17 @@ export async function readOwnerDecision(
   http: InboxHttp,
   pageId: string,
 ): Promise<string | undefined> {
+  return (await readOwnerDecisionRow(http, pageId)).value;
+}
+
+/**
+ * Dodatek PR 5 (P20): hodnota selectu i ID autora posledního zápisu stránky (`last_edited_by.id`, jen z odpovědi REST).
+ * Chyba, koš nebo jiný tvar = `DECISION_UNREADABLE`.
+ */
+export async function readOwnerDecisionRow(
+  http: InboxHttp,
+  pageId: string,
+): Promise<{ value: string | undefined; editor: string | undefined }> {
   let j: unknown;
   try {
     j = (await http.send({ method: "GET", path: `/v1/pages/${pageId}` })).json;
@@ -194,6 +210,7 @@ export async function readOwnerDecision(
     object?: unknown;
     id?: unknown;
     in_trash?: unknown;
+    last_edited_by?: { id?: unknown } | null;
     properties?: Record<
       string,
       { type?: unknown; select?: { name?: unknown } | null }
@@ -216,7 +233,46 @@ export async function readOwnerDecision(
       "sloupec Rozhodnutí vlastníka chybí nebo není select",
     );
   const name = prop.select?.name;
-  return typeof name === "string" && name ? name : undefined;
+  return {
+    value: typeof name === "string" && name ? name : undefined,
+    editor:
+      typeof p.last_edited_by?.id === "string" ? p.last_edited_by.id : undefined,
+  };
+}
+
+/**
+ * Dodatek PR 5 (P20): rozhodnutí na scope kartě S platí jen od vlastníka. `last_edited_by.id` řádku = `owner_id` z
+ * důvěryhodné mapy a resolver (DR-042 v6.2, stejný jako u `created_by.id`) vrátí osobu. Jinak `OWNER_ORIGIN_UNVERIFIED`.
+ */
+export async function checkDecisionOrigin(
+  http: InboxHttp,
+  editor: string | undefined,
+  trusted: TrustedIdentities,
+): Promise<void> {
+  const id = creatorId({ created_by: { id: editor } });
+  if (!id)
+    throw new InboxHold(
+      "OWNER_ORIGIN_UNVERIFIED",
+      "autor posledního zápisu řádku chybí",
+    );
+  if (id !== trusted.owner_id)
+    throw new InboxHold(
+      "OWNER_ORIGIN_UNVERIFIED",
+      id === trusted.tars_bot_id
+        ? "poslední zápis řádku udělala integrace TARS"
+        : "poslední zápis řádku neudělal vlastník",
+    );
+  let kind: string;
+  try {
+    kind = (await resolveUser(http, id)).kind;
+  } catch {
+    throw new InboxHold("OWNER_ORIGIN_UNVERIFIED", "resolver uživatele selhal");
+  }
+  if (kind !== "person")
+    throw new InboxHold(
+      "OWNER_ORIGIN_UNVERIFIED",
+      "resolver: ID vlastníka nepatří osobě",
+    );
 }
 
 export interface ScopeDecisionInput {
@@ -265,8 +321,11 @@ export async function observeScopeDecision(
         "receipt scope karty bez stránky",
       );
     const trusted = checkTrustedMap(inp.trusted);
-    const value = await readOwnerDecision(inp.http, sId);
+    const seen = await readOwnerDecisionRow(inp.http, sId);
+    const value = seen.value;
     if (value !== "GO" && value !== "REJECT") return { kind: "none" };
+    // Dodatek PR 5 (P20): bez ověřeného autora (vlastník) žádný receipt.
+    await checkDecisionOrigin(inp.http, seen.editor, trusted);
     const L = loadVerifiedScopeLedger(
       inp.runsDir,
       ev,

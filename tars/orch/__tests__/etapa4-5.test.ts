@@ -64,6 +64,7 @@ import {
   privateDispatchFile,
   privateTarget,
   reviewedMeta,
+  TRUST_OWNER_ORIGIN,
 } from "./private-target";
 
 const NOW = "2026-11-05T12:00:00.000Z";
@@ -966,6 +967,7 @@ function inboxOrch(
     guard: () => ({ alarm: false, summary: "TARS-GUARD OK" }),
     draftParentId: PRIVATE_PARENT,
     draftTarget: privateTarget,
+    ownerOrigin: TRUST_OWNER_ORIGIN, // dodatek PR 5 (P20): sada původ netestuje
     dispatchFile,
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),

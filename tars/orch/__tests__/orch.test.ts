@@ -36,7 +36,7 @@ import { extractNotionUrl, McpNotion, NotionRestApi, NotionRestError, OwnerDecis
 import { artifactHash } from "../approval";
 import { OwnerPing } from "../owner-ping";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
-import { PRIVATE_PARENT, privateDispatchFile, privateTarget } from "./private-target";
+import { PRIVATE_PARENT, privateDispatchFile, privateTarget, TRUST_OWNER_ORIGIN } from "./private-target";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, ownerEventFor, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
@@ -174,6 +174,7 @@ function orch(
     // Etapa 4 PR 5 (N14): DRAFT jen pod ověřeného soukromého rodiče (allowlist + public_url null).
     draftParentId: PRIVATE_PARENT,
     draftTarget: privateTarget,
+    ownerOrigin: TRUST_OWNER_ORIGIN, // dodatek PR 5 (P20): sada původ netestuje
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,

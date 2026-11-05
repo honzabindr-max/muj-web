@@ -52,6 +52,11 @@ import {
 import { LimitGuard } from "./limit-guard";
 import { OwnerPing, ownerUserIdFromEnv } from "./owner-ping";
 import {
+  ownerIdFromConfig,
+  OwnerOriginVerifier,
+  restUserResolver,
+} from "./owner-origin";
+import {
   HybridPanelSink,
   McpPanelLookup,
   McpPanelSink,
@@ -238,6 +243,14 @@ function build(): Orchestrator {
     // Dispatcher inboxu (`inbox`) se tu záměrně nezapojuje: chybí konfigurace Inboxu (PR 3), wo-r* tedy nikdy neběží.
     draftTarget: stack.rest ? restDraftTarget(stack.rest) : undefined,
     codeRevision: gitHead(),
+    // Dodatek PR 5 (P20): GO/REJECT z panelu jen od ověřeného vlastníka (ID z TARS_OWNER_NOTION_USER_ID, resolver
+    // přes Notion REST). Bez ID nebo bez tokenu se žádné rozhodnutí z panelu nepřijme (HOLD OWNER_ORIGIN_UNVERIFIED).
+    ownerOrigin: new OwnerOriginVerifier(
+      ownerIdFromConfig(),
+      stack.rest ? restUserResolver(stack.rest) : undefined,
+    ),
+    // Dodatek PR 5 (DR-033): důvod nečinnosti i do řádku orchestrátoru v panelu (pole „Poslední krok“).
+    orchestratorPanelRow: true,
   });
 }
 

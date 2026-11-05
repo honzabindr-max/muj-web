@@ -34,10 +34,41 @@ export interface RunOpts {
    */
   isolated?: boolean;
   /**
+   * codex only (dodatek PR 5, DR-030): `-c model_reasoning_effort=<…>` podle třídy zakázky (`codexEffort`). Bez hodnoty
+   * `xhigh` (fail-closed: neurčená třída = B).
+   */
+  reasoningEffort?: CodexEffort;
+  /**
    * ChatGPT web only: durable directory of the journal of sent prompts (P16, Codex review kolo 1 nález 5). Default cwd
    * (the order dir); Konzilium Lite gives its run dir, because its cwd is a temporary dir that is removed.
    */
   journalDir?: string;
+}
+
+/** Dodatek PR 5 (DR-030 doplněk): model Codexu v adaptéru TARS je výslovný, ne výchozí z config.toml. */
+export const CODEX_MODEL = "gpt-6.1-sol";
+export type CodexEffort = "xhigh" | "high";
+/** Diff nad touto velikostí (znaky celého diffu) je „větší diff“: 1. kolo kontroly třídy A pak běží na xhigh. */
+export const CODEX_LARGE_DIFF_CHARS = 20_000;
+
+/**
+ * Intenzita kontroly Codexu podle třídy zakázky (DR-030 doplněk): třída B (i neurčená, fail-closed) nebo 1. kolo
+ * většího diffu = `xhigh`; třída A s malým diffem nebo 2. a další kolo = `high`.
+ */
+export function codexEffort(c: {
+  prClass?: string;
+  /** kolo kontroly od 1 (1 = první kontrola, 2 = po první opravě …) */
+  round: number;
+  diffChars?: number;
+}): CodexEffort {
+  if (c.prClass !== "A") return "xhigh";
+  if (c.round <= 1 && (c.diffChars ?? Infinity) > CODEX_LARGE_DIFF_CHARS) return "xhigh";
+  return "high";
+}
+
+/** Popis modelu kontroly do záznamu kroku a do pole „Kontrolor (model)“. */
+export function codexModelLabel(model: string, effort: CodexEffort): string {
+  return `${model}, effort ${effort}`;
 }
 
 /**
@@ -445,8 +476,10 @@ export class CodexCli implements TextAdapter {
   family: ModelFamily = "gpt";
   name = "codex exec";
   readonly supportsOutputSchema = true;
-  /** Model comes from ~/.codex/config.toml unless overridden. */
-  constructor(public model = "codex-default") {}
+  /** Dodatek PR 5 (DR-030): model je vždy výslovný (`-m`), i v izolovaném běhu bez config.toml. */
+  constructor(public model = CODEX_MODEL) {}
+  /** Intenzita posledního volání (pro záznam kroku). */
+  lastEffort: CodexEffort | undefined;
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
     const out = path.join(
       opts.cwd,
@@ -460,7 +493,9 @@ export class CodexCli implements TextAdapter {
       "-o",
       out,
     ];
-    if (this.model !== "codex-default") args.push("-m", this.model);
+    const effort: CodexEffort = opts.reasoningEffort ?? "xhigh";
+    this.lastEffort = effort;
+    args.push("-m", this.model, "-c", `model_reasoning_effort=${effort}`);
     if (opts.isolated) args.push(...CODEX_ISOLATION_ARGS);
     const schema = opts.outputSchema ? writeSchemaFile(opts.outputSchema) : undefined;
     if (schema) args.push("--output-schema", schema.file);
@@ -482,8 +517,6 @@ export class CodexCli implements TextAdapter {
       text = fs.readFileSync(out, "utf8");
       fs.rmSync(out, { force: true });
     }
-    const m = /^model: (.+)$/m.exec(r.stderr + r.stdout);
-    if (m && this.model === "codex-default") this.model = m[1].trim();
     const failed = r.code !== 0 || r.timedOut || text.trim().length === 0;
     const limit = failed && looksLikeLimit(r.stderr + r.stdout);
     return {

@@ -13,10 +13,12 @@ import {
   privateDispatchFile,
   privateTarget,
   reviewedMeta,
+  TRUST_OWNER_ORIGIN,
 } from "./private-target";
 import type { NotionClient } from "../notion";
 import { pageIdFromUrl, titleCarriesMarker } from "../notion";
 import { Orchestrator } from "../orchestrator";
+import type { OwnerOrigin } from "../owner-origin";
 import type { PanelIndex, PanelSink } from "../panel";
 import type { Store } from "../store";
 import type { Order } from "../types";
@@ -145,6 +147,9 @@ export function makeOrch(
     panel?: { sink: PanelSink; index: PanelIndex };
     ownerPing?: unknown;
     department?: DepartmentRunner;
+    /** dodatek PR 5: skutečný ověřovač původu (výchozí dvojník TRUST_OWNER_ORIGIN) */
+    ownerOrigin?: OwnerOrigin;
+    orchestratorPanelRow?: boolean;
   } = {},
 ): Orchestrator {
   const noop = async () => ({
@@ -169,6 +174,8 @@ export function makeOrch(
     cards: {
       check: () => ({ ok: true, problems: [] }),
       text: () => "",
+      // dodatek PR 5: tick po dokončení zakázky zkusí novou; ve fixture nemá oddělení kartu (zakázka UNKNOWN, nic neběží)
+      creatorFor: () => ({ ok: false, problems: ["fixture bez karty tvůrce"] }),
     } as never,
     ladder: {} as never,
     notion,
@@ -176,6 +183,8 @@ export function makeOrch(
     draftParentId: PARENT,
     dispatchFile: privateDispatchFile(store.runsDir),
     draftTarget: privateTarget,
+    ownerOrigin: opts.ownerOrigin ?? TRUST_OWNER_ORIGIN, // dodatek PR 5 (P20): sada původ netestuje
+    orchestratorPanelRow: opts.orchestratorPanelRow,
     repoRoot: store.runsDir,
     capsulePath: path.join(store.runsDir, "none"),
     now: () => new Date(NOW),

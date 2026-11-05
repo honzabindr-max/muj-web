@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 
 import { artifactHash } from "../approval";
 import type { DraftTargetReader } from "../effect-gate";
+import type { OwnerOrigin } from "../owner-origin";
 import { writeReviewReceipt } from "../reviews";
 import type { Store } from "../store";
 import type { ModelFamily, Order } from "../types";
@@ -76,15 +77,25 @@ export function privateDispatchFile(
   return f;
 }
 
-/** Závislosti orchestrátoru pro ověřený soukromý cíl DRAFTu. */
+/**
+ * Dodatek PR 5 (P20): testovací dvojník ověření původu rozhodnutí pro sady, které původ netestují (fake panely bez
+ * `last_edited_by`). Skutečný ověřovač `OwnerOriginVerifier` testuje etapa4-5-audit.test.ts.
+ */
+export const TRUST_OWNER_ORIGIN: OwnerOrigin = {
+  verify: async (editor) => ({ ok: true, editor: editor ?? "test-owner" }),
+};
+
+/** Závislosti orchestrátoru pro ověřený soukromý cíl DRAFTu (a dvojník původu rozhodnutí, dodatek PR 5). */
 export function privateDraftDeps(dir: string): {
   draftParentId: string;
   dispatchFile: string;
   draftTarget: DraftTargetReader;
+  ownerOrigin: OwnerOrigin;
 } {
   return {
     draftParentId: PRIVATE_PARENT,
     dispatchFile: privateDispatchFile(dir),
     draftTarget: privateTarget,
+    ownerOrigin: TRUST_OWNER_ORIGIN,
   };
 }
