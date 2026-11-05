@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { currentAttempt, killGroup, settleGroup } from "./attempts";
+import { reportLimitWarning } from "./limit-guard";
 import { limitWarning } from "./reset";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
@@ -142,12 +143,49 @@ const STRIP_ENV = [
   "OPENAI_API_KEY",
   "CLAUDE_CODE_USE_BEDROCK",
   "CLAUDE_CODE_USE_VERTEX",
+  // Etapa 4 PR 4b (§8.1, třída B): žádný token GitHubu z env pro žádné dítě. Vlastní volání gh/git orchestrátoru
+  // (deliver, snímky §8.2) běží v prostředí orchestrátoru, ne přes childEnv.
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
 ];
 
 export function childEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of STRIP_ENV) delete env[k];
+  // §8.1: GIT_CONFIG_* a GH_CONFIG_DIR orchestrátoru dítě nedědí; hranici skládá noRemoteWriteEnv.
+  for (const k of Object.keys(env)) if (/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS)$/.test(k) || k === "GH_CONFIG_DIR") delete env[k];
   return env;
+}
+
+/** §8.1: cíl push, který nikdy neexistuje. */
+export const PUSH_BLOCKED_URL = "file:///nonexistent/tars-push-blocked";
+
+/**
+ * Etapa 4 PR 4b (NAVRH-v6 §8.1, vrstva 1): prostředí dítěte dev create/revise bez prostředků k vzdálenému zápisu.
+ * `gh` dostane prázdnou konfiguraci (není přihlášený), git nemá žádný credential helper (ani osxkeychain ze systémové
+ * konfigurace, ani `gh auth git-credential` z ~/.gitconfig) a push míří na neexistující cíl. GIT_CONFIG_* mají přednost
+ * před soubory konfigurace a dědí je každý vnuk. Hranice platí proti omylu, ne proti úmyslu (§8.1, §15 bod 6);
+ * úmyslné obejití odhalí snímky §8.2. `ghEmptyDir` = attempts/<id>/gh-empty (vytvoří se 0700).
+ */
+export function noRemoteWriteEnv(ghEmptyDir: string): Record<string, string> {
+  fs.mkdirSync(ghEmptyDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(ghEmptyDir, 0o700);
+  return {
+    GH_CONFIG_DIR: ghEmptyDir,
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+    GIT_CONFIG_VALUE_1: "",
+    GIT_CONFIG_KEY_2: "remote.origin.pushurl",
+    GIT_CONFIG_VALUE_2: PUSH_BLOCKED_URL,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "/usr/bin/false",
+    SSH_ASKPASS: "/usr/bin/false",
+    GH_PROMPT_DISABLED: "1",
+  };
 }
 
 interface ProcResult {
@@ -291,6 +329,10 @@ export class ClaudeCli implements TextAdapter {
       isError = true;
     }
     const limit = isError && looksLikeLimit(`${text}\n${r.stderr}`);
+    // Etapa 4 PR 4b, bod 1: doložené varování jde do sinku jako první věc po návratu procesu (malý create-only záznam),
+    // dřív než volající zapíše draft, výstup pokusu nebo limit-warning.json.
+    const warning = limit ? undefined : limitWarning(r.stderr, [prompt, text]);
+    if (warning) reportLimitWarning({ source: "claude", text: warning, received_at: r.received_at, model: this.model });
     return {
       ok: !isError && !r.timedOut && text.trim().length > 0,
       text,
@@ -303,7 +345,7 @@ export class ClaudeCli implements TextAdapter {
       duration_ms: r.duration_ms,
       // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
       // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
-      ...limitFields(limit, envelopeError, limitWarning(r.stderr, [prompt, text]), r.received_at, "claude"),
+      ...limitFields(limit, envelopeError, warning, r.received_at, "claude"),
     };
   }
 }
@@ -387,12 +429,16 @@ export class AiChain {
   ) {
     this.model = `ai-chain (Opus architekt → ${implementerModel} implementer)`;
   }
-  /** cwd = order dir: ai-chain writes its runs/<ts>/ there. projectDir = git worktree. */
+  /**
+   * cwd = order dir: ai-chain writes its runs/<ts>/ there. projectDir = git worktree. `env` = navíc prostředí dítěte
+   * (PR 4b §8.1: noRemoteWriteEnv); IMPLEMENTER_MODEL ho nepřepíše.
+   */
   async run(
     zadaniFile: string,
     projectDir: string,
     cwd: string,
     timeoutMs = 90 * 60_000,
+    env: Record<string, string> = {},
   ): Promise<AdapterResult & { status: string }> {
     const r = await runProcess(
       "bash",
@@ -400,7 +446,7 @@ export class AiChain {
       "",
       cwd,
       timeoutMs,
-      { IMPLEMENTER_MODEL: this.implementerModel },
+      { ...env, IMPLEMENTER_MODEL: this.implementerModel },
     );
     const final = latestFile(path.join(cwd, "runs"), "05-final.md");
     const text = final ? fs.readFileSync(final, "utf8") : "";

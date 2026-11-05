@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import type { RemoteSnapshot } from "./remote-snapshot";
 import { writeDurable } from "./store";
 
 export type AttemptPhase =
@@ -76,6 +77,10 @@ export interface AttemptRecord {
   groups_ended?: number[];
   /** §8: zapíše se jednou, před dalším pokusem stejného kroku. */
   reconcile?: { result: RetryDecision; reason: string; at: string };
+  /** PR 4b (§8.2): snímek vzdálených zápisů před INTENT (jen kroky s možným vzdáleným zápisem, dev create/revise). */
+  remote_before?: RemoteSnapshot;
+  /** PR 4b (§8.2): snímek po konci dítěte (FINISHED nebo ABANDONED); zapíše se jen jednou. */
+  remote_after?: RemoteSnapshot;
   updated_at: string;
 }
 
@@ -193,6 +198,7 @@ export class AttemptJournal {
       decision_check: string;
       fence?: number;
       output_path?: string;
+      remote_before?: RemoteSnapshot;
     },
   ): AttemptRecord {
     const prev = this.latest(order, step);
@@ -228,8 +234,18 @@ export class AttemptJournal {
       deadline: x.deadline,
       decision_check: x.decision_check,
       intent_at: at,
+      ...(x.remote_before ? { remote_before: x.remote_before } : {}),
       updated_at: at,
     });
+  }
+
+  /** PR 4b (§8.2): snímek po konci dítěte. Jen u pokusu se snímkem před, jen jednou, bez změny fáze. */
+  setRemoteAfter(id: string, snap: RemoteSnapshot): AttemptRecord {
+    const prev = this.get(id);
+    if (!prev) throw new AttemptError(`pokus ${id} nemá záznam`);
+    if (!prev.remote_before) throw new AttemptError(`pokus ${id} nemá snímek před (§8.2)`);
+    if (prev.remote_after) return prev;
+    return this.write({ ...prev, remote_after: snap, updated_at: this.now() });
   }
 
   started(id: string, child: AttemptChild): AttemptRecord {

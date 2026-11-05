@@ -40,7 +40,6 @@ import {
   readReviewReceipt,
   type ReviewReceipt,
 } from "../reviews";
-import { transition } from "../state-machine";
 import { pidExists, processStartTime, Store } from "../store";
 import type { Order } from "../types";
 import {
@@ -1299,7 +1298,7 @@ describe("§7 reconciler", () => {
     }
   });
 
-  it("FIX3 nález 2: create vrátí doložené varování CLI o limitu, čtení draftu EIO → varování se zapíše (limit-warning.json) před throw", async () => {
+  it("FIX3 nález 2 (PR 4b bod 1): create vrátí doložené varování CLI o limitu, čtení draftu EIO → varování se uloží do runs/limit-guard před draftem, pak throw", async () => {
     const WARN6 = "Approaching usage limit · resets in 6 days";
     const creator: TextAdapter = {
       name: "fake",
@@ -1322,161 +1321,32 @@ describe("§7 reconciler", () => {
         new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
       );
       await expect(o.step(seed("DOING"))).rejects.toThrow(/EIO/);
-      const f = store.readRunsFile("limit-warning.json");
-      expect(f).toBeDefined();
-      const rec = JSON.parse(f!.text) as {
-        sources: Record<
-          string,
-          { until: string; excerpt?: string; role?: string }
-        >;
-      };
-      const claude = rec.sources.claude;
-      expect(claude?.excerpt).toBe(WARN6);
-      expect(claude!.role).toBe("creator");
-      expect(Date.parse(claude!.until)).toBe(
+      // PR 4b, bod 1: autorita je malý create-only záznam v runs/limit-guard (uložený před draftem), ne limit-warning.json.
+      const gd = path.join(dir, "limit-guard");
+      const recs = fs
+        .readdirSync(gd)
+        .filter((f) => /\.w-[0-9a-f]{16}\.json$/.test(f));
+      expect(recs).toHaveLength(1);
+      const claude = JSON.parse(
+        fs.readFileSync(path.join(gd, recs[0]), "utf8"),
+      ) as { until: string; excerpt: string; source: string };
+      expect(claude.excerpt).toBe(WARN6);
+      expect(claude.source).toBe("claude");
+      expect(Date.parse(claude.until)).toBe(
         Date.parse(NOW) + 6 * 86_400_000 + 60_000,
       );
+      expect(
+        fs.readdirSync(gd).filter((f) => f.endsWith(".pending.json")),
+      ).toEqual([]);
     } finally {
       lease.mockRestore();
       spy.mockRestore();
     }
   });
 
-  const enospc = () =>
-    Object.assign(new Error("ENOSPC: no space left on device, write"), {
-      code: "ENOSPC",
-    });
-  const warnCreator = (text: string): TextAdapter & { calls: number } => {
-    const a = {
-      name: "fake",
-      model: "c",
-      family: "gpt" as const,
-      calls: 0,
-      run: async () => {
-        a.calls++;
-        return {
-          ok: true,
-          text,
-          limit: false,
-          duration_ms: 0,
-          limit_warning: "Approaching usage limit · resets in 6 days",
-          limit_source: "claude",
-          received_at: NOW,
-        };
-      },
-    };
-    return a;
-  };
-
-  it("FIX4: varování limitu + ENOSPC (zápis draftu i limit-warning.json i journalu selže) → žádná nová zakázka, žádné RETRY_SAFE bez uloženého stavu limitu", async () => {
-    const creator = warnCreator(DRAFT);
-    const eio = eioOnce();
-    const lease = vi.spyOn(store, "holdsLease").mockReturnValue(true);
-    const wr = vi
-      .spyOn(store, "writeRunsFile")
-      .mockImplementation(() => {
-        throw enospc();
-      });
-    const hold = vi
-      .spyOn(AttemptJournal.prototype, "holdAttempt")
-      .mockImplementation(() => {
-        throw enospc();
-      });
-    const dept = () =>
-      new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS));
-    const supervisor = vi.fn(async () => ({
-      ok: true,
-      text: "",
-      limit: false,
-      duration_ms: 0,
-    }));
-    const sup = { name: "s", model: "s", family: "claude" as const, run: supervisor };
-    try {
-      const o = orch(dept(), {
-        processProbe: new FakeProbe([[]]),
-        supervisor: sup,
-      });
-      await expect(o.step(seed("DOING"))).rejects.toThrow();
-      expect(store.readRunsFile("limit-warning.json")).toBeUndefined();
-      const a1 = J().list(ORDER_ID, "create-r0")[0];
-      expect(a1.finished).toBeUndefined();
-      expect(a1.reconcile).toBeUndefined();
-      // tentýž běh: varování drží paměť, nová zakázka nezačne (zakázka mimo aktivní stavy)
-      store.save({ ...store.load(ORDER_ID), state: "UNKNOWN" });
-      const t = await o.tick();
-      expect(t).toEqual({
-        status: "limit_warning",
-        until: new Date(Date.parse(NOW) + 6 * 86_400_000 + 60_000).toISOString(),
-      });
-      expect(supervisor).not.toHaveBeenCalled();
-      hold.mockRestore();
-
-      // nový proces (paměť pryč), disk pořád plný: pokus bez FINISHED → žádné RETRY_SAFE, zakázka zůstane rozpracovaná
-      store.save({ ...store.load(ORDER_ID), state: "DOING" });
-      const o2 = orch(dept(), {
-        processProbe: new FakeProbe([[]]),
-        supervisor: sup,
-      });
-      const s2 = await o2.step(store.load(ORDER_ID));
-      expect(s2.state).toBe("DOING");
-      expect(creator.calls).toBe(1);
-      expect(J().list(ORDER_ID, "create-r0")[0].reconcile).toBeUndefined();
-      const t2 = await o2.tick();
-      expect(t2).toMatchObject({ status: "advanced", order: ORDER_ID, state: "DOING" });
-      expect(supervisor).not.toHaveBeenCalled();
-      expect(creator.calls).toBe(1);
-
-      // místo uvolněno: nejdřív nedoložená blokace (pauseMinutes), teprve pak RETRY_SAFE
-      wr.mockRestore();
-      const s3 = await o2.step(store.load(ORDER_ID));
-      expect(s3.state).toBe("CHECKING");
-      expect(creator.calls).toBe(2);
-      expect(J().list(ORDER_ID, "create-r0")[0].reconcile?.result).toBe(
-        "RETRY_SAFE",
-      );
-      const f = JSON.parse(store.readRunsFile("limit-warning.json")!.text) as {
-        sources: Record<string, { until: string; reset_source: string }>;
-      };
-      expect(f.sources["neověřeno"]?.reset_source).toBe("nedoloženo");
-      expect(Date.parse(f.sources["neověřeno"]!.until)).toBe(
-        Date.parse(NOW) + 60 * 60_000,
-      );
-      // opakování samo vrátilo varování → uloženo i doložené (claude, 6 dní)
-      expect(Date.parse(f.sources.claude!.until)).toBe(
-        Date.parse(NOW) + 6 * 86_400_000 + 60_000,
-      );
-    } finally {
-      hold.mockRestore();
-      wr.mockRestore();
-      lease.mockRestore();
-      eio.mockRestore();
-    }
-  });
-
-  it("FIX4: limit-warning.json nejde zapsat, journal ano → pokus HOLD „varování limitu nešlo uložit“, ne FINISHED", async () => {
-    const creator = warnCreator(DRAFT);
-    const eio = eioOnce();
-    const lease = vi.spyOn(store, "holdsLease").mockReturnValue(true);
-    const wr = vi
-      .spyOn(store, "writeRunsFile")
-      .mockImplementation(() => {
-        throw enospc();
-      });
-    try {
-      const o = orch(
-        new CopyDepartment(creator, new FakeAdapter("claude", "k", () => PASS)),
-      );
-      await expect(o.step(seed("DOING"))).rejects.toThrow();
-      const a1 = J().list(ORDER_ID, "create-r0")[0];
-      expect(a1.phase).toBe("HOLD");
-      expect(a1.hold?.reason).toMatch(/^varování limitu nešlo uložit: ENOSPC/);
-      expect(a1.finished).toBeUndefined();
-    } finally {
-      wr.mockRestore();
-      lease.mockRestore();
-      eio.mockRestore();
-    }
-  });
+  // PR 4b, bod 1: testy FIX4 (ENOSPC → blokace v paměti na pauseMinutes, HOLD „varování limitu nešlo uložit“) nahradil
+  // nový návrh (sentinel před voláním, záznam varování hned po návratu procesu, globální HOLD do ručního ověření).
+  // Codex PR 4a kolo 5, nálezy 1 a 2: tars/orch/__tests__/etapa4-4b.test.ts, describe „bod 1“.
 
   it("FIX4: FINISHED ok:false s varováním v uloženém výsledku (zápis varování po FINISHED selhal) → před RETRY_SAFE se varování zapíše", async () => {
     const j = J();
@@ -1562,7 +1432,7 @@ describe("§7 reconciler", () => {
 // ───────────────────────────── §8 reconcile adaptérů + CI 4a (1) ─────────────────────────────
 
 describe("§8 reconcile adaptérů", () => {
-  it("CI 4a (1): retry dev kroku = throw, orchestrátor HOLD, 0 nových volání AI Chain, 0 push, 0 gh", async () => {
+  it("CI 4b (dřív CI 4a (1)): retry dev kroku bez dvojice snímků §8.2 (pokus z doby 4a) = throw, orchestrátor HOLD, 0 nových volání AI Chain, 0 push, 0 gh", async () => {
     const { wt } = devRepo({ "a.txt": "a\n" });
     const bins = fakeBin();
     const chain = fakeChain(async () => ({
@@ -1601,20 +1471,25 @@ describe("§8 reconcile adaptérů", () => {
         { attempt_id: "x" } as never,
       ).result,
     ).toBe("RETRY_SAFE");
+    // Pokus z doby 4a (bez snímku před): stejný stav jako po merge 4b u rozpracované zakázky.
+    const j = J();
+    const r = j.intent(ORDER_ID, "create-r0", {
+      input_sha256: "x",
+      deadline: NOW,
+      decision_check: "legacy",
+    });
+    j.finished(r.attempt_id, {
+      exit: 1,
+      ok: false,
+      output_sha256: j.writeOutput(r, JSON.stringify({ outcome: { ok: false } })),
+    });
     const o = orch(dev);
-    const paused = await o.step(seed("DOING"));
-    expect(paused.state).toBe("PAUSED");
-    expect(chain.calls).toBe(1);
-    // Limit uplynul: zakázka se vrací do DOING (stejně jako tick) a krok by se opakoval.
-    const cur = store.load(ORDER_ID);
-    store.save(transition(cur, { type: "resume" }, NOW));
-    const held = await o.step(store.load(ORDER_ID));
+    const held = await o.step(seed("DOING"));
     expect(held.state).toBe("UNKNOWN");
-    expect(held.failure_reason ?? JSON.stringify(held.history)).toBeDefined();
     expect(fs.readFileSync(path.join(dir, "log.jsonl"), "utf8")).toMatch(
       /opakování kroku odmítnuto: retry dev kroku create/,
     );
-    expect(chain.calls).toBe(1);
+    expect(chain.calls).toBe(0);
     expect(bins.git().filter((l) => /\bpush\b/.test(l))).toEqual([]);
     expect(bins.gh()).toEqual([]);
     expect(fs.existsSync(path.join(dir, ORDER_ID, "push"))).toBe(false);
@@ -1685,8 +1560,8 @@ describe("§8 reconcile adaptérů", () => {
     expect(J().get(r.attempt_id)!.reconcile?.result).toBe("UNKNOWN");
   });
 
-  it("dev deliver: push beze změny, journal <wo>/push/r<n> s receiptem z git ls-remote; druhý deliver → reconcile RESUME", async () => {
-    const { bare, head } = devRepo({ "a.txt": "a\n" });
+  it("dev deliver bez review receiptu (PR 4b, CI 4b): brána = HOLD, 0 push, 0 PR, journal push nevznikne", async () => {
+    const { bare } = devRepo({ "a.txt": "a\n" });
     const bins = fakeBin(
       'echo "$@" >> "$GH_LOG"; echo https://github.com/o/r/pull/9',
     );
@@ -1700,30 +1575,16 @@ describe("§8 reconcile adaptérů", () => {
       })) as never,
       new FakeAdapter("gpt", "codex", () => PASS),
     );
-    const ctx = { store, notion, draftParentId: PARENT, repoRoot: dir };
+    const ctx = { store, notion, draftParentId: PARENT, repoRoot: dir, attempts: J() };
     const o = devOrder({ state: "DELIVERED" });
     const r1 = await dev.deliver(o, ctx);
-    expect(r1).toMatchObject({
-      ok: true,
-      url: "https://github.com/o/r/pull/9",
-      content: head,
-    });
-    expect(git(bare, "rev-parse", `refs/heads/tars/${ORDER_ID}`)).toBe(head);
-    await dev.deliver(o, ctx);
-    const recs = new PushJournal(dir).list(ORDER_ID, 0);
-    expect(
-      recs.map((x) => [x.state, x.reconcile.result, x.receipt?.git_oid]),
-    ).toEqual([
-      ["EFFECT_DONE", "RETRY_SAFE", head],
-      ["EFFECT_DONE", "RESUME", head],
-    ]);
-    expect(recs[0].operation_id).toBe(`${ORDER_ID}/push/r0`);
-    // Volání push zůstalo stejné a jedno na doručení.
-    expect(bins.git().filter((l) => /^push /.test(l))).toEqual([
-      `push -q -u origin tars/${ORDER_ID}`,
-      `push -q -u origin tars/${ORDER_ID}`,
-    ]);
-    expect(bins.gh().filter((l) => /^pr create/.test(l))).toHaveLength(2);
+    expect(r1).toMatchObject({ ok: false, effect_absent: true });
+    expect(r1.hold).toMatch(/^REVIEW_MISMATCH: chybí platný review receipt/);
+    expect(await dev.deliver(o)).toMatchObject({ ok: false, effect_absent: true });
+    expect(git(bare, "for-each-ref", "--format=%(refname)")).toBe("refs/heads/main");
+    expect(new PushJournal(dir).list(ORDER_ID, 0)).toEqual([]);
+    expect(bins.git().filter((l) => /^push /.test(l))).toEqual([]);
+    expect(bins.gh()).toEqual([]);
   });
 });
 
@@ -2099,8 +1960,9 @@ function walk(d: string): string[] {
 }
 
 describe("CI 4a (2): statická hranice třídy A", () => {
-  // Otisky z main @ c965265. Změna kteréhokoli z těchto souborů je třída B (DR-024): aktualizace otisků patří do PR
-  // třídy B s GO vlastníka (např. PR 4b), nikdy do PR třídy A.
+  // Otisky z main @ c965265, aktualizované v PR 4b (třída B, DR-024): bash-preflight.py (pravidlo TARS_ATTEMPT_ID,
+  // §8.1) a nový test tars/guard/__tests__/bash-preflight-attempt.test.ts. Změna kteréhokoli z těchto souborů je
+  // třída B: aktualizace otisků patří jen do PR třídy B s GO vlastníka, nikdy do PR třídy A.
   const PINNED: Record<string, string> = {
     ".claude/settings.json": "e6cfbd7921b657d969f3dc68118dd69477853c3c",
     ".claude/hooks/block-redundant-reads.py":
@@ -2116,6 +1978,8 @@ describe("CI 4a (2): statická hranice třídy A", () => {
     ".claude/hooks/secret-scan.py": "14f9686904c06585c7b3b38049c6d5c1ceb823b5",
     ".claude/hooks/tars-guard.sh": "2e632862a1c28b6f00467e745212444c148820ba",
     "tars/guard/README.md": "a2a4bf7ff694f7677ccbf421fcc251004cf21b38",
+    "tars/guard/__tests__/bash-preflight-attempt.test.ts":
+      "66ca0f69b6cfbeb56a261168c6a7243002df7ece",
     "tars/guard/__tests__/bash-preflight.test.ts":
       "9be559c932705f7bc65ea9acda8df5b6c8c95d69",
     "tars/guard/__tests__/fail-closed-settings.test.ts":
@@ -2126,7 +1990,7 @@ describe("CI 4a (2): statická hranice třídy A", () => {
       "d9b423cf438b15211752707c82c295b66703648e",
     "tars/guard/bash-preflight.allow":
       "d781df9f951f522ddab578d967d16347639f47ec",
-    "tars/guard/bash-preflight.py": "da8f7e9950d21e5aed42bbd9f6567c1255c6d91b",
+    "tars/guard/bash-preflight.py": "3351f8bf7ea8234469fa35a9f801a1d571452e11",
     "tars/guard/bash-preflight.sh": "4e3875a6249b02075ecc43241d6273dc98e1f11d",
     "tars/guard/notion-owner-decision.py":
       "85c67e1ab956b0c6966227b83a44daf941b54e11",
@@ -2146,7 +2010,7 @@ describe("CI 4a (2): statická hranice třídy A", () => {
       expect([f, blobOid(path.join(ROOT, f))]).toEqual([f, oid]);
   });
 
-  it("STRIP_ENV beze změny (credentials dítěte mění jen PR 4b)", () => {
+  it("STRIP_ENV přesně podle PR 4b (§8.1: + tokeny GitHubu); další změna jen v PR třídy B", () => {
     const src = fs.readFileSync(
       path.join(ROOT, "tars/orch/adapters.ts"),
       "utf8",
@@ -2159,6 +2023,10 @@ describe("CI 4a (2): statická hranice třídy A", () => {
       '"OPENAI_API_KEY"',
       '"CLAUDE_CODE_USE_BEDROCK"',
       '"CLAUDE_CODE_USE_VERTEX"',
+      '"GH_TOKEN"',
+      '"GITHUB_TOKEN"',
+      '"GH_ENTERPRISE_TOKEN"',
+      '"GITHUB_ENTERPRISE_TOKEN"',
     ]);
   });
 
@@ -2170,7 +2038,14 @@ describe("CI 4a (2): statická hranice třídy A", () => {
     );
     const hits: string[] = [];
     for (const f of files) {
-      for (const line of fs.readFileSync(f, "utf8").split("\n")) {
+      // PR 4b: volání rozlámané přes řádky (prettier: `spawnSync(\n  "gh",`) se spojí, aby ho scanner viděl.
+      const text = fs
+        .readFileSync(f, "utf8")
+        .replace(
+          /\b(spawn|spawnSync|execFile|execFileSync|runProcess)\(\s*\n\s*/g,
+          "$1(",
+        );
+      for (const line of text.split("\n")) {
         const l = line.trim();
         if (l.startsWith("//") || l.startsWith("*") || l.startsWith("#"))
           continue;
@@ -2188,7 +2063,9 @@ describe("CI 4a (2): statická hranice třídy A", () => {
       }
     }
     // Stav na main @ c965265: tři čtení/zápisy přes `gh pr`, jeden `git push` v DevDepartment.deliver a dvě čtení
-    // `gh api` v návrhu guardu. PR 4a nic nepřidává ani nemění.
+    // `gh api` v návrhu guardu. PR 4a nic nepřidává ani nemění. PR 4b (třída B) přidává jen: dvě čtení (`gh pr list`,
+    // `gh run list`) ve snímcích §8.2 a text hlášky/dokumentace pravidla TARS_ATTEMPT_ID v bash-preflight.py (žádné
+    // volání). Volání push a vytvoření PR v deliver jsou textově beze změny (brána je před nimi).
     expect(hits.sort()).toEqual(
       [
         'tars/orch/departments.ts: const push = git(wt, ["push", "-q", "-u", "origin", branch]);',
@@ -2199,6 +2076,15 @@ describe("CI 4a (2): statická hranice třídy A", () => {
         'tars/orch/guard/tars-guard.proposed.sh: rules=$(gh api "repos/$slug/rules/branches/main" --jq \'[.[].type]|join(",")\' 2>/dev/null); rc=$?',
         // obecný execFileSync (čtení tokenu Notion, main), ne gh ani git
         'tars/orch/notion-token.ts: execFileSync(file, [...args], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] });',
+        // PR 4b §8.2: snímky vzdálených zápisů, jen čtení (list)
+        'tars/orch/remote-snapshot.ts: const pr = spawnSync("gh",',
+        'tars/orch/remote-snapshot.ts: const rl = spawnSync("gh",',
+        // PR 4b §8.1: text hlášky a dokumentace pravidla v guardu, ne volání
+        'tars/guard/bash-preflight.py: """PR 4b: jednoduchý příkaz je git push, gh pr, gh workflow run nebo gh api se zápisem (neurčitelné = ano)."""',
+        'tars/guard/bash-preflight.py: """gh api: zápis = -X/--method jiné než GET, nebo pole (-f/-F/--input) bez výslovného GET."""',
+        'tars/guard/bash-preflight.py: "Pokus TARS (TARS_ATTEMPT_ID) nesmí zapisovat na GitHub: git push, gh pr, gh workflow run "',
+        'tars/guard/bash-preflight.py: "a gh api se zápisem jsou zamítnuté (NAVRH-v6 §8.1). Push a draft PR dělá jen orchestrátor po bráně review."',
+        "tars/guard/bash-preflight.py: git push, gh pr, gh workflow run, gh api s -X/--method jiným než GET nebo s poli (-f/-F/--input), i v textu node -e,",
       ].sort(),
     );
   });

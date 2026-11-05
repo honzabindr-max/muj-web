@@ -42,6 +42,7 @@ import {
   SecretScanningAdapter,
   tickScopeError,
 } from "./orchestrator";
+import { LimitGuard } from "./limit-guard";
 import { OwnerPing, ownerUserIdFromEnv } from "./owner-ping";
 import {
   HybridPanelSink,
@@ -238,6 +239,15 @@ function build(): Orchestrator {
   });
 }
 
+/** PR 4b, bod 1: sentinely runs/limit-guard pro status a ruční ověření (výpočet blokace tu není potřeba). */
+function limitGuardOf(dir: string): LimitGuard {
+  return new LimitGuard(dir, {
+    now: () => new Date(),
+    untilOf: () => ({ until: new Date().toISOString(), reset_source: "nedoloženo" }),
+    pauseMs: 0,
+  });
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === "health") {
@@ -300,12 +310,19 @@ async function main() {
       }
       return;
     }
-    case "status":
+    case "status": {
+      // PR 4b, bod 1: nevyřešené sentinely varování limitu = globální HOLD do ručního ověření.
+      const held = limitGuardOf(runsDir).pending();
+      if (held.length)
+        console.log(
+          `LIMIT-HOLD: ${held.length} nevyřešený sentinel varování limitu (${held.map((p) => p.key).join(", ")}); po ověření účtu: owner limit-hold OVERENO`,
+        );
       for (const o of store.listOrders())
         console.log(
           `${o.id}  ${o.state.padEnd(13)} fixes=${o.fix_rounds}  ${o.brief?.title ?? ""}  ${o.delivered_url ?? ""}`,
         );
       return;
+    }
     case "browser-check": {
       console.log(JSON.stringify(await refreshBrowserStatus()));
       return;
@@ -450,6 +467,23 @@ async function main() {
     }
     case "owner": {
       const [id, decision] = args;
+      if (id === "limit-hold") {
+        // Etapa 4 PR 4b, bod 1: ruční ověření vlastníkem po „varování limitu neuloženo / neověřeno“ (stav účtu CLI
+        // zkontrolovaný mimo TARS). Jen pro vlastníka: podpříkaz owner agent nikdy nespouští (DR-039, bash-preflight).
+        if (decision !== "OVERENO")
+          throw new Error("usage: owner limit-hold OVERENO");
+        if (!store.acquireLock())
+          throw new Error("běží tick (lock); owner limit-hold zopakuj po jeho konci");
+        try {
+          const n = limitGuardOf(runsDir).verifyAll();
+          console.log(
+            `limit-hold: uvolněno ${n} sentinelů (přejmenovány na *.verified-*, nic smazáno)`,
+          );
+        } finally {
+          store.releaseLock();
+        }
+        return;
+      }
       const ev = ownerEventFor(decision);
       if (!id || !ev)
         throw new Error("usage: owner <order-id> GO|'GO A'|'GO B'|REJECT");
@@ -476,7 +510,7 @@ async function main() {
     }
     default:
       console.log(
-        "usage: cli.ts tick | status | health [--json] | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>",
+        "usage: cli.ts tick | status | health [--json] | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | owner limit-hold OVERENO | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>",
       );
       process.exitCode = 1;
   }

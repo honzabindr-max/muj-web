@@ -23,6 +23,10 @@ Vedle parseru se VŽDY kontroluje surový text celého příkazu (OWNER_RAW_RE):
 kdekoli, i v uvozovkách, heredoc, argumentu echo/printf (printf '...' | bash), bash -c, eval, xargs.
 Mimo dosah textového hooku: zakódované/obfuskované varianty (base64, skládání řetězců za běhu, vlastní skript
 volající orch.owner()) - ty řeší pravidlo P20 (rozhodnutí vlastníka DR-039).
+Etapa 4 PR 4b (NAVRH-v6 §8.1): při nastaveném TARS_ATTEMPT_ID (dítě kroku TARS) zamítne vzdálený zápis na GitHub:
+git push, gh pr, gh workflow run, gh api s -X/--method jiným než GET nebo s poli (-f/-F/--input), i v textu node -e,
+python -c, bash -c, printf | bash (REMOTE_RAW_RE nad surovým textem bez uvozovek a závorek), před allowlistem.
+Hranici tvoří odebrané credentials (noRemoteWriteEnv) a snímky §8.2; tohle pravidlo je jen obrana do hloubky.
 Je to obrana ve vrstvách, ne důkaz identity. Při chybě hook blokuje (fail-closed, exit 2; v settings.json
 navíc onFailure: "block" pro timeout a neočekávaný exit kód).
 
@@ -89,6 +93,34 @@ EVAL_RUNNERS = {
 OWNER_RAW_RE = re.compile(
     r"(?:cli\.[cm]?[jt]s|tars/orch/cli\b)(?:\W{1,6}-[\w-]+)*\W{0,6}owner\b"
 )
+
+REMOTE_REASON = (
+    "Pokus TARS (TARS_ATTEMPT_ID) nesmí zapisovat na GitHub: git push, gh pr, gh workflow run "
+    "a gh api se zápisem jsou zamítnuté (NAVRH-v6 §8.1). Push a draft PR dělá jen orchestrátor po bráně review."
+)
+# PR 4b (NAVRH-v6 §8.1, obrana do hloubky, ne hranice): jen při nastaveném TARS_ATTEMPT_ID (dítě kroku TARS).
+GIT_VALUE_OPTS = {
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--exec-path",
+    "--config-env",
+    "--super-prefix",
+}
+GH_VALUE_OPTS = {"-R", "--repo", "--hostname"}
+GH_FIELD_OPTS = ("-f", "-F", "--field", "--raw-field", "--input")
+# Surový text (i kód v node -e, python -c, printf | bash): po nahrazení uvozovek, závorek a čárek mezerami
+# (execFileSync('git', ['push']) → git push). git/gh následované jen přepínači a pak podpříkazem zápisu.
+REMOTE_RAW_RE = re.compile(
+    r"\bgit\b(?:\s+(?:-C|-c|--git-dir|--work-tree|--namespace)(?:=|\s+)\S+|\s+-{1,2}[\w.-]+(?:=\S+)?)*\s+push\b"
+    r"|\bgh\b(?:\s+(?:-R|--repo|--hostname)(?:=|\s+)\S+|\s+-{1,2}[\w-]+(?:=\S+)?)*\s+(?:pr\b|workflow\s+run\b)"
+)
+GH_API_RAW_RE = re.compile(
+    r"\bgh\b(?:\s+(?:-R|--repo|--hostname)(?:=|\s+)\S+|\s+-{1,2}[\w-]+(?:=\S+)?)*\s+api\b([^\n;&|]*)"
+)
+NORMALIZE_RE = re.compile(r"[\"'`\[\](){},]")
 
 NOVALUE_OPTS = {
     "-0",
@@ -172,6 +204,82 @@ def ansi_c(raw):
 def owner_raw(cmd):
     """DR-039: vzor owner kdekoli v surovém textu, i po dekódování ANSI-C escape ($'\\x6fwner')."""
     return bool(OWNER_RAW_RE.search(cmd) or OWNER_RAW_RE.search(ansi_c(cmd)))
+
+
+def in_attempt():
+    """PR 4b: hook běží v dítěti kroku TARS (claude -p pod pokusem dědí TARS_ATTEMPT_ID)."""
+    return bool(os.environ.get("TARS_ATTEMPT_ID", "").strip())
+
+
+def _skip_opts(ws, j, value_opts):
+    while j < len(ws):
+        w = ws[j]
+        if w in value_opts:
+            j += 2
+            continue
+        if w.startswith("-") and not undeterminable(w):
+            j += 1
+            continue
+        break
+    return j
+
+
+def _api_write(rest):
+    """gh api: zápis = -X/--method jiné než GET, nebo pole (-f/-F/--input) bez výslovného GET."""
+    method = None
+    for k, a in enumerate(rest):
+        if a in ("-X", "--method") and k + 1 < len(rest):
+            method = rest[k + 1]
+        elif a.startswith("--method="):
+            method = a.split("=", 1)[1]
+        elif a.startswith("-X") and len(a) > 2:
+            method = a[2:]
+    if method is not None:
+        return undeterminable(method) or method.upper() != "GET"
+    return any(
+        a in GH_FIELD_OPTS
+        or a.startswith(("--field=", "--raw-field=", "--input="))
+        or (a[:2] in ("-f", "-F") and len(a) > 2)
+        for a in rest
+    )
+
+
+def remote_hit(ws):
+    """PR 4b: jednoduchý příkaz je git push, gh pr, gh workflow run nebo gh api se zápisem (neurčitelné = ano)."""
+    if not ws:
+        return False
+    head = os.path.basename(ws[0])
+    if head in EVAL_RUNNERS and any(remote_raw(w) for w in ws[1:]):
+        return True
+    if head == "git":
+        j = _skip_opts(ws, 1, GIT_VALUE_OPTS)
+        return j < len(ws) and (ws[j] == "push" or undeterminable(ws[j]))
+    if head == "gh":
+        j = _skip_opts(ws, 1, GH_VALUE_OPTS)
+        if j >= len(ws):
+            return False
+        sub = ws[j]
+        rest = ws[j + 1 :]
+        if undeterminable(sub) or sub == "pr":
+            return True
+        if sub == "workflow":
+            k = _skip_opts(rest, 0, GH_VALUE_OPTS)
+            return k < len(rest) and (rest[k] == "run" or undeterminable(rest[k]))
+        if sub == "api":
+            return _api_write(rest)
+    return False
+
+
+def remote_raw(cmd):
+    """PR 4b: vzor vzdáleného zápisu kdekoli v surovém textu (i po dekódování ANSI-C a bez uvozovek a závorek)."""
+    for t in (cmd, ansi_c(cmd)):
+        n = NORMALIZE_RE.sub(" ", t)
+        if REMOTE_RAW_RE.search(n):
+            return True
+        for m in GH_API_RAW_RE.finditer(n):
+            if _api_write(m.group(1).split()):
+                return True
+    return False
 
 
 def log(event, detail=""):
@@ -474,6 +582,8 @@ class Parser:
             return
         if owner_hit(words[idx:]):
             self.add("owner")
+        if in_attempt() and remote_hit(words[idx:]):
+            self.add("remote")
         first = os.path.basename(words[idx])
         if first == "find":
             for k in range(idx + 1, n):
@@ -612,6 +722,10 @@ def main():
     if "owner" in parser.found or owner_raw(cmd):
         log("DENY_OWNER")
         return deny(OWNER_REASON)
+    # PR 4b (§8.1): v dítěti kroku TARS žádný vzdálený zápis na GitHub, ani přes allowlist, ani v nejistém rozboru.
+    if in_attempt() and ("remote" in parser.found or remote_raw(cmd)):
+        log("DENY_REMOTE")
+        return deny(REMOTE_REASON)
     # P20: nejistý příkaz s cli.ts se zamítne i před allowlistem; ostatní nejisté zůstávají allow (níže).
     if unsure is not None and UNSURE_CLI_RE.search(cmd):
         log("UNSURE_DENY_CLI", str(unsure))
