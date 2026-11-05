@@ -173,6 +173,8 @@ export function supersededRow(
 export interface OwnerRow {
   decision?: string;
   last_edited_time?: string;
+  /** Dodatek PR 5 (P20): ID autora posledního zápisu stránky řádku (`last_edited_by.id`), jen z odpovědi REST. */
+  last_edited_by?: string;
   /**
    * true jen když je hodnota spolehlivě přečtená: řádek není v koši a sloupec „Rozhodnutí vlastníka“ v odpovědi je
    * jako select. Jinak (koš, chybějící nebo přejmenovaný sloupec) prázdné `decision` NEZNAMENÁ prázdné pole.
@@ -506,6 +508,7 @@ export class RestPanelSink implements PanelSink {
     const j = await this.api.request<{
       in_trash?: boolean;
       last_edited_time?: string;
+      last_edited_by?: { id?: unknown } | null;
       properties?: Record<
         string,
         { select?: { name?: string } | null; url?: string | null }
@@ -527,6 +530,9 @@ export class RestPanelSink implements PanelSink {
       decision: prop?.select?.name ?? undefined,
       last_edited_time:
         typeof j.last_edited_time === "string" ? j.last_edited_time : undefined,
+      ...(typeof j.last_edited_by?.id === "string"
+        ? { last_edited_by: j.last_edited_by.id }
+        : {}),
       readable,
       card,
     };

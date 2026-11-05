@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDispatchFile, privateTarget, TRUST_OWNER_ORIGIN } from "./private-target";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -135,6 +136,9 @@ function orch(
     notion,
     guard: () => ({ alarm: false, summary: "ok" }),
     draftParentId: PARENT,
+    dispatchFile: privateDispatchFile(store.runsDir), // etapa 4 PR 5 (N14): ověřený soukromý cíl DRAFTu
+    draftTarget: privateTarget,
+    ownerOrigin: TRUST_OWNER_ORIGIN, // dodatek PR 5 (P20): sada původ netestuje
     repoRoot: store.runsDir,
     capsulePath: path.join(store.runsDir, "none"),
     now: () => new Date(NOW),

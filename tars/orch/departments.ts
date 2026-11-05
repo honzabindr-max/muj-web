@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { childEnv, noRemoteWriteEnv, remoteWriteConfigProblem, type AdapterResult, type AiChain, type TextAdapter } from "./adapters";
+import { childEnv, codexEffort, codexModelLabel, noRemoteWriteEnv, remoteWriteConfigProblem, type AdapterResult, type AiChain, type CodexEffort, type TextAdapter } from "./adapters";
 import { artifactHash } from "./approval";
 import { AttemptJournal, currentAttempt, RetryRefusedError, sha256, type AttemptRecord, type RetryDecision } from "./attempts";
 import { unjournaledWrites, type JournaledWrites, type RemoteProbe, type RemoteSnapshot } from "./remote-snapshot";
@@ -130,6 +130,12 @@ export interface DeptContext {
   attempts?: AttemptJournal;
   /** Etapa 4 / PR 4b (§8.2): snímky vzdálených zápisů (git ls-remote, gh pr list, gh run list) v prostředí orchestrátoru. */
   remoteProbe?: RemoteProbe;
+  /**
+   * PR 5 FIX1 (5-K1-3): čerstvá revalidace brány efektu (scope / result GO) těsně před každým externím krokem
+   * doručení s víc kroky (push, pak draft PR). Vrací důvod HOLD, nebo undefined = smí se pokračovat. Předává ji
+   * orchestrátor při doručení.
+   */
+  recheck?: (phase: "push" | "pr") => Promise<string | undefined>;
 }
 
 export interface DepartmentRunner {
@@ -269,12 +275,15 @@ export async function callChecker(
   adapter: TextAdapter,
   prompt: string,
   cwd: string,
+  /** dodatek PR 5 (DR-030): intenzita kontroly Codexu; ostatní adaptéry ji ignorují */
+  reasoningEffort?: CodexEffort,
 ): Promise<{ r: AdapterResult; v?: { verdict: Verdict; issues: string[] }; findings?: Finding[] }> {
+  const effort = reasoningEffort ? { reasoningEffort } : {};
   if (!adapter.supportsOutputSchema) {
-    const r = await adapter.run(prompt, { cwd });
+    const r = await adapter.run(prompt, { cwd, ...effort });
     return { r, v: r.ok ? parseVerdict(r.text) : undefined };
   }
-  const r = await adapter.run(prompt, { cwd, outputSchema: REVIEW_SCHEMA });
+  const r = await adapter.run(prompt, { cwd, outputSchema: REVIEW_SCHEMA, ...effort });
   if (!r.ok) return { r };
   const s = parseStructuredVerdict(r.text, REVIEW_VERDICTS);
   // `findings` jen z úspěšně naparsovaného strukturovaného verdiktu (DR-031: výhrady se berou jen odtud).
@@ -812,8 +821,10 @@ export class DevDepartment implements DepartmentRunner {
   creatorModel() {
     return `${this.chain.name} (${this.chain.model})`;
   }
-  checkerModel() {
-    return `${this.reviewer.name} (${this.reviewer.model}) + deterministic`;
+  /** Dodatek PR 5 (DR-030): s intenzitou kontroly Codexu do záznamu kroku a do pole „Kontrolor (model)“. */
+  checkerModel(effort?: CodexEffort) {
+    const m = effort && this.reviewer.family === "gpt" ? codexModelLabel(this.reviewer.model, effort) : this.reviewer.model;
+    return `${this.reviewer.name} (${m}) + deterministic`;
   }
 
   private worktree(order: Order): { wt: string; branch: string } {
@@ -882,6 +893,9 @@ export class DevDepartment implements DepartmentRunner {
     if (!plan.ok) return { ok: false, hold: plan.reason, model: "deterministic" };
     if (issues.length) return { ok: true, verdict: "FIX", issues, deterministic: true, model: "deterministic" };
     const n = plan.chunks.length;
+    // Dodatek PR 5 (DR-030): intenzita Codexu podle třídy zakázky (meta.pr_class, neurčená = B) a kola kontroly.
+    const effort = codexEffort({ prClass: order.meta.pr_class, round: order.fix_rounds + 1, diffChars: diff.length });
+    const model = this.checkerModel(effort);
     const outs: string[] = [];
     const chunks: ReviewChunk[] = [];
     const verdicts: Array<Verdict | undefined> = [];
@@ -902,14 +916,14 @@ ${c.text}
 DIFF>>>
 
 ${verdictFormatFor(this.reviewer)}`;
-      const inv = await invokeChecker(ctx.attempts, order.id, c.index, () => callChecker(this.reviewer, prompt, wt), prompt);
-      notes.push(...warningsOf(inv.r, this.checkerModel()));
-      if (!inv.r.ok) return carryWarnings(fromAdapter(inv.r, this.checkerModel()), notes);
+      const inv = await invokeChecker(ctx.attempts, order.id, c.index, () => callChecker(this.reviewer, prompt, wt, effort), prompt);
+      notes.push(...warningsOf(inv.r, model));
+      if (!inv.r.ok) return carryWarnings(fromAdapter(inv.r, model), notes);
       outs.push(n > 1 ? `## Část ${c.index + 1} z ${n}\n\n${inv.r.text}` : inv.r.text);
       // Nečitelný verdikt části = chyba, ne PASS (§6.2.2 bod 5).
       if (!inv.v) {
         ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, outs.join("\n\n"));
-        return carryWarnings({ ok: false, error: `reviewer verdict unparseable (část ${c.index + 1} z ${n})`, model: this.checkerModel() }, notes);
+        return carryWarnings({ ok: false, error: `reviewer verdict unparseable (část ${c.index + 1} z ${n})`, model }, notes);
       }
       verdicts.push(inv.v.verdict);
       allIssues.push(...inv.v.issues.map((x) => (n > 1 ? `část ${c.index + 1}/${n}: ${x}` : x)));
@@ -919,7 +933,7 @@ ${verdictFormatFor(this.reviewer)}`;
     }
     ctx.store.writeFile(order.id, `check-r${order.fix_rounds}.md`, outs.join("\n\n"));
     const verdict = aggregateVerdict(verdicts);
-    if (!verdict) return carryWarnings({ ok: false, error: "reviewer verdict unparseable", model: this.checkerModel() }, notes);
+    if (!verdict) return carryWarnings({ ok: false, error: "reviewer verdict unparseable", model }, notes);
     const step_id = `check/r${order.fix_rounds}`;
     const review_receipt = writeReviewReceipt(ctx.store.orderDir(order.id), {
       v: 1,
@@ -940,7 +954,7 @@ ${verdictFormatFor(this.reviewer)}`;
       output_sha256: sha256(outputs.join("")),
       created_at: new Date().toISOString(),
     });
-    return carryWarnings({ ok: true, model: this.checkerModel(), verdict, issues: verdict === "PASS" ? allIssues : allIssues.length ? allIssues : [`verdikt ${verdict}`], review_receipt }, notes);
+    return carryWarnings({ ok: true, model, verdict, issues: verdict === "PASS" ? allIssues : allIssues.length ? allIssues : [`verdikt ${verdict}`], review_receipt }, notes);
   }
 
   async revise(order: Order, ctx: DeptContext) {
@@ -963,6 +977,9 @@ ${verdictFormatFor(this.reviewer)}`;
       const why = "REVIEW_MISMATCH: zkontrolovaný OID z receiptu nejde určit, 0 push";
       return { ok: false, hold: why, error: `HOLD ${why}`, effect_absent: true };
     }
+    // PR 5 FIX1 (5-K1-3): GO revalidované zvlášť před push a znovu před `gh pr create`.
+    const go0 = _ctx.recheck ? await _ctx.recheck("push") : undefined;
+    if (go0) return { ok: false, hold: `${go0}, 0 push`, error: `HOLD ${go0}, 0 push`, effect_absent: true };
     // PR 4a: záznam a reconcile kolem push (journal <wo>/push/r<n>).
     const pj = new PushJournal(_ctx.store.runsDir);
     const pushRec = pj.begin(order.id, order.fix_rounds, wt, branch, oid);
@@ -976,6 +993,8 @@ ${verdictFormatFor(this.reviewer)}`;
       const why = `${gate2 ?? `REVIEW_MISMATCH: push ${pushed.state}, vzdálená větev ≠ zkontrolovaný commit`}, 0 PR`;
       return { ok: false, hold: why, error: `HOLD ${why}` };
     }
+    const go1 = _ctx.recheck ? await _ctx.recheck("pr") : undefined;
+    if (go1) return { ok: false, hold: `${go1}, 0 PR`, error: `HOLD ${go1}, 0 PR` };
     const op = effect ? `\nOperace TARS: \`${effect.marker}\`` : "";
     const body = `${briefMarkdown(order.brief!)}\n\n---\nVytvořeno TARS-ORCH v0, zakázka \`${order.id}\`. Tvůrce: ${this.creatorModel()}. Kontrolor: ${this.checkerModel()}. Kol oprav: ${order.fix_rounds}.${op}\n**DRAFT — NEMERGOVAT bez GO vlastníka.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
     const r = spawnSync("gh", ["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", `feat(tars): ${order.brief!.title}`, "--body", body], {

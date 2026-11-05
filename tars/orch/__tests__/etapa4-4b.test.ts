@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDispatchFile, privateTarget, TRUST_OWNER_ORIGIN } from "./private-target";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,6 +40,7 @@ import {
   runWithLimitSink,
   type LimitNote,
 } from "../limit-guard";
+import { EffectGate } from "../effect-gate";
 import { LIMIT_WARNING_LOST, Orchestrator } from "../orchestrator";
 import {
   headsSha256,
@@ -144,6 +146,9 @@ function orch(
     notion,
     guard: () => ({ alarm: false, summary: "ok" }),
     draftParentId: PARENT,
+    dispatchFile: privateDispatchFile(store.runsDir), // etapa 4 PR 5 (N14): ověřený soukromý cíl DRAFTu
+    draftTarget: privateTarget,
+    ownerOrigin: TRUST_OWNER_ORIGIN, // dodatek PR 5 (P20): sada původ netestuje
     repoRoot: store.runsDir,
     capsulePath: path.join(store.runsDir, "none"),
     now: () => new Date(NOW),
@@ -1272,6 +1277,58 @@ describe("brána review receiptu před gh-push a gh-draft-pr", () => {
       ["EFFECT_DONE", "RETRY_SAFE"],
       ["EFFECT_DONE", "RESUME"],
     ]);
+  });
+
+  it("PR 5 FIX1 (5-K1-3): deliver revaliduje GO zvlášť před push a znovu před gh pr create; odvolání mezi nimi → 1 push, 0 PR, HOLD", async () => {
+    const x = await checkedDev({ "a.txt": "a\n" });
+    const phases: string[] = [];
+    const r = await x.dev.deliver(store.load(ORDER_ID), {
+      ...devCtx(),
+      recheck: async (p) => {
+        phases.push(p);
+        return p === "pr" ? "REVOKED_OBSERVED: GO odvoláno" : undefined;
+      },
+    });
+    expect(phases).toEqual(["push", "pr"]);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.hold).toMatch(/REVOKED_OBSERVED: GO odvoláno, 0 PR/);
+    expect(r.effect_absent).toBeFalsy();
+    expect(pushes(x.bins)).toHaveLength(1);
+    expect(prCreates(x.bins)).toEqual([]);
+    // odvolání už před push: 0 push, efekt s jistotou neproběhl
+    const r0 = await x.dev.deliver(store.load(ORDER_ID), {
+      ...devCtx(),
+      recheck: async () => "REVOKED_OBSERVED: GO odvoláno",
+    });
+    expect(r0).toMatchObject({ ok: false, effect_absent: true });
+    expect(r0.hold).toMatch(/0 push/);
+    expect(pushes(x.bins)).toHaveLength(1);
+    expect(prCreates(x.bins)).toEqual([]);
+  });
+
+  it("PR 5 FIX1 (5-K1-3): orchestrátor předá revalidaci brány do deliver; odvolání GO mezi push a PR → 0 PR, zakázka HOLD", async () => {
+    const x = await checkedDev({ "a.txt": "a\n" });
+    const rc = vi
+      .spyOn(EffectGate.prototype, "recheck")
+      .mockResolvedValueOnce({ ok: true, checks: [] })
+      .mockResolvedValueOnce({
+        ok: false,
+        code: "REVOKED_OBSERVED",
+        detail: "GO odvoláno během push",
+      });
+    try {
+      const s = await x.o.step(store.load(ORDER_ID));
+      expect(rc).toHaveBeenCalledTimes(2);
+      expect(pushes(x.bins)).toHaveLength(1);
+      expect(prCreates(x.bins)).toEqual([]);
+      expect(s.delivered_url).toBeUndefined();
+      expect(store.load(ORDER_ID)).toMatchObject({
+        state: "UNKNOWN",
+        failure_reason: expect.stringMatching(/REVOKED_OBSERVED.*0 PR/),
+      });
+    } finally {
+      rc.mockRestore();
+    }
   });
 
   it("CI 4b: bez review receiptu (zakázka z doby před 4a) → HOLD, 0 push, 0 PR", async () => {

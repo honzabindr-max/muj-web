@@ -21,6 +21,9 @@
     <!-- Run 2 scope: copy only (beze změny proti StartInterval variantě). -->
     <key>TARS_DEPARTMENTS</key>
     <string>copy</string>
+    <!-- Dodatek PR 5 (P20): Notion user ID vlastníka. Bez něj se žádné GO/REJECT z panelu nepřijme (fail-closed). -->
+    <key>TARS_OWNER_NOTION_USER_ID</key>
+    <string>28ed872b-594c-813f-b94f-00025f08b7b6</string>
     <!-- Plný tick (Node z fnm, které načítá jen .zshrc; úloha si ho načte sama). Brána mu předá TARS_GATE_START. -->
     <key>TARS_GATE_TICK</key>
     <string>exec /bin/zsh -lc 'eval "$(fnm env --shell zsh)" &amp;&amp; fnm use default &gt;/dev/null &amp;&amp; cd "$HOME/Projects/muj-web" &amp;&amp; npx tsx tars/orch/cli.ts tick'</string>

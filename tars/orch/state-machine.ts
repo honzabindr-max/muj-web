@@ -22,7 +22,8 @@ export type OrderEvent =
   /** P16 v2: the non-code review (GPT in the browser) did not happen; the same artifact waits with its hash. */
   | { type: "wait_review"; reason: string; hash: string }
   | { type: "retry_review" }
-  | { type: "fail"; reason: string }
+  /** `legacy_gate`: PR 5 FIX1 (5-K1-5), migrační abort legacy zakázky ve WAITING_OWNER v HOLD LEGACY_GATE. */
+  | { type: "fail"; reason: string; legacy_gate?: boolean }
   | { type: "unknown"; reason: string };
 
 export class TransitionError extends Error {}
@@ -96,6 +97,7 @@ function target(order: Order, ev: OrderEvent): OrderState {
       break;
     case "fail":
       if (ACTIVE.includes(s) || s === "PAUSED" || s === "WAITING_REVIEW") return "FAILED";
+      if (s === "WAITING_OWNER" && ev.legacy_gate) return "FAILED";
       break;
     case "unknown":
       if (ACTIVE.includes(s) || s === "PAUSED" || s === "WAITING_REVIEW") return "UNKNOWN";

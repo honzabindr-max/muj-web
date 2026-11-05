@@ -19,6 +19,9 @@
          All departments = copy,dev,vizual. -->
     <key>TARS_DEPARTMENTS</key>
     <string>copy</string>
+    <!-- Dodatek PR 5 (P20): Notion user ID vlastníka. Bez něj se žádné GO/REJECT z panelu nepřijme (fail-closed). -->
+    <key>TARS_OWNER_NOTION_USER_ID</key>
+    <string>28ed872b-594c-813f-b94f-00025f08b7b6</string>
   </dict>
   <key>StartInterval</key>
   <integer>1800</integer>

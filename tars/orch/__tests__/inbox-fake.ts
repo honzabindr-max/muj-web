@@ -54,6 +54,11 @@ export interface FakeRow {
   id: string;
   ds: string;
   created_by?: string;
+  /**
+   * Dodatek PR 5 (P20): autor posledního zápisu stránky. Výchozí: vyplněné „Rozhodnutí vlastníka“ zapsal vlastník,
+   * jinak autor řádku. Test zápisu GO od bota nastaví BOT.
+   */
+  last_edited_by?: string;
   in_trash: boolean;
   props: Record<string, Val>;
 }
@@ -174,6 +179,14 @@ export class FakeNotion {
       created_by: r.created_by
         ? { object: "user", id: r.created_by }
         : undefined,
+      last_edited_by: (() => {
+        const id =
+          r.last_edited_by ??
+          (typeof r.props["Rozhodnutí vlastníka"] === "string"
+            ? OWNER
+            : r.created_by);
+        return id ? { object: "user", id } : undefined;
+      })(),
       properties,
     };
   }

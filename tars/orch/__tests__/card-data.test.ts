@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDraftDeps, reviewedMeta } from "./private-target";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -324,14 +325,17 @@ describe("orchestrátor: karta s daty", () => {
   }
   function run(notion: NotionClient, cardAdapter?: TextAdapter) {
     const store = new Store(dir);
-    store.save(order());
+    // Etapa 4 PR 5 (legacy brána N13): po kontrole existuje finální tělo a review receipt PASS (jako od PR 4a).
+    const o0 = order();
+    o0.meta = { ...o0.meta, ...reviewedMeta(store, o0, "# Draft\n\nTexty obrazovek.", "claude") };
+    store.save(o0);
     store.writeFile(ord.id, "draft-v0.md", "# Draft\n\nTexty obrazovek.");
     const dept = { name: "Copy", alwaysOwner: false, creatorModel: () => "gpt", checkerModel: () => "opus", creatorFamily: "gpt", checkerFamily: "claude", deliver: async () => ({ ok: true, url: URL_OK, model: "x" }) };
     const o = new Orchestrator({
       store, notion, cardAdapter,
       supervisor: new Mock({}), briefChecker: Object.assign(new Mock({}), { family: "gpt" as const }),
       departments: { copy: dept as never }, cards: {} as never, ladder: {} as never,
-      guard: () => ({ alarm: false, summary: "ok" }), draftParentId: "parent", repoRoot: dir, capsulePath: path.join(dir, "c.md"), now: () => new Date(NOW),
+      guard: () => ({ alarm: false, summary: "ok" }), ...privateDraftDeps(dir), repoRoot: dir, capsulePath: path.join(dir, "c.md"), now: () => new Date(NOW),
     });
     return { o, store };
   }

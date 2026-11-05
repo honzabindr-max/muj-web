@@ -36,6 +36,7 @@ import { extractNotionUrl, McpNotion, NotionRestApi, NotionRestError, OwnerDecis
 import { artifactHash } from "../approval";
 import { OwnerPing } from "../owner-ping";
 import { assertFamilies, onlyEnabled, Orchestrator, SecretScanningAdapter } from "../orchestrator";
+import { PRIVATE_PARENT, privateDispatchFile, privateTarget, TRUST_OWNER_ORIGIN } from "./private-target";
 import { scanSecrets } from "../secret-scan";
 import { MAX_FIX_ROUNDS, ownerEventFor, transition, TransitionError } from "../state-machine";
 import { Store } from "../store";
@@ -170,7 +171,10 @@ function orch(
     },
     notion: opts.notionClient ?? notion,
     guard: opts.guard ?? (() => ({ alarm: Boolean(opts.alarm), summary: opts.alarm ? "TARS-GUARD ALARM" : "TARS-GUARD OK (7/7)" })),
-    draftParentId: "parent",
+    // Etapa 4 PR 5 (N14): DRAFT jen pod ověřeného soukromého rodiče (allowlist + public_url null).
+    draftParentId: PRIVATE_PARENT,
+    draftTarget: privateTarget,
+    ownerOrigin: TRUST_OWNER_ORIGIN, // dodatek PR 5 (P20): sada původ netestuje
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
     now: opts.now,
@@ -181,7 +185,7 @@ function orch(
     ownerPing: opts.ownerPing,
     panel: opts.panel ? { sink: opts.panel, index: new PanelIndex(dir) } : undefined,
     sources: new SourceLoader(opts.sourcesNotion ?? notion, dir, path.join(dir, "sources-cache")),
-    dispatchFile: opts.dispatchFile,
+    dispatchFile: opts.dispatchFile ?? privateDispatchFile(dir),
   });
   return { o, supervisor, creator, checker, notion, gate, browser };
 }
@@ -407,11 +411,11 @@ describe("orchestrator (mock adapters)", () => {
   it("etapa 4 PR 2: hold → run: tick pod lease zaznamená režim; první tick v run nesmí začít nic nového, rozpracované pokračuje", async () => {
     let t = new Date(NOW).getTime();
     const dispatchFile = path.join(dir, "dispatch.json");
-    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"hold"}');
+    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"hold","private_draft_parents":["0123456789abcdef0123456789abcdef"]}');
     const { o } = orch({ now: () => new Date(t), dispatchFile, creator: [{ ok: false, limit: true, error: "usage limit" }, { text: DRAFT }] });
     expect((await o.tick()).status).toBe("paused");
     expect(o.lastDispatch).toMatchObject({ mode: "hold", may_start_new: false });
-    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"run"}');
+    fs.writeFileSync(dispatchFile, '{"v":1,"mode":"run","private_draft_parents":["0123456789abcdef0123456789abcdef"]}');
     t += 70 * 60_000;
     // první tick po přechodu: rozpracovaná zakázka se obnoví a dokončí, dispatcher nic nového nesmí
     expect(await o.tick()).toMatchObject({ state: "DONE" });
@@ -1186,7 +1190,8 @@ describe("owner decision from the Notion panel (Rozhodnutí vlastníka)", () => 
     fs.writeFileSync(path.join(dir, ".state.lock"), "999"); // `cli owner` (another process) is just writing
     await o.pollOwnerDecisions();
     expect(store.load(id).state).toBe("WAITING_OWNER");
-    expect(store.readLog(200).some((e) => e.result === "owner decision read failed" && /zámek/.test(e.reason ?? ""))).toBe(true);
+    // Etapa 4 PR 5: čtení rozhodnutí běží pod tick lease; jeho získání potřebuje stavový zámek, takže se nic nepřečte.
+    expect(store.readLog(200).some((e) => (e.result === "owner decision read failed" && /zámek/.test(e.reason ?? "")) || /rozhodnutí vlastníka nečteno: tick lease nejde získat/.test(e.result ?? ""))).toBe(true);
     expect(() => o.owner(id, "REJECT")).toThrow(/zámek/);
     fs.rmSync(path.join(dir, ".state.lock"));
     await o.pollOwnerDecisions();

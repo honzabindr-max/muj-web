@@ -230,6 +230,47 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
   startem Chrome v `McpBrowser.run` (vizual, `loginCheck`, `browser-smoke`) a v `refreshBrowserStatus` před zámkem
   (`browser-status.ts`): spící displej = žádný Chrome ani ovladač, uložený `browser-status.json` se nepřepíše.
 
+## Etapa 4 PR 5: claim, revalidace, brána efektu, dispatcher (NAVRH-v6 §3.3, §5, §6.1, §6.4, §9)
+
+- **`dispatch.json` zůstává `mode: "hold"`** a nově zná `inbox_types` (výchozí `[]`, fail-closed). Přepnutí na `run` a
+  přidání typů je samostatná změna konfigurace třídy B s vlastní kartou.
+- **Claim** (`inbox/claim.ts`): `runs/inbox/claims/<event_id>/claim.{prepare,commit,ack}.json` (create-only), manifest
+  `runs/wo-r<e12>/state.json` verze 1 (CAS z 0). Před každým zápisem fence a čerstvá revalidace scope receiptu. Nesoulad
+  bez commitu = `claim.hold.json`, s commitem = `claim.revoked.json` + ACK `HOLD(REVOKED)`. Obnova na začátku ticku podle
+  tabulky §5. Nový claim jen v `run` a ne v prvním ticku po `hold → run`; fronta max 1 (Q3-A).
+- **Revalidace** (`inbox/revalidate.ts`): čerstvé REST čtení řádku z receiptu pod lease, záznam
+  `decisions/<id>/check-<fence>-<n>.json`, při nesouladu jednou `REVOKED_OBSERVED.json` (nikdy se neruší). Nečitelné =
+  HOLD bez zápisu.
+- **Brána efektu** (`effect-gate.ts`, allowlist `inbox/policy.ts`) před každým `notion-draft`, `gh-push` + `gh-draft-pr`,
+  kartou výsledku a `DONE`: `wo-r*` scope GO + review receipt (+ result GO pro DONE s vlastníkem), legacy `wo-*` review
+  receipt (+ result GO), merge z inboxu nikdy. Záznam `runs/<wo>/gate/<step>-r<n>.json` READY → EFFECT_PREPARED →
+  VERIFYING → DONE | HOLD. **`notion-draft` jen pod rodiče z `private_draft_parents` s `public_url === null`** (čtení
+  `GET /v1/pages/{id}` těsně před POST); jinak HOLD `EFFECT_NOT_ALLOWED`, 0 POST. Platí i pro legacy zakázky.
+- **Result GO** z panelu: pozorované GO na kartě výsledku = result receipt (`runs/inbox/decisions/`), `GO → DONE` jen po
+  jeho čerstvé revalidaci. Legacy GO přes `cli.ts owner` platí jako dřív; `wo-r*` přijme GO jen z panelu.
+- **Legacy brána** (N13): rozpracovaná `wo-*` za kontrolou bez review receiptu = HOLD `LEGACY_GATE` s cestou
+  (`cli.ts abort` + nová zakázka). `cli.ts status` vypíše claimy bez commitu, `wo-r*` mimo koncový stav, brány mimo
+  `DONE`, revoked a legacy stav `wo-*`.
+- **Zámky zdrojů** (`resource-lock.ts`): `runs/resources/<zdroj>.lock`, převzetí jen po důkazu konce držitele.
+- `cli.ts` dispatcher inboxu **nezapojuje** (chybí konfigurace Inboxu z PR 3): žádná `wo-r*` v produkci nevznikne ani
+  neběží.
+
+### Dodatek PR 5 po auditu pravidel
+
+- **Původ GO (P20, `owner-origin.ts`):** rozhodnutí z panelu (GO / REJECT) se přijme jen, když `last_edited_by.id`
+  řádku je ověřený vlastník: ID z `TARS_OWNER_NOTION_USER_ID` (launchd plist, žádná výchozí hodnota v kódu) a resolver
+  `GET /v1/users/{id}` vrátí osobu. Jinak HOLD `OWNER_ORIGIN_UNVERIFIED` (nic se nepřijme, zakázka čeká; vlastník zadá
+  rozhodnutí znovu). Totéž pro scope kartu Inboxu (`checkDecisionOrigin`, důvěryhodná mapa DR-042). Revalidace před
+  efektem dál porovnává jen hodnotu (TARS sám zapisuje jiné sloupce řádku).
+- **Kontrola prostojů (DR-033, `idle.ts`):** každý tick zapíše `runs/idle/status.json` (důvod nečinnosti
+  `idle_reason`, čas, přehled: připravená práce, čekání na vlastníka, zámky zdrojů, HOLD limitu, režim dispatcheru,
+  nepřevzatá rozhodnutí), při změně důvodu řádek `runs/idle/history.jsonl` a pole „Poslední krok“ řádku orchestrátoru
+  v panelu (`ID zakázky` = `tars-orchestrator`). Latence převzetí rozhodnutí: `runs/idle/go-latency.jsonl`. Nic
+  nespouští: práci dál spouští tick (a v `run` dispatcher inboxu).
+- **Codex (DR-030 doplněk):** `codex exec` vždy s `-m gpt-6.1-sol` a `-c model_reasoning_effort=<xhigh|high>`
+  (`codexEffort`: třída B nebo neurčená nebo 1. kolo diffu nad 20 000 znaků = `xhigh`; třída A s malým diffem nebo
+  2. kolo = `high`; třída z `meta.pr_class`). Hodnota jde do záznamu kroku i do pole „Kontrolor (model)“.
+
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 
 Jen před podstatným rozhodnutím (`kind`: nabidka | ux | znacka | cena | architektura | bezpecnost). Claude (Opus, bez nástrojů)
