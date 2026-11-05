@@ -12,6 +12,8 @@
 # Mrtvý nárok (držitel neběží) se jen označí souborem claims/G/<n>.dead a brána zkusí další jméno <n+1>; nikdy ho
 # nepřesouvá ani nevrací. Nárok <n+1> vznikne jen po smrti držitele <n>, takže v generaci žije nejvýš jeden držitel.
 # Těsně před startem brána znovu ověří vlastnictví: last-gate-start je stále G a claims/G/<n> nese její identitu.
+# Po MAX_CLAIMS mrtvých nárocích (např. opakovaně selhal zápis last-gate-start) generace nezamrzne: fail-safe nárok
+# claims/G/f<NOW/SAFETY_S> (create-only ln, jeden na 30min okno) a kontrola, že jiný fail-safe nárok nemá živého držitele.
 # Teprve pak zapíše last-gate-start = "now\nidentita" (tmp + mv), čímž generaci G uzavře, a spustí tick.
 # Druhý řádek last-gate-start (identita) drží předchozí tick: dokud jeho brána žije, další tick nezačne.
 #
@@ -192,9 +194,12 @@ if ! mkdir -p "$CD" "$W/gate-ids/$DAY" || ! printf '%s\n' "$ID" >"$IDF"; then
   log "chyba: nárok na generaci $GEN nejde připravit, tick nespuštěn"
   exit 1
 fi
+SLOT_S=$SAFETY_S
+[ "$SLOT_S" -gt 0 ] || SLOT_S=1
 N=0
 while :; do
-  if ln "$IDF" "$CD/$N" 2>/dev/null; then break; fi
+  CLAIM=$CD/$N
+  if ln "$IDF" "$CLAIM" 2>/dev/null; then break; fi
   if [ ! -f "$CD/$N" ]; then
     log "chyba: nárok $GEN/$N nejde vytvořit, tick nespuštěn"
     exit 1
@@ -216,19 +221,43 @@ while :; do
   fi
   N=$((N + 1))
   if [ "$N" -ge "$MAX_CLAIMS" ]; then
-    log "skip: $MAX_CLAIMS mrtvých nároků v generaci $GEN, tick nespuštěn"
-    exit 0
+    # FIX3: vyčerpané nároky (typicky opakovaně selhal zápis last-gate-start) nesmí generaci zastavit natrvalo.
+    # Fail-safe: jeden nárok na časové okno SLOT_S (claims/G/f<okno>, create-only ln), pak kontrola, že žádný jiný
+    # fail-safe nárok generace nemá živého držitele (vytvoř-pak-ověř: ze dvou souběžných aspoň jeden druhého uvidí).
+    SLOT=$((NOW / SLOT_S))
+    CLAIM=$CD/f$SLOT
+    if ! ln "$IDF" "$CLAIM" 2>/dev/null; then
+      if [ ! -f "$CLAIM" ]; then
+        log "chyba: fail-safe nárok $GEN/f$SLOT nejde vytvořit, tick nespuštěn"
+        exit 1
+      fi
+      log "skip: $MAX_CLAIMS mrtvých nároků v generaci $GEN, fail-safe okno $SLOT už použito, tick nespuštěn"
+      exit 0
+    fi
+    for f in "$CD"/f*; do
+      [ -f "$f" ] && [ "$f" != "$CLAIM" ] || continue
+      n=${f##*/}
+      is_num "${n#f}" || continue
+      holder=$(first_line "$f")
+      if alive_id "$holder"; then
+        log "skip: fail-safe generace $GEN drží jiná brána (nárok ${n}, pid ${holder%% *})"
+        exit 0
+      fi
+    done
+    log "fail-safe: $MAX_CLAIMS mrtvých nároků v generaci $GEN (start opakovaně selhal), nárok $GEN/f$SLOT, nejvýš 1 tick za $SLOT_S s"
+    break
   fi
 done
 
 # ── opětovné ověření vlastnictví těsně před startem ──
 test_hook before-start
+CN=${CLAIM##*/}
 if [ "$(lgs_now)" != "$LGS" ]; then
-  log "skip: generace $GEN mezitím pokročila, nárok $GEN/$N se nepoužije"
+  log "skip: generace $GEN mezitím pokročila, nárok $GEN/$CN se nepoužije"
   exit 0
 fi
-if [ "$(first_line "$CD/$N")" != "$ID" ]; then
-  log "skip: nárok $GEN/$N nenese identitu této brány"
+if [ "$(first_line "$CLAIM")" != "$ID" ]; then
+  log "skip: nárok $GEN/$CN nenese identitu této brány"
   exit 0
 fi
 
@@ -239,9 +268,9 @@ if ! printf '%s\n%s\n' "$NOW" "$ID" >"$TMP" || ! mv -f "$TMP" "$W/last-gate-star
   exit 1
 fi
 case $REASON in
-  a) log "tick reason=a next_wake=$NW wake_late_by_s=$((NOW - NW)) claim=$GEN/$N" ;;
-  c) log "tick reason=c next_wake=$NW k=$K claim=$GEN/$N" ;;
-  *) log "tick reason=b claim=$GEN/$N" ;;
+  a) log "tick reason=a next_wake=$NW wake_late_by_s=$((NOW - NW)) claim=$GEN/$CN" ;;
+  c) log "tick reason=c next_wake=$NW k=$K claim=$GEN/$CN" ;;
+  *) log "tick reason=b claim=$GEN/$CN" ;;
 esac
 TARS_GATE_START=$NOW
 export TARS_GATE_START

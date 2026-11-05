@@ -662,6 +662,80 @@ describe("wake-gate.sh (skutečný /bin/sh, falešné hodiny)", () => {
     }
   }, 60_000);
 
+  const isRoot = process.getuid?.() === 0; // root obchází chmod
+
+  it.skipIf(isRoot)(
+    "FIX3: 20× selže zápis last-gate-start (runs/wake jen pro čtení, claims a gate-ids zapisovatelné) → po obnovení práv proběhne pojistka, nejvýš 1 tick na okno",
+    () => {
+      const w = path.join(runs, "wake");
+      const day = String(Math.floor(T / 86400));
+      for (const d of ["outcomes", "claims/0", `gate-ids/${day}`])
+        fs.mkdirSync(path.join(w, d), { recursive: true });
+      fs.writeFileSync(path.join(w, "gate.log"), "");
+      fs.chmodSync(w, 0o555);
+      try {
+        for (let i = 0; i < 20; i++) {
+          const g = gate(T + i * M);
+          expect(g.status).toBe(1);
+          expect(g.ticked).toBe(false);
+          expect(g.stdout).toMatch(/last-gate-start nejde zapsat/);
+        }
+        for (let i = 0; i < 20; i++)
+          expect(fs.existsSync(claim(0, i))).toBe(true);
+        // 21. brána: nároky vyčerpány → fail-safe nárok okna, zápis ale stále selže
+        const f = gate(T + 20 * M);
+        expect(f.status).toBe(1);
+        expect(f.stdout).toMatch(/fail-safe: 20 mrtvých nároků/);
+        expect(fs.existsSync(claim(0, `f${T / 1800}`))).toBe(true);
+      } finally {
+        fs.chmodSync(w, 0o755);
+      }
+      // obnovená práva, stejné okno: fail-safe okno už použito → bez ticku, žádné trvalé zastavení
+      const same = gate(T + 21 * M);
+      expect(same.status).toBe(0);
+      expect(same.ticked).toBe(false);
+      expect(same.stdout).toMatch(/fail-safe okno \d+ už použito/);
+      // další okno: pojistka proběhne, právě 1 tick; generace se posune a dál platí běžný provoz
+      const ticks = minutes(T + 22 * M, T + 59 * M, "crash"); // simulace ticku bez zakázky
+      expect(ticks).toEqual([{ at: 30, reason: "b" }]);
+      expect(fs.readFileSync(lgsFile(), "utf8")).toBe(`${T + 30 * M}\n`);
+      const after = minutes(T + 60 * M, T + 60 * M, "crash");
+      expect(after).toEqual([{ at: 60, reason: "b" }]);
+      expect(fs.readFileSync(path.join(runs, "wake/gate.log"), "utf8")).toMatch(
+        /tick reason=b claim=\d+\/0/,
+      );
+    },
+    30_000,
+  );
+
+  it("FIX3: vyčerpané nároky + čekající probuzení, 8 souběžných bran → právě 1 tick (a) přes fail-safe (5 kol)", async () => {
+    for (let round = 0; round < 5; round++) {
+      fs.rmSync(path.join(runs, "wake"), { recursive: true, force: true });
+      fs.rmSync(tickLog, { force: true });
+      deadClaim();
+      for (let i = 1; i < 20; i++)
+        fs.writeFileSync(claim(T, i), `${deadPid()} ${T} mrtva\n`);
+      fs.writeFileSync(
+        path.join(runs, "next-wake"),
+        formatNextWake({
+          epoch: T + M,
+          order_id: ID,
+          state_version: 0,
+          resume_after: iso(T + M),
+          written_fence: null,
+          attempt: 0,
+        }),
+      );
+      const gs = Array.from({ length: 8 }, () =>
+        bgGate(T + 2 * M, { tick: "sleep 0.2" }),
+      );
+      await Promise.all(gs.map((g) => g.exited));
+      expect(tickCount()).toBe(1);
+      const out = gs.map((g) => g.out()).join("\n");
+      expect(out).toMatch(/ tick reason=a .*claim=\d+\/f\d+/);
+    }
+  }, 60_000);
+
   it("bez TARS_GATE_TICK se tick nespustí a last-gate-start se nezapíše; neplatné hodiny = chyba", () => {
     const r = gate(T, { TARS_GATE_TICK: "" });
     expect(r.status).toBe(1);
