@@ -11,6 +11,7 @@ import { limitWarning } from "./reset";
 import { redactSecretsUnbounded } from "./secret-scan";
 import type { ModelFamily } from "./types";
 import { writeSchemaFile, type JsonSchema } from "./verdict";
+import { claudeCliVersion, isVerifiedClaudeVersion, WATCHDOG_ENV_RE, watchdogEnv } from "./watchdog";
 
 export interface RunOpts {
   cwd: string;
@@ -108,6 +109,13 @@ export interface AdapterResult {
   limit_warning?: string;
   /** FIX1 nález 6: zdroj limitu/varování (účet CLI: "claude", "codex", …); blokace Q4-B se vedou po zdrojích. */
   limit_source?: string;
+  /**
+   * Etapa 4 PR 4c (DR-027 §6): důvod, proč čas resetu z hlášky nejde brát (verze CLI jiná, než pro kterou prošly
+   * fixture tvarů). Při něm `limit_text` chybí a orchestrátor zapíše „nedoloženo“ → PAUSED s pauseMinutes.
+   */
+  reset_unverified?: string;
+  /** PR 4c: zjištěná verze CLI (claude --version), jen claude. */
+  cli_version?: string;
 }
 
 export interface TextAdapter {
@@ -194,6 +202,9 @@ export function childEnv(): NodeJS.ProcessEnv {
   for (const k of STRIP_ENV) delete env[k];
   // §8.1: GIT_CONFIG_* a GH_CONFIG_DIR orchestrátoru dítě nedědí; hranici skládá noRemoteWriteEnv.
   for (const k of Object.keys(env)) if (/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS)$/.test(k) || k === "GH_CONFIG_DIR") delete env[k];
+  // PR 4c: watchdog Claude Code se nikdy nedědí z prostředí orchestrátoru (mohl by být bez stropů); jen ClaudeCli ho
+  // nastaví se stropy pod tvrdým limitem procesu (watchdogEnv).
+  for (const k of Object.keys(env)) if (WATCHDOG_ENV_RE.test(k)) delete env[k];
   return env;
 }
 
@@ -423,34 +434,43 @@ export class ClaudeCli implements TextAdapter {
     this.name = `claude -p --model ${model}`;
   }
   async run(prompt: string, opts: RunOpts): Promise<AdapterResult> {
-    const args = ["-p", "--model", this.model, "--output-format", "json", "--settings", opts.settings ?? ORCH_CLAUDE_SETTINGS];
+    // PR 4c: `stream-json` (+ `--verbose`, které CLI pro stream v `-p` vyžaduje), aby TARS viděl `system/api_retry`
+    // (doklad třídy limitu i po ukončení tvrdým limitem). Výsledek je poslední událost `result` = stejná obálka jako
+    // dřív `--output-format json` (`result`, `is_error`).
+    const args = ["-p", "--model", this.model, "--output-format", "stream-json", "--verbose", "--settings", opts.settings ?? ORCH_CLAUDE_SETTINGS];
     if (opts.mcpConfig) args.push("--mcp-config", opts.mcpConfig, "--strict-mcp-config");
     if (opts.noBuiltinTools) args.push("--tools", "");
     if (opts.allowedTools?.length) args.push("--allowedTools", opts.allowedTools.join(","));
     // Always, also for calls without an allowlist (supervisor, checkers): TARS never runs SQL/rows queries on Notion.
     args.push("--disallowedTools", NOTION_QUERY_TOOLS_DENIED);
-    const r = await runProcess(
-      "claude",
-      args,
-      prompt,
-      opts.cwd,
-      opts.timeoutMs ?? 20 * 60_000,
-      opts.env,
-    );
+    const hardLimitMs = opts.timeoutMs ?? CLAUDE_HARD_LIMIT_MS;
+    // PR 4c (DR-027 §6, W5): watchdog jen pro ověřenou verzi CLI a se stropy pod tvrdým limitem procesu (W4 v
+    // runProcess). Volající ho nesmí přepsat ani zapnout bez stropů: jeho proměnné z opts.env se zahodí, watchdogEnv
+    // jde poslední.
+    const version = claudeCliVersion(childEnv());
+    const wd = watchdogEnv(version, hardLimitMs);
+    const callerEnv = Object.fromEntries(Object.entries(opts.env ?? {}).filter(([k]) => !WATCHDOG_ENV_RE.test(k)));
+    const r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, { ...callerEnv, ...wd.env });
     let text = "";
     let isError = r.code !== 0;
     // FIX1 nález 1: chybová obálka CLI (`is_error: true`) je jediný zdroj času resetu; text modelu ani stderr nejsou.
     let envelopeError: string | undefined;
-    try {
-      const j = JSON.parse(r.stdout) as { result?: string; is_error?: boolean };
-      text = j.result ?? "";
-      isError = isError || Boolean(j.is_error);
-      if (j.is_error === true && typeof j.result === "string") envelopeError = j.result;
-    } catch {
-      text = r.stdout;
+    const out = parseClaudeStdout(r.stdout);
+    if (out.envelope) {
+      text = typeof out.envelope.result === "string" ? out.envelope.result : "";
+      isError = isError || Boolean(out.envelope.is_error);
+      if (out.envelope.is_error === true && typeof out.envelope.result === "string") envelopeError = out.envelope.result;
+    } else {
+      // Bez obálky (ukončení tvrdým limitem, pád CLI): ze streamu se text modelu nebere, jinak jako dřív celý stdout.
+      text = out.stream ? "" : r.stdout;
       isError = true;
     }
-    const limit = isError && looksLikeLimit(`${text}\n${r.stderr}`);
+    const limit = isError && (looksLikeLimit(`${text}\n${r.stderr}`) || isApiRetryRateLimit(r.stdout));
+    // DR-027 §6: tvary hlášek jsou fixture svázané s verzí; jiná verze = čas resetu „nedoloženo“ (nikdy odhad).
+    const resetUnverified =
+      limit && envelopeError && !isVerifiedClaudeVersion(version)
+        ? `verze Claude Code ${version ?? "nezjištěna"} není ověřená pro tvary hlášek limitu`
+        : undefined;
     // Etapa 4 PR 4b, bod 1: doložené varování jde do sinku jako první věc po návratu procesu (malý create-only záznam),
     // dřív než volající zapíše draft, výstup pokusu nebo limit-warning.json.
     const warning = limit ? undefined : limitWarning(r.stderr, [prompt, text]);
@@ -467,9 +487,45 @@ export class ClaudeCli implements TextAdapter {
       duration_ms: r.duration_ms,
       // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
       // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
-      ...limitFields(limit, envelopeError, warning, r.received_at, "claude"),
+      ...limitFields(limit, resetUnverified ? undefined : envelopeError, warning, r.received_at, "claude"),
+      ...(resetUnverified ? { reset_unverified: resetUnverified } : {}),
+      ...(version ? { cli_version: version } : {}),
     };
   }
+}
+
+/** Výchozí tvrdý limit procesu `claude -p` (W4: runProcess po něm ukončí celou skupinu -pgid). */
+export const CLAUDE_HARD_LIMIT_MS = 20 * 60_000;
+
+/**
+ * Výstup `claude -p --output-format stream-json`: poslední událost `type: "result"` = obálka. Starší tvar (jeden JSON
+ * objekt `--output-format json`) se přijme také. `stream` = stdout nese aspoň jednu událost streamu.
+ */
+export function parseClaudeStdout(stdout: string): { envelope?: { result?: unknown; is_error?: unknown }; stream: boolean } {
+  let envelope: { result?: unknown; is_error?: unknown } | undefined;
+  let stream = false;
+  for (const line of stdout.split("\n")) {
+    const l = line.trim();
+    if (!l.startsWith("{")) continue;
+    let e: unknown;
+    try {
+      e = JSON.parse(l);
+    } catch {
+      continue;
+    }
+    if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+    const t = (e as { type?: unknown }).type;
+    if (typeof t === "string") stream = true;
+    if (t === "result") envelope = e as { result?: unknown; is_error?: unknown };
+  }
+  if (envelope || stream) return { envelope, stream };
+  try {
+    const j = JSON.parse(stdout) as unknown;
+    if (j && typeof j === "object" && !Array.isArray(j)) return { envelope: j as { result?: unknown; is_error?: unknown }, stream: false };
+  } catch {
+    // není JSON
+  }
+  return { stream: false };
 }
 
 export class CodexCli implements TextAdapter {

@@ -85,6 +85,8 @@ function fakeCli(
   fs.writeFileSync(path.join(d, "last"), o.lastMessage ?? "");
   const script = [
     "#!/bin/bash",
+    // PR 4c: tvary hlášek jsou svázané s verzí CLI (DR-027 §6); fixture se hlásí jako ověřená verze.
+    '[ "$1" = "--version" ] && { echo "2.1.317 (Claude Code)"; exit 0; }',
     `D="${d}"`,
     'out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; esac; shift; done',
     'cat > "$D/prompt"',

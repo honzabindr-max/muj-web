@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"fixture-4c","model":"claude-opus","tools":[]}
+{"type":"result","subtype":"success","is_error":true,"duration_ms":900,"num_turns":1,"result":"Usage limit reached. Please come back later.","session_id":"fixture-4c"}

@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"fixture-4c","model":"claude-opus","tools":[]}
+{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":30000,"error_status":429,"error":"rate_limit","session_id":"fixture-4c","uuid":"00000000-0000-0000-0000-000000000001"}

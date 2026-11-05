@@ -58,6 +58,8 @@ export interface StepOutcome {
   /** Etapa 4 PR 1 (§10.3): okamžik přijetí hlášky a hláška limitu (jen ze strukturované obálky CLI) z adaptéru. */
   received_at?: string;
   limit_text?: string;
+  /** Etapa 4 PR 4c (DR-027 §6): čas resetu z hlášky nejde brát (neověřená verze CLI) → „nedoloženo“, pauseMinutes. */
+  reset_unverified?: string;
   /**
    * Q4-B: doložená varování CLI o blížícím se limitu ze VŠECH volání adaptérů v kroku (FIX1 nález 7: i z meta-kontroly
    * brány), každé se svým zdrojem (FIX1 nález 6).
@@ -298,6 +300,7 @@ function fromAdapter(r: AdapterResult, model: string): StepOutcome {
     ...(r.waitReview ? { waiting_review: true } : {}),
     ...(r.received_at ? { received_at: r.received_at } : {}),
     ...(r.limit_text ? { limit_text: r.limit_text } : {}),
+    ...(r.reset_unverified ? { reset_unverified: r.reset_unverified } : {}),
     ...(warningsOf(r, model).length ? { limit_warnings: warningsOf(r, model) } : {}),
   };
 }
