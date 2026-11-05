@@ -171,12 +171,26 @@ describe("crash recovery (real SIGKILL of a child process)", () => {
     expect(journal().get(DELIVER_OP)).toMatchObject({ state: "PREPARED" });
 
     const r = await makeOrch(store, notion).step(store.load(ORDER_ID));
-    expect(notion.pages()).toHaveLength(1);
-    expect(notion.creates).toBe(0);
+    // Etapa 4 PR 2: žádný druhý DRAFT; jediný nový zápis je karta vlastníka (viz níže).
+    expect(notion.pages().map((p) => p.title.split(" — ")[0])).toEqual([
+      "DRAFT",
+      "KARTA GO/REJECT",
+    ]);
+    expect(notion.creates).toBe(1);
     expect(r.delivered_url).toBe(
       `https://www.notion.so/${notion.pages()[0].id}`,
     );
-    expect(r.state).toBe("DONE");
+    // Etapa 4 PR 2 (readbackBlocker): obnovené doručení nemá otisk odeslaného obsahu, read-back nejde ověřit →
+    // žádné DONE bez vlastníka, ale karta (GO vázané na otisk read-backu), nikdy druhá stránka DRAFTu.
+    expect(r.state).toBe("WAITING_OWNER");
+    expect(r.meta.delivered_hash).toBeUndefined();
+    expect(r.owner_reasons?.some((x) => x.includes("READBACK_MISMATCH"))).toBe(
+      true,
+    );
+    expect(r.meta.approved_hash).toBe(artifactHash(notion.pages()[0].md));
+    expect(
+      notion.pages().filter((p) => p.title.startsWith("DRAFT")),
+    ).toHaveLength(1);
     expect(journal().get(DELIVER_OP)).toMatchObject({
       state: "EFFECT_DONE",
       recovered: true,
@@ -213,13 +227,52 @@ describe("recovery decisions without a child process", () => {
     seedDelivered(store);
     const page = notion.add(PARENT, titleWithMarker("DRAFT — x", DELIVER_OP));
     journal().prepare(DELIVER_OP);
-    journal().done(DELIVER_OP, { url: `https://www.notion.so/${page.id}` });
+    // Receipt nese otisk odeslaného obsahu (runEffect ho zapisuje s receiptem): read-back sedí → DONE.
+    journal().done(
+      DELIVER_OP,
+      { url: `https://www.notion.so/${page.id}` },
+      { content_hash: artifactHash(page.md) },
+    );
     const find = vi.spyOn(notion, "findChildPagesByMarker");
     const r = await makeOrch(store, notion).step(store.load(ORDER_ID));
     expect(find).not.toHaveBeenCalled();
     expect(notion.creates).toBe(0);
     expect(r.delivered_url).toBe(`https://www.notion.so/${page.id}`);
     expect(r.state).toBe("DONE");
+    expect(JSON.parse(r.meta.readback!)).toMatchObject({
+      url: r.delivered_url,
+      hash: artifactHash(page.md),
+    });
+  });
+
+  it("etapa 4 PR 2: receipt bez otisku odeslaného obsahu → read-back nejde ověřit → karta vlastníka, ne DONE", async () => {
+    seedDelivered(store);
+    const page = notion.add(PARENT, titleWithMarker("DRAFT — x", DELIVER_OP));
+    journal().prepare(DELIVER_OP);
+    journal().done(DELIVER_OP, { url: `https://www.notion.so/${page.id}` });
+    const r = await makeOrch(store, notion).step(store.load(ORDER_ID));
+    expect(r.state).toBe("WAITING_OWNER");
+    expect(r.owner_reasons?.join(" ")).toMatch(/READBACK_MISMATCH/);
+    expect(r.meta.readback).toBeUndefined();
+  });
+
+  it("etapa 4 PR 2: read-back se liší od odeslaného obsahu → žádné DONE, karta s otiskem toho, co je na stránce", async () => {
+    seedDelivered(store);
+    const page = notion.add(
+      PARENT,
+      titleWithMarker("DRAFT — x", DELIVER_OP),
+      "na stránce",
+    );
+    journal().prepare(DELIVER_OP);
+    journal().done(
+      DELIVER_OP,
+      { url: `https://www.notion.so/${page.id}` },
+      { content_hash: artifactHash("odesláno") },
+    );
+    const r = await makeOrch(store, notion).step(store.load(ORDER_ID));
+    expect(r.state).toBe("WAITING_OWNER");
+    expect(r.meta.approved_hash).toBe(artifactHash("na stránce"));
+    expect(r.owner_reasons?.join(" ")).toMatch(/neshoduje s odeslaným obsahem/);
   });
 
   it("two copies with the marker → EFFECT_UNKNOWN / HOLD: order UNKNOWN, reason in the log and in the panel row, no write", async () => {

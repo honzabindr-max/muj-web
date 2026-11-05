@@ -5,7 +5,9 @@ import fs from "node:fs";
 
 import type { AdapterResult, TextAdapter } from "./adapters";
 import { parseReset } from "./reset";
-import { artifactHash, goBlocker } from "./approval";
+import { artifactHash, goBlocker, readbackBlocker } from "./approval";
+import { observeMode, readDispatch, type ModeObservation } from "./dispatch";
+import { reconcileNextWake } from "./wake";
 import type { CardRegistry } from "./cards";
 import {
   briefMarkdown,
@@ -134,6 +136,14 @@ export interface OrchestratorDeps {
   panelCreateGuardMs?: number;
   /** Nález 2: s jakým odstupem `catchUpPanel` znovu dohledává řádek zakázky v HOLD (výchozí 10 minut). */
   panelHoldRetryMs?: number;
+  /**
+   * Etapa 4 PR 2 (§6.3, §14): cesta k `dispatch.json`. Tick ji pod lease přečte (fail-closed: chybí/nevalidní = hold)
+   * a zaznamená pozorovaný režim (`runs/dispatch-mode.json`). Režim řídí jen novou práci dispatcheru inboxu (PR 3/5),
+   * stávající zakázky supervizora ne. Bez cesty se nic nečte ani nezapisuje.
+   */
+  dispatchFile?: string;
+  /** Etapa 4 PR 2 (§10.2 bod 3): `false` vypne životní cyklus `runs/next-wake` ve `finally` ticku (výchozí zapnuto). */
+  nextWake?: boolean;
 }
 
 /** Q4-A (§10.2): rezerva po doloženém resetu limitu. */
@@ -247,6 +257,11 @@ export class Orchestrator {
   private ctx: DeptContext;
   /** Etapa 3: durable PREPARED / receipt of every external write (runs/<id>/effects/). */
   private effects: EffectJournal;
+  /**
+   * Etapa 4 PR 2: režim dispatcheru pozorovaný posledním tickem pod lease. `may_start_new` smí použít jen dispatcher
+   * inboxu (PR 3/5); první tick po přechodu hold → run nezačne nic nového, jen pokračuje v rozpracovaném.
+   */
+  lastDispatch: ModeObservation | undefined;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -1408,6 +1423,7 @@ export class Orchestrator {
     if (!this.d.store.acquireLock()) return { status: "locked" };
     this.tickPingKeys = new Set();
     try {
+      this.observeDispatch();
       await this.catchUpPanel();
       await this.pollOwnerDecisions();
       await this.retryOwnerPings();
@@ -1475,7 +1491,79 @@ export class Orchestrator {
     } finally {
       await this.flushPanel();
       this.tickPingKeys = undefined;
+      this.reconcileWake();
       this.d.store.releaseLock();
+    }
+  }
+
+  /**
+   * Etapa 4 PR 2 (§6.3): pod lease přečte `dispatch.json` (fail-closed) a zaznamená režim. Chyba nic nezastaví:
+   * platí `hold` a `may_start_new = false`.
+   */
+  private observeDispatch(): void {
+    if (!this.d.dispatchFile) return;
+    const r = readDispatch(this.d.dispatchFile, this.d.store.runsDir);
+    try {
+      this.lastDispatch = observeMode(
+        this.d.store.runsDir,
+        r.config.mode,
+        this.now(),
+      );
+    } catch (e) {
+      this.lastDispatch = {
+        mode: "hold",
+        may_start_new: false,
+        changed: false,
+      };
+      this.safeLog({
+        order: "-",
+        kind: "error",
+        role: "orchestrator",
+        result: "dispatch: režim nejde zaznamenat, platí hold",
+        reason: String((e as Error)?.message ?? e).slice(0, 200),
+      });
+      return;
+    }
+    if (this.lastDispatch.changed || r.invalid)
+      this.safeLog({
+        order: "-",
+        kind: "info",
+        role: "orchestrator",
+        result: `dispatch: mode ${this.lastDispatch.mode}${this.lastDispatch.previous ? ` (předtím ${this.lastDispatch.previous})` : ""}`,
+        reason: r.invalid ?? (r.hold_file ? "runs/HOLD existuje" : undefined),
+      });
+  }
+
+  /**
+   * Etapa 4 PR 2 (§10.2 bod 3): zkonzumování / přeplánování `runs/next-wake` na konci ticku, jen dokud tento běh drží
+   * lease (tick bez lease `next-wake` nemění, bod 4). Chyba se jen zaloguje: brána má pojistku 30 min.
+   */
+  private reconcileWake(): void {
+    if (this.d.nextWake === false) return;
+    try {
+      if (!this.d.store.holdsLease()) return;
+      const r = reconcileNextWake(
+        this.d.store.runsDir,
+        this.d.store.listOrders(),
+        this.now(),
+        this.d.store.fence,
+      );
+      if (r.action !== "none" && r.action !== "kept")
+        this.safeLog({
+          order: r.next?.order_id ?? "-",
+          kind: "info",
+          role: "orchestrator",
+          result: `next-wake: ${r.action}${r.next ? ` epoch ${r.next.epoch} (attempt ${r.next.attempt})` : ""}`,
+          reason: r.reason,
+        });
+    } catch (e) {
+      this.safeLog({
+        order: "-",
+        kind: "error",
+        role: "orchestrator",
+        result: "next-wake: zápis selhal (brána spoléhá na pojistku 30 min)",
+        reason: String((e as Error)?.message ?? e).slice(0, 200),
+      });
     }
   }
 
@@ -2858,7 +2946,50 @@ export class Orchestrator {
             (k) => `zadání se dotýká: ${k}`,
           ),
         ];
-        const ownerNeeded = reasons.length > 0;
+        let ownerNeeded = reasons.length > 0;
+        let readbackMeta: Record<string, string> | undefined;
+        if (!ownerNeeded) {
+          // Etapa 4 PR 2 (NAVRH-v6 §6.1, `readbackBlocker`): DONE bez vlastníka jen po čerstvém read-backu, jehož otisk
+          // se rovná otisku odeslaného obsahu (`delivered_hash`). Selhané čtení = zůstává DELIVERED, další tick zkusí
+          // znovu. Jiný otisk nebo chybějící `delivered_hash` (např. doručení obnovené po pádu) = nikdy DONE a nikdy
+          // „skoro shoda“: zakázka jde na kartu vlastníka (GO vázané na otisk read-backu, DR-039), ne do tichého DONE.
+          let seen: string;
+          try {
+            seen = artifactHash(await this.readArtifact(o));
+          } catch (e) {
+            this.logOnce({
+              order: o.id,
+              kind: "info",
+              role: "transport",
+              result: "DONE odloženo: read-back doručeného obsahu selhal",
+              reason: String((e as Error)?.message ?? e).slice(0, 200),
+            });
+            return this.current(o.id);
+          }
+          const rb = JSON.stringify({
+            url: o.delivered_url,
+            hash: seen,
+            verified_at: this.iso(),
+          });
+          const blocker = readbackBlocker({
+            ...o,
+            meta: { ...o.meta, readback: rb },
+          });
+          if (blocker) {
+            this.log({
+              order: o.id,
+              kind: "error",
+              role: "orchestrator",
+              result:
+                "READBACK_MISMATCH: DONE bez vlastníka zamítnuto, přijetí rozhodne vlastník na kartě",
+              reason: blocker,
+            });
+            reasons.push(
+              `read-back nesedí s odeslaným obsahem (${blocker}) — DONE bez vlastníka zamítnuto (READBACK_MISMATCH)`,
+            );
+            ownerNeeded = true;
+          } else readbackMeta = { readback: rb };
+        }
         if (ownerNeeded && !o.owner_card_url) {
           // DR-039: no card without a fingerprint. Right before the card is written the DRAFT is read back; the hash of
           // exactly what was read (what the owner will see on the page) becomes approved_hash = artifact_hash. A failed
@@ -2967,6 +3098,8 @@ export class Orchestrator {
           };
           if (!this.persist(o)) return this.current(o.id);
         }
+        // Read-back ověřený výše (jen cesta bez vlastníka): zapíše se ve stejném zápisu jako přechod do DONE.
+        if (readbackMeta) o = { ...o, meta: { ...o.meta, ...readbackMeta } };
         return this.apply(
           o,
           { type: "delivered", owner_needed: ownerNeeded },

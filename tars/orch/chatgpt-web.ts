@@ -881,6 +881,11 @@ export interface ChatGptWebOpts {
   timeoutMs?: number;
   nonce?: () => string;
   now?: () => Date;
+  /**
+   * Zjištění 5. 11.: stav displeje (display.ts). Když je zadaný, pokus proběhne jen při `awake: true`; jinak se
+   * vůbec neprovede (žádný Chrome, žádný zápis do deníku pokusů) a zakázka čeká ve WAITING_REVIEW.
+   */
+  displayAwake?: () => { awake: boolean; reason: string };
 }
 
 export class ChatGptWebChecker implements TextAdapter {
@@ -1009,6 +1014,20 @@ export class ChatGptWebChecker implements TextAdapter {
         duration_ms: Date.now() - t0,
       };
     };
+    // Zjištění 5. 11.: při spícím displeji se okno nekreslí a výběr modelu selže. Pokus se neprovede vůbec (před
+    // čtením deníku, před Chrome); `burn` je tu no-op, protože tento běh ještě nic nezapsal.
+    if (this.o.displayAwake) {
+      let d: { awake: boolean; reason: string };
+      try {
+        d = this.o.displayAwake();
+      } catch {
+        d = { awake: false, reason: "sonda displeje selhala" };
+      }
+      if (d.awake !== true)
+        return waiting(
+          `displej spí (${d.reason}); pokus GPT v prohlížeči se neprovedl`,
+        );
+    }
     const journal = readJournal(jdir);
     if (!journal)
       return waiting("deník pokusů nejde přečíst; nový prompt se neposílá");

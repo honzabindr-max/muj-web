@@ -19,6 +19,8 @@ import {
   type DepartmentRunner,
 } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
+import { probeDisplay } from "./display";
+import { parseGateStart, writeGateOutcome } from "./wake";
 import { defaultHasCli, type PreflightResult } from "./ladder";
 import {
   BROWSER_CHECK_DIR,
@@ -103,7 +105,9 @@ const makeBrowser = () =>
     runsDir,
   });
 /** P16 v3: every non-code check = ChatGPT in the browser, mode Chat (subscription, never Work), GPT-6 · Vysoká. */
-const makeGptWeb = () => new ChatGptWebChecker(makeBrowser());
+// Zjištění 5. 11.: GPT v prohlížeči jen při probuzeném displeji (display.ts), jinak WAITING_REVIEW „displej spí“.
+const makeGptWeb = () =>
+  new ChatGptWebChecker(makeBrowser(), { displayAwake: () => probeDisplay() });
 
 async function refreshBrowserStatus(): Promise<PreflightResult> {
   const b = makeBrowser();
@@ -235,6 +239,8 @@ function build(): Orchestrator {
         ? undefined
         : { sink: panelSink, index: new PanelIndex(runsDir, store) }, // review kolo 3: index under the state lock
     ownerPing: new OwnerPing(stack.rest, { userId: ownerUserIdFromEnv() }), // bez tokenu (stack.rest) jen zaloguje
+    // Etapa 4 PR 2: režim dispatcheru (fail-closed hold). Řídí jen dispatcher inboxu (PR 3/5), ne zakázky supervizora.
+    dispatchFile: path.join(here, "dispatch.json"),
   });
 }
 
@@ -266,6 +272,17 @@ async function main() {
       // Rung 3 login check opens Chrome — only when the vizual department is in scope.
       if (enabledDepartments.includes("vizual")) await refreshBrowserStatus();
       const r = await build().tick();
+      // Etapa 4 PR 2 (§10.2 bod 4): výsledek pro minutovou bránu, jednou na spuštění brány (po `finally` ticku).
+      const gateStart = parseGateStart(process.env.TARS_GATE_START);
+      if (gateStart) {
+        try {
+          writeGateOutcome(runsDir, gateStart, r.status);
+        } catch (e) {
+          console.error(
+            `tars-orch: výsledek pro bránu nejde zapsat: ${(e as Error).message}`,
+          );
+        }
+      }
       console.log(JSON.stringify(r));
       process.exitCode = r.status === "guard_alarm" ? 2 : 0;
       return;

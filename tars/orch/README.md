@@ -193,8 +193,34 @@ npx tsx tars/orch/cli.ts gpt-retry <id> fable|vlastnik <proč>   # one new GPT c
 npx tsx tars/orch/cli.ts konzilium <vstup.json>   # Konzilium Lite, viz níže
 npx tsx tars/orch/cli.ts reissue <order-id>       # znovuvydání karty bez otisku, viz Lifecycle
 npx vitest run tars
-tars/orch/launchd/install.sh
+tars/orch/launchd/install.sh             # StartInterval 1800 s (dnešní varianta, zároveň backward cesta z etapy 4 PR 2)
+tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 4 PR 2, Q5-A) — instalovat jen s kartou a GO vlastníka
 ```
+
+## Etapa 4 PR 2: probuzení, dispatch.json, read-back (NAVRH-v6 §10.2, §6.1, §6.3)
+
+- **`launchd/wake-gate.sh`** (čistý `/bin/sh`, bez node, modelu a guardu) běží každou minutu z
+  `work.good-inventions.tars-orch.wake-gate.plist` (`StartCalendarInterval`, po probuzení Macu doběhne jednou). Plný tick
+  (`TARS_GATE_TICK`) spustí jen při (a) platném `runs/next-wake` bez ticku od jeho platnosti, (c) re-entry po `locked` /
+  `guard_alarm` s backoffem 1, 2, 5, 10, 30 min (nejvýš 5×), nebo (b) pojistce 30 min. Zámek brány `runs/wake/gate.lock.d`,
+  záznamy `runs/wake/` (`last-gate-start`, `outcomes/`, `gate.log` s `wake_late_by_s`, `gate-locks/<den>/`, `stale-locks/`).
+- **`runs/next-wake`** zapisuje jen tick pod lease ve `finally` (`wake.ts`, `reconcileNextWake`): doložené převzetí →
+  `runs/wake/consumed/`, neúspěch pod lease → nový soubor s backoffem a starý do `runs/wake/superseded/`. Nic se nemaže.
+  `cli.ts tick` s `TARS_GATE_START` zapíše jednou `runs/wake/outcomes/<epoch>` (`ran` | `locked` | `guard_alarm`).
+- **Obě plist varianty mají stejný Label** (`work.good-inventions.tars-orch`): instalace jedné nahradí druhou. Návrat
+  (backward) = `tars/orch/launchd/install.sh` bez argumentu; `runs/wake/` a `runs/next-wake` zůstanou a stará varianta je
+  ignoruje. Tick zapisuje `runs/next-wake` v obou variantách (bez brány ho nikdo nečte).
+- **`dispatch.json`** (`v`, `mode`, `max_chunks`, `private_draft_parents`), výchozí `mode: "hold"`. Čtení fail-closed:
+  chybí / nevalidní / neznámý klíč = `hold`; `runs/HOLD` přebije soubor. `mode` řídí jen novou práci dispatcheru inboxu
+  (PR 3/5), ne zakázky supervizora. Tick pod lease zaznamená režim do `runs/dispatch-mode.json`; první tick po přechodu
+  `hold → run` má `may_start_new = false` (jen rozpracované).
+- **`readbackBlocker`** (`approval.ts`, vynucuje ho stavový automat): `delivered` s `owner_needed = false` → `DONE` jen s
+  čerstvým read-backem stejné URL, jehož otisk se rovná `delivered_hash`. Selhané čtení = zůstává `DELIVERED`. Jiný otisk
+  nebo chybějící `delivered_hash` (např. doručení obnovené po pádu) = žádné `DONE`, zakázka jde na kartu vlastníka
+  (`READBACK_MISMATCH`, GO vázané na otisk read-backu).
+- **GPT v prohlížeči jen při probuzeném displeji** (`display.ts`, zjištění 5. 11.): `osascript -l JavaScript` →
+  `CGDisplayIsAsleep` (jen čtení, bez sudo). Spící displej nebo jakákoli nejistota = pokus se neprovede (žádný Chrome,
+  žádný zápis do deníku pokusů), zakázka čeká ve `WAITING_REVIEW` s důvodem „displej spí“.
 
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 
