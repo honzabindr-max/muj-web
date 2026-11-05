@@ -532,7 +532,7 @@ describe("TARS-GUARD I8 for Playwright MCP", () => {
       dir,
       "/work/tree/runs",
     );
-    expect(r.alarm).toBe(false);
+    expect(r.alarm, `runGuardWithI8 result: ${JSON.stringify(r)}`).toBe(false);
     expect(fs.readFileSync(path.join(dir, "seen"), "utf8")).toBe(
       "g:/work/tree/runs\ni8:/work/tree/runs\n",
     );
