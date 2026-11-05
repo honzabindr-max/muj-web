@@ -185,7 +185,8 @@ Beze změny proti v1. Patří do PR 4b.
 ## 7. Pojistka proti obejití hooků (G-05)
 
 - Docs uvádí: „`--bare` is the recommended mode for scripted and SDK calls, and will become the default for `-p` in a future release.“ Pozdější verze Claude Code tedy může vypnout hooky v `-p` bez změny na straně TARS.
-- Pravidlo pro PR 4a/4c (doporučení, ne stavba v PR 0): TARS nikdy nespouští `--bare` ani Agent SDK. Před přijetím výsledku dítěte ověří, že běh načetl hooky projektu (např. událost `hook_started`/`hook_response` hooku `SessionStart`, nebo pole `system/init`). Chybí-li důkaz = HOLD, výsledek se nepřijme.
+- Pravidlo pro PR 4a/4c (doporučení, ne stavba v PR 0): TARS nikdy nespouští `--bare` ani Agent SDK. Důkaz načtených ochran se ověřuje **před povolením nástrojů**, ne až před přijetím výsledku: obecná událost `system/init` ani zahájení libovolného hooku `SessionStart` nestačí. Požadavek je konkrétní: musí být doloženy přesně požadované hooky projektu (TARS-GUARD `bash-preflight` a ostatní z `.claude/settings.json`) a žádné lokální nastavení je nesmí vypnout (`disableAllHooks`, přepis v `settings.local.json`). Chybí-li byť jeden, běh se ukončí dřív, než provede jakýkoli nástroj, a stav je HOLD.
+- Nástroje dítěte se nesmí otevřít šířeji, než hooky pokrývají: žádné obecné povolení typu `Bash(npx:*)`, kterým by šlo spustit CLI příkaz pro zadání rozhodnutí vlastníka (GO/REJECT). P20 se nesmí opírat jen o hook. Kontrola výsledku po běhu už provedené rozhodnutí nevrátí, proto je pojistka preventivní.
 - Statický test (PR 4a): diff nesmí přidat `--bare`, `@anthropic-ai/claude-agent-sdk` ani `ANTHROPIC_API_KEY` do prostředí dítěte.
 
 ## 8. Srovnání nákladů (G-06)
