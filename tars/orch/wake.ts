@@ -68,6 +68,12 @@ export function formatNextWake(nw: NextWake): string {
   })}\n`;
 }
 
+/**
+ * FIX1 nález 2: `order_id` jde do jména souboru v archivu, takže jen bezpečný název (bez `/`, `.` a `..`).
+ * Stejný tvar jako ORDER_ID_RE v audit-health.ts. Jiný tvar = nečitelný next-wake (`invalid`).
+ */
+export const SAFE_ORDER_ID_RE = /^wo-[A-Za-z0-9_-]{1,100}$/;
+
 export function parseNextWake(text: string): NextWake | undefined {
   try {
     const j = JSON.parse(text) as Partial<NextWake>;
@@ -77,7 +83,7 @@ export function parseNextWake(text: string): NextWake | undefined {
       !Number.isInteger(j.epoch) ||
       (j.epoch as number) < 0 ||
       typeof j.order_id !== "string" ||
-      !j.order_id.startsWith("wo-") ||
+      !SAFE_ORDER_ID_RE.test(j.order_id) ||
       !Number.isInteger(j.state_version) ||
       typeof j.resume_after !== "string" ||
       Number.isNaN(Date.parse(j.resume_after)) ||
@@ -109,7 +115,7 @@ export function deriveNextWake(
 ): NextWake | undefined {
   const nowS = Math.floor(now.getTime() / 1000);
   const waiting = orders
-    .filter(waitsForTime)
+    .filter((o) => waitsForTime(o) && SAFE_ORDER_ID_RE.test(o.id))
     .sort(
       (a, b) =>
         Date.parse(a.resume_after!) - Date.parse(b.resume_after!) ||
@@ -163,10 +169,14 @@ function archive(
 ): void {
   const dir = path.join(wakeDir(runsDir), sub);
   mkdirDurable(dir);
-  const base = nw
+  const safe = nw !== undefined && SAFE_ORDER_ID_RE.test(nw.order_id);
+  const base = safe
     ? `${nw.epoch}-${nw.order_id}${sub === "superseded" ? `-${nowS}` : ""}`
     : `${nowS}-invalid`;
   const dst = freeName(dir, base, ".json");
+  // Druhá pojistka: cíl musí ležet přímo v archivu, jinak se nepřejmenuje nic.
+  if (path.dirname(path.resolve(dst)) !== path.resolve(dir))
+    throw new Error(`next-wake: cíl archivu mimo ${sub}/ (${dst})`);
   fs.renameSync(nextWakePath(runsDir), dst);
   fsyncDir(runsDir);
   const body = nw

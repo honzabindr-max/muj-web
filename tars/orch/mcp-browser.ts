@@ -297,13 +297,22 @@ export interface McpBrowserOpts {
   profileDir?: string;
   /** runs/ dir holding the order lock (the launcher must look at the same one as the orchestrator). */
   runsDir?: string;
+  /**
+   * Etapa 4 PR 2 FIX1 nález 3: sonda displeje (display.ts) před každým startem Chrome TARS-agent. Spící displej,
+   * nejistota nebo výjimka sondy = `DisplayAsleepError`, Chrome ani ovladač se nespustí. Bez sondy se nekontroluje.
+   */
+  displayAwake?: () => { awake: boolean; reason: string };
 }
+
+/** Chrome TARS-agent se nespustil, protože displej spí (nebo sonda displeje selhala). */
+export class DisplayAsleepError extends BrowserLaunchError {}
 
 export class McpBrowser {
   private script: string;
   private gate: string;
   private profileDir: string;
   private runsDir?: string;
+  private displayAwake?: McpBrowserOpts["displayAwake"];
   constructor(
     private driver: TextAdapter,
     o: McpBrowserOpts = {},
@@ -312,6 +321,22 @@ export class McpBrowser {
     this.gate = o.gate ?? GATE_SCRIPT;
     this.profileDir = o.profileDir ?? TARS_PROFILE_DIR;
     this.runsDir = o.runsDir;
+    this.displayAwake = o.displayAwake;
+  }
+
+  /** Fail-closed brána displeje: bez probuzeného displeje žádný start prohlížeče. */
+  private assertDisplayAwake(): void {
+    if (!this.displayAwake) return;
+    let d: { awake: boolean; reason: string };
+    try {
+      d = this.displayAwake();
+    } catch {
+      d = { awake: false, reason: "sonda displeje selhala" };
+    }
+    if (d.awake !== true)
+      throw new DisplayAsleepError(
+        `displej spí (${d.reason}); prohlížeč TARS-agent se nespustil`,
+      );
   }
 
   profileExists(): boolean {
@@ -384,6 +409,8 @@ export class McpBrowser {
       throw new BrowserLaunchError(
         `složka běhu prohlížeče musí být shots nebo shots-* (je ${path.basename(shotsDir)})`,
       );
+    // FIX1 nález 3: před jakýmkoli zápisem a před Chrome (platí i pro loginCheck, který jde přes run).
+    this.assertDisplayAwake();
     // Fresh artifacts for every run: nothing left by an earlier run (reads, screenshots, gate state) may pass as new.
     fs.mkdirSync(shotsDir, { recursive: true });
     fs.rmSync(path.join(shotsDir, "reads"), { recursive: true, force: true });

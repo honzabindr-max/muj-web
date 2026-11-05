@@ -204,6 +204,8 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
   (`TARS_GATE_TICK`) spustí jen při (a) platném `runs/next-wake` bez ticku od jeho platnosti, (c) re-entry po `locked` /
   `guard_alarm` s backoffem 1, 2, 5, 10, 30 min (nejvýš 5×), nebo (b) pojistce 30 min. Zámek brány `runs/wake/gate.lock.d`,
   záznamy `runs/wake/` (`last-gate-start`, `outcomes/`, `gate.log` s `wake_late_by_s`, `gate-locks/<den>/`, `stale-locks/`).
+  Zámek nese identitu `pid start nonce`; mrtvý zámek se převezme jen renamem na unikátní jméno s ověřením obsahu po
+  přesunu (jiný obsah = cizí živý zámek, vrátí se a brána skončí bez ticku); brána uvolní jen vlastní zámek.
 - **`runs/next-wake`** zapisuje jen tick pod lease ve `finally` (`wake.ts`, `reconcileNextWake`): doložené převzetí →
   `runs/wake/consumed/`, neúspěch pod lease → nový soubor s backoffem a starý do `runs/wake/superseded/`. Nic se nemaže.
   `cli.ts tick` s `TARS_GATE_START` zapíše jednou `runs/wake/outcomes/<epoch>` (`ran` | `locked` | `guard_alarm`).
@@ -213,14 +215,18 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
 - **`dispatch.json`** (`v`, `mode`, `max_chunks`, `private_draft_parents`), výchozí `mode: "hold"`. Čtení fail-closed:
   chybí / nevalidní / neznámý klíč = `hold`; `runs/HOLD` přebije soubor. `mode` řídí jen novou práci dispatcheru inboxu
   (PR 3/5), ne zakázky supervizora. Tick pod lease zaznamená režim do `runs/dispatch-mode.json`; první tick po přechodu
-  `hold → run` má `may_start_new = false` (jen rozpracované).
+  `hold → run` má `may_start_new = false` (jen rozpracované). `run` pokračuje jen pod stejným zápisem souboru (otisk
+  sha256 + mtime + inode + velikost): přepis mezi ticky (např. `run → hold → run`) = první tick po něm nic nového nezačne.
+- `next-wake.order_id` musí odpovídat `^wo-[A-Za-z0-9_-]{1,100}$` (jinak `invalid`); cíl archivu musí ležet v archivu.
 - **`readbackBlocker`** (`approval.ts`, vynucuje ho stavový automat): `delivered` s `owner_needed = false` → `DONE` jen s
   čerstvým read-backem stejné URL, jehož otisk se rovná `delivered_hash`. Selhané čtení = zůstává `DELIVERED`. Jiný otisk
   nebo chybějící `delivered_hash` (např. doručení obnovené po pádu) = žádné `DONE`, zakázka jde na kartu vlastníka
   (`READBACK_MISMATCH`, GO vázané na otisk read-backu).
 - **GPT v prohlížeči jen při probuzeném displeji** (`display.ts`, zjištění 5. 11.): `osascript -l JavaScript` →
   `CGDisplayIsAsleep` (jen čtení, bez sudo). Spící displej nebo jakákoli nejistota = pokus se neprovede (žádný Chrome,
-  žádný zápis do deníku pokusů), zakázka čeká ve `WAITING_REVIEW` s důvodem „displej spí“.
+  žádný zápis do deníku pokusů), zakázka čeká ve `WAITING_REVIEW` s důvodem „displej spí“. Sonda běží i před každým
+  startem Chrome v `McpBrowser.run` (vizual, `loginCheck`, `browser-smoke`) a v `refreshBrowserStatus` před zámkem
+  (`browser-status.ts`): spící displej = žádný Chrome ani ovladač, uložený `browser-status.json` se nepřepíše.
 
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 

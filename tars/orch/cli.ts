@@ -19,6 +19,7 @@ import {
   type DepartmentRunner,
 } from "./departments";
 import { NotImplementedDesktop } from "./desktop";
+import { refreshBrowserStatusWith } from "./browser-status";
 import { probeDisplay } from "./display";
 import { parseGateStart, writeGateOutcome } from "./wake";
 import { defaultHasCli, type PreflightResult } from "./ladder";
@@ -100,43 +101,30 @@ function browserReady(): PreflightResult {
 }
 
 /** Rung 3 = Playwright MCP driven by Claude (sonnet), Chrome TARS-agent started and closed by guard/tars-browser.sh. */
+// FIX1 nález 3: každý start Chrome TARS-agent jen při probuzeném displeji (display.ts), i vizual a loginCheck.
 const makeBrowser = () =>
   new McpBrowser(new SecretScanningAdapter(new ClaudeCli("sonnet")), {
     runsDir,
+    displayAwake: () => probeDisplay(),
   });
 /** P16 v3: every non-code check = ChatGPT in the browser, mode Chat (subscription, never Work), GPT-6 · Vysoká. */
 // Zjištění 5. 11.: GPT v prohlížeči jen při probuzeném displeji (display.ts), jinak WAITING_REVIEW „displej spí“.
 const makeGptWeb = () =>
   new ChatGptWebChecker(makeBrowser(), { displayAwake: () => probeDisplay() });
 
-async function refreshBrowserStatus(): Promise<PreflightResult> {
-  const b = makeBrowser();
-  let r: PreflightResult;
-  // The debugging port may only exist while TARS holds the run lock (I8).
-  const lockStore = new Store(runsDir);
-  if (!lockStore.acquireLock())
-    return { ok: false, reasons: ["běží jiná zakázka (lock)"] };
-  try {
-    // The wrapper accepts only a shots-* dir as the MCP output dir (Codex review kolo 3, nález 2).
-    r = await b.loginCheck(
-      "https://claude.ai/new",
-      path.join(runsDir, BROWSER_CHECK_DIR),
-    );
-  } catch (e) {
-    r = {
-      ok: false,
-      reasons: [`login check selhal: ${(e as Error).message.split("\n")[0]}`],
-    };
-  } finally {
-    lockStore.releaseLock();
-  }
-  fs.mkdirSync(runsDir, { recursive: true });
-  fs.writeFileSync(
-    browserStatusFile,
-    JSON.stringify({ ...r, checked_at: new Date().toISOString() }, null, 2),
-  );
-  return r;
-}
+/**
+ * FIX1 nález 3: sonda displeje před zámkem i před Chrome (browser-status.ts). Spící displej = nic se nespustí a
+ * uložený stav se nepřepíše. The debugging port may only exist while TARS holds the run lock (I8); the wrapper
+ * accepts only a shots-* dir as the MCP output dir (Codex review kolo 3, nález 2).
+ */
+const refreshBrowserStatus = (): Promise<PreflightResult> =>
+  refreshBrowserStatusWith({
+    displayAwake: () => probeDisplay(),
+    lock: new Store(runsDir),
+    browser: makeBrowser,
+    statusFile: browserStatusFile,
+    shotsDir: path.join(runsDir, BROWSER_CHECK_DIR),
+  });
 
 /**
  * Transport notices: always on stderr (launchd log); in runs/log.jsonl only when the message differs from the last

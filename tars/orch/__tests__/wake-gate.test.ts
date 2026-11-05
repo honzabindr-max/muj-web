@@ -207,13 +207,17 @@ function snapshot(): string {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function waitFile(f: string): Promise<string> {
+/** Počká na soubor; `nonEmpty`: i na obsah (writeFileSync druhého procesu není atomický, soubor může být chvíli prázdný). */
+async function waitFile(f: string, nonEmpty = false): Promise<string> {
   const t0 = Date.now();
-  while (!fs.existsSync(f)) {
+  for (;;) {
+    if (fs.existsSync(f)) {
+      const s = fs.readFileSync(f, "utf8");
+      if (!nonEmpty || s.length > 0) return s;
+    }
     if (Date.now() - t0 > 30_000) throw new Error(`timeout ${f}`);
     await sleep(10);
   }
-  return fs.readFileSync(f, "utf8");
 }
 /** Skutečný druhý proces, který drží lease ticku (vzor state-ownership.test.ts). */
 async function holdLease(): Promise<void> {
@@ -224,7 +228,7 @@ async function holdLease(): Promise<void> {
   );
   await waitFile(path.join(runs, "ready-L"));
   fs.writeFileSync(path.join(runs, "go-0"), "");
-  expect(await waitFile(path.join(runs, "res-0-L"))).toBe("1");
+  expect(await waitFile(path.join(runs, "res-0-L"), true)).toBe("1");
 }
 async function releaseLease(): Promise<void> {
   fs.writeFileSync(path.join(runs, "end-0"), "");
@@ -293,6 +297,44 @@ describe("wake.ts: next-wake a výsledky", () => {
     );
     expect(fs.existsSync(path.join(runs, "next-wake"))).toBe(false); // obnova proběhla, nic nečeká
     expect(resumeCount()).toBe(1);
+  });
+
+  it("nález 2: order_id s ../ v next-wake = invalid, archiv jen v wake/consumed/, nic mimo runs/", () => {
+    const probe = path.join(base, "review-probe.json");
+    for (const bad of [
+      "wo-x/../../../../review-probe",
+      "wo-../../review-probe",
+      "wo-x/y",
+      "wo-",
+      `wo-${"a".repeat(101)}`,
+      "wo-a.b",
+    ]) {
+      fs.writeFileSync(
+        path.join(runs, "next-wake"),
+        formatNextWake({
+          epoch: T,
+          order_id: bad,
+          state_version: 0,
+          resume_after: iso(T),
+          written_fence: null,
+          attempt: 0,
+        }),
+      );
+      expect(
+        parseNextWake(fs.readFileSync(path.join(runs, "next-wake"), "utf8")),
+      ).toBeUndefined();
+      const r = reconcileNextWake(runs, [], new Date((T + M) * 1000), 1);
+      expect(r).toMatchObject({ action: "consumed", reason: "invalid" });
+    }
+    expect(fs.existsSync(probe)).toBe(false);
+    expect(fs.readdirSync(base).sort()).toEqual(["runs"]);
+    expect(fs.readdirSync(runs).sort()).toEqual(["wake"]);
+    expect(fs.readdirSync(path.join(runs, "wake")).sort()).toEqual([
+      "consumed",
+    ]);
+    const files = ls("wake/consumed");
+    expect(files).toHaveLength(6);
+    expect(files.every((f) => /^\d+-invalid(-\d+)?\.json$/.test(f))).toBe(true);
   });
 
   it("orphan: next-wake bez zakázky se zkonzumuje s důvodem orphan", () => {
@@ -495,6 +537,106 @@ describe("wake-gate.sh (skutečný /bin/sh, falešné hodiny)", () => {
     expect(gate(T + 201 * M).ticked).toBe(true);
     expect(ls("wake/stale-locks")).toHaveLength(3);
   }, 30_000);
+
+  /** Brána na pozadí; `hook` = TARS_GATE_TEST_HOOK, `tick` = příkaz ticku navíc za zápisem do ticklogu. */
+  function bgGate(
+    now: number,
+    opts: { hook?: string; tick?: string } = {},
+  ): { p: ChildProcess; out: () => string; exited: Promise<void> } {
+    let out = "";
+    const p = spawn(SH, [GATE], {
+      env: {
+        NODE_ENV: "test",
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: base,
+        TARS_RUNS_DIR: runs,
+        TARS_GATE_NOW: String(now),
+        TICKLOG: tickLog,
+        BASE: base,
+        TARS_GATE_TICK: `printf '%s\\n' "$TARS_GATE_START" >> "$TICKLOG"; ${opts.tick ?? ":"}`,
+        ...(opts.hook ? { TARS_GATE_TEST_HOOK: opts.hook } : {}),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    p.stdout!.on("data", (d) => (out += d));
+    p.stderr!.on("data", (d) => (out += d));
+    const exited = new Promise<void>((r) => p.on("exit", () => r()));
+    return { p, out: () => out, exited };
+  }
+  const deadPid = () =>
+    spawnSync("/bin/sh", ["-c", "echo $$"], { encoding: "utf8" }).stdout.trim();
+  const lockDir = () => path.join(runs, "wake/gate.lock.d");
+  const tickCount = () =>
+    fs.existsSync(tickLog)
+      ? fs.readFileSync(tickLog, "utf8").trim().split("\n").filter(Boolean)
+          .length
+      : 0;
+  /** Brána A se zastaví po přečtení mrtvého zámku (soubor paused), pokračuje po vzniku souboru go. */
+  const PAUSE_HOOK = `[ "$TARS_GATE_HOOK_POINT" = after-stale-read ] || exit 0; : > "$BASE/paused"; while [ ! -f "$BASE/go" ]; do sleep 0.05; done`;
+  const WAIT_TICK = `while [ ! -f "$BASE/finish" ]; do sleep 0.05; done`;
+
+  it("nález 1: dvě brány nad stejným mrtvým zámkem; druhá převezme a tiká, první pak přesune cizí živý zámek → vrátí ho, bez ticku; celkem 1 tick", async () => {
+    fs.mkdirSync(lockDir(), { recursive: true });
+    fs.writeFileSync(path.join(lockDir(), "pid"), `${deadPid()} ${T}\n`);
+    const a = bgGate(T + 40 * M, { hook: PAUSE_HOOK });
+    await waitFile(path.join(base, "paused"));
+    const b = bgGate(T + 40 * M, { tick: WAIT_TICK });
+    await waitFile(tickLog); // B převzala mrtvý zámek a tiká se svým zámkem
+    const bId = fs.readFileSync(path.join(lockDir(), "pid"), "utf8");
+    expect(bId.split(" ")[0]).toBe(String(b.p.pid));
+    expect(bId.trim().split(" ")).toHaveLength(3); // pid start nonce
+    fs.writeFileSync(path.join(base, "go"), "");
+    await a.exited;
+    expect(a.p.exitCode).toBe(0);
+    expect(a.out()).toMatch(/nebyl ten zastaralý .*vrácen/);
+    expect(fs.readFileSync(path.join(lockDir(), "pid"), "utf8")).toBe(bId); // zámek B vrácen
+    fs.writeFileSync(path.join(base, "finish"), "");
+    await b.exited;
+    expect(tickCount()).toBe(1);
+    expect(fs.existsSync(lockDir())).toBe(false); // B uvolnila svůj (vrácený) zámek
+    expect(
+      ls(`wake/gate-locks/${Math.floor((T + 40 * M) / 86400)}`),
+    ).toHaveLength(1);
+  }, 30_000);
+
+  it("nález 1: první brána dokončí převzetí až po skončení druhé → mv selže, bez ticku; celkem 1 tick", async () => {
+    fs.mkdirSync(lockDir(), { recursive: true });
+    fs.writeFileSync(path.join(lockDir(), "pid"), `${deadPid()} ${T}\n`);
+    const a = bgGate(T + 40 * M, { hook: PAUSE_HOOK });
+    await waitFile(path.join(base, "paused"));
+    const b = gate(T + 40 * M);
+    expect(b.ticked).toBe(true);
+    fs.writeFileSync(path.join(base, "go"), "");
+    await a.exited;
+    expect(a.out()).toMatch(/nejde přesunout/);
+    expect(tickCount()).toBe(1);
+  }, 30_000);
+
+  it("nález 1: release uvolní jen vlastní zámek (cizí identita v gate.lock.d zůstane)", async () => {
+    const a = bgGate(T, { tick: WAIT_TICK });
+    await waitFile(tickLog);
+    fs.writeFileSync(path.join(lockDir(), "pid"), `${process.pid} ${T} cizi\n`);
+    fs.writeFileSync(path.join(base, "finish"), "");
+    await a.exited;
+    expect(a.out()).toMatch(/nepatří této bráně/);
+    expect(fs.readFileSync(path.join(lockDir(), "pid"), "utf8")).toBe(
+      `${process.pid} ${T} cizi\n`,
+    );
+  }, 30_000);
+
+  it("nález 1: 8 souběžných bran nad mrtvým zámkem → nejvýš 1 tick", async () => {
+    for (let round = 0; round < 5; round++) {
+      fs.rmSync(path.join(runs, "wake"), { recursive: true, force: true });
+      fs.rmSync(tickLog, { force: true });
+      fs.mkdirSync(lockDir(), { recursive: true });
+      fs.writeFileSync(path.join(lockDir(), "pid"), `${deadPid()} ${T}\n`);
+      const gs = Array.from({ length: 8 }, () =>
+        bgGate(T + 40 * M, { tick: "sleep 0.2" }),
+      );
+      await Promise.all(gs.map((g) => g.exited));
+      expect(tickCount()).toBeLessThanOrEqual(1);
+    }
+  }, 60_000);
 
   it("bez TARS_GATE_TICK se tick nespustí a last-gate-start se nezapíše; neplatné hodiny = chyba", () => {
     const r = gate(T, { TARS_GATE_TICK: "" });

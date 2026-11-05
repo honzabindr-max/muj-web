@@ -1568,6 +1568,7 @@ export class Orchestrator {
         this.d.store.runsDir,
         r.config.mode,
         this.now(),
+        r.revision,
       );
     } catch (e) {
       this.lastDispatch = {

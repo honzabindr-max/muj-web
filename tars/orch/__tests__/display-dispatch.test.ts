@@ -203,13 +203,13 @@ describe("dispatch.json (mode, fail-closed hold)", () => {
       may_start_new: false,
       changed: false,
     });
-    expect(observeMode(runs(), "run", t(2))).toMatchObject({
+    expect(observeMode(runs(), "run", t(2), "r1")).toMatchObject({
       mode: "run",
       may_start_new: false,
       changed: true,
       previous: "hold",
     });
-    expect(observeMode(runs(), "run", t(3))).toMatchObject({
+    expect(observeMode(runs(), "run", t(3), "r1")).toMatchObject({
       may_start_new: true,
       changed: false,
     });
@@ -222,7 +222,30 @@ describe("dispatch.json (mode, fail-closed hold)", () => {
       changed: true,
       previous: "run",
     });
-    expect(observeMode(runs(), "run", t(5)).may_start_new).toBe(false);
+    expect(observeMode(runs(), "run", t(5), "r1").may_start_new).toBe(false);
+    // bez otisku run nikdy nepokračuje
+    expect(observeMode(runs(), "run", t(6)).may_start_new).toBe(false);
+    expect(observeMode(runs(), "run", t(7)).may_start_new).toBe(false);
+  });
+
+  it("FIX1: run → hold → run mezi ticky (přepis dispatch.json) = první tick po návratu nic nového nezačne", () => {
+    const t = (m: number) => new Date(Date.UTC(2026, 10, 5, 9, m));
+    const RUN = '{"v":1,"mode":"run"}';
+    fs.writeFileSync(file(), RUN);
+    const obs = (m: number) => {
+      const r = readDispatch(file(), runs());
+      return observeMode(runs(), r.config.mode, t(m), r.revision);
+    };
+    expect(obs(0).may_start_new).toBe(false); // první run
+    expect(obs(1).may_start_new).toBe(true); // stejný zápis = pokračuje
+    // mezi ticky: hold a zpět na stejný obsah (jiný zápis souboru)
+    fs.writeFileSync(file(), '{"v":1,"mode":"hold"}');
+    fs.rmSync(file());
+    fs.writeFileSync(file(), RUN);
+    const r = readDispatch(file(), runs());
+    expect(r.revision).toMatch(/^[0-9a-f]{64}:/);
+    expect(obs(2)).toMatchObject({ mode: "run", may_start_new: false });
+    expect(obs(3).may_start_new).toBe(true);
   });
 
   it("nečitelný záznam předchozího režimu = jako hold (první run nic nového nezačne)", () => {

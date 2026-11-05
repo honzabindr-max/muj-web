@@ -30,6 +30,11 @@ export interface DispatchRead {
   hold_file: boolean;
   /** sha256 bajtů souboru (vstup `policy_revision`, §6.1); undefined, když soubor chybí nebo nejde přečíst. */
   sha256?: string;
+  /**
+   * FIX1 (run → hold → run mezi ticky): otisk konkrétního zápisu souboru (sha256 + mtime + inode + velikost).
+   * Každý nový zápis `dispatch.json` (i návrat na stejný obsah) dá jiný otisk, takže `observeMode` přechod pozná.
+   */
+  revision?: string;
 }
 
 export const DISPATCH_DEFAULTS: DispatchConfig = {
@@ -122,6 +127,13 @@ export function readDispatch(file: string, runsDir: string): DispatchRead {
     };
   }
   const sha256 = createHash("sha256").update(buf).digest("hex");
+  let revision: string | undefined;
+  try {
+    const st = fs.statSync(file, { bigint: true });
+    revision = `${sha256}:${st.mtimeNs}:${st.ino}:${st.size}`;
+  } catch {
+    revision = undefined; // bez otisku = observeMode nepovolí pokračování run
+  }
   const p = parseDispatch(buf.toString("utf8"));
   if (!p.ok)
     return {
@@ -134,6 +146,7 @@ export function readDispatch(file: string, runsDir: string): DispatchRead {
     config: holdFile ? { ...p.config, mode: "hold" } : p.config,
     hold_file: holdFile,
     sha256,
+    revision,
   };
 }
 
@@ -143,6 +156,8 @@ export interface ModeRecord {
   observed_at: string;
   /** Kdy začal platit `run` (první tick, který ho viděl). */
   run_since?: string;
+  /** Otisk `dispatch.json` (DispatchRead.revision), pod kterým `run` platí. */
+  revision?: string;
 }
 
 export interface ModeObservation {
@@ -176,17 +191,25 @@ export function observeMode(
   runsDir: string,
   mode: DispatchMode,
   now: Date,
+  revision?: string,
 ): ModeObservation {
   const file = path.join(runsDir, "dispatch-mode.json");
   const prev = readModeRecord(file);
   const at = now.toISOString();
-  const continuing = mode === "run" && prev?.mode === "run";
+  // FIX1: `run` pokračuje jen pod stejným zápisem souboru. Přepis dispatch.json mezi ticky (např. run → hold → run)
+  // = nový otisk = první tick po něm nezačne nic nového. Bez otisku (nebo bez otisku v záznamu) nepokračuje nikdy.
+  const continuing =
+    mode === "run" &&
+    prev?.mode === "run" &&
+    revision !== undefined &&
+    prev.revision === revision;
   const rec: ModeRecord =
     mode === "run"
       ? {
           mode,
           observed_at: at,
           run_since: continuing ? (prev!.run_since ?? prev!.observed_at) : at,
+          ...(revision !== undefined ? { revision } : {}),
         }
       : { mode, observed_at: at };
   mkdirDurable(runsDir);
