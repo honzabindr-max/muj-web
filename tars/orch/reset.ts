@@ -6,6 +6,7 @@
 // - `CET`/`CEST` platí jen při shodě se skutečným offsetem Europe/Prague v daném okamžiku.
 // - DST gap/fold bez offsetu, 12h čas bez AM/PM a výsledek dál než 7 dní (nebo v minulosti) = nedoloženo.
 // - FIX1: nerozpoznaný zbytek za časem (zóna „PST“, datum „on Nov 20“, rok, offset) = nedoloženo, nikdy tiché zahození.
+// - FIX2: posuzuje se celý zbytek řádku za časem (i za pomlčkou, čárkou, závorkou…); jen interpunkce a neutrální slova.
 // - `system/api_retry` ze stream-json je jen doklad třídy limitu, nikdy čas resetu (jeho řádky se ignorují).
 import { createHash } from "node:crypto";
 
@@ -39,7 +40,7 @@ const ZONE_SRC = String.raw`\(?\s*([A-Za-z]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)?|UTC|GM
 const ISO_RE = new RegExp(String.raw`^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(?:${ZONE_SRC})?`, "i");
 const MONTH_SRC = String.raw`(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?`;
 const DATE_MD_RE = new RegExp(String.raw`^(?:on\s+)?(?:${MONTH_SRC}\s+(\d{1,2})|(\d{1,2})\.?\s+${MONTH_SRC})(?:,?\s+(\d{4}))?,?\s+(?:at\s+)?`, "i");
-const CLOCK_RE = new RegExp(String.raw`^(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([ap])\.?\s?m\.?(?![a-z])|^(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?(?![\d:])`, "i");
+const CLOCK_RE = new RegExp(String.raw`^(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([ap])(?:\.\s?m\.|\s?m)(?![a-z])|^(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?(?![\d:])`, "i");
 const CLOCK_ZONE_RE = new RegExp(String.raw`^\s*${ZONE_SRC}`, "i");
 const REL_RE = /^(?:in\s+)?((?:\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b[\s,]*(?:and\s+)?)+)/i;
 const REL_PART_RE = /(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
@@ -154,32 +155,33 @@ function hour24(hRaw: string, ampm: string | undefined, minutes: string | undefi
 
 type Attempt = { ok: true; t: number; offset: number; raw_zone: string | null; source: ResetSource; matched: string } | { ok: false; reason: string } | undefined;
 
-/** Spojky, kterými může hláška CLI za časem pokračovat (jen malá písmena: zkratka zóny jako „PT“ sem nepatří). */
-const CONNECTOR_RE = /^(?:or|to|and|if|for|when|then|please|upgrade|you|your|so|but|until)\b/;
-/** Za koncem věty/oddělovačem nesmí následovat číslo (den, rok) ani měsíc: to by bylo nezpracované datum. */
-const DATEISH_RE = new RegExp(String.raw`^\s*(?:\d|${MONTH_SRC}(?![a-z]))`, "i");
+/**
+ * FIX2: neutrální slova, která smí stát ve zbytku řádku za časem (bez ohledu na velikost písmen). Záměrně tu není nic,
+ * co může nést čas: zóna (PST, PT, EST…), měsíc, den v týdnu, „on/at/in/by/until/tomorrow/today/next“, ani číslo.
+ */
+const NEUTRAL_WORDS = new Set(["or", "and", "to", "please", "upgrade", "you", "your", "the", "a", "an", "plan", "for", "more", "usage", "if", "so", "but", "then", "can", "need", "continue"]);
 
 /**
- * FIX1 nález 3: zbytek za rozpoznaným časem (a zónou) musí být konec hlášky, konec věty/oddělovač nebo spojka.
- * Cokoli jiného (neznámá zóna „PST“, datum „on Nov 20, 2026“, rok, offset, závorka) = nedoloženo.
+ * FIX1 nález 3 + FIX2 (Codex kolo 2): posoudí se CELÝ zbytek řádku za rozpoznaným časem (a zónou), ne jen první token
+ * po oddělovači. Zbytek smí obsahovat jen interpunkci/oddělovače a slova z NEUTRAL_WORDS. Jakékoli jiné slovo nebo
+ * číslice (zóna „— PST“, datum „— on Nov 20, 2026“, „(on Nov 20)“, rok, offset „+1“, „tomorrow“, den v týdnu) = nedoloženo.
+ * Bezpečný směr: neobvyklé pokračování hlášky dá nedoloženo (pauseMinutes), nikdy tiché zahození informace.
  */
 function tailProblem(rest: string): string | undefined {
-  const r = rest.replace(/^[ \t]+/, "");
-  if (r === "" || /^[\r\n]/.test(r)) return undefined;
-  const bad = `nerozpoznaný zbytek za časem: "${r.slice(0, 40)}"`;
-  // konec věty, oddělovač, nebo konec JSON řetězce/pole/závorky ("resetsAt":"…Z"})
-  if (/^[.;!?·•|—–"'`)\]}]/.test(r)) return DATEISH_RE.test(r.slice(1)) ? bad : undefined;
-  if (r.startsWith(",")) {
-    const a = r.slice(1).replace(/^\s+/, "");
-    return a === "" || CONNECTOR_RE.test(a) ? undefined : bad;
+  const line = rest.split(/[\r\n]/, 1)[0];
+  for (const w of line.matchAll(/[\p{L}\p{N}]+/gu)) {
+    if (/\p{N}/u.test(w[0]) || !NEUTRAL_WORDS.has(w[0].toLowerCase())) return `nerozpoznaný zbytek za časem: "${line.trim().slice(0, 40)}"`;
   }
-  return CONNECTOR_RE.test(r) ? undefined : bad;
+  return undefined;
 }
 
 function parseTail(tail: string, prep: string | undefined, received: number, defaultTz: string): Attempt {
   const s = tail.replace(/^["'\s:=]+/, "");
   const ep = /^(\d{10}|\d{13})\b/.exec(s);
-  if (ep) return epochAttempt(ep[1], ep[0]);
+  if (ep) {
+    const tp = tailProblem(s.slice(ep[0].length));
+    return tp ? { ok: false, reason: tp } : epochAttempt(ep[1], ep[0]);
+  }
   if (prep?.toLowerCase() === "in" || prep?.toLowerCase() === "after" || /^in\s+\d/i.test(s)) {
     const r = REL_RE.exec(s);
     if (!r) return { ok: false, reason: "relativní čas bez čísla a jednotky" };
@@ -275,18 +277,20 @@ export function parseReset(text: string, received_at: string, defaultTz: string)
   if (ep) attempt = epochAttempt(ep[1], ep[0]);
   let firstFail: string | undefined;
   if (!attempt) {
+    // FIX2: každý výskyt klíčového slova se posoudí se zbytkem až do konce řádku (ne pevné 80znakové okno, za které by
+    // se dalo schovat „on Nov 20“). Fail-closed: jakýkoli nedoložený výskyt nebo dva různé časy = nedoloženo.
     for (const k of body.matchAll(KEYWORD_RE)) {
-      const tail = body.slice(k.index! + k[0].length, k.index! + k[0].length + 80);
-      const a = parseTail(tail, k[1], received, defaultTz);
+      const start = k.index! + k[0].length;
+      const eol = body.indexOf("\n", start);
+      const a = parseTail(body.slice(start, eol < 0 ? undefined : eol), k[1], received, defaultTz);
       if (!a) continue;
-      if (a.ok) {
-        attempt = a;
-        break;
-      }
-      firstFail ??= a.reason;
+      if (!a.ok) firstFail ??= a.reason;
+      else if (attempt?.ok && attempt.t !== a.t) firstFail ??= `rozporné časy resetu: ${attempt.matched} / ${a.matched}`;
+      else attempt ??= a;
     }
   }
-  if (!attempt) return fail(firstFail ?? "hláška neobsahuje čas resetu");
+  if (firstFail) return fail(firstFail);
+  if (!attempt) return fail("hláška neobsahuje čas resetu");
   if (!attempt.ok) return fail(attempt.reason);
   if (attempt.t <= received) return fail(`reset ${new Date(attempt.t).toISOString()} není po received_at`);
   if (attempt.t - received > MAX_AHEAD_MS) return fail(`reset ${new Date(attempt.t).toISOString()} je dál než 7 dní`);
