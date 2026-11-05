@@ -1,10 +1,14 @@
 // CLI: npx tsx tars/orch/cli.ts tick | status | health [--json] | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | reissue <order-id> | konzilium <vstup.json> | gpt-smoke | gpt-retry <id> fable|vlastnik <proč>
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AiChain, ClaudeCli, CodexCli } from "./adapters";
+import { readDispatch } from "./dispatch";
+import { restDraftTarget } from "./effect-gate";
+import { inboxStatusLines } from "./inbox/status";
 import { auditHealth, collectSnapshot, formatHealth } from "./audit-health";
 import { CardRegistry } from "./cards";
 import {
@@ -230,7 +234,22 @@ function build(): Orchestrator {
     ownerPing: new OwnerPing(stack.rest, { userId: ownerUserIdFromEnv() }), // bez tokenu (stack.rest) jen zaloguje
     // Etapa 4 PR 2: režim dispatcheru (fail-closed hold). Řídí jen dispatcher inboxu (PR 3/5), ne zakázky supervizora.
     dispatchFile: path.join(here, "dispatch.json"),
+    // Etapa 4 PR 5 (N14): kontrola public_url cíle DRAFTu těsně před POST (jen čtení). Bez tokenu = HOLD.
+    // Dispatcher inboxu (`inbox`) se tu záměrně nezapojuje: chybí konfigurace Inboxu (PR 3), wo-r* tedy nikdy neběží.
+    draftTarget: stack.rest ? restDraftTarget(stack.rest) : undefined,
+    codeRevision: gitHead(),
   });
+}
+
+/** Etapa 4 PR 5 (§6.1 `policy_revision`): git HEAD repa; nejde-li zjistit, "unknown". */
+function gitHead(): string {
+  const r = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  const h = (r.stdout ?? "").trim();
+  return r.status === 0 && /^[0-9a-f]{40}$/.test(h) ? h : "unknown";
 }
 
 /** PR 4b, bod 1: sentinely runs/limit-guard pro status a ruční ověření (výpočet blokace tu není potřeba). */
@@ -321,10 +340,18 @@ async function main() {
         console.log(
           `LIMIT-HOLD: ${held.length} nevyřešený sentinel varování limitu (${held.map((p) => p.key).join(", ")}); po ověření účtu: owner limit-hold OVERENO`,
         );
-      for (const o of store.listOrders())
+      const orders = store.listOrders();
+      for (const o of orders)
         console.log(
           `${o.id}  ${o.state.padEnd(13)} fixes=${o.fix_rounds}  ${o.brief?.title ?? ""}  ${o.delivered_url ?? ""}`,
         );
+      // Etapa 4 PR 5 (§14): claimy bez commitu, wo-r* mimo koncový stav, brány mimo DONE, revoked, legacy stav wo-*.
+      for (const line of inboxStatusLines(
+        runsDir,
+        orders,
+        readDispatch(path.join(here, "dispatch.json"), runsDir),
+      ))
+        console.log(line);
       return;
     }
     case "browser-check": {

@@ -20,6 +20,11 @@ export interface DispatchConfig {
   max_chunks: number;
   /** §6.4 (N14): rodičovské stránky, pod které smí jít DRAFT jen se scope GO (PR 5). Výchozí žádná. */
   private_draft_parents: string[];
+  /**
+   * Etapa 4 PR 5 (§5 krok 1, §6.4): typy podání inboxu, které smí dispatcher převzít (`fable`, `dev`). Výchozí žádný
+   * (fail-closed): přidání typu je změna konfigurace třídy B.
+   */
+  inbox_types: Array<"fable" | "dev">;
 }
 
 export interface DispatchRead {
@@ -42,9 +47,16 @@ export const DISPATCH_DEFAULTS: DispatchConfig = {
   mode: "hold",
   max_chunks: 4,
   private_draft_parents: [],
+  inbox_types: [],
 };
 
-const KEYS = new Set(["v", "mode", "max_chunks", "private_draft_parents"]);
+const KEYS = new Set([
+  "v",
+  "mode",
+  "max_chunks",
+  "private_draft_parents",
+  "inbox_types",
+]);
 const PAGE_ID = /^[0-9a-f]{32}$/;
 
 /** Ověří obsah `dispatch.json`. Vrací konfiguraci, nebo důvod, proč je neplatný (pak platí `hold`). */
@@ -93,6 +105,17 @@ export function parseDispatch(
       reason:
         "dispatch.json: private_draft_parents musí být pole ID stránek (32 hex)",
     };
+  const types = o.inbox_types ?? [];
+  if (
+    !Array.isArray(types) ||
+    !types.every((t) => t === "fable" || t === "dev") ||
+    new Set(types).size !== types.length
+  )
+    return {
+      ok: false,
+      reason:
+        'dispatch.json: inbox_types musí být pole z "fable", "dev" bez opakování',
+    };
   return {
     ok: true,
     config: {
@@ -100,6 +123,7 @@ export function parseDispatch(
       mode: o.mode,
       max_chunks: maxChunks,
       private_draft_parents: [...(parents as string[])],
+      inbox_types: [...(types as Array<"fable" | "dev">)],
     },
   };
 }

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDraftDeps } from "./private-target";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -1012,7 +1013,7 @@ function setup(o: { briefBrowser?: FakeBrowser; copyBrowser?: FakeBrowser }) {
     },
     notion,
     guard: () => ({ alarm: false, summary: "TARS-GUARD OK (8/8)" }),
-    draftParentId: "parent",
+    ...privateDraftDeps(dir), // etapa 4 PR 5 (N14): ověřený soukromý cíl DRAFTu
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
   });

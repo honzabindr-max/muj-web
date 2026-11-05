@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDraftDeps } from "./private-target";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -541,7 +542,7 @@ function orch(
     },
     notion: new MockNotion(),
     guard: () => ({ alarm: false, summary: "TARS-GUARD OK (7/7)" }),
-    draftParentId: "parent",
+    ...privateDraftDeps(store.runsDir), // etapa 4 PR 5 (N14): ověřený soukromý cíl DRAFTu
     repoRoot: store.runsDir,
     capsulePath: path.join(store.runsDir, "capsule.md"),
     now: opts.now,

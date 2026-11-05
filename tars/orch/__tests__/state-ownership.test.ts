@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDraftDeps } from "./private-target";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -90,7 +91,7 @@ function make(store: Store, dept: Dept = {}) {
       createPage: async () => ({ url: "https://example.invalid/card" }),
     },
     guard: () => ({ alarm: false, summary: "ok" }),
-    draftParentId: "p",
+    ...privateDraftDeps(dir), // etapa 4 PR 5 (N14): ověřený soukromý cíl DRAFTu
     repoRoot: dir,
     capsulePath: path.join(dir, "none"),
     now: () => new Date(NOW),

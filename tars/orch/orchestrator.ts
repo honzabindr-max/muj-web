@@ -100,6 +100,25 @@ import { callChecker } from "./departments";
 import { GuardSession, LimitGuard, runWithLimitSink, setFallbackLimitSink, type LimitNote } from "./limit-guard";
 import { gitHubRemoteProbe, type RemoteProbe } from "./remote-snapshot";
 import type { Department, LogEntry, Order } from "./types";
+import { DISPATCH_DEFAULTS, type DispatchRead } from "./dispatch";
+import { reviewedGitOid } from "./departments";
+import { leaseOfStore } from "./inbox/common";
+import {
+  decisionId,
+  writeDecisionReceipt,
+  type DecisionReceipt,
+} from "./inbox/decision";
+import type { InboxDispatcher } from "./inbox/dispatcher";
+import {
+  EffectGate,
+  isTransient,
+  type DraftTargetReader,
+  type EffectCtx,
+  type GateResult,
+} from "./effect-gate";
+import { EFFECT_PLAN, artifactKindOf, orderClass } from "./inbox/policy";
+import { OWNER_DECISION_PROPERTY, PANEL_DATA_SOURCE_ID } from "./panel";
+import { ResourceLocks } from "./resource-lock";
 
 /** Odkud zápis řádku zná jeho ID (opravný PR „panel“, kolo 2, bod 1). */
 type RowSource = "index" | "receipt" | "lookup";
@@ -174,6 +193,18 @@ export interface OrchestratorDeps {
   attemptExitTimeoutMs?: number;
   /** Etapa 4 / PR 4b (§8.2): sonda snímků vzdálených zápisů (výchozí skutečný git/gh); testy ji podvrhnou. */
   remoteProbe?: RemoteProbe;
+  /**
+   * Etapa 4 PR 5 (§5, §7): dispatcher inboxu (obnova claimů, nový claim jen v režimu run, revalidace scope před každým
+   * krokem). Bez něj se žádná zakázka `wo-r*` nespustí (HOLD): v tomto PR ho `cli.ts` nezapojuje.
+   */
+  inbox?: InboxDispatcher;
+  /**
+   * Etapa 4 PR 5 (§6.4 N14): REST čtení cílové stránky DRAFTu (`GET /v1/pages/{id}`, pole `public_url`) těsně před
+   * POST. Bez něj každý notion-draft = HOLD `EFFECT_NOT_ALLOWED`.
+   */
+  draftTarget?: DraftTargetReader;
+  /** Etapa 4 PR 5 (§6.1 `policy_revision`): git HEAD kódu tars/orch. */
+  codeRevision?: string;
 }
 
 /** Etapa 4 / PR 4a: výsledek kroku modelu spuštěného jako pokus (§7, §8). */
@@ -325,6 +356,12 @@ export class Orchestrator {
   private limitHoldMarkerPending = false;
   /** Varování uložená v runs/limit-guard v tomto běhu (source|text): selhání velkého limit-warning.json je pak jen log. */
   private guardSaved = new Set<string>();
+  /** Etapa 4 PR 5 (§6.1, §6.4): brána každého vratného efektu a přechodu do DONE. */
+  private gate: EffectGate;
+  /** Etapa 4 PR 5 (§9): zámky konfliktních zdrojů (runs/resources/). */
+  private locks: ResourceLocks;
+  /** Etapa 4 PR 5: brána nebo zdroj v tomto ticku nečitelné/obsazené: žádný další krok (další tick znovu). */
+  private gateWaiting = false;
   constructor(private d: OrchestratorDeps) {
     assertFamilies(d.departments);
     if (d.briefChecker.family === d.supervisor.family)
@@ -366,6 +403,305 @@ export class Orchestrator {
     this.effects = new EffectJournal(d.store.runsDir, () => this.iso());
     // Merge PR #99 + etapa 3: index pod stejným (re-entrantním) stavovým zámkem jako fence zámku panelu.
     d.panel?.index.bindStore(d.store);
+    this.locks = new ResourceLocks(d.store.runsDir);
+    this.gate = new EffectGate({
+      runsDir: d.store.runsDir,
+      lease: () => (d.store.holdsLease() ? leaseOfStore(d.store) : undefined),
+      dispatch: () => this.readDispatchNow(),
+      codeRevision: d.codeRevision ?? "unknown",
+      inbox: d.inbox,
+      readResultRow: (pageId) => this.readDecisionRow(pageId),
+      rowFlags: (orderId, pageId) => {
+        const idx = this.d.panel?.index;
+        const n = normPage(pageId);
+        return {
+          tainted: Boolean(idx?.tainted(orderId).includes(n)),
+          superseded: Boolean(idx?.superseded(orderId).includes(n)),
+        };
+      },
+      draftTarget: d.draftTarget,
+      now: () => this.iso(),
+    });
+  }
+
+  /** Etapa 4 PR 5: aktuální `dispatch.json` (fail-closed: bez cesty = výchozí hold a prázdné allowlisty). */
+  private readDispatchNow(): DispatchRead {
+    if (!this.d.dispatchFile)
+      return {
+        config: { ...DISPATCH_DEFAULTS },
+        hold_file: false,
+        invalid: "dispatch.json není nastaven",
+      };
+    return readDispatch(this.d.dispatchFile, this.d.store.runsDir);
+  }
+
+  /** Etapa 4 PR 5 (§3.3): REST čtení řádku panelu s rozhodnutím pro revalidaci result receiptu. */
+  private async readDecisionRow(
+    pageId: string,
+  ): Promise<{ readable: boolean; value?: string }> {
+    const sink = this.d.panel?.sink;
+    if (sink?.readOwnerRow) {
+      const row = await sink.readOwnerRow(pageId);
+      return { readable: row.readable !== false, value: row.decision };
+    }
+    if (sink?.readOwnerDecision)
+      return { readable: true, value: await sink.readOwnerDecision(pageId) };
+    throw new Error("REST čtení řádku panelu není k dispozici");
+  }
+
+  /** Dnešní `owner_needed` (orchestrator.ts DELIVERED): alwaysOwner, owner_decisions, reservedDecisionHits. */
+  private ownerNeededOf(o: Order, dept: DepartmentRunner): boolean {
+    return (
+      dept.alwaysOwner ||
+      (o.brief?.owner_decisions.length ?? 0) > 0 ||
+      reservedDecisionHits(`${o.brief?.title ?? ""}\n${o.brief?.goal ?? ""}`)
+        .length > 0
+    );
+  }
+
+  /**
+   * Oddělení podle toho, CO runner skutečně dělá (§6.4 plán efektů): runner s bránou push (PR 4b) dělá gh-push a
+   * gh-draft-pr, ať je v briefu zapsán pod jakýmkoli klíčem. Jinak oddělení z briefu.
+   */
+  private effectDept(o: Order, dept?: DepartmentRunner): Department {
+    const r = dept ?? (o.brief ? this.d.departments[o.brief.department] : undefined);
+    return r?.effectGate ? "dev" : o.brief!.department;
+  }
+
+  /** Identita artefaktu podle druhu (§6.1): content = otisk finálního těla, git = zkontrolovaný OID. */
+  private artifactOf(o: Order, dept?: DepartmentRunner): EffectCtx["artifact"] {
+    return artifactKindOf(this.effectDept(o, dept)) === "git"
+      ? { kind: "git", oid: reviewedGitOid(o, this.ctx) }
+      : { kind: "content", hash: finalBodyRef(o)?.sha256 };
+  }
+
+  private gateCtx(
+    o: Order,
+    dept: DepartmentRunner,
+    effects: EffectCtx["effects"],
+    ownerNeeded = this.ownerNeededOf(o, dept),
+  ): Omit<EffectCtx, "step" | "draftParentId"> {
+    return {
+      effects,
+      dept: this.effectDept(o, dept),
+      creatorFamily: dept.creatorFamily,
+      ownerNeeded,
+      artifact: this.artifactOf(o, dept),
+    };
+  }
+
+  /**
+   * Etapa 4 PR 5: výsledek brány, který nepustil efekt ani přechod. Nečitelné rozhodnutí / ztráta lease = zakázka
+   * zůstává, tick končí (další tick znovu, nikdy efekt). Ostatní = HOLD (UNKNOWN) s důvodem a migrační cestou.
+   */
+  private gateBlocked(o: Order, r: Extract<GateResult, { ok: false }>): Order {
+    if (isTransient(r.code)) {
+      this.gateWaiting = true;
+      this.logOnce({
+        order: o.id,
+        kind: "info",
+        role: "orchestrator",
+        result: `brána: ${r.code}, další tick znovu`,
+        reason: r.detail.slice(0, 300),
+      });
+      return this.current(o.id);
+    }
+    const reason = `${r.code}: ${r.detail}${r.path ? ` — cesta: ${r.path}` : ""}`;
+    return this.attemptBlocked(o, { kind: "hold", reason });
+  }
+
+  /**
+   * Etapa 4 PR 5 (§3.2 result): pozorované GO z řádku panelu → result receipt (jen z REST čtení, nikdy automaticky).
+   * Vazba na `meta.approved_hash`, kartu a kolo karty. Vrací `decision_id`, nebo undefined (nejde zapsat = GO nepřijato).
+   */
+  private recordResultReceipt(o: Order, pageId: string): string | undefined {
+    const dept = o.brief ? this.effectDept(o) : undefined;
+    const approved = o.meta.approved_hash;
+    const lease = leaseOfStore(this.d.store);
+    if (!dept || !approved || !o.owner_card_url || !lease) return undefined;
+    let round: number;
+    try {
+      round = reissueRound(o);
+    } catch {
+      return undefined;
+    }
+    const binding = {
+      order_id: o.id,
+      artifact_kind: artifactKindOf(dept),
+      approved_hash: approved,
+    };
+    const id = decisionId("result", binding, o.owner_card_url, round, "GO");
+    const r: DecisionReceipt = {
+      v: 2,
+      receipt_kind: "result",
+      decision_id: id,
+      binding,
+      card_url: o.owner_card_url,
+      card_round: round,
+      value: "GO",
+      source: {
+        data_source_id: PANEL_DATA_SOURCE_ID,
+        page_id: normPage(pageId),
+        property: OWNER_DECISION_PROPERTY,
+      },
+      observed_at: this.iso(),
+      observed_fence: lease.fence,
+      provenance: "observed",
+      provenance_note: "DR-039: autor selectu neprokázán",
+    };
+    try {
+      writeDecisionReceipt(this.d.store.runsDir, r);
+      return id;
+    } catch (e) {
+      // Stejné pozorování už zapsané dřív (jiný čas) = CONFLICT: platí původní receipt se stejným decision_id.
+      if (/RECEIPT_CONFLICT/.test(String((e as Error)?.message))) return id;
+      this.log({
+        order: o.id,
+        kind: "error",
+        role: "orchestrator",
+        result: "result receipt nejde zapsat, GO nepřijato",
+        reason: String((e as Error)?.message ?? e).slice(0, 300),
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Etapa 4 PR 5 (§5, §7, Q3-A): obnova claimů inboxu a nejvýš jeden nový claim (jen v režimu run). Bez dispatcheru
+   * nic. Chyba nic nezastaví (HOLD v logu).
+   */
+  private async dispatchInbox(): Promise<void> {
+    const inbox = this.d.inbox;
+    const lease = leaseOfStore(this.d.store);
+    if (!inbox || !lease) return;
+    const r = this.readDispatchNow();
+    try {
+      const res = await inbox.tick({
+        lease,
+        mode: this.lastDispatch?.mode ?? "hold",
+        may_start_new: this.lastDispatch?.may_start_new ?? false,
+        dispatchSha256: r.invalid ? undefined : r.sha256,
+        allowedTypes: r.config.inbox_types,
+      });
+      for (const x of [...res.recovered, ...(res.claimed ? [res.claimed] : [])])
+        if (x.outcome.kind === "hold" || x.outcome.kind === "claimed")
+          this.logOnce({
+            order: "-",
+            kind: x.outcome.kind === "hold" ? "error" : "info",
+            role: "orchestrator",
+            result: `inbox claim ${x.event_id.slice(0, 8)}: ${x.outcome.kind === "hold" ? `HOLD ${x.outcome.code}` : `CLAIMED ${x.outcome.wo_id}`}`,
+            reason:
+              x.outcome.kind === "hold"
+                ? x.outcome.detail.slice(0, 300)
+                : undefined,
+          });
+      for (const id of res.orphans)
+        this.logOnce({
+          order: id,
+          kind: "error",
+          role: "orchestrator",
+          result: "HOLD UNKNOWN: wo-r bez claim.prepare, nikdy dispatch",
+        });
+    } catch (e) {
+      this.log({
+        order: "-",
+        kind: "error",
+        role: "orchestrator",
+        result: "inbox dispatch selhal (HOLD)",
+        reason: String((e as Error)?.message ?? e).slice(0, 300),
+      });
+    }
+  }
+
+  /**
+   * Etapa 4 PR 5: smí tick zakázku posunout? Legacy ano. `wo-r` bez události = HOLD UNKNOWN. Inbox jen s commitem,
+   * ACK CLAIMED, bez odvolání, a jen když žádná jiná zakázka nečeká na vlastníka ani neběží (Q3-A, WIP 1).
+   */
+  private mayAdvance(o: Order, all: Order[]): boolean {
+    const cls = orderClass(o);
+    if (cls === "legacy") return true;
+    if (cls === "unknown" || !this.d.inbox) return false;
+    if (!this.d.inbox.runnable(o).ok) return false;
+    return !all.some(
+      (x) =>
+        x.id !== o.id &&
+        (x.state === "WAITING_OWNER" ||
+          (isActionable(x.state) && x.state !== "NEW")),
+    );
+  }
+
+  /** Etapa 4 PR 5: rozpracované zakázky `wo-r`, které nesmí běžet natrvalo (bez události, odvolaný claim) → HOLD. */
+  private holdForeignInbox(orders: Order[]): void {
+    for (const o of orders) {
+      if (!isActionable(o.state)) continue;
+      const cls = orderClass(o);
+      if (cls === "legacy") continue;
+      if (cls === "unknown") {
+        this.apply(
+          o,
+          {
+            type: "unknown",
+            reason:
+              "HOLD UNKNOWN: zakázka wo-r bez platné meta.request_event_id",
+          },
+          { role: "orchestrator", result: "HOLD UNKNOWN (wo-r bez události)" },
+        );
+        continue;
+      }
+      if (!this.d.inbox) {
+        this.logOnce({
+          order: o.id,
+          kind: "info",
+          role: "orchestrator",
+          result:
+            "wo-r čeká: dispatcher inboxu není zapojený (HOLD, nic se nespustí)",
+        });
+        continue;
+      }
+      const r = this.d.inbox.runnable(o);
+      if (!r.ok && /^claim (revoked|hold|aborted)|^UNKNOWN/.test(r.detail))
+        this.apply(
+          o,
+          {
+            type: "unknown",
+            reason: `HOLD(REVOKED): ${r.detail}`.slice(0, 500),
+          },
+          { role: "orchestrator", result: "HOLD (claim)" },
+        );
+    }
+  }
+
+  /**
+   * Etapa 4 PR 5 (§7 INTENT): před každým krokem zakázky `wo-r*` čerstvá revalidace scope receiptu. NEW → PLANNED
+   * (událost „claimed“) jen s commitem claimu a OK revalidací. Vrací zakázku a zda pokračovat.
+   */
+  private async inboxBeforeStep(
+    o: Order,
+  ): Promise<{ go: boolean; order: Order }> {
+    const lease = leaseOfStore(this.d.store);
+    if (!this.d.inbox || !lease) return { go: false, order: o };
+    const s = await this.d.inbox.checkScope(lease, o);
+    if (!s.ok)
+      return {
+        go: false,
+        order: this.gateBlocked(o, {
+          ok: false,
+          code: s.code as never,
+          detail: s.detail,
+        }),
+      };
+    if (o.state === "NEW") {
+      const planned = this.apply(
+        o,
+        { type: "planned" },
+        {
+          role: "orchestrator",
+          result: "claimed: commit claimu + scope GO revalidováno",
+        },
+      );
+      return { go: planned.state === "PLANNED", order: planned };
+    }
+    return { go: true, order: o };
   }
 
   private iso() {
@@ -1511,6 +1847,7 @@ export class Orchestrator {
     if (!this.d.store.acquireLock()) return { status: "locked" };
     this.tickPingKeys = new Set();
     this.attemptWaiting = false;
+    this.gateWaiting = false;
     try {
       this.observeDispatch();
       // Etapa 4 / PR 4a (§7): reconciler na začátku ticku, pod lease.
@@ -1518,6 +1855,8 @@ export class Orchestrator {
       await this.catchUpPanel();
       await this.pollOwnerDecisions();
       await this.retryOwnerPings();
+      // Etapa 4 PR 5 (§5): obnova claimů inboxu před jakýmkoli novým claimem; nový claim jen v režimu run.
+      await this.dispatchInbox();
       // PR 4b, bod 1: nevyřešené „varování neuloženo / neověřeno“ = globální HOLD (jen čtení a obnova výše). Žádný krok
       // modelu, žádné opakování (RETRY_SAFE), žádná nová zakázka; platí i po restartu a po HOLD → UNKNOWN.
       const held = this.limitHoldReason();
@@ -1525,8 +1864,12 @@ export class Orchestrator {
         this.log({ order: "-", kind: "error", role: "orchestrator", result: "HOLD (varování limitu)", reason: held });
         return { status: "limit_hold", reason: held };
       }
+      // Etapa 4 PR 5: `wo-r` bez události nebo s odvolaným claimem → HOLD; `wo-r*` běží jen s commitem a ACK CLAIMED.
+      this.holdForeignInbox(this.d.store.listOrders());
       const orders = this.d.store.listOrders();
-      let order = orders.find((o) => isActionable(o.state));
+      let order = orders.find(
+        (o) => isActionable(o.state) && this.mayAdvance(o, orders),
+      );
       if (!order) {
         const waiting = orders.find((o) => o.state === "WAITING_OWNER");
         // WIP limit 1: no new order while the owner has an undecided card.
@@ -1569,9 +1912,22 @@ export class Orchestrator {
         // Re-check guard before anything leaves the machine.
         if (order.state === "DELIVERED" && this.d.guard().alarm)
           return { status: "guard_alarm", summary: "ALARM before delivery" };
+        // Etapa 4 PR 5 (§7 INTENT): zakázka wo-r* – čerstvá revalidace scope GO před každým krokem modelu.
+        if (
+          orderClass(order) !== "legacy" &&
+          ["NEW", "PLANNED", "DOING", "CHECKING", "FIXING"].includes(
+            order.state,
+          )
+        ) {
+          const g = await this.inboxBeforeStep(order);
+          order = g.order;
+          if (!g.go || this.gateWaiting) break;
+        }
         order = await this.step(order);
         // PR 4a: pokus kroku běží na pozadí (osiřelé dítě před deadline): žádný druhý pokus, tick končí.
         if (this.attemptWaiting) break;
+        // PR 5: brána nebo zdroj nečitelné/obsazené: žádný další krok v tomto ticku.
+        if (this.gateWaiting) break;
         // PR 4b, bod 1: varování v tomto ticku neuloženo → žádný další krok.
         const h = this.limitHoldReason();
         if (h) return { status: "limit_hold", reason: h };
@@ -1783,8 +2139,48 @@ export class Orchestrator {
    * a failed read is logged and retried on the next tick.
    */
   async pollOwnerDecisions(): Promise<void> {
-    await this.readNotionDecisions();
-    await this.verifyApprovals();
+    // Etapa 4 PR 5 (§3.3): receipt a jeho revalidace jen pod tick lease. Mimo tick si ho čtení vezme samo (a zase
+    // uvolní); obsazený lease = nic se nečte ani nepřijme.
+    const own = !this.d.store.holdsLease() && this.d.store.acquireLock();
+    if (!own && !this.d.store.holdsLease()) {
+      this.log({
+        order: "-",
+        kind: "info",
+        role: "orchestrator",
+        result:
+          "rozhodnutí vlastníka nečteno: tick lease nejde získat (drží ho jiný běh nebo je obsazený stavový zámek)",
+      });
+      return;
+    }
+    try {
+      await this.readNotionDecisions();
+      await this.verifyApprovals();
+    } finally {
+      if (own) this.d.store.releaseLock();
+    }
+  }
+
+  /**
+   * Etapa 4 PR 5 (§3.3, §6.4): brána přechodu GO → DONE. Result GO se čerstvě revaliduje (receipt z řádku panelu), u
+   * wo-r* navíc scope GO, u všech review receipt. Legacy GO zadané vlastníkem přes `cli.ts owner` (hook P20) result
+   * receipt nemá: platí jako dnes (goBlocker + read-back), s review receiptem; wo-r* takové GO nepřijme.
+   */
+  private async doneGate(o: Order): Promise<GateResult> {
+    const dept = o.brief ? this.d.departments[o.brief.department] : undefined;
+    if (!dept)
+      return {
+        ok: false,
+        code: "EFFECT_NOT_ALLOWED",
+        detail: "zakázka bez oddělení",
+      };
+    const cliGo =
+      orderClass(o) === "legacy" &&
+      !o.meta.result_decision_id &&
+      (o.meta.owner_go_source ?? "").startsWith("owner ");
+    return this.gate.beforeTransition(
+      o,
+      this.gateCtx(o, dept, ["done"], !cliGo),
+    );
   }
 
   private async readNotionDecisions(): Promise<void> {
@@ -1845,7 +2241,7 @@ export class Orchestrator {
               panel.index.current(fresh.id, round) !== pageId
             )
               return;
-            this.acceptOwner(fresh, ev, `Notion ${value}`);
+            this.acceptOwner(fresh, ev, `Notion ${value}`, pageId);
           });
         });
         if (resync) await this.resyncPanel(waiting.id);
@@ -1995,7 +2391,7 @@ export class Orchestrator {
           "řádek panelu ukazoval jinou kartu; rozhodnout se musí na aktuální kartě",
         );
       }
-      this.acceptOwner(fresh, ev, `Notion ${value}`);
+      this.acceptOwner(fresh, ev, `Notion ${value}`, pageId);
     });
     return resync;
   }
@@ -2128,13 +2524,25 @@ export class Orchestrator {
     o: Order,
     ev: Extract<OrderEvent, { type: "owner" }>,
     source: string,
+    rowPageId?: string,
   ): Order {
     if (ev.decision === "REJECT")
       return this.apply(o, ev, {
         role: "orchestrator",
         result: `owner REJECT (${source})`,
       });
-    if (o.meta.owner_go) return o; // already recorded, waits for the read-back
+    if (o.meta.owner_go) {
+      // Etapa 4 PR 5: GO přijaté před PR 5 bez result receiptu dostane receipt z tohoto (nového) pozorování řádku.
+      if (!rowPageId || o.meta.result_decision_id) return o; // already recorded, waits for the read-back
+      const id = this.recordResultReceipt(o, rowPageId);
+      if (!id) return o;
+      const upd: Order = {
+        ...o,
+        updated_at: this.iso(),
+        meta: { ...o.meta, result_decision_id: id },
+      };
+      return this.persist(upd) ? upd : this.current(o.id);
+    }
     const why = !o.meta.approved_hash
       ? "chybí approved_hash (karta bez otisku artefaktu)"
       : o.meta.artifact_hash !== o.meta.approved_hash
@@ -2149,6 +2557,21 @@ export class Orchestrator {
       });
       return o;
     }
+    // Etapa 4 PR 5 (§3.2 result): GO z řádku panelu = result receipt z tohoto REST čtení (nikdy bez pozorování).
+    // Zakázka wo-r* přijme GO jen tak (cli.ts owner pro ni neplatí).
+    const resultId = rowPageId
+      ? this.recordResultReceipt(o, rowPageId)
+      : undefined;
+    if (rowPageId && !resultId) return o;
+    if (!rowPageId && orderClass(o) !== "legacy") {
+      this.logOnce({
+        order: o.id,
+        kind: "info",
+        role: "orchestrator",
+        result: `GO nepřijato (${source}): zakázka wo-r přijme GO jen z karty výsledku na panelu (RESULT_GO_MISSING)`,
+      });
+      return o;
+    }
     const at = this.iso();
     const next: Order = {
       ...o,
@@ -2158,6 +2581,7 @@ export class Orchestrator {
         owner_go: at,
         owner_go_source: source,
         ...(ev.option ? { owner_option: ev.option } : {}),
+        ...(resultId ? { result_decision_id: resultId } : {}),
       },
     };
     if (!this.persist(next)) return this.current(o.id);
@@ -2215,12 +2639,34 @@ export class Orchestrator {
           });
           continue;
         }
+        // Etapa 4 PR 5: GO → DONE jen po čerstvé revalidaci (result GO; wo-r* i scope GO) a s review receiptem.
+        let gated: string | undefined;
+        if (hash === w.meta.approved_hash) {
+          const dg = await this.doneGate(w);
+          if (!dg.ok) {
+            this.logOnce({
+              order: w.id,
+              kind: isTransient(dg.code) ? "info" : "error",
+              role: "orchestrator",
+              result: `GO → DONE zadrženo: ${dg.code}`,
+              reason:
+                `${dg.detail}${dg.path ? ` — cesta: ${dg.path}` : ""}`.slice(
+                  0,
+                  300,
+                ),
+            });
+            continue;
+          }
+          gated = w.meta.result_decision_id ?? "";
+        }
         this.d.store.withStateLock(() => {
           const fresh = this.d.store.load(w.id);
           if (
             fresh.state !== "WAITING_OWNER" ||
             fresh.meta.owner_go !== w.meta.owner_go ||
-            fresh.delivered_url !== w.delivered_url
+            fresh.delivered_url !== w.delivered_url ||
+            (gated !== undefined &&
+              (fresh.meta.result_decision_id ?? "") !== gated)
           )
             return;
           const matched = hash === fresh.meta.approved_hash;
@@ -3112,6 +3558,8 @@ export class Orchestrator {
     const dept = order.brief
       ? this.d.departments[order.brief.department]
       : undefined;
+    // Etapa 4 PR 5: zakázka wo-r* nikdy nespustí supervizora; NEW → PLANNED jen přes claim (inboxBeforeStep).
+    if (orderClass(order) !== "legacy" && order.state === "NEW") return order;
     switch (order.state) {
       case "NEW": {
         const capsule = fs.existsSync(this.d.capsulePath)
@@ -3521,55 +3969,92 @@ export class Orchestrator {
           // gh-draft-pr. Jakýkoli nesoulad = HOLD, 0 push, 0 PR (journal efektu se vůbec nezaloží).
           if (dept!.effectGate) {
             const gate = dept!.effectGate(o, this.ctx);
-            if (gate) return this.attemptBlocked(o, { kind: "hold", reason: gate });
+            if (gate)
+              return this.attemptBlocked(o, { kind: "hold", reason: gate });
+          }
+          // Etapa 4 PR 5 (§6.1, §6.4, N13, N14): brána efektu těsně před EffectJournal.prepare: allowlist podle třídy
+          // zakázky, review receipt nad tímto artefaktem, čerstvá revalidace vyžadovaných receiptů (wo-r*: scope GO),
+          // legacy brána a u notion-draft soukromý cíl (`public_url === null`). Nesoulad = HOLD, 0 efekt.
+          const gateRes = await this.gate.beforeEffect(o, {
+            ...this.gateCtx(o, dept!, [...EFFECT_PLAN[this.effectDept(o, dept)]]),
+            step: "deliver",
+            draftParentId: this.d.draftParentId,
+          });
+          if (!gateRes.ok) return this.gateBlocked(o, gateRes);
+          // §9: konfliktní zdroj efektu (rodičovská stránka DRAFTu / repo-git); obsazený nebo nejistý = žádný efekt teď.
+          const resource =
+            this.effectDept(o, dept) === "dev"
+              ? "repo-git"
+              : `notion-effect:${normPage(this.d.draftParentId)}`;
+          const lock = this.locks.acquire(resource, this.d.store.fence ?? 0);
+          if (!lock.ok) {
+            this.gateWaiting = true;
+            this.logOnce({
+              order: o.id,
+              kind: "info",
+              role: "orchestrator",
+              result: `zdroj ${resource} ${lock.reason === "HELD" ? "drží jiný proces" : "nejde ověřit"}, efekt se nespouští`,
+            });
+            return this.current(o.id);
           }
           // Etapa 3: the delivery is journaled (PREPARED → write → receipt); after a crash it is looked up by its marker.
           const del = o;
-          const run = await this.runEffect(
-            del,
-            "deliver",
-            (op) =>
-              dept!.findEffect
-                ? dept!.findEffect(del, this.ctx, op)
-                : Promise.resolve({
-                    status: "uncertain" as const,
-                    reason: `oddělení ${dept!.name} neumí dohledat doručení podle značky`,
-                  }),
-            async (op) => {
-              let r: Awaited<ReturnType<DepartmentRunner["deliver"]>>;
-              let absent = false;
-              try {
-                r = await dept!.deliver(del, this.ctx, effectTag(op));
-              } catch (e) {
-                absent = effectSurelyAbsent(e);
-                r = {
-                  ok: false,
-                  error: (e as Error).message,
-                  limit: Boolean((e as { limit?: boolean }).limit),
-                  model: "deliver",
+          let run: EffectRun;
+          try {
+            run = await this.runEffect(
+              del,
+              "deliver",
+              (op) =>
+                dept!.findEffect
+                  ? dept!.findEffect(del, this.ctx, op)
+                  : Promise.resolve({
+                      status: "uncertain" as const,
+                      reason: `oddělení ${dept!.name} neumí dohledat doručení podle značky`,
+                    }),
+              async (op) => {
+                let r: Awaited<ReturnType<DepartmentRunner["deliver"]>>;
+                let absent = false;
+                try {
+                  r = await dept!.deliver(del, this.ctx, effectTag(op));
+                } catch (e) {
+                  absent = effectSurelyAbsent(e);
+                  r = {
+                    ok: false,
+                    error: (e as Error).message,
+                    limit: Boolean((e as { limit?: boolean }).limit),
+                    model: "deliver",
+                  };
+                }
+                this.log({
+                  order: del.id,
+                  kind: "call",
+                  role: "transport",
+                  model: r.model,
+                  duration_ms: r.duration_ms,
+                  result: r.ok ? r.url : "error",
+                  reason: r.error,
+                });
+                if (r.ok && !r.url)
+                  r = { ...r, ok: false, error: "doručení bez URL" };
+                if (!r.ok)
+                  throw new DeliverFailure(
+                    r,
+                    absent || Boolean(r.effect_absent),
+                  );
+                // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
+                return {
+                  url: r.url!,
+                  content_hash:
+                    r.content !== undefined
+                      ? artifactHash(r.content)
+                      : undefined,
                 };
-              }
-              this.log({
-                order: del.id,
-                kind: "call",
-                role: "transport",
-                model: r.model,
-                duration_ms: r.duration_ms,
-                result: r.ok ? r.url : "error",
-                reason: r.error,
-              });
-              if (r.ok && !r.url)
-                r = { ...r, ok: false, error: "doručení bez URL" };
-              if (!r.ok)
-                throw new DeliverFailure(r, absent || Boolean(r.effect_absent));
-              // DR-039: the hash of the artifact exactly as sent is stored in the same write as its URL.
-              return {
-                url: r.url!,
-                content_hash:
-                  r.content !== undefined ? artifactHash(r.content) : undefined,
-              };
-            },
-          );
+              },
+            );
+          } finally {
+            lock.release();
+          }
+          if (run.kind === "done") this.gate.afterEffect(o, "deliver", run.url);
           if (run.kind === "stale") return this.current(o.id);
           if (run.kind === "hold") return this.hold(o, run.op, run.reason);
           if (run.kind === "failed") {
@@ -3637,6 +4122,25 @@ export class Orchestrator {
             ...o,
             meta: { ...o.meta, readback: rb },
           });
+          // Etapa 4 PR 5 (§6.2.1 bod 7): u wo-r* neshoda read-backu = HOLD READBACK_MISMATCH, nikdy karta ani DONE.
+          if (blocker && orderClass(o) !== "legacy")
+            return this.gateBlocked(o, {
+              ok: false,
+              code: "READBACK_MISMATCH",
+              detail: blocker,
+            });
+          if (!blocker) {
+            // §6.1: read-back proti identitě artefaktu brány (content: otisk finálního těla); záznam brány DONE / HOLD.
+            const v = this.gate.verify(o, "deliver", seen);
+            if (!v.ok && orderClass(o) !== "legacy")
+              return this.gateBlocked(o, v);
+            // §6.4: DONE bez vlastníka (Q9-A) jen se čerstvou revalidací scope (wo-r*) a review receiptem (oba druhy).
+            const t = await this.gate.beforeTransition(
+              o,
+              this.gateCtx(o, dept!, ["done"], false),
+            );
+            if (!t.ok) return this.gateBlocked(o, t);
+          }
           if (blocker) {
             this.log({
               order: o.id,
@@ -3670,6 +4174,20 @@ export class Orchestrator {
             });
             return this.current(o.id); // etapa 2: the stored state (it may have moved on during the read)
           }
+          // Etapa 4 PR 5 (§6.4 karta výsledku): wo-r* jen se čerstvou revalidací scope GO a s review receiptem; legacy
+          // s review receiptem. U wo-r* (content) musí read-back sedět s finálním tělem, jinak HOLD (§6.2.1 bod 7).
+          if (
+            orderClass(o) !== "legacy" &&
+            artifactKindOf(this.effectDept(o, dept)) === "content"
+          ) {
+            const v = this.gate.verify(o, "deliver", seen);
+            if (!v.ok) return this.gateBlocked(o, v);
+          }
+          const cardGate = await this.gate.beforeTransition(
+            o,
+            this.gateCtx(o, dept!, ["owner-card"], true),
+          );
+          if (!cardGate.ok) return this.gateBlocked(o, cardGate);
           o = {
             ...o,
             meta: { ...o.meta, approved_hash: seen, artifact_hash: seen },

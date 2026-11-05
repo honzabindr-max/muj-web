@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { privateDraftDeps } from "./private-target";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -232,7 +233,7 @@ function build(
     },
     notion,
     guard: () => ({ alarm: false, summary: "TARS-GUARD OK" }),
-    draftParentId: "parent",
+    ...privateDraftDeps(dir), // etapa 4 PR 5 (N14): ověřený soukromý cíl DRAFTu
     repoRoot: dir,
     capsulePath: path.join(dir, "capsule.md"),
     now: () => new Date(clock),

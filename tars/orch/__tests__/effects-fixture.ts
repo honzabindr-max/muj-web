@@ -3,7 +3,17 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { CopyDepartment, type DepartmentRunner } from "../departments";
+import {
+  copyEnvelope,
+  CopyDepartment,
+  type DepartmentRunner,
+} from "../departments";
+import {
+  PRIVATE_PARENT,
+  privateDispatchFile,
+  privateTarget,
+  reviewedMeta,
+} from "./private-target";
 import type { NotionClient } from "../notion";
 import { pageIdFromUrl, titleCarriesMarker } from "../notion";
 import { Orchestrator } from "../orchestrator";
@@ -12,7 +22,8 @@ import type { Store } from "../store";
 import type { Order } from "../types";
 
 export const NOW = "2026-11-04T12:00:00.000Z";
-export const PARENT = "draftparent";
+/** Etapa 4 PR 5 (N14): rodič DRAFTu je ověřená soukromá stránka z `private_draft_parents` (32 hex). */
+export const PARENT = PRIVATE_PARENT;
 export const ORDER_ID = "wo-eff";
 export const DRAFT = `# Draft\n\n${"Tichý, sebejistý text. ".repeat(30)}`;
 
@@ -118,6 +129,11 @@ export function seedDelivered(
 ): Order {
   store.writeFile(ORDER_ID, "draft-v0.md", DRAFT);
   const o = effOrder("DELIVERED", ownerDecisions);
+  // Etapa 4 PR 5 (legacy brána N13): po kontrole existuje finální tělo a review receipt PASS (jako od PR 4a).
+  const body =
+    copyEnvelope(o, "fixture (fixture-gpt)", "fixture (fixture-claude)", 0) +
+    DRAFT;
+  o.meta = { ...o.meta, ...reviewedMeta(store, o, body, "claude") };
   store.save(o);
   return store.load(ORDER_ID);
 }
@@ -158,6 +174,8 @@ export function makeOrch(
     notion,
     guard: () => ({ alarm: false, summary: "ok" }),
     draftParentId: PARENT,
+    dispatchFile: privateDispatchFile(store.runsDir),
+    draftTarget: privateTarget,
     repoRoot: store.runsDir,
     capsulePath: path.join(store.runsDir, "none"),
     now: () => new Date(NOW),
