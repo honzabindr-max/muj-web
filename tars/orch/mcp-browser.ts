@@ -28,6 +28,7 @@ import {
   EXACT_MODE_KEY_TOOL,
   MCP_SERVER,
   readState,
+  TARS_PROMPT_SLOT,
   typedTextSha,
 } from "./mcp-gate";
 
@@ -167,6 +168,7 @@ export function browserSettings(
   filesDir?: string,
   typeSha?: string,
   noType = false,
+  typeFile?: string,
 ): string {
   // filesDir = shots dir relative to the MCP workspace: the only place the model may name a snapshot/screenshot file.
   const files = filesDir ? `TARS_GATE_FILES="${filesDir}" ` : "";
@@ -175,10 +177,15 @@ export function browserSettings(
     typeSha && /^[0-9a-f]{64}$/.test(typeSha)
       ? `TARS_GATE_TYPE_SHA="${typeSha}" `
       : "";
+  // typeFile = the prompt file (outside the MCP workspace): the gate types its text in place of TARS_PROMPT_SLOT (O1).
+  const slot =
+    typed && typeFile && /^[\w./-]+$/.test(typeFile)
+      ? `TARS_GATE_TYPE_FILE="${typeFile}" `
+      : "";
   // noType = the plan has no fill step: the gate denies every browser_type and every send-like click (read-only run).
   const ro = noType ? `TARS_GATE_NO_TYPE="1" ` : "";
   const cmd = (mode: "pre" | "post") =>
-    `${ro}${files}${typed}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
+    `${ro}${files}${typed}${slot}TARS_GATE_STATE="${statePath}" npx tsx "${gate}" ${mode}`;
   const matcher = `mcp__${MCP_SERVER}__.*`;
   return JSON.stringify({
     ...JSON.parse(ORCH_CLAUDE_SETTINGS),
@@ -244,10 +251,7 @@ export function buildTask(steps: BrowserStep[], rel: string): string {
    a) Zavři každý otevřený popover nebo menu (browser_press_key s klávesou "Escape"). browser_snapshot: žádné menu ani popover není otevřené, textové pole je vidět (nápověda selektoru: ${s.selector}). Klikni do pole (browser_click), ať má fokus. Prázdné pole může ukazovat jen nápovědu (např. „Zeptat se ChatGPT“).
    b) Vyčisti ho: browser_type do pole s text "" (bez submit, bez slowly).
    c) browser_snapshot: pole musí být prázdné.
-   d) browser_type do pole s přesně tímto textem (bez submit, bez slowly):
-<<<TEXT
-${s.value}
-TEXT>>>
+   d) browser_type do pole s textem přesně ${TARS_PROMPT_SLOT} (bez submit, bez slowly). Je to zástupný token: skutečný text vloží do pole brána TARS, ty ho neopisuješ ani nevidíš.
    e) browser_snapshot (brána porovná obsah pole s textem).
    f) browser_click na tlačítko pro odeslání. Když brána kterýkoli krok zamítne, nic neopakuj a skonči s RESULT: UNKNOWN obsah-pole.`;
         return `${n}. Do textového pole (nápověda selektoru: ${s.selector}) vlož přesně tento text pomocí browser_type${s.submit ? " a odešli (submit: true)" : ""}:\n<<<TEXT\n${s.value}\nTEXT>>>`;
@@ -444,9 +448,13 @@ export class McpBrowser {
     // Gate state lives outside the MCP workspace (cwd = parent of shotsDir), so the browser tools cannot write it.
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "tars-gate-"));
     const statePath = path.join(stateDir, "state.json");
+    // O1: the exact text lies next to the state (outside the MCP workspace); the gate types it, the driver never sees it.
+    const typeFile = exact ? path.join(stateDir, "prompt.txt") : undefined;
     let out: Awaited<ReturnType<TextAdapter["run"]>> | undefined;
     let failure: unknown;
     try {
+      if (exact && typeFile)
+        fs.writeFileSync(typeFile, exact.value, { mode: 0o600 });
       this.chrome("start");
       out = await this.driver.run(buildTask(steps, path.basename(shotsDir)), {
         cwd: path.dirname(shotsDir),
@@ -460,6 +468,7 @@ export class McpBrowser {
           path.basename(shotsDir),
           exact ? typedTextSha(exact.value) : undefined,
           !steps.some((s) => s.kind === "fill"),
+          typeFile,
         ),
         // The same runs dir as for Chrome and the MCP server: the SessionStart hook of this claude -p looks for the lock there.
         env: this.runsDir ? { TARS_RUNS_DIR: this.runsDir } : undefined,

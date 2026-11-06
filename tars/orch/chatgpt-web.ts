@@ -860,7 +860,15 @@ export function ranInWork(
 const LIMIT_PAGE_RE =
   /(you['’]ve (hit|reached) (your|the) (usage )?limit|usage cap|limit (for|on) .*(messages|reasoning)|dosáhli jste limitu|limit zpráv)/i;
 
-export function waitReason(e: unknown): string {
+/**
+ * `submitted` = what the gate saw about sending (SentReport). REPORT-adapter O2: "odpověď nedorazila" only after a
+ * confirmed send; a timeout before it is a step of the browser (Playwright "Timeout …ms", e.g. the model picker) or the
+ * driver process killed at its run limit, and says whether anything was sent.
+ */
+export function waitReason(
+  e: unknown,
+  submitted?: SentReport["submitted"],
+): string {
   const msg = String((e as Error)?.message ?? e)
     .split("\n")[0]
     .slice(0, 200);
@@ -872,8 +880,15 @@ export function waitReason(e: unknown): string {
     return "profil TARS-agent není přihlášen do ChatGPT (TARS se nepřihlašuje)";
   if (e instanceof DriverLimitError)
     return `ovladač prohlížeče (Claude) je na limitu: ${msg}`;
-  if (/timeout/i.test(msg))
-    return "odpověď ChatGPT nedorazila v časovém limitu";
+  if (/timeout/i.test(msg)) {
+    if (submitted === true)
+      return "odpověď ChatGPT nedorazila v časovém limitu";
+    const sent =
+      submitted === false ? "nic neodesláno" : "odeslání nejde potvrdit";
+    if (/ovladač prohlížeče selhal: timeout\b/i.test(msg))
+      return `ovladač prohlížeče nedokončil kroky v limitu běhu; ${sent}`;
+    return `krok v prohlížeči nedoběhl v časovém limitu (prvek nereagoval): ${msg}; ${sent}`;
+  }
   if (e instanceof BrowserLaunchError)
     return `prohlížeč TARS-agent nejde spustit: ${msg}`;
   if (e instanceof RuleViolation)
@@ -1181,7 +1196,7 @@ export class ChatGptWebChecker implements TextAdapter {
       settle();
       const kinds = scanRunFiles(runDirs);
       if (kinds.length) return rejected(kinds, "neověřeno");
-      return waiting(waitReason(e));
+      return waiting(waitReason(e, report?.submitted));
     }
     settle();
     const before = reads.length >= 2 ? reads[0] : undefined;

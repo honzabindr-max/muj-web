@@ -174,6 +174,46 @@ const isClearText = (text: unknown): boolean =>
     .trim() === "";
 
 /**
+ * REPORT-adapter O1: the placeholder the driver types instead of the prompt. The gate replaces it by the exact text of
+ * the prompt file (TARS_GATE_TYPE_FILE, outside the MCP workspace) through `updatedInput`, so the prompt never passes
+ * through the driver's output (a 48 KB prompt re-typed by the model failed every time: compaction, output limit, sha).
+ */
+export const TARS_PROMPT_SLOT = "TARS_PROMPT_SLOT";
+
+/**
+ * Exact mode with a prompt file (`typeFile`): the browser_type input the tool really gets. Returns the reason of a deny,
+ * or the input with the slot replaced by the file's text (`replaced: true`). Any other non-empty text is denied, also
+ * the right one typed by hand (the slot is the only way). Fail-closed: no sha, a missing or unreadable file, or a file
+ * whose sha256 differs from `typeSha` (changed after the plan) = deny, nothing typed. No reason contains the text.
+ * Every other check (empty field, slowly/submit, overlay, after the send) stays in gateMcpCall, on the replaced input.
+ */
+export function resolvePromptSlot(
+  toolName: string,
+  input: Record<string, unknown>,
+  typeSha: string | undefined,
+  typeFile: string | undefined,
+): string | { input: Record<string, unknown>; replaced: boolean } {
+  if (
+    !typeFile ||
+    toolName !== `mcp__${MCP_SERVER}__browser_type` ||
+    isClearText(input.text)
+  )
+    return { input, replaced: false };
+  if (!typeSha) return "zástupný token bez zadaného sha256: nic se nepíše";
+  if (typeof input.text !== "string" || input.text.trim() !== TARS_PROMPT_SLOT)
+    return `do pole se píše jen zástupný token ${TARS_PROMPT_SLOT} (text vloží brána), ne vlastní text`;
+  let text: string;
+  try {
+    text = fs.readFileSync(typeFile, "utf8");
+  } catch {
+    return "soubor s textem k vložení chybí nebo nejde přečíst: nic se nepíše";
+  }
+  if (typedTextSha(text) !== typeSha)
+    return "soubor s textem k vložení neodpovídá zadání (sha256): nic se nepíše";
+  return { input: { ...input, text }, replaced: true };
+}
+
+/**
  * Returns the reason a tool call is denied, or undefined when it is allowed (pure; the caller counts the call).
  * `typeSha` (P16 v2): when set, every browser_type must type exactly the planned text (sha256), so the driving model
  * cannot change the prompt a reviewer answers. Exact mode also guards what is really sent (Codex review kolo 1, nález 4):
@@ -552,6 +592,7 @@ async function main() {
   };
   const name = j.tool_name ?? "";
   const input = j.tool_input ?? {};
+  let updatedInput: Record<string, unknown> | undefined;
   withLock(file, () => {
     let state: GateState;
     if (fs.existsSync(file)) {
@@ -560,25 +601,47 @@ async function main() {
       state = s;
     } else state = emptyState();
     if (mode === "pre") {
-      const why = gateMcpCall(
+      const typeSha = process.env.TARS_GATE_TYPE_SHA || undefined;
+      const slot = resolvePromptSlot(
         name,
         input,
-        state,
-        process.env.TARS_GATE_FILES || undefined,
-        process.env.TARS_GATE_TYPE_SHA || undefined,
-        process.env.TARS_GATE_NO_TYPE === "1",
+        typeSha,
+        process.env.TARS_GATE_TYPE_FILE || undefined,
       );
-      if (why) {
+      const why =
+        typeof slot === "string"
+          ? slot
+          : gateMcpCall(
+              name,
+              slot.input,
+              state,
+              process.env.TARS_GATE_FILES || undefined,
+              typeSha,
+              process.env.TARS_GATE_NO_TYPE === "1",
+            );
+      if (why || typeof slot === "string") {
         process.stderr.write(`TARS: ${why}\n`);
         process.exitCode = 2;
         return;
       }
-      countCall(name, input, state);
+      countCall(name, slot.input, state);
+      if (slot.replaced) updatedInput = slot.input;
     } else {
       observeResponse(j.tool_response, state, j.cwd);
     }
     fs.writeFileSync(file, JSON.stringify(state));
   });
+  // O1: the tool gets the prompt from the file, not from the driver (only after the state with this call is written).
+  if (updatedInput)
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+          updatedInput,
+        },
+      }),
+    );
 }
 
 if (
