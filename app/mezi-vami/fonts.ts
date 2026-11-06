@@ -1,16 +1,23 @@
-import { EB_Garamond, Jost } from "next/font/google";
+import localFont from "next/font/local";
 
-export const garamond = EB_Garamond({
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500"],
-  style: ["normal", "italic"],
+// Fonty jsou v repu (OFL, viz fonts/OFL.txt), aby build nezávisel na síti.
+// Variabilní WOFF2 subsetované na latin + latin-ext (osa wght zachována);
+// rozsahy vah odpovídají dřívějším řezům z next/font/google.
+export const garamond = localFont({
+  src: [
+    { path: "./fonts/EBGaramond.woff2", weight: "400 500", style: "normal" },
+    {
+      path: "./fonts/EBGaramond-Italic.woff2",
+      weight: "400 500",
+      style: "italic",
+    },
+  ],
   variable: "--font-mv-garamond",
   display: "swap",
 });
 
-export const jost = Jost({
-  subsets: ["latin", "latin-ext"],
-  weight: ["300", "400", "500"],
+export const jost = localFont({
+  src: [{ path: "./fonts/Jost.woff2", weight: "300 500", style: "normal" }],
   variable: "--font-mv-jost",
   display: "swap",
 });
