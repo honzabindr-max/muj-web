@@ -591,7 +591,9 @@ describe("parsers", () => {
   });
 
   it("runGuardWithI8 on a script printing the real hook stdout: no alarm; SKIP inside the envelope: alarm", () => {
-    expect(fakeGuard(REAL_GUARD)()).toMatchObject({ alarm: false, summary: expect.stringMatching(/^TARS-GUARD OK \(8\/8\): I1 .* \| I8 OK$/) });
+    const ok = fakeGuard(REAL_GUARD)();
+    expect(ok.alarm, `runGuardWithI8 result: ${JSON.stringify(ok)}`).toBe(false);
+    expect(ok.summary, `runGuardWithI8 result: ${JSON.stringify(ok)}`).toMatch(/^TARS-GUARD OK \(8\/8\): I1 .* \| I8 OK$/);
     expect(fakeGuard(REAL_GUARD.replace("I5 SSH ke GitHubu zamítnuto", "I5 SKIP"))().alarm).toBe(true);
     expect(fakeGuard(REAL_GUARD, "I8 ALARM x")().alarm).toBe(true);
   });
@@ -599,8 +601,8 @@ describe("parsers", () => {
   it("regression: tick with the real hook stdout does not end in guard_alarm", async () => {
     const { o, supervisor } = orch({ guard: fakeGuard(REAL_GUARD) });
     const r = await o.tick();
-    expect(r.status).not.toBe("guard_alarm");
-    expect(r).toMatchObject({ state: "DONE" });
+    expect(r.status, `tick result: ${JSON.stringify(r)}`).not.toBe("guard_alarm");
+    expect(r, `tick result: ${JSON.stringify(r)}`).toMatchObject({ state: "DONE" });
     expect(supervisor.calls.length).toBeGreaterThan(0);
     const bad = orch({ guard: fakeGuard(REAL_GUARD.replace("I7 Vercel CLI odhlášené", "I7 UNKNOWN")) });
     expect((await bad.o.tick()).status).toBe("guard_alarm");

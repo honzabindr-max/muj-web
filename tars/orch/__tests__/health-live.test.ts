@@ -297,13 +297,72 @@ describe("health-live: konec ticku (runs/idle)", () => {
     const m = auditHealth(healthy({}, { idle: { present: false } }), now);
     expect(m.liveness.tickEnd.status).toBe("MISSING");
     expect(m.liveness.unfinishedTick).toBe(null);
-    expect(m.overall).toBe("NO_FINDINGS");
+    // 5b-K1-1: missing idle/status.json = limitHold unknown, never a healthy NO_FINDINGS
+    expect(m.system.completeness).toBe("UNKNOWN");
+    expect(m.system.limitHold).toBe(null);
+    expect(m.overall).toBe("UNKNOWN");
     const u = auditHealth(
       healthy({}, { idle: { present: true, readable: false } }),
       now,
     );
     expect(u.liveness.tickEnd.status).toBe("UNKNOWN");
     expect(u.overall).toBe("UNKNOWN");
+  });
+
+  it("nečitelný dispatch-mode.json se nenahradí starším režimem z idle = UNKNOWN", () => {
+    const r = auditHealth(
+      healthy(
+        {},
+        {
+          idle: { ...healthy().live.idle, dispatch_mode: "run" },
+          dispatch: { present: true, readable: false, hold_file: false },
+        },
+      ),
+      now,
+    );
+    expect(r.system.dispatchMode).toBe("unknown");
+    expect(r.system.completeness).toBe("UNKNOWN");
+    expect(r.overall).toBe("UNKNOWN");
+  });
+
+  it.each([{}, { mode: "x" }, { mode: 1 }])(
+    "čitelný dispatch-mode.json s neplatným režimem %j = UNKNOWN",
+    (file) => {
+      const r = auditHealth(
+        healthy(
+          {},
+          {
+            dispatch: {
+              present: true,
+              readable: true,
+              hold_file: false,
+              ...file,
+            },
+          },
+        ),
+        now,
+      );
+      expect(r.system.dispatchMode).toBe("unknown");
+      expect(r.system.completeness).toBe("UNKNOWN");
+      expect(r.overall).toBe("UNKNOWN");
+    },
+  );
+
+  it("log s časem plus tokenem v ts nevrátí původní text (jen normalizované ISO)", () => {
+    const m = manualFromLog(
+      [
+        {
+          ts: "Nov 5 2026 10:00:00 UTC (token=ghp_SYNTHETIC123)",
+          order: "o1",
+          kind: "transition",
+          result: "manual abort",
+        },
+      ],
+      true,
+      null,
+    );
+    expect(m.since).toBe(new Date("2026-11-05T10:00:00Z").toISOString());
+    expect(JSON.stringify(m)).not.toMatch(/ghp_SYNTHETIC123|token/);
   });
 
   it("tick začal (guard OK), neběží a nezapsal konec = nedokončený tick, blokace", () => {
@@ -457,7 +516,9 @@ describe("health-live: systémové blokace", () => {
     expect(r.system.blockers).toHaveLength(2);
     expect(r.system.dispatchMode).toBe("unknown");
     expect(r.system.holdFile).toBe(true);
-    expect(r.overall).toBe("ATTENTION");
+    // invalid mode = incomplete system data: UNKNOWN wins over ATTENTION, blockers stay listed
+    expect(r.system.completeness).toBe("UNKNOWN");
+    expect(r.overall).toBe("UNKNOWN");
   });
 
   it("neměřený systém = NOT_MEASURED, chybějící údaje UNKNOWN (null), ne „ne“", () => {
@@ -584,7 +645,7 @@ describe("health-live: ruční zásahy z logu", () => {
       overwrittenState: 1, // FAILED → (další přechod z DELIVERED)
       total: 6,
       outsideGateTicks: 2,
-      since: "2026-11-02T10:00:00Z",
+      since: "2026-11-02T10:00:00.000Z",
     });
     expect(m.byOrder[0]).toEqual({ id: "wo-1", count: 2 });
     expect(JSON.stringify(m)).not.toContain("CANARY");

@@ -441,6 +441,28 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/** Complete system sources (idle/status.json with limit_hold, dispatch-mode.json): without them the state is UNKNOWN. */
+function writeSystem(runs: string, at = "2026-11-01T00:00:00Z"): void {
+  fs.mkdirSync(path.join(runs, "idle"), { recursive: true });
+  fs.writeFileSync(
+    path.join(runs, "idle", "status.json"),
+    JSON.stringify({
+      at,
+      tick_status: "waiting_review",
+      idle_reason: null,
+      overview: {
+        limit_hold: false,
+        dispatch_mode: "run",
+        pending_decisions: [],
+      },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(runs, "dispatch-mode.json"),
+    JSON.stringify({ mode: "run", observed_at: "2026-11-03T20:00:00Z" }),
+  );
+}
+
 function writeRuns(runs: string): void {
   const order = (id: string, o: Record<string, unknown>) => {
     fs.mkdirSync(path.join(runs, id), { recursive: true });
@@ -456,6 +478,7 @@ function writeRuns(runs: string): void {
     );
   };
   fs.mkdirSync(runs, { recursive: true });
+  writeSystem(runs);
   order("wo-1", { state: "WAITING_OWNER", updated_at: "2026-11-03T20:00:00Z" });
   order("wo-2", {
     state: "WAITING_REVIEW",
@@ -705,6 +728,7 @@ describe("audit-health: review kolo 1", () => {
   it("4: neplatný řádek logu za posledním guardem = úplnost UNKNOWN, guard UNKNOWN, nikdy NO_FINDINGS", () => {
     const runs = path.join(dir, "runs");
     fs.mkdirSync(runs, { recursive: true });
+    writeSystem(runs, "2026-11-03T20:51:00Z");
     const guard = (ts: string, result: string) =>
       JSON.stringify({ ts, order: "-", kind: "guard", result });
     // garbage before the first guard is outside the tick window
@@ -774,6 +798,7 @@ describe("audit-health: review kolo 1", () => {
   it("5: guard používá stejný časový filtr jako heartbeat; budoucí záznamy se ignorují a hlásí", () => {
     const runs = path.join(dir, "runs");
     fs.mkdirSync(runs, { recursive: true });
+    writeSystem(runs);
     const nowNoon = Date.parse("2026-11-03T12:00:00Z");
     fs.writeFileSync(
       path.join(runs, "log.jsonl"),
@@ -806,6 +831,7 @@ describe("audit-health: review kolo 1", () => {
   it("6: journal efektů se validuje; neznámý stav = effects_unreadable (HOLD), EFFECT_DONE bez receiptu = HOLD", () => {
     const runs = path.join(dir, "runs");
     fs.mkdirSync(path.join(runs, "wo-e", "effects"), { recursive: true });
+    writeSystem(runs);
     fs.writeFileSync(
       path.join(runs, "wo-e", "state.json"),
       JSON.stringify({
@@ -892,6 +918,7 @@ describe("audit-health: review kolo 2", () => {
     JSON.stringify({ ts, order: "-", kind: "guard", result });
   const writeLog = (runs: string, lines: string[]) => {
     fs.mkdirSync(runs, { recursive: true });
+    writeSystem(runs);
     fs.writeFileSync(path.join(runs, "log.jsonl"), lines.join("\n") + "\n");
   };
 

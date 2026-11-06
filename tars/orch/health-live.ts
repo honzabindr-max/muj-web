@@ -507,8 +507,14 @@ export function projectLive(input: unknown, ctx: LiveContext) {
         ? null
         : undefined;
   const dispatch = s.dispatch === undefined ? undefined : obj(s.dispatch);
-  const modeRaw =
-    dispatch && dispatch.readable === true
+  // A dispatch-mode.json that exists but cannot be read must not be replaced by the older mode from idle/status.json.
+  const dispatchBroken =
+    dispatch !== undefined &&
+    dispatch.present === true &&
+    dispatch.readable !== true;
+  const modeRaw = dispatchBroken
+    ? undefined
+    : dispatch && dispatch.readable === true
       ? dispatch.mode
       : idle?.dispatch_mode;
   const dispatchMode =
@@ -523,6 +529,26 @@ export function projectLive(input: unknown, ctx: LiveContext) {
       : null;
   const limitHold =
     idle && typeof idle.limit_hold === "boolean" ? idle.limit_hold : null;
+  // System completeness: a measured source (snapshot has it) that is missing or unreadable leaves the state UNKNOWN.
+  const systemGaps: string[] = [];
+  if (idle !== undefined) {
+    if (idle.present !== true)
+      systemGaps.push("runs/idle/status.json chybí: HOLD limitu je neznámý");
+    else if (idle.readable !== true)
+      systemGaps.push("runs/idle/status.json nejde přečíst");
+    else if (limitHold === null)
+      systemGaps.push("runs/idle/status.json neuvádí limit_hold");
+  }
+  if (dispatchBroken)
+    systemGaps.push("runs/dispatch-mode.json nejde přečíst: režim je neznámý");
+  // Readable source, but mode missing or not hold/run (e.g. `{}`): still an unknown system value.
+  else if (dispatchMode === "unknown")
+    systemGaps.push("režim dispatche chybí nebo není hold/run: režim je neznámý");
+  // Readable idle/status.json whose idle_reason is not a known value must not pass as a healthy state.
+  if (idle && idle.readable === true && idleReason === "UNKNOWN")
+    systemGaps.push("runs/idle/status.json: neznámý idle_reason");
+  if (dispatch !== undefined && dispatch.hold_file === undefined)
+    systemGaps.push("existenci runs/HOLD nejde ověřit");
   const blockers: string[] = [];
   if (holdFile === true)
     blockers.push(
@@ -581,6 +607,14 @@ export function projectLive(input: unknown, ctx: LiveContext) {
     },
     system: {
       status: !idle && !dispatch ? "NOT_MEASURED" : "MEASURED",
+      /** UNKNOWN = a measured system source is missing or unreadable (never reported as a healthy state) */
+      completeness:
+        !idle && !dispatch
+          ? "NOT_MEASURED"
+          : systemGaps.length
+            ? "UNKNOWN"
+            : "COMPLETE",
+      gaps: systemGaps,
       idleReason: idleReason === undefined ? null : idleReason,
       idleDetail: idle ? (text(idle.detail, 300) ?? null) : null,
       tickStatus,
@@ -633,11 +667,15 @@ export function manualFromLog(
     byOrder.set(id, (byOrder.get(id) ?? 0) + 1);
   };
   const lastTo = new Map<string, string>();
-  let since: string | null = null;
+  // Time from the log is returned only as a normalized ISO string, never as the original text.
+  let sinceMs: number | null = null;
   for (const e of L) {
     const result = typeof e.result === "string" ? e.result : "";
-    if (typeof e.ts === "string" && Number.isFinite(Date.parse(e.ts)))
-      if (since === null || e.ts < since) since = e.ts;
+    if (typeof e.ts === "string") {
+      const ms = Date.parse(e.ts);
+      if (Number.isFinite(ms) && (sinceMs === null || ms < sinceMs))
+        sinceMs = ms;
+    }
     if (e.kind === "transition") {
       if (result === "manual abort") bump(e.order, "abort");
       if (e.event === "reissue") bump(e.order, "reissue");
@@ -654,7 +692,8 @@ export function manualFromLog(
   return {
     status: readable ? "MEASURED" : "UNKNOWN",
     source: "runs/log.jsonl",
-    since: readable ? since : null,
+    since:
+      readable && sinceMs !== null ? new Date(sinceMs).toISOString() : null,
     ...counts,
     total: readable ? Object.values(counts).reduce((a, b) => a + b, 0) : null,
     outsideGateTicks,

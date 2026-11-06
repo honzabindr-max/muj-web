@@ -558,7 +558,8 @@ export function auditHealth(
   const liveUnknown =
     lv.lease.status === "UNKNOWN" ||
     lv.tickEnd.status === "UNKNOWN" ||
-    lv.gate.status === "UNKNOWN";
+    lv.gate.status === "UNKNOWN" ||
+    live.system.completeness === "UNKNOWN";
   // A stale start-of-tick heartbeat is no finding while a tick provably runs (a long tick, e.g. the dev chain).
   const heartbeatStale =
     heartbeatStatus === "STALE" && lv.status !== "TICK_RUNNING";
