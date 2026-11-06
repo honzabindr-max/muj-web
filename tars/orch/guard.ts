@@ -73,11 +73,11 @@ export function unwrapGuardOutput(out: string): { text: string } | { error: stri
  */
 export function parseGuardOutput(out: string): GuardResult {
   const u = unwrapGuardOutput(out);
-  if ("error" in u) return { alarm: true, summary: `TARS-GUARD: ${u.error} | fail-closed`.slice(0, 300) };
+  if ("error" in u) return { alarm: true, summary: cap(`TARS-GUARD: ${u.error} | fail-closed`, 300) };
   const lines = u.text.split("\n").map((l) => l.trim());
   const statusLine = lines.find((l) => /TARS-GUARD (ALARM|OK)/.test(l)) ?? "TARS-GUARD: no status line";
-  const fail = (why: string): GuardResult => ({ alarm: true, summary: `${statusLine.slice(0, 240)} | fail-closed: ${why}`.slice(0, 300) });
-  if (lines.some((l) => /TARS-GUARD ALARM/.test(l))) return { alarm: true, summary: statusLine.slice(0, 300) };
+  const fail = (why: string): GuardResult => ({ alarm: true, summary: cap(`${cap(statusLine, 240)} | fail-closed: ${why}`, 300) });
+  if (lines.some((l) => /TARS-GUARD ALARM/.test(l))) return { alarm: true, summary: cap(statusLine, 300) };
   const okLines = lines.filter((l) => l.startsWith("TARS-GUARD OK"));
   if (okLines.length === 0) return fail("chybí řádek TARS-GUARD OK");
   if (okLines.length > 1) return fail("víc řádků TARS-GUARD OK");
@@ -96,19 +96,22 @@ export function parseGuardOutput(out: string): GuardResult {
   for (const it of items) {
     const im = ITEM_RE.exec(it);
     const k = im?.[1] as (typeof GUARD_INVARIANTS)[number] | undefined;
-    if (!im || !k || !GUARD_INVARIANTS.includes(k)) return fail(`neznámá položka: ${it.slice(0, 60)}`);
+    if (!im || !k || !GUARD_INVARIANTS.includes(k)) return fail(`neznámá položka: ${cap(it, 60)}`);
     if (seen.has(k)) return fail(`${k} uvedeno víckrát`);
     seen.add(k);
     const state = (im[2] ?? "").trim();
     if (!state) return fail(`${k} bez stavu`);
-    if (!OK_WORDS.has(state) && !GUARD_OK_TEXTS[k].includes(state)) return fail(`${k} stav „${state.slice(0, 60)}“ není kladný`);
+    if (!OK_WORDS.has(state) && !GUARD_OK_TEXTS[k].includes(state)) return fail(`${k} stav „${cap(state, 60)}“ není kladný`);
   }
   const unsure = lines.find((l) => UNSURE_RE.test(l));
-  if (unsure) return fail(`rozpor: ${unsure.slice(0, 120)}`);
-  return { alarm: false, summary: statusLine.slice(0, 300) };
+  if (unsure) return fail(`rozpor: ${cap(unsure, 120)}`);
+  return { alarm: false, summary: cap(statusLine, 300) };
 }
 
 const STDERR_HEAD = 160;
+
+/** Redact first, cut after: a token cut in half would no longer match a redaction pattern. */
+const cap = (text: string, max: number): string => redactSecretsUnbounded(text).slice(0, max);
 
 /**
  * Diagnostic only (never changes alarm): why a guard / I8 child failed – `status=<n> signal=<s>` plus the first
@@ -139,11 +142,11 @@ export function runGuardWithI8(script: string, i8Script: string, cwd: string, ru
 
 export function combineI8(g: GuardResult, i8Out: string): GuardResult {
   const alarms = i8Out.split("\n").filter((l) => l.startsWith("I8 ALARM"));
-  if (alarms.length) return { alarm: true, summary: `${g.summary} | ${alarms.join(" | ")}`.slice(0, 600) };
+  if (alarms.length) return { alarm: true, summary: cap(`${g.summary} | ${alarms.join(" | ")}`, 600) };
   if (!/^I8 OK/m.test(i8Out)) return { alarm: true, summary: `${g.summary} | I8: no status line` };
   // Fail-closed (DR-039): I8 OK next to an I8 WARN / UNKNOWN is a contradiction.
   const unsure = i8Out.split("\n").filter((l) => l.startsWith("I8 WARN") || UNSURE_RE.test(l));
-  if (unsure.length) return { alarm: true, summary: `${g.summary} | fail-closed: ${unsure.join(" | ")}`.slice(0, 600) };
+  if (unsure.length) return { alarm: true, summary: cap(`${g.summary} | fail-closed: ${unsure.join(" | ")}`, 600) };
   return { alarm: g.alarm, summary: `${g.summary} | I8 OK` };
 }
 

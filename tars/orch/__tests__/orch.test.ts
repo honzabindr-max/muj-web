@@ -658,6 +658,30 @@ describe("parsers", () => {
       expect(r.summary).not.toMatch(/ghp_|ntn_|sk-q/);
       expect(r.summary).toContain("[skryto: citlivý údaj]");
     });
+    it("druhý ořez (combineI8 na 600): token v I8 alarmu přes hranici neunikne ani rozříznutý", () => {
+      const tok = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+      const g: GuardResult = { alarm: true, summary: `TARS-GUARD nedoběhl | příčina: status=1 signal=null stderr: ${"e".repeat(160)}` };
+      for (let pad = 0; pad < 640; pad++) {
+        const r = combineI8(g, `I8 ALARM ${"x".repeat(pad)} ${tok}`);
+        expect(r.summary.length).toBeLessThanOrEqual(600);
+        expect(r.summary).not.toContain(tok.slice(0, 20));
+        expect(r.summary).not.toMatch(/ghp_/);
+      }
+    });
+    it("guard exit 1 + 160 znaků stderr + I8 alarm s tokenem přes hranici 600: ani souhrn, ani Store.log nemá fragment", () => {
+      const tok = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+      for (const pad of [300, 330, 350, 370, 400]) {
+        const r = run(`printf 'e%.0s' $(seq 1 160) >&2\nexit 1`, `echo "I8 ALARM ${"x".repeat(pad)} ${tok}"`);
+        expect(r.alarm).toBe(true);
+        const s = new Store(fs.mkdtempSync(path.join(dir, "log-")));
+        s.log({ ts: "2026-11-06T00:00:00.000Z", order: "-", kind: "error", role: "orchestrator", result: r.summary });
+        const logged = fs.readFileSync(path.join((s as unknown as { runsDir: string }).runsDir, "log.jsonl"), "utf8");
+        for (const text of [r.summary, logged]) {
+          expect(text).not.toContain(tok.slice(0, 20));
+          expect(text).not.toMatch(/ghp_/);
+        }
+      }
+    });
     it("stderr se ořízne na 160 znaků", () => {
       const r = run(`printf 'z%.0s' $(seq 1 500) >&2\nexit 1`);
       const m = /stderr: (z+)/.exec(r.summary);
