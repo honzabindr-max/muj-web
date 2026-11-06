@@ -221,6 +221,7 @@ function build(): Orchestrator {
       ), // Claude Design creates, GPT gate (prohlížeč) checks
     }),
     notion,
+    displayAwake: () => probeDisplay(), // kontrola „displej spí“ počká bez cyklení
     cardAdapter: sonnet, // data vizuální karty rozhodnutí (card-data.ts)
     sources: new SourceLoader(
       notion,

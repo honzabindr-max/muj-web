@@ -235,6 +235,8 @@ export interface OrchestratorDeps {
    * „Poslední krok“). Bez toho jen `runs/idle/`.
    */
   orchestratorPanelRow?: boolean;
+  /** Sonda displeje (display.ts). Bez ní se čekající kontrola „displej spí“ opakuje jednou za tick. */
+  displayAwake?: () => { awake: boolean; reason: string };
 }
 
 /** Etapa 4 / PR 4a: výsledek kroku modelu spuštěného jako pokus (§7, §8). */
@@ -279,6 +281,8 @@ export type TickResult =
    */
   | { status: "limit_hold"; reason: string }
   | { status: "waiting_review"; order: string; reason?: string }
+  /** Čekající kontrola GPT: displej spí, nic se nespouští ani nezapisuje. */
+  | { status: "waiting_display"; order: string; reason?: string }
   /** PR 5 FIX1 (5-K1-6): rozpracovaná zakázka wo-r* stojí, protože dispatch.json není v režimu run. */
   | { status: "dispatch_hold"; order: string }
   | { status: "advanced"; order: string; state: Order["state"] };
@@ -1979,7 +1983,11 @@ export class Orchestrator {
       order = this.apply(order, { type: "resume" }, { role: "orchestrator" });
     }
     // P16 v2: a waiting review is retried at most once per tick, on exactly the artifact that waits.
-    if (order.state === "WAITING_REVIEW") order = this.retryReview(order);
+    if (order.state === "WAITING_REVIEW") {
+      const asleep = this.displayStillAsleep(order);
+      if (asleep) return asleep;
+      order = this.retryReview(order);
+    }
     const max = this.d.maxStepsPerTick ?? 20;
     for (
       let i = 0;
@@ -3271,6 +3279,52 @@ export class Orchestrator {
       { type: "wait_review", reason, hash },
       { role, model, result: "čeká na kontrolu", reason },
     );
+  }
+
+  /** Kontrola čeká na displej: dokud sonda nevrátí awake === true (chyba = spí), žádný retry, přechod ani zápis na panel. */
+  private displayStillAsleep(order: Order): TickResult | undefined {
+    const probe = this.d.displayAwake;
+    // důvod nese prefix adaptéru: „čeká na kontrolu: displej spí (…)“
+    if (
+      !probe ||
+      !/^(čeká na kontrolu: )?displej spí/.test(order.review_reason ?? "")
+    )
+      return undefined;
+    let cause: string;
+    try {
+      const p = probe();
+      if (p.awake === true) return undefined;
+      // bezpečný krátký důvod: sonda už vrací text bez hodnot z prostředí; omezíme délku a řádkování
+      const r = String(p.reason ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80);
+      cause =
+        r === "displej spí" ? "displej spí" : `sonda selhala: ${r || "bez důvodu"}`;
+    } catch {
+      // fail-closed: výjimka sondy = čekání dál; zpráva je obecná, bez detailů prostředí
+      cause = "sonda selhala: výjimka sondy";
+    }
+    // loguje se jen změna příčiny (jiný klíč pro jinou příčinu), ne každý tick
+    const result = `čeká na displej: ${cause}`;
+    const last = this.d.store
+      .readLog(200)
+      .filter(
+        (x) => x.order === order.id && x.result?.startsWith("čeká na displej"),
+      )
+      .pop();
+    if (last?.result !== result)
+      this.log({
+        order: order.id,
+        kind: "info",
+        role: "orchestrator",
+        result,
+      });
+    return {
+      status: "waiting_display",
+      order: order.id,
+      reason: cause,
+    };
   }
 
   /** Back to the review step, unless the artifact changed while waiting (then UNKNOWN: GPT would check something else). */

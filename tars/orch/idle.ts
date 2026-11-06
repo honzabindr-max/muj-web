@@ -91,6 +91,11 @@ export function idleReasonOf(
         reason: "WAITING_REVIEW",
         detail: `zakázka ${r.order} čeká na kontrolu${r.reason ? `: ${r.reason}` : ""}`,
       };
+    case "waiting_display":
+      return {
+        reason: "WAITING_REVIEW",
+        detail: `zakázka ${r.order} čeká na displej${r.reason ? `: ${r.reason}` : ""}`,
+      };
     case "paused":
       return {
         reason: "PAUSED",
