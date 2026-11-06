@@ -23,6 +23,11 @@ import {
   type LiveSnapshot,
   type ManualLine,
 } from "./health-live";
+import {
+  collectGoLatency,
+  projectGoLatency,
+  type GoLatencySnapshot,
+} from "./health-go";
 import { redactSecrets, redactSecretsUnbounded } from "./secret-scan";
 import { STATES, type LogEntry, type Order } from "./types";
 
@@ -170,6 +175,8 @@ export interface HealthSnapshot {
   };
   /** PR 2a: tick lease, tick end record, wake gate, dispatch mode (health-live.ts) */
   live?: LiveSnapshot;
+  /** PR 2b: GO → takeover latency, runs/idle/go-latency.jsonl (health-go.ts) */
+  go_latency?: GoLatencySnapshot;
   launchd?: {
     readable?: boolean;
     state?: string;
@@ -582,8 +589,11 @@ export function auditHealth(
     malformedOrders === 0 &&
     missingState === 0;
 
+  // PR 2b: GO → takeover latency (information only; never part of `overall`, missing data never 0).
+  const goToAck = projectGoLatency(s.go_latency, now);
+
   return {
-    schema: "tars-audit-health/v3",
+    schema: "tars-audit-health/v4",
     overall,
     snapshotStatus,
     observedAgeMs,
@@ -682,8 +692,10 @@ export function auditHealth(
     processLiveness:
       lv.status === "TICK_RUNNING" ? "VERIFIED_TICK_RUNNING" : "NOT_VERIFIED",
     cloudLiveness: "NOT_VERIFIED",
-    goToAckMs: null,
-    goToAckStatus: "NOT_INSTRUMENTED",
+    /** PR 2b: latency of the newest measured takeover; null = not measured (never 0 for missing data) */
+    goToAckMs: goToAck.last?.ms ?? null,
+    goToAckStatus: goToAck.status,
+    goToAck,
     effectsPerformed: 0,
   };
 }
@@ -1003,6 +1015,7 @@ export function collectSnapshot(
   }
 
   if (entries) snap.live = collectLive(runsDir, { probe: opts.probe });
+  if (entries) snap.go_latency = collectGoLatency(runsDir);
 
   if (opts.launchd !== null)
     snap.launchd = parseLaunchd((opts.launchd ?? readLaunchd)());
@@ -1135,8 +1148,9 @@ export function formatHealth(r: HealthReport): string {
   );
   L.push(`Prohlížeč (browser-status): ${r.browserStatus}`);
   L.push(
-    `Živost procesu: ${r.processLiveness === "VERIFIED_TICK_RUNNING" ? "tick běží (ověřeno)" : "NOT VERIFIED"} · cloud: NOT VERIFIED · GO→potvrzení: NOT INSTRUMENTED`,
+    `Živost procesu: ${r.processLiveness === "VERIFIED_TICK_RUNNING" ? "tick běží (ověřeno)" : "NOT VERIFIED"} · cloud: NOT VERIFIED`,
   );
+  L.push(`GO→převzetí (${r.goToAck.source}): ${goAckText(r.goToAck)}`);
   L.push("");
   L.push("Projekce jen čte runs/ a launchd; nic nezapisuje.");
   return L.join("\n");
@@ -1150,13 +1164,31 @@ const LIVENESS_LABEL: Record<string, string> = {
   UNKNOWN: "UNKNOWN",
 };
 
+/** GO → takeover latency for people. Missing data reads as NOT INSTRUMENTED / UNKNOWN, never as 0. */
+function goAckText(g: HealthReport["goToAck"]): string {
+  if (g.status === "NOT_INSTRUMENTED") return `NOT INSTRUMENTED (${g.reason})`;
+  if (g.status === "NOT_MEASURED") return "NOT MEASURED";
+  if (g.status === "UNKNOWN") return `UNKNOWN (${g.reason})`;
+  const l = g.last!;
+  return `poslední ${formatSeconds(l.ms)} (${l.order} ${l.value}, ${local(l.at)}) · medián ${formatSeconds(g.medianMs)} · max ${formatSeconds(g.maxMs)} · převzetí ${g.decisions}${g.since ? ` od ${local(g.since)}` : ""}${g.unknownLatency ? ` · bez času zápisu ${g.unknownLatency}` : ""}${g.invalid ? ` · neplatných ${g.invalid}` : ""}`;
+}
+
+/** Short latency: seconds under 2 minutes, else the minute form of formatDuration. */
+const formatSeconds = (ms: number | null): string =>
+  ms === null
+    ? "UNKNOWN"
+    : ms < 120_000
+      ? `${Math.round(ms / 1000)} s`
+      : formatDuration(ms);
+
 const yesNo = (v: boolean | null): string =>
   v === null ? "UNKNOWN" : v ? "ano" : "ne";
 
 /**
  * PR 2a: compact one-paragraph form (≤ 600 characters) for a phone. It carries its own time ("stav k"), so a reader
  * who sees an old text knows it is old: the Mac cannot report its own outage, the age of this text is the signal.
- * Only formats; nothing writes it anywhere (wiring into the panel row is PR 2b, class B).
+ * Only formats; nothing writes it anywhere. Wiring it into the orchestrator panel row changes what and how often the
+ * tick writes: class B, a separate card (proposal in PR 2b report), not built here.
  */
 export function formatHealthCompact(r: HealthReport, now: number): string {
   const overall: Record<string, string> = {
@@ -1172,6 +1204,7 @@ export function formatHealthCompact(r: HealthReport, now: number): string {
     `systémové blokace ${r.system.blockers.length}`,
     `ruční zásahy ${r.manualInterventions.fromLog.total ?? "UNKNOWN"}`,
     `režim ${r.system.dispatchMode ?? "UNKNOWN"}`,
+    `GO→převzetí ${r.goToAck.status === "MEASURED" ? formatSeconds(r.goToAck.last!.ms) : r.goToAck.status === "NOT_INSTRUMENTED" ? "NOT INSTRUMENTED" : r.goToAck.status === "NOT_MEASURED" ? "NOT MEASURED" : "UNKNOWN"}`,
   ];
   return parts.join(" · ").slice(0, 600);
 }

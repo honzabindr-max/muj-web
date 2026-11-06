@@ -837,7 +837,7 @@ describe("health-live: sběr z runs/ (jen čtení)", () => {
       "brána efektu HOLD: SCOPE_REVOKED: x",
       "brána efektu: 1 záznam(y) nečitelné nebo neplatné, stav brány UNKNOWN",
     ]);
-    expect(r.schema).toBe("tars-audit-health/v3");
+    expect(r.schema).toBe("tars-audit-health/v4");
   });
 
   it("sběr nic nezapíše ani nevytvoří (mtime všech souborů a adresářů stejný)", () => {
@@ -881,6 +881,67 @@ describe("health-live: sběr z runs/ (jen čtení)", () => {
     expect(l).toEqual({ present: true, readable: false });
     expect(called).toBe(false);
     expect(collectIdle(runs)).toEqual({ present: true, readable: false });
+  });
+
+  describe("idle_reason: chybějící klíč vs. neplatná hodnota", () => {
+    const withIdleReason = (patch: Record<string, unknown>) => {
+      const runs = path.join(dir, "runs");
+      fs.mkdirSync(path.join(runs, "idle"), { recursive: true });
+      fs.writeFileSync(
+        path.join(runs, "idle", "status.json"),
+        JSON.stringify({
+          v: 1,
+          at: new Date(now).toISOString(),
+          tick_status: "waiting_review",
+          detail: "x",
+          overview: { limit_hold: false, dispatch_mode: "run" },
+          ...patch,
+        }),
+      );
+      const idle = collectIdle(runs);
+      return {
+        idle,
+        report: auditHealth(
+          healthy({}, { idle: { ...healthy().live.idle, ...idle } }),
+          now,
+        ),
+      };
+    };
+
+    it.each([
+      ["prázdný řetězec", ""],
+      ["číslo", 1],
+      ["objekt", {}],
+    ])("neplatná hodnota (%s) → UNKNOWN, ne NO_FINDINGS", (_n, bad) => {
+      const { idle, report } = withIdleReason({ idle_reason: bad });
+      expect(idle.idle_reason).toBe(typeof bad === "string" ? bad : "");
+      expect(report.system.idleReason).toBe("UNKNOWN");
+      expect(report.system.completeness).toBe("UNKNOWN");
+      expect(report.overall).toBe("UNKNOWN");
+    });
+
+    it("null bez tick_status → UNKNOWN", () => {
+      const { report } = withIdleReason({
+        idle_reason: null,
+        tick_status: undefined,
+      });
+      expect(report.system.completeness).toBe("UNKNOWN");
+      expect(report.overall).toBe("UNKNOWN");
+    });
+
+    it("platná hodnota a null s tick_status zůstávají beze změny", () => {
+      const ok = withIdleReason({ idle_reason: "WAITING_REVIEW" });
+      expect(ok.idle.idle_reason).toBe("WAITING_REVIEW");
+      expect(ok.report.system.idleReason).toBe("WAITING_REVIEW");
+      const worked = withIdleReason({ idle_reason: null });
+      expect(worked.idle.idle_reason).toBeNull();
+      expect(worked.report.system.idleReason).toBeNull();
+    });
+
+    it("chybějící klíč zůstává undefined (beze změny)", () => {
+      const { idle } = withIdleReason({});
+      expect(idle.idle_reason).toBeUndefined();
+    });
   });
 
   it("selhání sondy držitele = unknown (ne běží)", () => {
