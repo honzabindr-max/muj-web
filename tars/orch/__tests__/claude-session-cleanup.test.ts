@@ -7,7 +7,12 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CLAUDE_DEBUG_ENV_OFF, ClaudeCli, claudeConfigHome, removeClaudeSessionArtifacts } from "../adapters";
+import {
+  CLAUDE_DEBUG_ENV_OFF,
+  ClaudeCli,
+  claudeConfigHome,
+  removeClaudeSessionArtifacts,
+} from "../adapters";
 
 let bin: string;
 let cfg: string;
@@ -16,7 +21,9 @@ const saved: Record<string, string | undefined> = {};
 const KEYS = ["PATH", "CLAUDE_CONFIG_DIR", "DEBUG", "DEBUG_SDK"];
 const OTHER = "11111111-2222-4333-8444-555555555555";
 
-function fakeClaude(tail = 'echo \'{"type":"result","result":"ok","is_error":false}\''): void {
+function fakeClaude(
+  tail = 'echo \'{"type":"result","result":"ok","is_error":false}\'',
+): void {
   fs.writeFileSync(
     path.join(bin, "claude"),
     `#!/bin/bash
@@ -44,7 +51,8 @@ const leftovers = () => {
     for (const e of fs.readdirSync(p, { withFileTypes: true })) {
       const f = path.join(p, e.name);
       if (e.isDirectory()) walk(f);
-      else if (fs.readFileSync(f, "utf8").includes("TAJNY_PROMPT")) out.push(path.relative(cfg, f));
+      else if (fs.readFileSync(f, "utf8").includes("TAJNY_PROMPT"))
+        out.push(path.relative(cfg, f));
     }
   };
   walk(cfg);
@@ -57,9 +65,18 @@ beforeEach(() => {
   cfg = fs.mkdtempSync(path.join(os.tmpdir(), "claude-cfg-"));
   cwd = fs.mkdtempSync(path.join(os.tmpdir(), "claude-cwd-"));
   // cizí sezení v jiném klíči projektu: úklid na něj nesmí sáhnout
-  fs.mkdirSync(path.join(cfg, "projects", "-jiny-projekt", OTHER, "tool-results"), { recursive: true });
-  fs.writeFileSync(path.join(cfg, "projects", "-jiny-projekt", OTHER, "tool-results", "x.txt"), "cizí");
-  fs.writeFileSync(path.join(cfg, "projects", "-jiny-projekt", `${OTHER}.jsonl`), "cizí");
+  fs.mkdirSync(
+    path.join(cfg, "projects", "-jiny-projekt", OTHER, "tool-results"),
+    { recursive: true },
+  );
+  fs.writeFileSync(
+    path.join(cfg, "projects", "-jiny-projekt", OTHER, "tool-results", "x.txt"),
+    "cizí",
+  );
+  fs.writeFileSync(
+    path.join(cfg, "projects", "-jiny-projekt", `${OTHER}.jsonl`),
+    "cizí",
+  );
   process.env.PATH = `${bin}:${saved.PATH}`;
   process.env.CLAUDE_CONFIG_DIR = cfg;
   process.env.DEBUG = "1"; // prostředí orchestrátoru se zapnutým debugem: dítě ho dostat nesmí
@@ -76,14 +93,24 @@ afterEach(() => {
 describe("ClaudeCli: žádná perzistence sezení ani debug log (ADP-K1-01)", () => {
   it("spouští s --no-session-persistence a vlastním --session-id, bez --debug; DEBUG/DEBUG_SDK prázdné i proti opts.env", async () => {
     fakeClaude();
-    const r = await new ClaudeCli("sonnet").run("p", { cwd, env: { DEBUG: "1", DEBUG_SDK: "1" } });
+    const r = await new ClaudeCli("sonnet").run("p", {
+      cwd,
+      env: { DEBUG: "1", DEBUG_SDK: "1" },
+    });
     expect(r.ok).toBe(true);
-    const args = fs.readFileSync(path.join(bin, "args"), "utf8").trim().split("\n");
+    const args = fs
+      .readFileSync(path.join(bin, "args"), "utf8")
+      .trim()
+      .split("\n");
     expect(args).toContain("--no-session-persistence");
     const sid = args[args.indexOf("--session-id") + 1];
-    expect(sid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(sid).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(args.some((a) => a === "-d" || a.startsWith("--debug"))).toBe(false);
-    expect(fs.readFileSync(path.join(bin, "env"), "utf8").trim()).toBe("DEBUG=[] DEBUG_SDK=[]");
+    expect(fs.readFileSync(path.join(bin, "env"), "utf8").trim()).toBe(
+      "DEBUG=[] DEBUG_SDK=[]",
+    );
     expect(CLAUDE_DEBUG_ENV_OFF).toEqual({ DEBUG: "", DEBUG_SDK: "" });
   });
 
@@ -91,14 +118,37 @@ describe("ClaudeCli: žádná perzistence sezení ani debug log (ADP-K1-01)", ()
     fakeClaude();
     await new ClaudeCli("sonnet").run("p", { cwd });
     const sid = (() => {
-      const a = fs.readFileSync(path.join(bin, "args"), "utf8").trim().split("\n");
+      const a = fs
+        .readFileSync(path.join(bin, "args"), "utf8")
+        .trim()
+        .split("\n");
       return a[a.indexOf("--session-id") + 1];
     })();
-    expect(fs.existsSync(path.join(cfg, "projects", "-tmp-run-wo", sid))).toBe(false);
-    expect(fs.existsSync(path.join(cfg, "projects", "-tmp-run-wo", `${sid}.jsonl`))).toBe(false);
+    expect(fs.existsSync(path.join(cfg, "projects", "-tmp-run-wo", sid))).toBe(
+      false,
+    );
+    expect(
+      fs.existsSync(path.join(cfg, "projects", "-tmp-run-wo", `${sid}.jsonl`)),
+    ).toBe(false);
     expect(leftovers()).toEqual([]);
-    expect(fs.readFileSync(path.join(cfg, "projects", "-jiny-projekt", OTHER, "tool-results", "x.txt"), "utf8")).toBe("cizí");
-    expect(fs.existsSync(path.join(cfg, "projects", "-jiny-projekt", `${OTHER}.jsonl`))).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(
+          cfg,
+          "projects",
+          "-jiny-projekt",
+          OTHER,
+          "tool-results",
+          "x.txt",
+        ),
+        "utf8",
+      ),
+    ).toBe("cizí");
+    expect(
+      fs.existsSync(
+        path.join(cfg, "projects", "-jiny-projekt", `${OTHER}.jsonl`),
+      ),
+    ).toBe(true);
   });
 
   it("úklid proběhne i po pádu CLI a po tvrdém limitu (timeout)", async () => {
@@ -113,9 +163,73 @@ describe("ClaudeCli: žádná perzistence sezení ani debug log (ADP-K1-01)", ()
   }, 20_000);
 
   it("removeClaudeSessionArtifacts: jen platné UUID, chybějící projects/ = nic, CLAUDE_CONFIG_DIR určuje domov", () => {
-    expect(() => removeClaudeSessionArtifacts("../projects")).toThrow(/neplatné session id/);
-    expect(removeClaudeSessionArtifacts(OTHER, path.join(cfg, "neexistuje"))).toEqual([]);
+    expect(() => removeClaudeSessionArtifacts("../projects")).toThrow(
+      /neplatné session id/,
+    );
+    expect(
+      removeClaudeSessionArtifacts(OTHER, path.join(cfg, "neexistuje")),
+    ).toEqual({ removed: [], failed: [] });
     expect(claudeConfigHome({ CLAUDE_CONFIG_DIR: "/x/y" })).toBe("/x/y");
     expect(claudeConfigHome({})).toBe(path.join(os.homedir(), ".claude"));
+  });
+
+  it("opts.env.CLAUDE_CONFIG_DIR: dítě píše do jiného domova a úklid běží tam, ne v prostředí rodiče", async () => {
+    fakeClaude();
+    const cfg2 = fs.mkdtempSync(path.join(os.tmpdir(), "claude-cfg2-"));
+    const r = await new ClaudeCli("sonnet").run("p", {
+      cwd,
+      env: { CLAUDE_CONFIG_DIR: cfg2 },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.error).toBeUndefined();
+    const walk = (p: string): string[] =>
+      fs
+        .readdirSync(p, { withFileTypes: true })
+        .flatMap((e) =>
+          e.isDirectory() ? walk(path.join(p, e.name)) : [path.join(p, e.name)],
+        );
+    expect(
+      walk(cfg2).filter((f) =>
+        fs.readFileSync(f, "utf8").includes("TAJNY_PROMPT"),
+      ),
+    ).toEqual([]);
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("symlink v projects/* mířící ven: nic mimo se nesmaže, výsledek není ok", async () => {
+    fakeClaude();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "claude-outside-"));
+    const SID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    fs.mkdirSync(path.join(outside, SID, "tool-results"), { recursive: true });
+    fs.writeFileSync(path.join(outside, SID, "tool-results", "x.txt"), "venku");
+    fs.writeFileSync(path.join(outside, `${SID}.jsonl`), "venku");
+    fs.symlinkSync(outside, path.join(cfg, "projects", "-symlink-klic"));
+    const a = removeClaudeSessionArtifacts(SID, cfg);
+    expect(a.removed).toEqual([]);
+    expect(a.failed.length).toBeGreaterThan(0);
+    // symlink přímo na artefakt (jméno = UUID) uvnitř běžného klíče
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "claude-target-"));
+    fs.writeFileSync(path.join(target, "x.txt"), "venku");
+    fs.symlinkSync(target, path.join(cfg, "projects", "-jiny-projekt", SID));
+    const b = removeClaudeSessionArtifacts(SID, cfg);
+    expect(b.removed).toEqual([]);
+    expect(b.failed.some((f) => f.includes("symlink"))).toBe(true);
+    expect(
+      fs.readFileSync(path.join(outside, SID, "tool-results", "x.txt"), "utf8"),
+    ).toBe("venku");
+    expect(fs.existsSync(path.join(outside, `${SID}.jsonl`))).toBe(true);
+    expect(fs.readFileSync(path.join(target, "x.txt"), "utf8")).toBe("venku");
+    // ClaudeCli s takovým symlinkem v cestě: nic mimo se nesmaže, ale výsledek netvrdí ok
+    fs.symlinkSync(target, path.join(cfg, "projects", "-tmp-run-wo"));
+    const r = await new ClaudeCli("sonnet").run("p", { cwd });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/úklid sezení selhal/);
+    expect(fs.existsSync(path.join(target, "x.txt"))).toBe(true);
+  });
+
+  it("chybějící artefakt = žádná výjimka a nic nehlásí", () => {
+    expect(
+      removeClaudeSessionArtifacts("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", cfg),
+    ).toEqual({ removed: [], failed: [] });
   });
 });

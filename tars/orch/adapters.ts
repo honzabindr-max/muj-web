@@ -448,24 +448,49 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Proto TARS sezení pojmenuje (`--session-id`) a po pokusu smaže jeho složku i případný přepis ve všech klíčích
  * projektu (klíč cwd se nepočítá, hledá se přesné jméno UUID). Vrací smazané cesty.
  */
-export function removeClaudeSessionArtifacts(sessionId: string, configHome = claudeConfigHome()): string[] {
+export function removeClaudeSessionArtifacts(
+  sessionId: string,
+  configHome = claudeConfigHome(),
+): { removed: string[]; failed: string[] } {
   if (!UUID_RE.test(sessionId)) throw new Error(`neplatné session id: ${sessionId.slice(0, 60)}`);
-  const projects = path.join(configHome, "projects");
+  const removed: string[] = [];
+  const failed: string[] = [];
+  let projects: string;
   let keys: string[];
   try {
+    projects = fs.realpathSync(path.join(configHome, "projects"));
     keys = fs.readdirSync(projects);
   } catch {
-    return [];
+    return { removed, failed };
   }
-  const removed: string[] = [];
   for (const k of keys)
     for (const name of [sessionId, `${sessionId}.jsonl`]) {
       const p = path.join(projects, k, name);
-      if (!fs.existsSync(p)) continue;
-      fs.rmSync(p, { recursive: true, force: true });
-      removed.push(p);
+      try {
+        // Symlink (klíče projektu i artefaktu) se nikdy nesleduje: přeskočit a nahlásit.
+        const keySt = fs.lstatSync(path.join(projects, k));
+        if (keySt.isSymbolicLink()) {
+          if (fs.existsSync(p)) failed.push(`${p} (symlink klíče projektu, přeskočeno)`);
+          continue;
+        }
+        if (!keySt.isDirectory()) continue;
+        let st: fs.Stats;
+        try {
+          st = fs.lstatSync(p);
+        } catch {
+          continue; // chybějící artefakt není chyba
+        }
+        if (st.isSymbolicLink() || path.dirname(fs.realpathSync(p)) !== path.join(projects, k)) {
+          failed.push(`${p} (symlink nebo realpath mimo projects/, přeskočeno)`);
+          continue;
+        }
+        fs.rmSync(p, { recursive: true, force: true });
+        removed.push(p);
+      } catch (e) {
+        failed.push(`${p} (${String((e as Error)?.message ?? e).slice(0, 100)})`);
+      }
     }
-  return removed;
+  return { removed, failed };
 }
 
 export class ClaudeCli implements TextAdapter {
@@ -505,15 +530,21 @@ export class ClaudeCli implements TextAdapter {
     const version = claudeCliVersion(childEnv());
     const wd = watchdogEnv(version, hardLimitMs);
     const callerEnv = Object.fromEntries(Object.entries(opts.env ?? {}).filter(([k]) => !WATCHDOG_ENV_RE.test(k)));
+    const childVars = { ...callerEnv, ...wd.env, ...CLAUDE_DEBUG_ENV_OFF };
+    // Úklid míří do stejného CLAUDE_CONFIG_DIR, jaké dostane dítě (runProcess: childEnv() přepsané extraEnv).
+    const configHome = claudeConfigHome({ ...childEnv(), ...childVars });
     let r: Awaited<ReturnType<typeof runProcess>>;
+    let cleanupFailure: string | undefined;
     try {
-      r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, { ...callerEnv, ...wd.env, ...CLAUDE_DEBUG_ENV_OFF });
+      r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, childVars);
     } finally {
       try {
-        removeClaudeSessionArtifacts(sessionId);
+        const c = removeClaudeSessionArtifacts(sessionId, configHome);
+        if (c.failed.length) cleanupFailure = c.failed.join("; ").slice(0, 300);
       } catch (e) {
-        process.stderr.write(`TARS: úklid sezení Claude ${sessionId} selhal (${String((e as Error)?.message ?? e).slice(0, 200)})\n`);
+        cleanupFailure = String((e as Error)?.message ?? e).slice(0, 200);
       }
+      if (cleanupFailure) process.stderr.write(`TARS: úklid sezení Claude ${sessionId} selhal (${cleanupFailure})\n`);
     }
     let text = "";
     let isError = r.code !== 0;
@@ -540,14 +571,16 @@ export class ClaudeCli implements TextAdapter {
     const warning = limit ? undefined : limitWarning(r.stderr, [prompt, text]);
     if (warning) reportLimitWarning({ source: "claude", text: warning, received_at: r.received_at, model: this.model });
     return {
-      ok: !isError && !r.timedOut && text.trim().length > 0,
+      ok: !isError && !r.timedOut && text.trim().length > 0 && !cleanupFailure,
       text,
       limit,
       error: r.timedOut
         ? "timeout"
         : isError
           ? `exit ${r.code}: ${(text || r.stderr).slice(0, 300)}`
-          : undefined,
+          : cleanupFailure
+            ? `úklid sezení selhal: ${cleanupFailure}`
+            : undefined,
       duration_ms: r.duration_ms,
       // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
       // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
