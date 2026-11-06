@@ -1,4 +1,4 @@
-// CLI: npx tsx tars/orch/cli.ts tick | status | health [--json] | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | reissue <order-id> | konzilium <vstup.json> | gpt-smoke | gpt-retry <id> fable|vlastnik <proč>
+// CLI: npx tsx tars/orch/cli.ts tick | status | health [--json|--compact] | notion-check | owner <order-id> GO|'GO A'|'GO B'|REJECT | reissue <order-id> | konzilium <vstup.json> | gpt-smoke | gpt-retry <id> fable|vlastnik <proč>
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,7 +9,12 @@ import { AiChain, ClaudeCli, CodexCli } from "./adapters";
 import { readDispatch } from "./dispatch";
 import { restDraftTarget } from "./effect-gate";
 import { inboxStatusLines } from "./inbox/status";
-import { auditHealth, collectSnapshot, formatHealth } from "./audit-health";
+import {
+  auditHealth,
+  collectSnapshot,
+  formatHealth,
+  formatHealthCompact,
+} from "./audit-health";
 import { CardRegistry } from "./cards";
 import {
   ChatGptWebChecker,
@@ -269,7 +274,10 @@ function gitHead(): string {
 function limitGuardOf(dir: string): LimitGuard {
   return new LimitGuard(dir, {
     now: () => new Date(),
-    untilOf: () => ({ until: new Date().toISOString(), reset_source: "nedoloženo" }),
+    untilOf: () => ({
+      until: new Date().toISOString(),
+      reset_source: "nedoloženo",
+    }),
   });
 }
 
@@ -280,11 +288,14 @@ async function main() {
     const snap = collectSnapshot(runsDir, {
       launchd: process.env.TARS_HEALTH_LAUNCHD === "0" ? null : undefined,
     });
-    const report = auditHealth(snap, Date.now());
+    const at = Date.now();
+    const report = auditHealth(snap, at);
     console.log(
       args.includes("--json")
         ? JSON.stringify(report, null, 2)
-        : formatHealth(report),
+        : args.includes("--compact")
+          ? formatHealthCompact(report, at)
+          : formatHealth(report),
     );
     return;
   }
@@ -517,7 +528,9 @@ async function main() {
         if (decision !== "OVERENO")
           throw new Error("usage: owner limit-hold OVERENO");
         if (!store.acquireLock())
-          throw new Error("běží tick (lock); owner limit-hold zopakuj po jeho konci");
+          throw new Error(
+            "běží tick (lock); owner limit-hold zopakuj po jeho konci",
+          );
         try {
           const n = limitGuardOf(runsDir).verifyAll();
           console.log(
@@ -554,7 +567,7 @@ async function main() {
     }
     default:
       console.log(
-        "usage: cli.ts tick | status | health [--json] | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | owner limit-hold OVERENO | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>",
+        "usage: cli.ts tick | status | health [--json|--compact] | cards | browser-check | gpt-smoke | gpt-retry <id> fable|vlastnik <proč> | abort <id> <reason> | owner <id> GO|'GO A'|'GO B'|REJECT | owner limit-hold OVERENO | reissue <id> | notion-check | panel-sync <id> | konzilium <vstup.json>",
       );
       process.exitCode = 1;
   }

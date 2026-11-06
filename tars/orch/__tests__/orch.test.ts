@@ -591,16 +591,114 @@ describe("parsers", () => {
   });
 
   it("runGuardWithI8 on a script printing the real hook stdout: no alarm; SKIP inside the envelope: alarm", () => {
-    expect(fakeGuard(REAL_GUARD)()).toMatchObject({ alarm: false, summary: expect.stringMatching(/^TARS-GUARD OK \(8\/8\): I1 .* \| I8 OK$/) });
+    const ok = fakeGuard(REAL_GUARD)();
+    expect(ok.alarm, `runGuardWithI8 result: ${JSON.stringify(ok)}`).toBe(false);
+    expect(ok.summary, `runGuardWithI8 result: ${JSON.stringify(ok)}`).toMatch(/^TARS-GUARD OK \(8\/8\): I1 .* \| I8 OK$/);
     expect(fakeGuard(REAL_GUARD.replace("I5 SSH ke GitHubu zamítnuto", "I5 SKIP"))().alarm).toBe(true);
     expect(fakeGuard(REAL_GUARD, "I8 ALARM x")().alarm).toBe(true);
+  });
+
+  describe("příčina selhání guardu v souhrnu (fail-closed beze změny)", () => {
+    const run = (guardBody: string, i8Body = 'echo "I8 OK x"') => {
+      fs.writeFileSync(path.join(dir, "guard-stdout.txt"), REAL_GUARD);
+      fs.writeFileSync(
+        path.join(dir, "guard.sh"),
+        `#!/bin/bash\n${guardBody}\n`,
+        { mode: 0o755 },
+      );
+      fs.writeFileSync(path.join(dir, "i8.sh"), `#!/bin/bash\n${i8Body}\n`, {
+        mode: 0o755,
+      });
+      return runGuardWithI8(
+        path.join(dir, "guard.sh"),
+        path.join(dir, "i8.sh"),
+        dir,
+        dir,
+      );
+    };
+    it("prázdný stdout + exit 1: alarm, status a hlava stderr v souhrnu", () => {
+      const r = run('echo "boom na stderr" >&2\nexit 1');
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toContain(
+        "příčina: status=1 signal=null stderr: boom na stderr",
+      );
+    });
+    it("signál: alarm, signal v souhrnu", () => {
+      const r = run("kill -TERM $$");
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toMatch(/status=null signal=SIGTERM/);
+    });
+    it("spawn chyba I8 (I8 skript padne): alarm, příčina I8 v souhrnu", () => {
+      const r = run(
+        `cat '${path.join(dir, "guard-stdout.txt")}'`,
+        'echo "i8 spadl" >&2\nexit 3',
+      );
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toMatch(
+        /I8 příčina: status=3 signal=null stderr: i8 spadl/,
+      );
+    });
+    it("I8 signál: alarm, signal v souhrnu", () => {
+      const r = run(
+        `cat '${path.join(dir, "guard-stdout.txt")}'`,
+        "kill -KILL $$",
+      );
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toMatch(/I8 příčina: status=null signal=SIGKILL/);
+    });
+    it("falešný token ve stderr: ve výstupu není (ani rozříznutý ořezem)", () => {
+      const tok = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+      const ntn = `ntn_${"x9Y8z7W6v5".repeat(5)}`;
+      const r = run(
+        `echo "chyba ${tok} a ${ntn} sk-${"q".repeat(40)}" >&2\nexit 1`,
+      );
+      expect(r.alarm).toBe(true);
+      expect(r.summary).not.toContain(tok);
+      expect(r.summary).not.toContain(ntn);
+      expect(r.summary).not.toMatch(/ghp_|ntn_|sk-q/);
+      expect(r.summary).toContain("[skryto: citlivý údaj]");
+    });
+    it("druhý ořez (combineI8 na 600): token v I8 alarmu přes hranici neunikne ani rozříznutý", () => {
+      const tok = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+      const g: GuardResult = { alarm: true, summary: `TARS-GUARD nedoběhl | příčina: status=1 signal=null stderr: ${"e".repeat(160)}` };
+      for (let pad = 0; pad < 640; pad++) {
+        const r = combineI8(g, `I8 ALARM ${"x".repeat(pad)} ${tok}`);
+        expect(r.summary.length).toBeLessThanOrEqual(600);
+        expect(r.summary).not.toContain(tok.slice(0, 20));
+        expect(r.summary).not.toMatch(/ghp_/);
+      }
+    });
+    it("guard exit 1 + 160 znaků stderr + I8 alarm s tokenem přes hranici 600: ani souhrn, ani Store.log nemá fragment", () => {
+      const tok = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+      for (const pad of [300, 330, 350, 370, 400]) {
+        const r = run(`printf 'e%.0s' $(seq 1 160) >&2\nexit 1`, `echo "I8 ALARM ${"x".repeat(pad)} ${tok}"`);
+        expect(r.alarm).toBe(true);
+        const s = new Store(fs.mkdtempSync(path.join(dir, "log-")));
+        s.log({ ts: "2026-11-06T00:00:00.000Z", order: "-", kind: "error", role: "orchestrator", result: r.summary });
+        const logged = fs.readFileSync(path.join((s as unknown as { runsDir: string }).runsDir, "log.jsonl"), "utf8");
+        for (const text of [r.summary, logged]) {
+          expect(text).not.toContain(tok.slice(0, 20));
+          expect(text).not.toMatch(/ghp_/);
+        }
+      }
+    });
+    it("stderr se ořízne na 160 znaků", () => {
+      const r = run(`printf 'z%.0s' $(seq 1 500) >&2\nexit 1`);
+      const m = /stderr: (z+)/.exec(r.summary);
+      expect(m?.[1].length).toBe(160);
+    });
+    it("zdravý guard bez příčiny v souhrnu", () => {
+      const ok = fakeGuard(REAL_GUARD)();
+      expect(ok.alarm).toBe(false);
+      expect(ok.summary).not.toMatch(/příčina/);
+    });
   });
 
   it("regression: tick with the real hook stdout does not end in guard_alarm", async () => {
     const { o, supervisor } = orch({ guard: fakeGuard(REAL_GUARD) });
     const r = await o.tick();
-    expect(r.status).not.toBe("guard_alarm");
-    expect(r).toMatchObject({ state: "DONE" });
+    expect(r.status, `tick result: ${JSON.stringify(r)}`).not.toBe("guard_alarm");
+    expect(r, `tick result: ${JSON.stringify(r)}`).toMatchObject({ state: "DONE" });
     expect(supervisor.calls.length).toBeGreaterThan(0);
     const bad = orch({ guard: fakeGuard(REAL_GUARD.replace("I7 Vercel CLI odhlášené", "I7 UNKNOWN")) });
     expect((await bad.o.tick()).status).toBe("guard_alarm");
