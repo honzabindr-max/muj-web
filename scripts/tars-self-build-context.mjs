@@ -10,22 +10,43 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function readGit(...args) {
-  return execFileSync("git", ["-C", repoRoot, ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-    timeout: 5_000,
-    maxBuffer: 1024 * 1024,
-  }).trim();
+  try {
+    // Global git option suppresses optional index writes, including stat-cache refresh.
+    return execFileSync("git", ["-C", repoRoot, "--no-optional-locks", ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+      maxBuffer: 1024 * 1024,
+    }).trim();
+  } catch {
+    throw new Error("GIT_UNAVAILABLE");
+  }
 }
 
 function build() {
   const sourcePath = resolve(repoRoot, "docs/tars/self-build/SOURCES.json");
-  const sources = JSON.parse(readFileSync(sourcePath, "utf8"));
+  let sources;
+  try {
+    sources = JSON.parse(readFileSync(sourcePath, "utf8"));
+  } catch {
+    throw new Error("INVALID_SOURCES");
+  }
+
+  const validNotionPage = /^https:\/\/app\.notion\.com\/p\/[a-f0-9]{32}$/;
+  const notionFields = [
+    "project_page_url",
+    "decision_register_url",
+    "owner_rules_url",
+    "architecture_snapshot_url",
+    "astra_historical_audit_url",
+  ];
   if (
+    !sources ||
+    typeof sources !== "object" ||
     sources.project_id !== "TARS-SELF-BUILD-001" ||
     sources.protocol_version !== "0.1" ||
     sources.repository !== "honzabindr-max/muj-web" ||
-    !/^https:\/\/app\.notion\.com\/p\/[a-f0-9]{32}$/.test(sources.project_page_url)
+    notionFields.some((key) => typeof sources[key] !== "string" || !validNotionPage.test(sources[key]))
   ) {
     throw new Error("INVALID_SOURCES");
   }
@@ -74,7 +95,11 @@ function build() {
 
 try {
   process.stdout.write(JSON.stringify(build(), null, 2) + "\n");
-} catch {
-  process.stderr.write("TARS CONTEXT HOLD: missing or invalid local evidence; no capsule emitted.\n");
+} catch (error) {
+  const code = error instanceof Error && ["INVALID_SOURCES", "INVALID_GIT_HEAD", "GIT_UNAVAILABLE"].includes(error.message)
+    ? error.message
+    : "READ_FAILURE";
+  // Only a fixed error code is printed: no paths, error payloads or credentials.
+  process.stderr.write(`TARS CONTEXT HOLD: ${code}; no capsule emitted.\n`);
   process.exitCode = 2;
 }
