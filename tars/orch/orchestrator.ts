@@ -3290,21 +3290,40 @@ export class Orchestrator {
       !/^(čeká na kontrolu: )?displej spí/.test(order.review_reason ?? "")
     )
       return undefined;
+    let cause: string;
     try {
-      if (probe().awake === true) return undefined;
+      const p = probe();
+      if (p.awake === true) return undefined;
+      // bezpečný krátký důvod: sonda už vrací text bez hodnot z prostředí; omezíme délku a řádkování
+      const r = String(p.reason ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80);
+      cause =
+        r === "displej spí" ? "displej spí" : `sonda selhala: ${r || "bez důvodu"}`;
     } catch {
-      // fail-closed: chyba sondy = displej spí
+      // fail-closed: výjimka sondy = čekání dál; zpráva je obecná, bez detailů prostředí
+      cause = "sonda selhala: výjimka sondy";
     }
-    this.logOnce({
-      order: order.id,
-      kind: "info",
-      role: "orchestrator",
-      result: "čeká na displej",
-    });
+    // loguje se jen změna příčiny (jiný klíč pro jinou příčinu), ne každý tick
+    const result = `čeká na displej: ${cause}`;
+    const last = this.d.store
+      .readLog(200)
+      .filter(
+        (x) => x.order === order.id && x.result?.startsWith("čeká na displej"),
+      )
+      .pop();
+    if (last?.result !== result)
+      this.log({
+        order: order.id,
+        kind: "info",
+        role: "orchestrator",
+        result,
+      });
     return {
       status: "waiting_display",
       order: order.id,
-      reason: order.review_reason,
+      reason: cause,
     };
   }
 

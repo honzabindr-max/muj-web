@@ -125,7 +125,9 @@ describe("kontrola GPT čekající na displej (varianta B)", () => {
       expect(await t.orch.tick()).toMatchObject({ status: "waiting_display" });
     const added = t.store.readLog(500).slice(log0);
     expect(added.filter((e) => e.kind === "transition")).toHaveLength(0);
-    expect(added.filter((e) => e.result === "čeká na displej")).toHaveLength(1);
+    expect(
+      added.filter((e) => e.result === "čeká na displej: displej spí"),
+    ).toHaveLength(1);
     expect(t.sink.writes).toBe(writes0);
     expect(t.gpt.calls).toBe(1);
     expect(t.retries()).toBe(0);
@@ -150,6 +152,58 @@ describe("kontrola GPT čekající na displej (varianta B)", () => {
     expect(await t.orch.tick()).toMatchObject({ status: "waiting_display" });
     expect(t.retries()).toBe(0);
     expect(t.gpt.calls).toBe(1);
+  });
+
+  it("spí → porucha sondy → spí: tick nese aktuální důvod a log zachytí každou změnu příčiny", async () => {
+    let state: { awake: boolean; reason: string } = {
+      awake: false,
+      reason: "displej spí",
+    };
+    const t = setup(SLEEP, () => state);
+    await t.orch.tick();
+    const log0 = t.store.readLog(500).length;
+    expect(await t.orch.tick()).toMatchObject({
+      status: "waiting_display",
+      reason: "displej spí",
+    });
+    state = { awake: false, reason: "sonda displeje: osascript selhal" };
+    expect(await t.orch.tick()).toMatchObject({
+      status: "waiting_display",
+      reason: "sonda selhala: sonda displeje: osascript selhal",
+    });
+    expect(await t.orch.tick()).toMatchObject({ status: "waiting_display" });
+    state = { awake: false, reason: "displej spí" };
+    await t.orch.tick();
+    const waits = t.store
+      .readLog(500)
+      .slice(log0)
+      .filter((e) => e.result?.startsWith("čeká na displej"))
+      .map((e) => e.result);
+    expect(waits).toEqual([
+      "čeká na displej: displej spí",
+      "čeká na displej: sonda selhala: sonda displeje: osascript selhal",
+      "čeká na displej: displej spí",
+    ]);
+    expect(t.retries()).toBe(0);
+  });
+
+  it("výjimka sondy: obecná zpráva bez detailů výjimky, retry zablokovaný, po probuzení jeden retry", async () => {
+    let boom = true;
+    const t = setup(SLEEP, () => {
+      if (boom) throw new Error("tajná cesta /Users/x osascript timeout");
+      return { awake: true, reason: "x" };
+    });
+    await t.orch.tick();
+    const r = await t.orch.tick();
+    expect(r).toMatchObject({
+      status: "waiting_display",
+      reason: "sonda selhala: výjimka sondy",
+    });
+    expect(JSON.stringify(t.store.readLog(500))).not.toContain("tajná cesta");
+    expect(t.retries()).toBe(0);
+    boom = false;
+    expect(await t.orch.tick()).toMatchObject({ status: "waiting_review" });
+    expect(t.retries()).toBe(1);
   });
 
   it("jiný důvod čekání: beze změny, retry jednou za tick i při spící sondě", async () => {
