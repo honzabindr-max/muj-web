@@ -2,7 +2,9 @@
 // All run on subscriptions: API-key env vars are stripped so no CLI silently falls back
 // to paid API billing (paid API calls = 0 without owner GO).
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { currentAttempt, killGroup, settleGroup } from "./attempts";
@@ -427,6 +429,45 @@ export function runProcess(
  */
 export const ORCH_CLAUDE_SETTINGS = JSON.stringify({ enabledPlugins: { "codex@openai-codex": false } });
 
+/**
+ * ADP-K1-01: proměnné, které v Claude Code 2.1.317 zapínají debug log (DEBUG/DEBUG_SDK = pravdivá hodnota; log jde do
+ * <config>/debug/<session>.txt a nese i celý stdout hooků, tedy prompt z `updatedInput`). Dítě je dostane vždy prázdné.
+ */
+export const CLAUDE_DEBUG_ENV_OFF: Record<string, string> = { DEBUG: "", DEBUG_SDK: "" };
+
+/** Domovská složka Claude Code (`CLAUDE_CONFIG_DIR`, jinak ~/.claude); stejně ji určuje CLI. */
+export function claudeConfigHome(env: Record<string, string | undefined> = process.env): string {
+  return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * ADP-K1-01: `--no-session-persistence` vypne přepis sezení (.jsonl), ale CLI 2.1.317 dál ukládá stdout hooku delší
+ * než 10 000 znaků do <config>/projects/<klíč cwd>/<session>/tool-results/hook-…-stdout.txt (ověřeno živě i v binárce).
+ * Proto TARS sezení pojmenuje (`--session-id`) a po pokusu smaže jeho složku i případný přepis ve všech klíčích
+ * projektu (klíč cwd se nepočítá, hledá se přesné jméno UUID). Vrací smazané cesty.
+ */
+export function removeClaudeSessionArtifacts(sessionId: string, configHome = claudeConfigHome()): string[] {
+  if (!UUID_RE.test(sessionId)) throw new Error(`neplatné session id: ${sessionId.slice(0, 60)}`);
+  const projects = path.join(configHome, "projects");
+  let keys: string[];
+  try {
+    keys = fs.readdirSync(projects);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const k of keys)
+    for (const name of [sessionId, `${sessionId}.jsonl`]) {
+      const p = path.join(projects, k, name);
+      if (!fs.existsSync(p)) continue;
+      fs.rmSync(p, { recursive: true, force: true });
+      removed.push(p);
+    }
+  return removed;
+}
+
 export class ClaudeCli implements TextAdapter {
   family: ModelFamily = "claude";
   name: string;
@@ -437,7 +478,21 @@ export class ClaudeCli implements TextAdapter {
     // PR 4c: `stream-json` (+ `--verbose`, které CLI pro stream v `-p` vyžaduje), aby TARS viděl `system/api_retry`
     // (doklad třídy limitu i po ukončení tvrdým limitem). Výsledek je poslední událost `result` = stejná obálka jako
     // dřív `--output-format json` (`result`, `is_error`).
-    const args = ["-p", "--model", this.model, "--output-format", "stream-json", "--verbose", "--settings", opts.settings ?? ORCH_CLAUDE_SETTINGS];
+    // ADP-K1-01: bez přepisu sezení a s vlastním ID sezení, aby šla jeho zbylá složka (tool-results) po pokusu smazat.
+    const sessionId = randomUUID();
+    const args = [
+      "-p",
+      "--model",
+      this.model,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--no-session-persistence",
+      "--session-id",
+      sessionId,
+      "--settings",
+      opts.settings ?? ORCH_CLAUDE_SETTINGS,
+    ];
     if (opts.mcpConfig) args.push("--mcp-config", opts.mcpConfig, "--strict-mcp-config");
     if (opts.noBuiltinTools) args.push("--tools", "");
     if (opts.allowedTools?.length) args.push("--allowedTools", opts.allowedTools.join(","));
@@ -450,7 +505,16 @@ export class ClaudeCli implements TextAdapter {
     const version = claudeCliVersion(childEnv());
     const wd = watchdogEnv(version, hardLimitMs);
     const callerEnv = Object.fromEntries(Object.entries(opts.env ?? {}).filter(([k]) => !WATCHDOG_ENV_RE.test(k)));
-    const r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, { ...callerEnv, ...wd.env });
+    let r: Awaited<ReturnType<typeof runProcess>>;
+    try {
+      r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, { ...callerEnv, ...wd.env, ...CLAUDE_DEBUG_ENV_OFF });
+    } finally {
+      try {
+        removeClaudeSessionArtifacts(sessionId);
+      } catch (e) {
+        process.stderr.write(`TARS: úklid sezení Claude ${sessionId} selhal (${String((e as Error)?.message ?? e).slice(0, 200)})\n`);
+      }
+    }
     let text = "";
     let isError = r.code !== 0;
     // FIX1 nález 1: chybová obálka CLI (`is_error: true`) je jediný zdroj času resetu; text modelu ani stderr nejsou.
