@@ -14,6 +14,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { EffectRecord } from "./effects";
+import {
+  collectLive,
+  manualFromLog,
+  manualLineOf,
+  projectLive,
+  type HolderProbe,
+  type LiveSnapshot,
+  type ManualLine,
+} from "./health-live";
 import { redactSecrets, redactSecretsUnbounded } from "./secret-scan";
 import { STATES, type LogEntry, type Order } from "./types";
 
@@ -67,6 +76,15 @@ const EFFECT_STATES = new Set<string>([
   "EFFECT_UNKNOWN",
 ]);
 
+/** Effect gate states of the runtime (effect-gate.ts GateState). Anything else = unreadable gate record. */
+const GATE_STATES = new Set<string>([
+  "READY",
+  "EFFECT_PREPARED",
+  "VERIFYING",
+  "DONE",
+  "HOLD",
+]);
+
 /** Blocking states shown with reason and age. HOLD comes from the effect journal, not from the order state. */
 export type BlockKind =
   | "WAITING_OWNER"
@@ -109,6 +127,10 @@ export interface SnapshotOrder extends Partial<
   effects?: SnapshotEffect[];
   /** effects/ exists but a record could not be read: HOLD state of the order is UNKNOWN. */
   effects_unreadable?: number;
+  /** effect gate records runs/<wo>/gate/*.json (etapa 4 PR 5): only the state, the HOLD code and the last time */
+  gates?: { state?: string; hold?: string; at?: string }[];
+  /** gate/ exists but a record could not be read */
+  gates_unreadable?: number;
   /** runs/wo-… exists but has no state.json: the order is incomplete, its state UNKNOWN */
   missing_state?: boolean;
   /** last log line of this order (result), for the reason of a block */
@@ -143,7 +165,11 @@ export interface HealthSnapshot {
     bad_lines_in_window?: number;
     /** unparsable lines after the positionally last guard line (a newer guard result may be among them) */
     bad_lines_after_last_guard?: number;
+    /** lines relevant for manual interventions (transitions, owner decisions, gpt-retry), bounded fields */
+    manual?: ManualLine[];
   };
+  /** PR 2a: tick lease, tick end record, wake gate, dispatch mode (health-live.ts) */
+  live?: LiveSnapshot;
   launchd?: {
     readable?: boolean;
     state?: string;
@@ -350,6 +376,41 @@ export function auditHealth(
         since: null,
         ageMs: null,
       });
+
+    // PR 2a: effect gate (etapa 4 PR 5) in HOLD, or an unreadable gate record (state of the gate UNKNOWN = HOLD).
+    const gates = Array.isArray(order.gates) ? order.gates.map(obj) : [];
+    let invalidGates = 0;
+    for (const g of gates) {
+      if (typeof g.state !== "string" || !GATE_STATES.has(g.state)) {
+        invalidGates++;
+        continue;
+      }
+      if (g.state !== "HOLD") continue;
+      const at = str(g.at);
+      const a = age(at, now);
+      blocked.push({
+        id,
+        kind: "HOLD",
+        state,
+        reason: `brána efektu HOLD: ${text(g.hold, 160) ?? "důvod nezapsán"}`,
+        since: a === null ? null : safe(at!),
+        ageMs: a,
+        ...(panel ? { panel } : {}),
+      });
+    }
+    const unreadableGates =
+      (typeof order.gates_unreadable === "number" && order.gates_unreadable > 0
+        ? order.gates_unreadable
+        : 0) + invalidGates;
+    if (unreadableGates > 0)
+      blocked.push({
+        id,
+        kind: "HOLD",
+        state,
+        reason: `brána efektu: ${unreadableGates} záznam(y) nečitelné nebo neplatné, stav brány UNKNOWN`,
+        since: null,
+        ageMs: null,
+      });
   }
   // Newest first; unknown age last.
   blocked.sort((a, b) => (a.ageMs ?? Infinity) - (b.ageMs ?? Infinity));
@@ -472,16 +533,45 @@ export function auditHealth(
   const activeBlocks = blocked.filter((b) =>
     ["WAITING_OWNER", "WAITING_REVIEW", "HOLD", "PAUSED"].includes(b.kind),
   ).length;
+
+  // PR 2a: live signals (lease, tick end, wake gate, system blockers) and manual interventions from the log.
+  const live = projectLive(s.live, {
+    now,
+    intervalS,
+    tickTimes: tickTimes.map((x) => x.t),
+    lastGuardResult: guardStatus,
+  });
+  const lv = live.liveness;
+  const manualLog = manualFromLog(
+    log.manual,
+    log.readable === true && Array.isArray(log.manual),
+    live.outsideGateTicks,
+  );
+  // A measured source that cannot be read leaves the state UNKNOWN; a source not measured at all does not.
+  const liveUnknown =
+    lv.lease.status === "UNKNOWN" ||
+    lv.tickEnd.status === "UNKNOWN" ||
+    lv.gate.status === "UNKNOWN" ||
+    live.system.completeness === "UNKNOWN";
+  // A stale start-of-tick heartbeat is no finding while a tick provably runs (a long tick, e.g. the dev chain).
+  const heartbeatStale =
+    heartbeatStatus === "STALE" && lv.status !== "TICK_RUNNING";
+
   // Never a PASS: at best "no findings" when everything was measured.
   const overall =
     !inputComplete ||
     heartbeatStatus === "UNKNOWN" ||
     logCompleteness !== "COMPLETE" ||
-    guardStatus === "UNKNOWN"
+    guardStatus === "UNKNOWN" ||
+    lv.status === "UNKNOWN" ||
+    liveUnknown
       ? "UNKNOWN"
-      : heartbeatStatus === "STALE" ||
+      : heartbeatStale ||
           activeBlocks > 0 ||
-          guardStatus === "ALARM"
+          guardStatus === "ALARM" ||
+          lv.status === "OFFLINE" ||
+          lv.status === "TICK_STALLED" ||
+          live.system.blockers.length > 0
         ? "ATTENTION"
         : "NO_FINDINGS";
   // The manual-intervention counter is only measured when every order was read and valid.
@@ -493,7 +583,7 @@ export function auditHealth(
     missingState === 0;
 
   return {
-    schema: "tars-audit-health/v2",
+    schema: "tars-audit-health/v3",
     overall,
     snapshotStatus,
     observedAgeMs,
@@ -543,7 +633,13 @@ export function auditHealth(
       total: manualTotal,
       byOrder: manualByOrder,
       ordersWithoutField: manualUnknown,
+      /** PR 2a: interventions visible in the log (abort, CLI owner, reissue, gpt-retry, overwritten state, manual ticks) */
+      fromLog: manualLog,
     },
+    /** PR 2a: real heartbeat from every local source and the offline verdict (health-live.ts) */
+    liveness: lv,
+    /** PR 2a: system-level blockers (global HOLD, limit HOLD, decisions not taken, dead lease holder, unfinished tick) */
+    system: live.system,
     launchd: {
       status: launchdStatus,
       note: "konfigurace a čítač launchd, ne heartbeat",
@@ -581,8 +677,10 @@ export function auditHealth(
             browserAgeMs <= staleMs
           ? "RECENT_OK_OBSERVATION"
           : "UNKNOWN",
-    // A snapshot, file mtime, launchd counter or an existing lock cannot establish current liveness.
-    processLiveness: "NOT_VERIFIED",
+    // A snapshot, file mtime, launchd counter or an existing lock cannot establish current liveness. Only a lease whose
+    // holder was proven alive (kill -0 + same start time) with a fresh heartbeat shows a running tick process.
+    processLiveness:
+      lv.status === "TICK_RUNNING" ? "VERIFIED_TICK_RUNNING" : "NOT_VERIFIED",
     cloudLiveness: "NOT_VERIFIED",
     goToAckMs: null,
     goToAckStatus: "NOT_INSTRUMENTED",
@@ -619,6 +717,38 @@ export interface CollectOptions {
   now?: () => Date;
   /** Text of `launchctl print`; undefined = could not be read. `null` = do not measure (tests, other machine). */
   launchd?: (() => string | undefined) | null;
+  /** Lease holder probe (health-live.ts); `null` = do not probe. Default: holderStatus (kill -0, ps, read only). */
+  probe?: HolderProbe | null;
+}
+
+/** Effect gate records of one order (state, HOLD code, time of the last history entry). */
+function readGates(gateDir: string): {
+  gates: { state?: string; hold?: string; at?: string }[];
+  gatesUnreadable: number;
+} {
+  const gates: { state?: string; hold?: string; at?: string }[] = [];
+  let gatesUnreadable = 0;
+  if (!fs.existsSync(gateDir)) return { gates, gatesUnreadable };
+  let files: string[] = [];
+  try {
+    files = fs
+      .readdirSync(gateDir)
+      .filter((x) => x.endsWith(".json"))
+      .sort();
+  } catch {
+    gatesUnreadable++;
+  }
+  for (const gf of files) {
+    const r = readJson(path.join(gateDir, gf));
+    const g = r.ok ? obj(r.value) : undefined;
+    if (!g || typeof g.state !== "string" || !GATE_STATES.has(g.state)) {
+      gatesUnreadable++;
+      continue;
+    }
+    const h = Array.isArray(g.history) ? g.history.map(obj) : [];
+    gates.push({ state: g.state, hold: str(g.hold), at: str(h.at(-1)?.at) });
+  }
+  return { gates, gatesUnreadable };
 }
 
 export function readLaunchd(label = LAUNCHD_LABEL): string | undefined {
@@ -724,6 +854,7 @@ export function collectSnapshot(
         .split("\n")
         .filter(Boolean);
       const ticks: string[] = [];
+      const manual: ManualLine[] = [];
       const guards: { ts?: string; result?: string }[] = [];
       let alarms = 0,
         bad = 0,
@@ -742,6 +873,8 @@ export function collectSnapshot(
           }
           continue;
         }
+        const m = manualLineOf(e as Obj);
+        if (m) manual.push(m);
         if (
           e.kind === "guard" &&
           e.order === "-" &&
@@ -776,6 +909,7 @@ export function collectSnapshot(
         bad_lines: bad,
         bad_lines_in_window: badInWindow,
         bad_lines_after_last_guard: badAfterGuard,
+        manual,
       };
     } catch {
       snap.log = { readable: false };
@@ -807,9 +941,14 @@ export function collectSnapshot(
       const { effects, effectsUnreadable } = readEffects(
         path.join(runsDir, d, "effects"),
       );
+      const { gates, gatesUnreadable } = readGates(
+        path.join(runsDir, d, "gate"),
+      );
       const effectFields = {
         effects,
         ...(effectsUnreadable ? { effects_unreadable: effectsUnreadable } : {}),
+        ...(gates.length ? { gates } : {}),
+        ...(gatesUnreadable ? { gates_unreadable: gatesUnreadable } : {}),
       };
       if (!fs.existsSync(f)) {
         // An order directory without state.json (interrupted first save, lost state) is an incomplete order,
@@ -862,6 +1001,8 @@ export function collectSnapshot(
       snap.browser = { ok: b.ok, checked_at: b.checked_at };
     }
   }
+
+  if (entries) snap.live = collectLive(runsDir, { probe: opts.probe });
 
   if (opts.launchd !== null)
     snap.launchd = parseLaunchd((opts.launchd ?? readLaunchd)());
@@ -927,6 +1068,33 @@ export function formatHealth(r: HealthReport): string {
     `launchd (jen konfigurace, ne důkaz běhu): ${ld.status === "READ" ? `stav ${ld.state ?? "?"}, interval ${ld.intervalS ?? "?"} s, spuštění ${ld.runs ?? "?"}, poslední exit ${ld.lastExitCode ?? "?"}` : ld.status === "NOT_MEASURED" ? "NOT MEASURED" : "UNKNOWN (nelze přečíst)"}`,
   );
   L.push("");
+  const lv = r.liveness;
+  L.push(
+    `Živost (nejnovější heartbeat ze všech zdrojů): ${LIVENESS_LABEL[lv.status] ?? lv.status} — ${lv.reason}${lv.lastSignalSource ? ` · zdroj: ${lv.lastSignalSource}, ${local(lv.lastSignalAt)}, před ${formatDuration(lv.ageMs)}` : ""}`,
+  );
+  const ls = lv.lease;
+  L.push(
+    `  Tick lease (runs/.lock): ${ls.status}${ls.pid !== null ? `, pid ${ls.pid}` : ""}${ls.acquiredAt ? `, od ${local(ls.acquiredAt)} (${formatDuration(ls.runningMs)})` : ""}${ls.heartbeatAt ? `, heartbeat před ${formatDuration(ls.heartbeatAgeMs)}` : ""} — ${ls.reason}`,
+  );
+  const te = lv.tickEnd;
+  L.push(
+    `  Konec ticku (runs/idle): ${te.status === "MISSING" ? "MISSING (záznam neexistuje: starší verze, nebo tick nikdy nedoběhl)" : te.status === "NOT_MEASURED" ? "NOT MEASURED" : `${te.status}${te.at ? `, ${local(te.at)}, před ${formatDuration(te.ageMs)}` : ""}${te.tickStatus ? `, výsledek ${te.tickStatus}` : ""}`}`,
+  );
+  const gt = lv.gate;
+  L.push(
+    `  Brána probuzení (runs/wake): ${gt.status === "NOT_INSTALLED" ? "není nainstalovaná (runs/wake neexistuje)" : gt.status === "NOT_MEASURED" ? "NOT MEASURED" : `${gt.status}${gt.lastLineAt ? `, poslední záznam ${local(gt.lastLineAt)} (před ${formatDuration(gt.ageMs)})` : ""}, startů ticku ${gt.starts}${gt.errors ? `, chyb ${gt.errors}` : ""}`}`,
+  );
+  if (lv.unfinishedTick === true)
+    L.push("  Poslední tick skončil bez záznamu konce.");
+  const sy = r.system;
+  L.push(
+    `Systém: ${sy.status === "NOT_MEASURED" ? "NOT MEASURED" : `nečinnost ${sy.idleReason === null ? (sy.tickStatus ? "žádná (tick pracoval)" : `UNKNOWN${lv.tickEnd.status === "MISSING" ? " (runs/idle chybí)" : ""}`) : sy.idleReason}${sy.idleDetail ? ` (${sy.idleDetail})` : ""} · režim dispatcheru ${sy.dispatchMode ?? "UNKNOWN"} · HOLD limitu ${yesNo(sy.limitHold)} · runs/HOLD ${yesNo(sy.holdFile)} · nepřevzatá rozhodnutí ${sy.pendingDecisions.length}`}`,
+  );
+  L.push(
+    `Systémové blokace: ${sy.blockers.length === 0 ? (sy.status === "NOT_MEASURED" ? "NOT MEASURED" : "žádné") : sy.blockers.length}`,
+  );
+  for (const b of sy.blockers) L.push(`  - ${b}`);
+  L.push("");
   L.push(
     `Výpadky ticků (delší než ${formatDuration(r.gaps.thresholdMs)}): ${r.gaps.status === "NOT_MEASURED" ? "NOT MEASURED" : r.gaps.list.length === 0 ? "žádné" : r.gaps.list.length}`,
   );
@@ -951,6 +1119,10 @@ export function formatHealth(r: HealthReport): string {
   L.push(
     `Ruční zásahy: ${mi.status === "UNKNOWN" ? `UNKNOWN (${mi.ordersWithoutField} zakázek bez údaje, ${r.unreadableOrders + r.malformedOrders + r.missingStateOrders} nečitelných nebo neúplných; známých ${mi.total})` : mi.total}${mi.byOrder.length ? ` (${mi.byOrder.map((x) => `${x.id}: ${x.count}`).join(", ")})` : ""}`,
   );
+  const ml = mi.fromLog;
+  L.push(
+    `Ruční zásahy v logu${ml.since ? ` (od ${local(ml.since)})` : ""}: ${ml.status === "UNKNOWN" ? "UNKNOWN (log nečitelný)" : `celkem ${ml.total} · abort ${ml.abort} · owner přes CLI ${ml.ownerCli} · znovuvydání karty ${ml.reissue} · gpt-retry ${ml.gptRetry} · přepsaný stav ${ml.overwrittenState}`} · ticky mimo bránu ${ml.outsideGateTicks ?? "NOT MEASURED"}`,
+  );
   L.push(
     `Zakázky: ${r.orderCount}${r.unreadableOrders ? `, nečitelné ${r.unreadableOrders}` : ""}${r.missingStateOrders ? `, bez state.json ${r.missingStateOrders}` : ""} · ${
       Object.entries(r.counts)
@@ -963,9 +1135,43 @@ export function formatHealth(r: HealthReport): string {
   );
   L.push(`Prohlížeč (browser-status): ${r.browserStatus}`);
   L.push(
-    `Živost procesu: NOT VERIFIED · cloud: NOT VERIFIED · GO→potvrzení: NOT INSTRUMENTED`,
+    `Živost procesu: ${r.processLiveness === "VERIFIED_TICK_RUNNING" ? "tick běží (ověřeno)" : "NOT VERIFIED"} · cloud: NOT VERIFIED · GO→potvrzení: NOT INSTRUMENTED`,
   );
   L.push("");
   L.push("Projekce jen čte runs/ a launchd; nic nezapisuje.");
   return L.join("\n");
+}
+
+const LIVENESS_LABEL: Record<string, string> = {
+  TICK_RUNNING: "TICK BĚŽÍ",
+  TICK_STALLED: "TICK STOJÍ",
+  RECENT: "ŽIJE",
+  OFFLINE: "OFFLINE",
+  UNKNOWN: "UNKNOWN",
+};
+
+const yesNo = (v: boolean | null): string =>
+  v === null ? "UNKNOWN" : v ? "ano" : "ne";
+
+/**
+ * PR 2a: compact one-paragraph form (≤ 600 characters) for a phone. It carries its own time ("stav k"), so a reader
+ * who sees an old text knows it is old: the Mac cannot report its own outage, the age of this text is the signal.
+ * Only formats; nothing writes it anywhere (wiring into the panel row is PR 2b, class B).
+ */
+export function formatHealthCompact(r: HealthReport, now: number): string {
+  const overall: Record<string, string> = {
+    UNKNOWN: "UNKNOWN",
+    ATTENTION: "POZOR",
+    NO_FINDINGS: "bez nálezů",
+  };
+  const lv = r.liveness;
+  const parts = [
+    `TARS ${overall[r.overall] ?? r.overall} · stav k ${local(new Date(now).toISOString())}`,
+    `živost ${LIVENESS_LABEL[lv.status] ?? lv.status}${lv.ageMs !== null ? ` (heartbeat před ${formatDuration(lv.ageMs)})` : ""}`,
+    `aktivní blokace ${r.activeBlocks}`,
+    `systémové blokace ${r.system.blockers.length}`,
+    `ruční zásahy ${r.manualInterventions.fromLog.total ?? "UNKNOWN"}`,
+    `režim ${r.system.dispatchMode ?? "UNKNOWN"}`,
+  ];
+  return parts.join(" · ").slice(0, 600);
 }

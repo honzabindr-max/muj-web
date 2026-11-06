@@ -271,6 +271,27 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
   (`codexEffort`: třída B nebo neurčená nebo 1. kolo diffu nad 20 000 znaků = `xhigh`; třída A s malým diffem nebo
   2. kolo = `high`; třída z `meta.pr_class`). Hodnota jde do záznamu kroku i do pole „Kontrolor (model)“.
 
+## Etapa 5: pozorovatelnost (`cli.ts health`, jen čtení)
+
+`npx tsx tars/orch/cli.ts health [--json|--compact]` — projekce `audit-health.ts` (P0-a, #103) + `health-live.ts`
+(PR 2a), schéma `tars-audit-health/v3`. Nic nezapisuje, nebere zámek, nesahá na panel ani síť; čte jen soubory, které
+už zapisují existující části, a `launchctl print` / `kill -0` / `ps` (čtení).
+
+- **Živost (skutečný heartbeat):** nejnovější signál ze všech zdrojů — začátek ticku (guard v `runs/log.jsonl`),
+  konec ticku (`runs/idle/status.json`), brána probuzení (`runs/wake/gate.log`) a heartbeat běžícího ticku
+  (`runs/.lock`, obnova každých 60 s). Stavy `TICK_RUNNING` (držitel zámku prokazatelně žije a heartbeat je čerstvý),
+  `TICK_STALLED` (držitel žije, heartbeat starší než 5 min), `RECENT`, `OFFLINE` (žádný signál déle než 2 intervaly:
+  Mac spí, je offline nebo plánovač stojí — nerozlišeno) a `UNKNOWN` (žádný signál vůbec; nikdy OK). Konfigurace
+  launchd se za heartbeat nikdy nepovažuje.
+- **Viditelné blokace:** k blokacím zakázek z P0-a přibyla brána efektu v HOLD (`runs/<wo>/gate/*.json`) a systémové
+  blokace: `runs/HOLD`, HOLD limitu, nepřevzaté rozhodnutí vlastníka (např. `OWNER_ORIGIN_UNVERIFIED`), mrtvý držitel
+  zámku ticku a tick bez záznamu konce.
+- **Ruční zásahy z logu:** `manual abort`, rozhodnutí přes `cli.ts owner` (ne z Notionu), znovuvydání karty, povolený
+  `gpt-retry`, přepsaný stav (přechod, jehož `from` ≠ předchozí `to`) a ticky mimo bránu probuzení (jen když je brána
+  nainstalovaná). Doplňuje čítač `manual_interventions` ze `state.json`.
+- **`--compact`:** jeden odstavec (nejvýš 600 znaků) s vlastním časem „stav k“, aby starý text byl poznat jako starý.
+  Zatím se nikam nezapisuje (napojení do řádku orchestrátoru v panelu = samostatný PR třídy B).
+
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 
 Jen před podstatným rozhodnutím (`kind`: nabidka | ux | znacka | cena | architektura | bezpecnost). Claude (Opus, bez nástrojů)
