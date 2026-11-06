@@ -26,7 +26,7 @@ Spusť z checkoutu tohoto repozitáře:
 node scripts/tars-self-build-context.mjs
 ```
 
-Skript bez přihlášení, sítě, modelu a bez zápisu přečte pouze `SOURCES.json` a lokální metadata Gitu. Vypíše JSON s časem čtení, lokálním SHA větve, příznakem změněných sledovaných souborů a odkazy na autoritativní zdroje. **Neověřuje Notion, GitHub remote ani běžícího TARSe.** Všechny vzdálené stavy a autorizace proto explicitně označí `UNKNOWN` / `NOT_GRANTED`. Při chybných datech či nedostupném Gitu skončí kódem 2 bez validní kapsle.
+Skript bez přihlášení, sítě, modelu a bez zápisu do souborů (včetně Git indexu; používá `--no-optional-locks`) přečte pouze `SOURCES.json` a lokální metadata Gitu. Vypíše JSON s časem čtení, lokálním SHA větve, příznakem změněných sledovaných souborů a odkazy na autoritativní zdroje. **Neověřuje Notion, GitHub remote ani běžícího TARSe.** Všechny vzdálené stavy a autorizace proto explicitně označí `UNKNOWN` / `NOT_GRANTED`. Při chybných datech či nedostupném Gitu skončí kódem 2 bez validní kapsle; na stderr vypíše pouze bezpečný pevný chybový kód (`INVALID_SOURCES`, `INVALID_GIT_HEAD`, `GIT_UNAVAILABLE`, nebo `READ_FAILURE`). Všech pět adres Notion musí mít explicitní správný tvar.
 
 Tento výstup není plnohodnotná kontextová autorita. Nová instance musí *po kapsli* načíst aktuální Notion stav, DR, pravidla a příslušné čerstvé technické důkazy. Nikdy nesmí použít statické odkazy jako náhradu lidského schválení.
 
@@ -44,6 +44,8 @@ Tento výstup není plnohodnotná kontextová autorita. Nová instance musí *po
 npx vitest run tars/self-build/context.test.ts
 ```
 
+Součástí testů je i negativní cesta neplatných vstupních URL / JSON a kontrola, že čtení nepřepíše lokální Git index.
+
 Pro přijetí M0-02 je nutné: zelené `test` + `janitor` CI pro přesné PR SHA, nezávislé review podle platných pravidel, kontrola rozsahu diffu a samostatné rozhodnutí o merge. Samotné autorovo spuštění testu není nezávislé review. Vytvoření tohoto návrhu neopravňuje merge.
 
 **M0 cold-start oracle:** Úplně nový chat bez historie dostane jen [Notion projekt](https://app.notion.com/p/4100ae49f50781e792c1c8cf4e79b743). PASS pouze když prokáže skutečný aktuální milník, hranici rozhodnutí vlastníka, nejméně dva aktuální zdroje, doložené blokace a jediný bezpečný další krok, aniž by cokoli změnil. Jinak FAIL / UNKNOWN. Kapsle sama o sobě pro tento test nestačí.
@@ -54,7 +56,7 @@ Původní [Astra audit 3. 11.](https://app.notion.com/p/40d0ae49f50781d3be12da44
 
 ## Bezpečnostní mantinely
 
-- Žádný agent nesmí zadat GO/REJECT za vlastníka (P20).
+- [P20 — Pravidla vlastníka](https://app.notion.com/p/40d0ae49f507818f971ad41e7688c3f9): žádný agent nesmí zadat GO/REJECT za vlastníka, ani přes `cli owner`, ani zápisem do pole „Rozhodnutí vlastníka“.
 - Neprovádět `cli.ts owner`, `tick`, `dispatch run`, merge ani externí produkční účinek kvůli tomuto PR.
 - Zdrojové odkazy a návrhový stav nejsou důkaz; všechny neověřené komponenty se označují `UNKNOWN`.
 - Nepřidávat tokeny, osobní údaje, celý obsah konverzací, pracovní artefakty `runs/` ani `.env`.
