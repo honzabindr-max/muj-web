@@ -541,6 +541,12 @@ export function projectLive(input: unknown, ctx: LiveContext) {
   }
   if (dispatchBroken)
     systemGaps.push("runs/dispatch-mode.json nejde přečíst: režim je neznámý");
+  // Readable source, but mode missing or not hold/run (e.g. `{}`): still an unknown system value.
+  else if (dispatchMode === "unknown")
+    systemGaps.push("režim dispatche chybí nebo není hold/run: režim je neznámý");
+  // Readable idle/status.json whose idle_reason is not a known value must not pass as a healthy state.
+  if (idle && idle.readable === true && idleReason === "UNKNOWN")
+    systemGaps.push("runs/idle/status.json: neznámý idle_reason");
   if (dispatch !== undefined && dispatch.hold_file === undefined)
     systemGaps.push("existenci runs/HOLD nejde ověřit");
   const blockers: string[] = [];

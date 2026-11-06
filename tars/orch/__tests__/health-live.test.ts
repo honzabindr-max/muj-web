@@ -325,6 +325,29 @@ describe("health-live: konec ticku (runs/idle)", () => {
     expect(r.overall).toBe("UNKNOWN");
   });
 
+  it.each([{}, { mode: "x" }, { mode: 1 }])(
+    "čitelný dispatch-mode.json s neplatným režimem %j = UNKNOWN",
+    (file) => {
+      const r = auditHealth(
+        healthy(
+          {},
+          {
+            dispatch: {
+              present: true,
+              readable: true,
+              hold_file: false,
+              ...file,
+            },
+          },
+        ),
+        now,
+      );
+      expect(r.system.dispatchMode).toBe("unknown");
+      expect(r.system.completeness).toBe("UNKNOWN");
+      expect(r.overall).toBe("UNKNOWN");
+    },
+  );
+
   it("log s časem plus tokenem v ts nevrátí původní text (jen normalizované ISO)", () => {
     const m = manualFromLog(
       [
@@ -493,7 +516,9 @@ describe("health-live: systémové blokace", () => {
     expect(r.system.blockers).toHaveLength(2);
     expect(r.system.dispatchMode).toBe("unknown");
     expect(r.system.holdFile).toBe(true);
-    expect(r.overall).toBe("ATTENTION");
+    // invalid mode = incomplete system data: UNKNOWN wins over ATTENTION, blockers stay listed
+    expect(r.system.completeness).toBe("UNKNOWN");
+    expect(r.overall).toBe("UNKNOWN");
   });
 
   it("neměřený systém = NOT_MEASURED, chybějící údaje UNKNOWN (null), ne „ne“", () => {
