@@ -1045,7 +1045,7 @@ describe("cli.ts health", () => {
     const r = cli(["--json"], runs);
     expect(r.status).toBe(0);
     const j = JSON.parse(r.stdout);
-    expect(j.schema).toBe("tars-audit-health/v3");
+    expect(j.schema).toBe("tars-audit-health/v4");
     expect(j.blocked.map((b: { kind: string }) => b.kind)).toContain("HOLD");
     expect(mtimes(runs)).toEqual(before);
   }, 60_000);

@@ -776,7 +776,7 @@ describe("health-live: sběr z runs/ (jen čtení)", () => {
       "brána efektu HOLD: SCOPE_REVOKED: x",
       "brána efektu: 1 záznam(y) nečitelné nebo neplatné, stav brány UNKNOWN",
     ]);
-    expect(r.schema).toBe("tars-audit-health/v3");
+    expect(r.schema).toBe("tars-audit-health/v4");
   });
 
   it("sběr nic nezapíše ani nevytvoří (mtime všech souborů a adresářů stejný)", () => {
