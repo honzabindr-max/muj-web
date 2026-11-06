@@ -1,6 +1,7 @@
 // TARS-GUARD (DR-022) gate: on ALARM the orchestrator stops before any work.
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import fs from "node:fs";
+import { redactSecretsUnbounded } from "./secret-scan";
 
 export interface GuardResult {
   alarm: boolean;
@@ -107,6 +108,23 @@ export function parseGuardOutput(out: string): GuardResult {
   return { alarm: false, summary: statusLine.slice(0, 300) };
 }
 
+const STDERR_HEAD = 160;
+
+/**
+ * Diagnostic only (never changes alarm): why a guard / I8 child failed – `status=<n> signal=<s>` plus the first
+ * ≤160 chars of stderr, redacted BEFORE the cut (a token cut in half would no longer match a pattern).
+ * Returns "" when the child looks healthy (exit 0, no signal, no spawn error, non-empty stdout).
+ */
+export function failureReason(r: Pick<SpawnSyncReturns<string>, "status" | "signal" | "stdout" | "stderr" | "error">): string {
+  const healthy = !r.error && r.status === 0 && !r.signal && `${r.stdout ?? ""}`.trim() !== "";
+  if (healthy) return "";
+  const head = redactSecretsUnbounded(`${r.stderr ?? ""}`.trim())
+    .replace(/\s+/g, " ")
+    .slice(0, STDERR_HEAD);
+  const err = r.error ? ` error=${redactSecretsUnbounded(r.error.message).slice(0, 120)}` : "";
+  return `status=${r.status ?? "null"} signal=${r.signal ?? "null"}${err}${head ? ` stderr: ${head}` : ""}`;
+}
+
 /** TARS-GUARD + I8 (browser automation only in the TARS-agent profile). Any I8 ALARM = alarm. */
 export function runGuardWithI8(script: string, i8Script: string, cwd: string, runsDir?: string): GuardResult {
   // The guards must judge "is an order running" by the same runs/ dir (lock) as the orchestrator.
@@ -114,7 +132,9 @@ export function runGuardWithI8(script: string, i8Script: string, cwd: string, ru
   const g = runGuard(script, cwd, env);
   if (!fs.existsSync(i8Script)) return { alarm: true, summary: `I8 script missing: ${i8Script}` };
   const r = spawnSync("bash", [i8Script], { cwd, encoding: "utf8", timeout: 30_000, env });
-  return combineI8(g, `${r.stdout ?? ""}`);
+  const res = combineI8(g, `${r.stdout ?? ""}`);
+  const why = res.alarm ? failureReason(r) : "";
+  return why ? { alarm: true, summary: `${res.summary} | I8 příčina: ${why}` } : res;
 }
 
 export function combineI8(g: GuardResult, i8Out: string): GuardResult {
@@ -137,6 +157,8 @@ export function runGuard(script: string, cwd: string, env: NodeJS.ProcessEnv = p
     input: "{}",
     env,
   });
-  if (r.error) return { alarm: true, summary: `TARS-GUARD nedoběhl (${r.error.message.slice(0, 120)}) | fail-closed` };
-  return parseGuardOutput(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
+  if (r.error) return { alarm: true, summary: `TARS-GUARD nedoběhl (${redactSecretsUnbounded(r.error.message).slice(0, 120)}) | fail-closed | příčina: ${failureReason(r)}` };
+  const res = parseGuardOutput(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
+  const why = res.alarm ? failureReason(r) : "";
+  return why ? { alarm: true, summary: `${res.summary} | příčina: ${why}` } : res;
 }

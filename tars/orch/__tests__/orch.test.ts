@@ -598,6 +598,78 @@ describe("parsers", () => {
     expect(fakeGuard(REAL_GUARD, "I8 ALARM x")().alarm).toBe(true);
   });
 
+  describe("příčina selhání guardu v souhrnu (fail-closed beze změny)", () => {
+    const run = (guardBody: string, i8Body = 'echo "I8 OK x"') => {
+      fs.writeFileSync(path.join(dir, "guard-stdout.txt"), REAL_GUARD);
+      fs.writeFileSync(
+        path.join(dir, "guard.sh"),
+        `#!/bin/bash\n${guardBody}\n`,
+        { mode: 0o755 },
+      );
+      fs.writeFileSync(path.join(dir, "i8.sh"), `#!/bin/bash\n${i8Body}\n`, {
+        mode: 0o755,
+      });
+      return runGuardWithI8(
+        path.join(dir, "guard.sh"),
+        path.join(dir, "i8.sh"),
+        dir,
+        dir,
+      );
+    };
+    it("prázdný stdout + exit 1: alarm, status a hlava stderr v souhrnu", () => {
+      const r = run('echo "boom na stderr" >&2\nexit 1');
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toContain(
+        "příčina: status=1 signal=null stderr: boom na stderr",
+      );
+    });
+    it("signál: alarm, signal v souhrnu", () => {
+      const r = run("kill -TERM $$");
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toMatch(/status=null signal=SIGTERM/);
+    });
+    it("spawn chyba I8 (I8 skript padne): alarm, příčina I8 v souhrnu", () => {
+      const r = run(
+        `cat '${path.join(dir, "guard-stdout.txt")}'`,
+        'echo "i8 spadl" >&2\nexit 3',
+      );
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toMatch(
+        /I8 příčina: status=3 signal=null stderr: i8 spadl/,
+      );
+    });
+    it("I8 signál: alarm, signal v souhrnu", () => {
+      const r = run(
+        `cat '${path.join(dir, "guard-stdout.txt")}'`,
+        "kill -KILL $$",
+      );
+      expect(r.alarm).toBe(true);
+      expect(r.summary).toMatch(/I8 příčina: status=null signal=SIGKILL/);
+    });
+    it("falešný token ve stderr: ve výstupu není (ani rozříznutý ořezem)", () => {
+      const tok = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+      const ntn = `ntn_${"x9Y8z7W6v5".repeat(5)}`;
+      const r = run(
+        `echo "chyba ${tok} a ${ntn} sk-${"q".repeat(40)}" >&2\nexit 1`,
+      );
+      expect(r.alarm).toBe(true);
+      expect(r.summary).not.toContain(tok);
+      expect(r.summary).not.toContain(ntn);
+      expect(r.summary).not.toMatch(/ghp_|ntn_|sk-q/);
+      expect(r.summary).toContain("[skryto: citlivý údaj]");
+    });
+    it("stderr se ořízne na 160 znaků", () => {
+      const r = run(`printf 'z%.0s' $(seq 1 500) >&2\nexit 1`);
+      const m = /stderr: (z+)/.exec(r.summary);
+      expect(m?.[1].length).toBe(160);
+    });
+    it("zdravý guard bez příčiny v souhrnu", () => {
+      const ok = fakeGuard(REAL_GUARD)();
+      expect(ok.alarm).toBe(false);
+      expect(ok.summary).not.toMatch(/příčina/);
+    });
+  });
+
   it("regression: tick with the real hook stdout does not end in guard_alarm", async () => {
     const { o, supervisor } = orch({ guard: fakeGuard(REAL_GUARD) });
     const r = await o.tick();
