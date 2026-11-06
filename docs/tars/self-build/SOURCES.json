@@ -1,0 +1,10 @@
+{
+  "protocol_version": "0.1",
+  "project_id": "TARS-SELF-BUILD-001",
+  "project_page_url": "https://app.notion.com/p/4100ae49f50781e792c1c8cf4e79b743",
+  "decision_register_url": "https://app.notion.com/p/4070ae49f50781369315e8ebf4c5457e",
+  "owner_rules_url": "https://app.notion.com/p/40d0ae49f507818f971ad41e7688c3f9",
+  "architecture_snapshot_url": "https://app.notion.com/p/4100ae49f507818693dad0956d56eadd",
+  "astra_historical_audit_url": "https://app.notion.com/p/40d0ae49f50781d3be12da44a7fbf25c",
+  "repository": "honzabindr-max/muj-web"
+}
