@@ -59,6 +59,11 @@ export function useStoredPersons(): Persons | null {
   return useSyncExternalStore(subscribe, read, () => null);
 }
 
+/** Jednorázové přečtení (mimo render), jen v prohlížeči. */
+export function getStoredPersons(): Persons | null {
+  return read();
+}
+
 /** Údaje pro formulář: uložené, jinak výchozí. */
 export function usePersons(): Persons {
   return useStoredPersons() ?? SERVER;
