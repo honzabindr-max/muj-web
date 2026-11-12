@@ -61,6 +61,16 @@
   outline-offset: 3px;
 }
 
+/* volba s skrytým radiem (pokladna): focus musí být vidět na štítku */
+.mvp .mv-choice {
+  position: relative;
+  cursor: pointer;
+}
+.mvp .mv-choice:focus-within {
+  outline: 2px solid #edb894;
+  outline-offset: 2px;
+}
+
 /* číslice: lining + tabulární u cen, dat a čísla objednávky */
 .mvp [data-tabular] {
   font-variant-numeric: lining-nums tabular-nums;

@@ -72,7 +72,9 @@ describe("generované komponenty — pravidla designu", () => {
   const src = (f: string) => fs.readFileSync(path.join(dir, f), "utf8");
 
   it("existují komponenty ze všech artboardů", () => {
-    expect(files.length).toBeGreaterThanOrEqual(22);
+    // 22 artboardů − 2 (osoba: ručně psaný funkční formulář v _parts/OsobaForm.tsx)
+    // − 1 (Design systém: referenční artboard, není routa)
+    expect(files.length).toBeGreaterThanOrEqual(19);
   });
   it("žádná váha 300 (Jost i EB Garamond jen 400/500)", () => {
     for (const f of files) expect(src(f), f).not.toMatch(/fontWeight: "300"/);

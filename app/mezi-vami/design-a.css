@@ -47,24 +47,6 @@
 .xm01b details>summary::-webkit-details-marker{display:none}
 .xm01b h1,.xm01b h2,.xm01b h3{text-wrap:balance}
 .xm01b p,.xm01b li,.xm01b dd,.xm01b figcaption{text-wrap:pretty}
-/* D-03-Osoba */
-.xd03 a{color:#F1D0BC}
-.xd03 a:hover{color:#FFE6D6}
-.xd03 input::placeholder{color:#A08B97}
-.xd03 input:focus-visible,.xd03 button:focus-visible,.xd03 a:focus-visible,.xd03 summary:focus-visible{outline:2px solid #EDB894;outline-offset:2px}
-.xd03 details>summary{list-style:none;cursor:pointer}
-.xd03 details>summary::-webkit-details-marker{display:none}
-.xd03 h1,.xd03 h2,.xd03 h3{text-wrap:balance}
-.xd03 p,.xd03 li,.xd03 dd,.xd03 figcaption{text-wrap:pretty}
-/* Mobil-02-Osoba */
-.xm02 a{color:#F1D0BC}
-.xm02 a:hover{color:#FFE6D6}
-.xm02 input::placeholder{color:#A08B97}
-.xm02 input:focus-visible,.xm02 button:focus-visible,.xm02 a:focus-visible,.xm02 summary:focus-visible{outline:2px solid #EDB894;outline-offset:2px}
-.xm02 details>summary{list-style:none;cursor:pointer}
-.xm02 details>summary::-webkit-details-marker{display:none}
-.xm02 h1,.xm02 h2,.xm02 h3{text-wrap:balance}
-.xm02 p,.xm02 li,.xm02 dd,.xm02 figcaption{text-wrap:pretty}
 /* D-04-Vypocet */
 .xd04 a:focus-visible{outline:2px solid #EDB894;outline-offset:4px}
 .xd04-breathe{animation:xd04Breathe 6s ease-in-out infinite}
@@ -201,9 +183,3 @@
 .xstv button:focus-visible{outline:2px solid #EDB894;outline-offset:2px}
 .xstv h1,.xstv h2,.xstv h3{text-wrap:balance}
 .xstv p,.xstv li,.xstv dd,.xstv figcaption{text-wrap:pretty}
-/* Design-system */
-.xdsy h1,.xdsy h2,.xdsy h3{text-wrap:balance}
-.xdsy p,.xdsy li{text-wrap:pretty}
-.xdsy-travel{animation:xdsyTravel 9s linear infinite}
-@keyframes xdsyTravel{from{stroke-dashoffset:0}to{stroke-dashoffset:-900}}
-@media (prefers-reduced-motion: reduce){.xdsy-travel{animation:none}}

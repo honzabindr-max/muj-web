@@ -22,8 +22,6 @@ const JOBS: Job[] = [
   { file: "Mobil-01-Landing", name: "LandingM", id: "m01" },
   { file: "D-02-Start", name: "StartD", id: "d02" },
   { file: "Mobil-01b-Start", name: "StartM", id: "m01b" },
-  { file: "D-03-Osoba", name: "OsobaD", id: "d03" },
-  { file: "Mobil-02-Osoba", name: "OsobaM", id: "m02" },
   { file: "D-04-Vypocet", name: "VypocetD", id: "d04" },
   { file: "Mobil-02b-Vypocet", name: "VypocetM", id: "m02b" },
   { file: "D-05-Vysledek", name: "VysledekD", id: "d05" },
@@ -39,7 +37,6 @@ const JOBS: Job[] = [
   { file: "D-09-Vzorek", name: "VzorekD", id: "d09" },
   { file: "Mobil-09-Vzorek", name: "VzorekM", id: "m09" },
   { file: "Stavy", name: "Stavy", id: "stv" },
-  { file: "Design-system", name: "DesignSystem", id: "dsy" },
 ];
 
 const ROUTES: Record<string, string> = {
@@ -302,6 +299,57 @@ function convert(job: Job) {
 
   let usesCssFn = false;
   let rootEl: Element | null = null;
+  let usesPV = false;
+
+  /** Ukázkové údaje osob v shrnutí výsledku (d05, m03) a v pokladně (d06, m06) → živé hodnoty. */
+  function markPersonValues(rootNode: Element) {
+    const mk = (name: string, attrs: Record<string, string>) => {
+      const n = doc.createElement(name);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      return n;
+    };
+    if (job.id === "d05" || job.id === "m03") {
+      let i = 0;
+      for (const sp of Array.from(rootNode.querySelectorAll("span"))) {
+        if (!/text-align:\s*right/.test(sp.getAttribute("style") ?? "")) continue;
+        const first = sp.firstChild?.textContent?.trim() ?? "";
+        if (!/^\d+\. \d+\. \d{4} · /.test(first)) continue;
+        const inner = sp.querySelector("span");
+        const pv = mk("pv-summary", {
+          p: i++ === 0 ? "a" : "b",
+          fb1: first,
+          fb2: inner?.textContent?.trim() ?? "",
+          sub: inner?.getAttribute("style") ?? "",
+        });
+        sp.replaceChildren(pv);
+      }
+    }
+    if (job.id === "d06" || job.id === "m06") {
+      const map: Record<string, string> = { "Datum narození": "datum", "Místo narození": "misto", "Čas narození": "cas" };
+      Array.from(rootNode.querySelectorAll("dl")).forEach((dl, idx) => {
+        for (const dt of Array.from(dl.querySelectorAll("dt"))) {
+          const f = map[dt.textContent?.trim() ?? ""];
+          const dd = dt.nextElementSibling;
+          if (!f || !dd || dd.tagName.toLowerCase() !== "dd") continue;
+          dd.replaceChildren(mk("pv-field", { p: idx === 0 ? "a" : "b", f, fb: dd.textContent?.trim() ?? "" }));
+        }
+      });
+      for (const g of Array.from(rootNode.querySelectorAll('div[role="radiogroup"]'))) {
+        const labels = Array.from(g.querySelectorAll("label"));
+        const name = labels[0]?.querySelector("input")?.getAttribute("name") ?? "";
+        const m = /-(a|b)$/.exec(name);
+        if (!m || labels.length !== 3) continue;
+        g.replaceChildren(
+          mk("pv-style", {
+            p: m[1],
+            name,
+            on: labels[0].getAttribute("style") ?? "",
+            off: labels[1].getAttribute("style") ?? "",
+          }),
+        );
+      }
+    }
+  }
 
   /* --- tůně a křivky z <svg> --- */
   const hexToRgb = (hex: string) => {
@@ -413,6 +461,20 @@ function convert(job: Job) {
     const el = node as Element;
     const tag = el.tagName.toLowerCase();
 
+    // zadané údaje osob (viz _parts/PersonValues.tsx): značky vložené markPersonValues()
+    if (tag === "pv-summary") {
+      usesPV = true;
+      return `<PersonSummary p=${JSON.stringify(el.getAttribute("p"))} fb1=${JSON.stringify(el.getAttribute("fb1"))} fb2=${JSON.stringify(el.getAttribute("fb2"))} sub={${styleObject(el.getAttribute("sub") ?? "")}} />`;
+    }
+    if (tag === "pv-field") {
+      usesPV = true;
+      return `<PersonField p=${JSON.stringify(el.getAttribute("p"))} f=${JSON.stringify(el.getAttribute("f"))} fb=${JSON.stringify(el.getAttribute("fb"))} />`;
+    }
+    if (tag === "pv-style") {
+      usesPV = true;
+      return `<StyleChoice p=${JSON.stringify(el.getAttribute("p"))} name=${JSON.stringify(el.getAttribute("name"))} on={${styleObject(el.getAttribute("on") ?? "")}} off={${styleObject(el.getAttribute("off") ?? "")}} />`;
+    }
+
     if (tag === "sc-if") {
       const cond = expr(el.getAttribute("value") ?? "false", scope);
       return `{${cond} && (<>${children(el, scope)}</>)}`;
@@ -456,6 +518,7 @@ function convert(job: Job) {
   // kořen artboardu = první element za <helmet>
   const root = Array.from(xdc.children).find((c) => c.tagName.toLowerCase() !== "helmet")!;
   rootEl = root;
+  markPersonValues(root);
   const jsx = emitNode(root, new Set());
 
   /* --- logika --- */
@@ -473,6 +536,7 @@ function convert(job: Job) {
     stateful ? `import { useDc } from '../_lib/dc-client'\n` : "",
     `import { nb } from '../_lib/nbsp'\n`,
     usesA ? `import { A } from '../_lib/A'\n` : "",
+    usesPV ? `import { PersonSummary, PersonField, StyleChoice } from '../_parts/PersonValues'\n` : "",
     usesLight || usesPools ? `import { ${[usesLight ? "LightCurve, LightLayer" : "", usesPools ? "Pools" : ""].filter(Boolean).join(", ")} } from '../_lib/LightCurve'\n` : "",
   ].join("");
 

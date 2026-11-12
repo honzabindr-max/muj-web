@@ -1,16 +1,11 @@
 import localFont from "next/font/local";
 
 // Fonty jsou v repu (OFL, viz fonts/OFL.txt), aby build nezávisel na síti.
-// Variabilní WOFF2 subsetované na latin + latin-ext (osa wght zachována);
-// rozsahy vah odpovídají dřívějším řezům z next/font/google.
+// Variabilní WOFF2: osa wght omezena na 400–500 (jediné používané váhy), znaková sada latin +
+// latin-ext (Ext-A: č ř ů ě …) + typografické znaky, bez hintingu. Kurzíva se nepoužívá.
 export const garamond = localFont({
   src: [
     { path: "./fonts/EBGaramond.woff2", weight: "400 500", style: "normal" },
-    {
-      path: "./fonts/EBGaramond-Italic.woff2",
-      weight: "400 500",
-      style: "italic",
-    },
   ],
   variable: "--font-mv-garamond",
   display: "swap",
