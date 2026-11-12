@@ -92,6 +92,15 @@ export class AnthropicLlm implements StructuredLlm {
     } catch (e) {
       const name = (e as { name?: string })?.name ?? "";
       const status = (e as { status?: number })?.status;
+      // Diagnostika bez osobních údajů: SDK chyby nenesou obsah promptu ani odpovědi.
+      console.error(
+        JSON.stringify({
+          mv_llm_err: req.name,
+          name,
+          status: status ?? null,
+          msg: String((e as Error)?.message ?? "").slice(0, 200),
+        }),
+      );
       if (/Timeout|Abort/i.test(name) || /timed? ?out/i.test(String(e))) {
         throw new PipelineError({ type: "FAIL", code: "TIMEOUT" }, "timeout");
       }
