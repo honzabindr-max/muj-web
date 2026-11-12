@@ -1,0 +1,27 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "CF-ORDER-LEAK",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "ORDER_DELIVERY_READY",
+    "order": {
+      "order_reference": "MV-2026-000125",
+      "delivery_email_display": "a@b.cz",
+      "analysis_revision_ref": "arr_7Kd2Xp9QmR4t_r1",
+      "fulfillment_state": "READY",
+      "promised_delivery_at": "2026-09-06T09:00:00Z",
+      "birth_date": "1988-04-12",
+      "signed_link": {
+        "url": "/x",
+        "expires_at": "2026-10-06T09:00:00Z",
+        "validity_days": 30
+      },
+      "support_path": "s"
+    },
+    "analytics": {
+      "event_name": "delivery_ready_view",
+      "unit": "ORDER"
+    }
+  }
+}
