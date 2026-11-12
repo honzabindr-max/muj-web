@@ -82,6 +82,8 @@ export class AnthropicLlm implements StructuredLlm {
             },
           ],
           messages: [{ role: "user", content: req.user }],
+          // Strukturovaný výstup bez přemýšlení: kratší běh i nižší cena (thinking by spotřeboval max_tokens).
+          thinking: { type: "disabled" },
           output_config: {
             effort: "low",
             format: zodOutputFormat(req.schema),

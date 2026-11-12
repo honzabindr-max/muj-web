@@ -144,7 +144,7 @@ export class LlmAstroEstimator implements AstroEstimator {
       system: SYSTEM,
       user,
       schema: AstroEstimateSchema,
-      maxTokens: 6000,
+      maxTokens: 5000,
       deadline,
     });
     return { astro: sanitizeAstro(data, persons), usage };
