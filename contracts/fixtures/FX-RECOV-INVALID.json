@@ -1,0 +1,20 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "FX-RECOV-INVALID",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "RECOVERY_INVALID",
+    "recovery": {
+      "token_kind": "OPAQUE",
+      "status": "INVALID",
+      "carries_raw_birth_data": false
+    },
+    "next_action": "START_NEW_ANALYSIS",
+    "customer_text": "[COPY_PENDING]",
+    "analytics": {
+      "event_name": "recovery_view",
+      "unit": "ATTEMPT"
+    }
+  }
+}

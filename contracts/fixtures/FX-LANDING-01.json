@@ -1,0 +1,55 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "FX-LANDING-01",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "LANDING",
+    "price": {
+      "amount_minor_units": 199000,
+      "currency": "CZK",
+      "display": "1 990 Kč",
+      "is_config": true,
+      "vat_included": true,
+      "one_time_purchase": true,
+      "confirmation_status": "PENDING_FOUNDER_CONFIRMATION"
+    },
+    "primary_cta": "[COPY_PENDING cta]",
+    "email_gate_before_free_dna": false,
+    "trust_branches": [
+      "SAMPLE",
+      "EXPLAINER",
+      "METHOD",
+      "PRIVACY",
+      "FAQ"
+    ],
+    "sample": {
+      "is_provisional": true,
+      "design_version": "PROVISIONAL_P1",
+      "preview_pages": [
+        {
+          "page_slot": 1,
+          "image_url": "/fixtures/sample/p1.png",
+          "aspect": "A5_PORTRAIT_148x210"
+        },
+        {
+          "page_slot": 2,
+          "image_url": "/fixtures/sample/p2.png",
+          "aspect": "A5_PORTRAIT_148x210"
+        },
+        {
+          "page_slot": 3,
+          "image_url": "/fixtures/sample/p3.png",
+          "aspect": "A5_PORTRAIT_148x210"
+        }
+      ],
+      "full_sample_pdf_url": "/fixtures/sample/sample.pdf",
+      "labelled_as_sample": true,
+      "email_gate": false
+    },
+    "analytics": {
+      "event_name": "landing_view",
+      "unit": "SESSION"
+    }
+  }
+}

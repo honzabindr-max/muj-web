@@ -1,0 +1,17 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "FX-PAY-FAIL",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "PAYMENT_FAILED",
+    "failure_reason": "DECLINED",
+    "retry_available": true,
+    "charge_created": false,
+    "customer_text": "[COPY_PENDING]",
+    "analytics": {
+      "event_name": "payment_failed_view",
+      "unit": "ATTEMPT"
+    }
+  }
+}
