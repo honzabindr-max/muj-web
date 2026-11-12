@@ -1,0 +1,24 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "CF-SCOPE-CZCZ",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "UNSUPPORTED_GEOGRAPHY",
+    "slot": "B",
+    "place": {
+      "display_name": "Vídeň",
+      "country_code": "AT",
+      "supported": false
+    },
+    "supported_scope": [
+      "CZ",
+      "CZ"
+    ],
+    "customer_text": "[COPY_PENDING]",
+    "analytics": {
+      "event_name": "unsupported_geography_view",
+      "unit": "ATTEMPT"
+    }
+  }
+}

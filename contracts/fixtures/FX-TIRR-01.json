@@ -1,0 +1,23 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "FX-TIRR-01",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "TIME_INPUT_RESOLUTION_REQUIRED",
+    "slot": "A",
+    "reason": "AMBIGUOUS_EXACT_LOCAL_TIME",
+    "resolution_options": [
+      "CORRECT_TIME",
+      "SWITCH_TO_APPROXIMATE",
+      "SWITCH_TO_UNKNOWN",
+      "CHOOSE_OFFSET_INTERPRETATION"
+    ],
+    "guessed_offset_used": false,
+    "customer_text": "[COPY_PENDING]",
+    "analytics": {
+      "event_name": "time_resolution_view",
+      "unit": "ATTEMPT"
+    }
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "CF-PAIR-TWO-A",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "RESULTS",
+    "analysis": {
+      "analysis_id": "an_7Kd2Xp9QmR4t",
+      "revision": 1,
+      "analysis_revision_ref": "arr_7Kd2Xp9QmR4t_r1"
+    },
+    "persons": [
+      {
+        "slot": "A",
+        "ui_label": "První osoba",
+        "birth_date": "1988-04-12",
+        "birth_place": {
+          "display_name": "Brno",
+          "country_code": "CZ",
+          "supported": true
+        },
+        "time_mode": "EXACT",
+        "reference_style": "neutral",
+        "presented_as_exact": true,
+        "exact_time": "07:35"
+      },
+      {
+        "slot": "A",
+        "ui_label": "První osoba",
+        "birth_date": "1986-11-03",
+        "birth_place": {
+          "display_name": "Bratislava",
+          "country_code": "SK",
+          "supported": true
+        },
+        "time_mode": "EXACT",
+        "reference_style": "neutral",
+        "presented_as_exact": true,
+        "exact_time": "21:10"
+      }
+    ],
+    "free_dna": {
+      "r1": {
+        "insight_id": "ins_R1_aaaaaaaa",
+        "slot": "R1",
+        "slot_realisation": "CORE_SIGNATURE",
+        "headline": "[COPY_PENDING headline]",
+        "body": "[COPY_PENDING body]",
+        "evidence_anchors": [
+          {
+            "anchor_id": "anc_aaaaaaaa0",
+            "supports_insight_id": "ins_R1_aaaaaaaa",
+            "analysis_revision_ref": "arr_7Kd2Xp9QmR4t_r1",
+            "customer_label": "[COPY_PENDING anchor]"
+          }
+        ],
+        "content_budget": {
+          "headline_max_chars": 70,
+          "body_max_chars": 620,
+          "overflow_policy": "REWRITE_OR_RECOMPOSE",
+          "provisional": true
+        }
+      },
+      "optional_insights": [
+        {
+          "insight_id": "ins_R2_bbbbbbbb",
+          "slot": "R2",
+          "slot_realisation": "PARADOX",
+          "headline": "[COPY_PENDING headline]",
+          "body": "[COPY_PENDING body]",
+          "evidence_anchors": [],
+          "content_budget": {
+            "headline_max_chars": 70,
+            "body_max_chars": 620,
+            "overflow_policy": "REWRITE_OR_RECOMPOSE",
+            "provisional": true
+          }
+        },
+        {
+          "insight_id": "ins_R3_cccccccc",
+          "slot": "R3",
+          "slot_realisation": "SUPPORTIVE_PATTERN",
+          "headline": "[COPY_PENDING headline]",
+          "body": "[COPY_PENDING body]",
+          "evidence_anchors": [],
+          "content_budget": {
+            "headline_max_chars": 70,
+            "body_max_chars": 620,
+            "overflow_policy": "REWRITE_OR_RECOMPOSE",
+            "provisional": true
+          }
+        },
+        {
+          "insight_id": "ins_R4_dddddddd",
+          "slot": "R4",
+          "slot_realisation": "STRONG_MISMATCH",
+          "headline": "[COPY_PENDING headline]",
+          "body": "[COPY_PENDING body]",
+          "evidence_anchors": [],
+          "content_budget": {
+            "headline_max_chars": 70,
+            "body_max_chars": 620,
+            "overflow_policy": "REWRITE_OR_RECOMPOSE",
+            "provisional": true
+          }
+        },
+        {
+          "insight_id": "ins_R5_eeeeeeee",
+          "slot": "R5",
+          "slot_realisation": "ACTIONABLE_RECOMMENDATION",
+          "headline": "[COPY_PENDING headline]",
+          "body": "[COPY_PENDING body]",
+          "evidence_anchors": [],
+          "content_budget": {
+            "headline_max_chars": 70,
+            "body_max_chars": 620,
+            "overflow_policy": "REWRITE_OR_RECOMPOSE",
+            "provisional": true
+          }
+        }
+      ],
+      "r1_only": false,
+      "time_coverage_class": "EE",
+      "timed_layers": "AVAILABLE_STABLE",
+      "coverage": {
+        "coverage_line": "[COPY_PENDING]",
+        "layers_available": [
+          "nativ A",
+          "nativ B",
+          "synastrie",
+          "domy a overlays",
+          "kompozit"
+        ],
+        "layers_unavailable": []
+      },
+      "limitations": []
+    },
+    "depth_bridge": {
+      "headline": "[COPY_PENDING]",
+      "detected_themes": [
+        {
+          "theme_label": "[COPY_PENDING]",
+          "supports_insight_id": "ins_R2_bbbbbbbb"
+        }
+      ],
+      "fake_open_loop": false
+    },
+    "offer": {
+      "product_code": "DEEP_DIVE_V3",
+      "product_version": "v3.0.0-p1",
+      "scope_sections": [
+        {
+          "section_id": "PS1_MOST_IMPORTANT_FIRST"
+        },
+        {
+          "section_id": "PS2_HOW_EACH_FUNCTIONS"
+        },
+        {
+          "section_id": "PS3_FIVE_RELATIONSHIPS"
+        },
+        {
+          "section_id": "PS4_LOVE_ATTRACTION_INTIMACY"
+        },
+        {
+          "section_id": "PS5_EMOTIONS_COMMUNICATION_CONFLICT"
+        },
+        {
+          "section_id": "PS6_CLOSENESS_FREEDOM_EVERYDAY"
+        },
+        {
+          "section_id": "PS7_WHAT_YOU_AWAKEN_AND_HOLDS"
+        },
+        {
+          "section_id": "PS8_FOR_HOME_PRACTICAL"
+        },
+        {
+          "section_id": "PS9_UNDER_THE_HOOD_TECHNICAL"
+        }
+      ],
+      "price": {
+        "amount_minor_units": 199000,
+        "currency": "CZK",
+        "display": "1 990 Kč",
+        "is_config": true,
+        "vat_included": true,
+        "one_time_purchase": true,
+        "confirmation_status": "PENDING_FOUNDER_CONFIRMATION"
+      },
+      "delivery_window_hours": 48,
+      "signed_link_validity_days": 30,
+      "length_claim_allowed": false,
+      "sample": {
+        "is_provisional": true,
+        "design_version": "PROVISIONAL_P1",
+        "preview_pages": [
+          {
+            "page_slot": 1,
+            "image_url": "/fixtures/sample/p1.png",
+            "aspect": "A5_PORTRAIT_148x210"
+          },
+          {
+            "page_slot": 2,
+            "image_url": "/fixtures/sample/p2.png",
+            "aspect": "A5_PORTRAIT_148x210"
+          },
+          {
+            "page_slot": 3,
+            "image_url": "/fixtures/sample/p3.png",
+            "aspect": "A5_PORTRAIT_148x210"
+          }
+        ],
+        "full_sample_pdf_url": "/fixtures/sample/sample.pdf",
+        "labelled_as_sample": true,
+        "email_gate": false
+      },
+      "sticky_cta_allowed": true
+    },
+    "stale": false,
+    "analytics": {
+      "event_name": "free_reveal_view",
+      "unit": "ATTEMPT"
+    }
+  }
+}

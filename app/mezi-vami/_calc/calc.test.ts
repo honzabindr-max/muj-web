@@ -240,9 +240,9 @@ describe("pipeline: validace FreeDnaResult schématem i semantickým validátore
 
 describe("kontrakt: fixtures a counter-fixtures", () => {
   const files = readdirSync(FIX).filter((f) => f.endsWith(".json"));
-  it("máme 3 pozitivní a 3 counter fixtures ze zipu", () => {
-    expect(files.filter((f) => f.startsWith("FX-")).length).toBe(3);
-    expect(files.filter((f) => f.startsWith("CF-")).length).toBe(3);
+  it("máme 18 pozitivních a 20 counter fixtures podle FIXTURE_MATRIX_V1", () => {
+    expect(files.filter((f) => f.startsWith("FX-")).length).toBe(18);
+    expect(files.filter((f) => f.startsWith("CF-")).length).toBe(20);
   });
   for (const f of files) {
     const name = f.replace(/\.json$/, "");
@@ -258,8 +258,8 @@ describe("kontrakt: fixtures a counter-fixtures", () => {
       [path.join(ROOT, "scripts/run_validation.py")],
       { encoding: "utf8" },
     );
-    expect(r.stdout).toContain("POSITIVE_FIXTURES  3/3 PASS");
-    expect(r.stdout).toContain("COUNTER_FIXTURES   3/3 PASS");
+    expect(r.stdout).toContain("POSITIVE_FIXTURES  18/18 PASS");
+    expect(r.stdout).toContain("COUNTER_FIXTURES   20/20 PASS");
   });
   it("vlastní mutace: přetečení budgetu a nesedící kohorta jsou odmítnuty", async () => {
     const { deps: d } = deps();

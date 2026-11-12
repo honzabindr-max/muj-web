@@ -1,0 +1,20 @@
+{
+  "contract_version": "1.0.1",
+  "fixture_id": "FX-FAIL-RECOV",
+  "locale": "cs-CZ",
+  "copy_provenance": "PROTOTYPE_FIXTURE_COPY",
+  "view": {
+    "state": "ANALYSIS_FAILED_RECOVERABLE",
+    "failure": {
+      "failure_code": "PROVIDER_UNAVAILABLE",
+      "recoverable": true,
+      "customer_text": "[COPY_PENDING]",
+      "retry_action": "RETRY_CALCULATION",
+      "persistence_promise": "INPUTS_NOT_GUARANTEED"
+    },
+    "analytics": {
+      "event_name": "analysis_failed_view",
+      "unit": "ATTEMPT"
+    }
+  }
+}
