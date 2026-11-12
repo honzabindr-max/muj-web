@@ -13,49 +13,55 @@ const req = () => ({
   maxTokens: 100,
   deadline: Date.now() + 60_000,
 });
-const okRes = {
-  usage: {
-    input_tokens: 100,
-    output_tokens: 50,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
-  },
-  stop_reason: "end_turn",
-  parsed_output: { ok: true },
+const usage = {
+  input_tokens: 100,
+  output_tokens: 50,
+  cache_creation_input_tokens: 0,
+  cache_read_input_tokens: 0,
 };
-const fake = (parse: ReturnType<typeof vi.fn>) =>
-  new AnthropicLlm(undefined, { messages: { parse } } as unknown as Anthropic);
+const res = (text: string, stop_reason = "end_turn") => ({
+  usage,
+  stop_reason,
+  content: [{ type: "text", text }],
+});
+const okRes = res('{"ok":true}');
+const fake = (create: ReturnType<typeof vi.fn>) =>
+  new AnthropicLlm(undefined, {
+    messages: { create },
+  } as unknown as Anthropic);
 
 class AnthropicError extends Error {
   name = "AnthropicError"; // jako v SDK (obecná chyba bez HTTP statusu)
 }
 const apiError = (status: number) =>
   Object.assign(new Error(`http ${status}`), { status, name: "APIError" });
+const quiet = () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "log").mockImplementation(() => {});
+};
 
 describe("AnthropicLlm: chyby modelu a opakování", () => {
-  it("přechodná chyba strukturovaného výstupu: jedno opakování a pak výsledek", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const parse = vi
-      .fn()
-      .mockRejectedValueOnce(new AnthropicError("Failed to parse"))
-      .mockResolvedValueOnce(okRes);
-    const r = await fake(parse).call(req());
-    expect(parse).toHaveBeenCalledTimes(2);
+  it("platný výstup: data + usage + cena", async () => {
+    quiet();
+    const r = await fake(vi.fn().mockResolvedValue(okRes)).call(req());
     expect(r.data).toEqual({ ok: true });
+    expect(r.usage).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 50,
+      calls: 1,
+    });
     vi.restoreAllMocks();
   });
 
-  it("opakování přičte spotřebu prvního pokusu (odpověď bez parsovatelného výstupu)", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const bad = { ...okRes, parsed_output: null }; // 100 in / 50 out spotřebováno, výstup nepoužitelný
-    const parse = vi
+  it("useknutý JSON: opakování a spotřeba obou pokusů se sečte", async () => {
+    quiet();
+    const create = vi
       .fn()
-      .mockResolvedValueOnce(bad)
+      .mockResolvedValueOnce(res('{"ok":tr')) // useknutý JSON, tokeny už spotřebovány
       .mockResolvedValueOnce(okRes);
-    const r = await fake(parse).call(req());
-    expect(parse).toHaveBeenCalledTimes(2);
+    const r = await fake(create).call(req());
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(r.data).toEqual({ ok: true });
     expect(r.usage.inputTokens).toBe(200);
     expect(r.usage.outputTokens).toBe(100);
     expect(r.usage.calls).toBe(2);
@@ -71,43 +77,72 @@ describe("AnthropicLlm: chyby modelu a opakování", () => {
     vi.restoreAllMocks();
   });
 
-  it("trvalá chyba: PipelineError CALCULATION_FAILED, nejvýš 2 pokusy, bez pádu", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const parse = vi.fn().mockRejectedValue(new AnthropicError("boom"));
-    await expect(fake(parse).call(req())).rejects.toMatchObject({
+  it("JSON neodpovídá schématu: stejné opakování a součet spotřeby", async () => {
+    quiet();
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce(res('{"ok":"ano"}'))
+      .mockResolvedValueOnce(okRes);
+    const r = await fake(create).call(req());
+    expect(r.usage.calls).toBe(2);
+    expect(r.usage.outputTokens).toBe(100);
+    vi.restoreAllMocks();
+  });
+
+  it("trvalý neplatný JSON: PipelineError, 2 pokusy, chyba nese spotřebu obou", async () => {
+    quiet();
+    const create = vi.fn().mockResolvedValue(res("není json"));
+    const err = await fake(create)
+      .call(req())
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(PipelineError);
+    expect(err.kind).toMatchObject({
+      type: "FAIL",
+      code: "CALCULATION_FAILED",
+    });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(err.usage.inputTokens).toBe(200);
+    expect(err.usage.calls).toBe(2);
+    vi.restoreAllMocks();
+  });
+
+  it("obecná SDK chyba bez statusu: jedno opakování, pak CALCULATION_FAILED", async () => {
+    quiet();
+    const create = vi.fn().mockRejectedValue(new AnthropicError("boom"));
+    await expect(fake(create).call(req())).rejects.toMatchObject({
       kind: { type: "FAIL", code: "CALCULATION_FAILED" },
     });
-    expect(parse).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(2);
     vi.restoreAllMocks();
   });
 
   it("5xx a 429 = PROVIDER_UNAVAILABLE bez dalšího opakování v aplikaci (retry s backoffem dělá SDK)", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    quiet();
     for (const s of [503, 429]) {
-      const parse = vi.fn().mockRejectedValue(apiError(s));
-      await expect(fake(parse).call(req())).rejects.toMatchObject({
+      const create = vi.fn().mockRejectedValue(apiError(s));
+      await expect(fake(create).call(req())).rejects.toMatchObject({
         kind: { type: "FAIL", code: "PROVIDER_UNAVAILABLE" },
       });
-      expect(parse).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledTimes(1);
     }
     vi.restoreAllMocks();
   });
 
-  it("timeout = TIMEOUT; max_tokens = CALCULATION_FAILED", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
+  it("timeout = TIMEOUT; max_tokens = CALCULATION_FAILED bez opakování, s usage", async () => {
+    quiet();
     const t = Object.assign(new Error("Request timed out."), {
       name: "APIConnectionTimeoutError",
     });
     await expect(
       fake(vi.fn().mockRejectedValue(t)).call(req()),
     ).rejects.toMatchObject({ kind: { code: "TIMEOUT" } });
-    const mt = vi.fn().mockResolvedValue({
-      ...okRes,
-      stop_reason: "max_tokens",
-      parsed_output: null,
-    });
-    await expect(fake(mt).call(req())).rejects.toBeInstanceOf(PipelineError);
+    const mt = vi.fn().mockResolvedValue(res('{"ok":', "max_tokens"));
+    const err = await fake(mt)
+      .call(req())
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(PipelineError);
+    expect(mt).toHaveBeenCalledTimes(1);
+    expect(err.usage.outputTokens).toBe(50);
     vi.restoreAllMocks();
   });
 
@@ -116,8 +151,8 @@ describe("AnthropicLlm: chyby modelu a opakování", () => {
     vi.spyOn(console, "error").mockImplementation(
       (...a: unknown[]) => void logs.push(a.join(" ")),
     );
-    const parse = vi.fn().mockRejectedValue(apiError(400));
-    await fake(parse)
+    const create = vi.fn().mockRejectedValue(apiError(400));
+    await fake(create)
       .call({ ...req(), user: "TAJNE-DATUM-1990" })
       .catch(() => {});
     expect(logs.join("\n")).not.toContain("TAJNE-DATUM-1990");

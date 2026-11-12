@@ -104,9 +104,12 @@ export class AnthropicLlm implements StructuredLlm {
       throw new PipelineError({ type: "FAIL", code: "TIMEOUT" }, "timeout");
     }
     const t0 = Date.now();
+    // Bez messages.parse: ten při neplatném/useknutém JSON vyhodí chybu dřív, než dostaneme usage.
+    // Voláme create a výstup parsujeme sami, takže spotřeba tokenů zůstane vždy k dispozici.
+    const fmt = zodOutputFormat(req.schema);
     let res;
     try {
-      res = await this.client.messages.parse(
+      res = await this.client.messages.create(
         {
           model: model(),
           max_tokens: req.maxTokens,
@@ -123,7 +126,7 @@ export class AnthropicLlm implements StructuredLlm {
           thinking: { type: "disabled" },
           output_config: {
             effort: "low",
-            format: zodOutputFormat(req.schema),
+            format: { type: fmt.type, schema: fmt.schema },
           },
         },
         { timeout: remaining, signal: AbortSignal.timeout(remaining) },
@@ -187,7 +190,16 @@ export class AnthropicLlm implements StructuredLlm {
       err.usage = usage;
       throw err;
     }
-    const parsed = (res as { parsed_output?: T | null }).parsed_output;
+    const text = res.content
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    let parsed: T | null = null;
+    try {
+      const r = req.schema.safeParse(JSON.parse(text));
+      parsed = r.success ? r.data : null;
+    } catch {
+      parsed = null; // neplatný / useknutý JSON
+    }
     if (parsed == null) {
       const err = new PipelineError(
         { type: "FAIL", code: "CALCULATION_FAILED" },
