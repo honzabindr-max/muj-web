@@ -5,7 +5,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
-import { PipelineError, type Usage } from "./types";
+import { PipelineError, addUsage, emptyUsage, type Usage } from "./types";
 
 export const DEFAULT_MODEL = "claude-haiku-5-5";
 export const model = () => process.env.MEZI_VAMI_MODEL || DEFAULT_MODEL;
@@ -80,8 +80,19 @@ export class AnthropicLlm implements StructuredLlm {
         e.kind.code === "CALCULATION_FAILED" &&
         /^(llm AnthropicError|neplatný strukturovaný výstup)/.test(e.message);
       if (!retryable || req.deadline - Date.now() < 15_000) throw e;
+      // Spotřeba prvního pokusu se nesmí ztratit (když API odpověď vrátilo; chyba SDK bez odpovědi
+      // spotřebu nenese a změřit ji nelze).
+      const first = (e as PipelineError).usage ?? emptyUsage();
       console.error(JSON.stringify({ mv_llm_retry: req.name }));
-      return await this.callOnce(req);
+      try {
+        const r = await this.callOnce(req);
+        return { data: r.data, usage: addUsage(first, r.usage) };
+      } catch (e2) {
+        if (e2 instanceof PipelineError) {
+          e2.usage = addUsage(first, e2.usage ?? emptyUsage());
+        }
+        throw e2;
+      }
     }
   }
 
@@ -169,17 +180,21 @@ export class AnthropicLlm implements StructuredLlm {
     );
 
     if (res.stop_reason === "max_tokens") {
-      throw new PipelineError(
+      const err = new PipelineError(
         { type: "FAIL", code: "CALCULATION_FAILED" },
         "max_tokens",
       );
+      err.usage = usage;
+      throw err;
     }
     const parsed = (res as { parsed_output?: T | null }).parsed_output;
     if (parsed == null) {
-      throw new PipelineError(
+      const err = new PipelineError(
         { type: "FAIL", code: "CALCULATION_FAILED" },
         "neplatný strukturovaný výstup",
       );
+      err.usage = usage;
+      throw err;
     }
     return { data: parsed, usage };
   }

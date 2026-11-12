@@ -102,6 +102,8 @@ export type FailureCode =
 
 /** Chyby pipeline: S-FAIL (RecoverableFailure), TIRR, nebo neplatný vstup. */
 export class PipelineError extends Error {
+  /** Spotřeba tokenů neúspěšného volání, pokud API odpověď vrátilo (pro správné účtování opakování). */
+  usage?: Usage;
   constructor(
     public kind:
       | { type: "FAIL"; code: FailureCode }

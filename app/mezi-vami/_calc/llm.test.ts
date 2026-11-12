@@ -46,6 +46,31 @@ describe("AnthropicLlm: chyby modelu a opakování", () => {
     vi.restoreAllMocks();
   });
 
+  it("opakování přičte spotřebu prvního pokusu (odpověď bez parsovatelného výstupu)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const bad = { ...okRes, parsed_output: null }; // 100 in / 50 out spotřebováno, výstup nepoužitelný
+    const parse = vi
+      .fn()
+      .mockResolvedValueOnce(bad)
+      .mockResolvedValueOnce(okRes);
+    const r = await fake(parse).call(req());
+    expect(parse).toHaveBeenCalledTimes(2);
+    expect(r.usage.inputTokens).toBe(200);
+    expect(r.usage.outputTokens).toBe(100);
+    expect(r.usage.calls).toBe(2);
+    expect(r.usage.costUsd).toBeCloseTo(
+      2 *
+        costOf({
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheWriteTokens: 0,
+          cacheReadTokens: 0,
+        }),
+    );
+    vi.restoreAllMocks();
+  });
+
   it("trvalá chyba: PipelineError CALCULATION_FAILED, nejvýš 2 pokusy, bez pádu", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const parse = vi.fn().mockRejectedValue(new AnthropicError("boom"));
