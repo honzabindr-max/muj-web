@@ -47,7 +47,12 @@ export interface StructuredLlm {
 /** Skutečný klient (Anthropic Messages API). */
 export class AnthropicLlm implements StructuredLlm {
   private client: Anthropic;
-  constructor(apiKey?: string) {
+  /** `client` jen pro testy (fake SDK). SDK samo opakuje 408/409/429/5xx a síťové chyby s exponenciálním backoffem. */
+  constructor(apiKey?: string, client?: Anthropic) {
+    if (client) {
+      this.client = client;
+      return;
+    }
     const key =
       apiKey ??
       process.env.H2_ANTHROPIC_API_KEY ??
@@ -61,7 +66,28 @@ export class AnthropicLlm implements StructuredLlm {
     this.client = new Anthropic({ apiKey: key, maxRetries: 1 });
   }
 
+  /**
+   * Jedno opakování pro přechodné chyby strukturovaného výstupu (neplatný/useknutý JSON, obecná
+   * SDK chyba bez HTTP statusu). Timeout a chyby poskytovatele se neopakují (SDK je už zopakovalo).
+   */
   async call<T>(req: StructuredRequest<T>): Promise<{ data: T; usage: Usage }> {
+    try {
+      return await this.callOnce(req);
+    } catch (e) {
+      const retryable =
+        e instanceof PipelineError &&
+        e.kind.type === "FAIL" &&
+        e.kind.code === "CALCULATION_FAILED" &&
+        /^(llm AnthropicError|neplatný strukturovaný výstup)/.test(e.message);
+      if (!retryable || req.deadline - Date.now() < 15_000) throw e;
+      console.error(JSON.stringify({ mv_llm_retry: req.name }));
+      return await this.callOnce(req);
+    }
+  }
+
+  private async callOnce<T>(
+    req: StructuredRequest<T>,
+  ): Promise<{ data: T; usage: Usage }> {
     const remaining = req.deadline - Date.now();
     if (remaining < 2_000) {
       throw new PipelineError({ type: "FAIL", code: "TIMEOUT" }, "timeout");
