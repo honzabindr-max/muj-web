@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Zadání osoby — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#120A12}
+a{color:#F1D0BC}a:hover{color:#FFE6D6}
+input::placeholder{color:#A08B97}
+input:focus-visible,button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #EDB894;outline-offset:2px}
+details>summary{list-style:none;cursor:pointer}
+details>summary::-webkit-details-marker{display:none}
+h1,h2,h3{text-wrap:balance}p,li,dd,figcaption{text-wrap:pretty}
+@supports (animation-timeline: view()){.mv-reveal{animation:mvReveal linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@keyframes mvReveal{from{opacity:0;translate:0 28px}}
+@media (prefers-reduced-motion: reduce){.mv-reveal{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; min-height: 1400px; box-sizing: border-box; background: #120A12; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 400; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 375 300" style="position: absolute; left: 0; top: 0; width: 375px; height: 300px; pointer-events: none">
+<defs><filter id="m2Blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"></feGaussianBlur></filter><filter id="m2Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="40"></feGaussianBlur></filter><linearGradient id="m2A" gradientUnits="userSpaceOnUse" x1="-20" y1="0" x2="400" y2="0"><stop offset="0" stop-color="#6E3C8A" stop-opacity="0"></stop><stop offset="0.45" stop-color="#C77FAA"></stop><stop offset="0.75" stop-color="#FFF1E6"></stop><stop offset="1" stop-color="#EFB49A" stop-opacity="0.2"></stop></linearGradient></defs>
+<ellipse cx="300" cy="90" rx="140" ry="110" fill="#3A1838" opacity="0.6" filter="url(#m2Pool)"></ellipse>
+<path d="M -20 150 C 120 70, 260 60, 400 120" fill="none" stroke="url(#m2A)" stroke-width="8" opacity="0.5" filter="url(#m2Blur)"></path>
+<path d="M -20 150 C 120 70, 260 60, 400 120" fill="none" stroke="url(#m2A)" stroke-width="1.2"></path>
+</svg>
+
+<header style="position: relative; display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+<a href="Mobil-01b-Start.dc.html" aria-label="Zpět" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #4A3045"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#F4E9E4" stroke-width="1.4"><path d="M10 3L5 8l5 5"></path></svg></a>
+</sc-if>
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-label="Zpět k první osobě" onClick="{{ back }}" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #4A3045; background: transparent; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#F4E9E4" stroke-width="1.4"><path d="M10 3L5 8l5 5"></path></svg></button>
+</sc-if>
+<span style="flex: 1; text-align: center; font-family: 'EB Garamond', serif; font-size: 17px; letter-spacing: 0.14em; color: #E8DAE0">MEZI VÁMI</span>
+<span style="width: 44px"></span>
+</header>
+<div aria-hidden="true" style="position: relative; display: flex; gap: 6px; padding: 0 20px">
+<span style="flex: 1; height: 3px; border-radius: 3px; background: #EDB894"></span>
+<span style="flex: 1; height: 3px; border-radius: 3px; background: {{ seg2 }}"></span>
+</div>
+
+<main style="position: relative; padding: 30px 20px 0">
+<h1 style="margin: 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 46px; line-height: 1; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">{{ title }}</h1>
+<p style="margin: 12px 0 0; font-size: 17px; line-height: 1.45; color: #E8DAE0">{{ sub }}</p>
+<p style="margin: 10px 0 0; font-size: 14px; line-height: 1.6; color: #BDA7B2">Vyplňte datum a místo narození. Potom zvolte, zda znáte čas narození přesně, přibližně, nebo ho neznáte.</p>
+
+<div style="margin-top: 24px; display: flex; flex-direction: column; gap: 8px">
+<fieldset style="margin: 0; padding: 0; border: 0; min-width: 0">
+<legend style="padding: 0; font-size: 14px; font-weight: 400; color: #E8DAE0">Datum narození</legend>
+<div style="margin-top: 8px; display: flex; gap: 8px"><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 4px"><label for="m2-den" style="font-size: 14px; color: #BDA7B2">Den</label><input id="m2-den" type="text" inputmode="numeric" autocomplete="bday-day" maxlength="2" placeholder="DD" style="width: 100%; height: 52px; box-sizing: border-box; padding: 0 10px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 400; text-align: center"></div><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 4px"><label for="m2-mesic" style="font-size: 14px; color: #BDA7B2">Měsíc</label><input id="m2-mesic" type="text" inputmode="numeric" autocomplete="bday-month" maxlength="2" placeholder="MM" style="width: 100%; height: 52px; box-sizing: border-box; padding: 0 10px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 400; text-align: center"></div><div style="flex: 1.6 1 0; display: flex; flex-direction: column; gap: 4px"><label for="m2-rok" style="font-size: 14px; color: #BDA7B2">Rok</label><input id="m2-rok" type="text" inputmode="numeric" autocomplete="bday-year" maxlength="4" placeholder="RRRR" style="width: 100%; height: 52px; box-sizing: border-box; padding: 0 10px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 400; text-align: center"></div></div>
+</fieldset>
+</div>
+<div style="margin-top: 18px; display: flex; flex-direction: column; gap: 8px">
+<label for="m2-misto" style="font-size: 14px; font-weight: 400; color: #E8DAE0">Místo narození</label>
+<input id="m2-misto" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="m2-misto-list" autocomplete="off" placeholder="Začněte psát obec" style="height: 52px; box-sizing: border-box; padding: 0 18px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 400">
+<p style="margin: 0; font-size: 14px; color: #C9B0BE">Podporujeme místa narození v Česku a na Slovensku.</p>
+</div>
+
+<fieldset style="margin: 24px 0 0; padding: 0; border: 0">
+<legend style="padding: 0; font-size: 14px; font-weight: 400; color: #E8DAE0">Znáte čas narození?</legend>
+<div role="radiogroup" aria-label="Znáte čas narození?" style="margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{ modes }}" as="m" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{ m.pressed }}" onClick="{{ m.pick }}" style="min-height: 48px; padding: 0 4px; border-radius: 12px; border: 1px solid; font-family: inherit; font-size: 14px; font-weight: 400; cursor: pointer; {{ m.sel }}">{{ m.label }}</button>
+</sc-for>
+</div>
+
+<div style="margin-top: 14px; padding: 16px; border-radius: 14px; border: 1px solid rgba(242, 198, 166, 0.2); background: rgba(255, 240, 232, 0.035)">
+<sc-if value="{{ isExact }}" hint-placeholder-val="{{ true }}">
+<p style="margin: 0; font-size: 15px; font-weight: 400; color: #F1D0BC">Přesný čas narození</p>
+<p style="margin: 3px 0 0; font-size: 14px; color: #BDA7B2">Zadejte čas v hodinách a minutách.</p>
+<label for="m2-cas" style="display: block; margin-top: 12px; font-size: 14px; color: #E8DAE0">Čas narození</label>
+<input id="m2-cas" type="text" inputmode="numeric" placeholder="HH:MM" style="margin-top: 6px; width: 140px; height: 50px; box-sizing: border-box; padding: 0 16px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 400">
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.55; color: #E8DAE0">Přesný čas může rozšířit rozsah Vztahové DNA. Zahrneme pouze části, které jsou pro danou dvojici dostupné.</p>
+<p style="margin: 6px 0 0; font-size: 14px; line-height: 1.55; color: #C9B0BE">Pokud čas znáte jen přibližně, zvolte „Vím přibližně“. Pokud ho neznáte, zvolte „Nevím“.</p>
+</sc-if>
+<sc-if value="{{ isApprox }}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; font-size: 15px; font-weight: 400; color: #F1D0BC">Přibližný čas narození</p>
+<p style="margin: 3px 0 0; font-size: 14px; color: #BDA7B2">Uveďte odhad s rozmezím nebo část dne.</p>
+<div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{ approxChips }}" as="c" hint-placeholder-count="4">
+<button type="button" role="radio" aria-checked="{{ c.pressed }}" onClick="{{ c.pick }}" style="min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid; font-family: inherit; font-size: 14px; cursor: pointer; {{ c.sel }}">{{ c.label }}</button>
+</sc-for>
+</div>
+<sc-if value="{{ notPart }}" hint-placeholder-val="{{ true }}">
+<label for="m2-cas-pribl" style="display: block; margin-top: 12px; font-size: 14px; color: #E8DAE0">Přibližný čas narození</label>
+<input id="m2-cas-pribl" type="text" inputmode="numeric" placeholder="HH:MM" style="margin-top: 6px; width: 140px; height: 50px; box-sizing: border-box; padding: 0 16px; border-radius: 12px; border: 1px solid #5A3F53; background: rgba(255, 240, 232, 0.04); color: #F4E9E4; font-family: inherit; font-size: 17px; font-weight: 400">
+<p style="margin: 6px 0 0; font-size: 14px; color: #C9B0BE">Uveďte místní čas v místě narození.</p>
+</sc-if>
+<sc-if value="{{ isPart }}" hint-placeholder-val="{{ false }}">
+<div style="margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{ dayparts }}" as="d" hint-placeholder-count="4">
+<button type="button" role="radio" aria-checked="{{ d.pressed }}" onClick="{{ d.pick }}" style="min-height: 56px; padding: 6px 12px; border-radius: 12px; border: 1px solid; font-family: inherit; text-align: left; cursor: pointer; {{ d.sel }}"><span style="display: block; font-size: 15px; font-weight: 400">{{ d.label }}</span><span style="display: block; font-size: 14px; opacity: 0.85">{{ d.range }}</span></button>
+</sc-for>
+</div>
+</sc-if>
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.55; color: #E8DAE0">Odhad nepovažujeme za přesný čas.</p>
+<p style="margin: 6px 0 0; font-size: 14px; line-height: 1.55; color: #C9B0BE">Uveďte přibližný čas a vyberte rozmezí. Znáte-li jen část dne, zvolte „Jen část dne“.</p>
+</sc-if>
+<sc-if value="{{ isUnknown }}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; font-size: 15px; font-weight: 400; color: #F1D0BC">Bez času narození</p>
+<p style="margin: 3px 0 0; font-size: 14px; color: #BDA7B2">I bez něj můžete pokračovat.</p>
+<p style="margin: 10px 0 0; font-size: 14px; line-height: 1.55; color: #E8DAE0">Získáte plnohodnotnou Vztahovou DNA s menším rozsahem. Části, které bez času narození nelze vyhodnotit, vynecháme.</p>
+<p style="margin: 6px 0 0; font-size: 14px; line-height: 1.55; color: #C9B0BE">Není potřeba zadávat náhradní čas.</p>
+</sc-if>
+</div>
+</fieldset>
+
+<details style="margin-top: 22px; border-top: 1px solid #3A2535; border-bottom: 1px solid #3A2535; padding: 4px 0">
+<summary style="display: flex; align-items: center; justify-content: space-between; min-height: 48px; font-size: 14px; color: #E8DAE0"><span>Gramatická podoba textu <span style="color: #C9B0BE">(nepovinné)</span></span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#EDB894" stroke-width="1.4"><path d="M3 5l4 4 4-4"></path></svg></summary>
+<div role="radiogroup" aria-label="Gramatická podoba textu" style="display: flex; flex-direction: column; gap: 4px; padding: 4px 0 14px">
+<label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px; color: #F4E9E4"><input type="radio" name="m2-styl" checked style="width: 20px; height: 20px; accent-color: #EDB894">Neutrálně</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px; color: #F4E9E4"><input type="radio" name="m2-styl" style="width: 20px; height: 20px; accent-color: #EDB894">V mužském rodě</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 15px; color: #F4E9E4"><input type="radio" name="m2-styl" style="width: 20px; height: 20px; accent-color: #EDB894">V ženském rodě</label>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 1.55; color: #C9B0BE">Volba mění jen gramatiku textu o této osobě. Výpočet neovlivní. Bez výběru zůstává neutrální vyjadřování.</p>
+</div>
+</details>
+
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<p style="margin: 20px 0 0; font-size: 14px; line-height: 1.6; color: #BDA7B2">Údaje druhé osoby slouží k vytvoření společné vztahové analýzy. Její jméno ani e-mail nejsou potřeba.</p>
+</sc-if>
+
+<div style="margin-top: 24px">
+<sc-if value="{{ isA }}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{ next }}" style="width: 100%; min-height: 56px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.4), 0 0 70px rgba(240, 160, 130, 0.22), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 16px; font-weight: 500; cursor: pointer">Pokračovat</button>
+<a href="Mobil-01b-Start.dc.html" style="margin-top: 8px; display: flex; align-items: center; justify-content: center; min-height: 48px; font-size: 14px">Zpět</a>
+</sc-if>
+<sc-if value="{{ isB }}" hint-placeholder-val="{{ false }}">
+<a href="Mobil-02b-Vypocet.dc.html" style="display: flex; align-items: center; justify-content: center; width: 100%; min-height: 56px; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.4), 0 0 70px rgba(240, 160, 130, 0.22), inset 0 1px 0 rgba(255, 244, 236, 0.7); text-decoration: none; font-size: 16px; font-weight: 500">Pokračovat</a>
+<button type="button" onClick="{{ back }}" style="margin-top: 8px; width: 100%; min-height: 48px; border: 0; background: transparent; color: #F1D0BC; font-family: inherit; font-size: 14px; text-decoration: underline; cursor: pointer">Zpět k první osobě</button>
+</sc-if>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":375,"height":1400}}'>
+class Component extends DCLogic {
+renderVals() {
+const s = this.state || {};
+const step = s.step || 'A';
+const mode = s['mode' + step] || (step === 'A' ? 'exact' : 'unknown');
+const approx = s['approx' + step] || '60';
+const part = s['part' + step] || 'rano';
+const on = 'background: #EDB894; color: #2A1220; border-color: #EDB894;';
+const off = 'background: transparent; color: #F4E9E4; border-color: #6E5566;';
+const pickKey = (key, id) => () => { const u = {}; u[key + step] = id; this.setState(u); };
+const modes = [['exact', 'Vím přesně'], ['approx', 'Vím přibližně'], ['unknown', 'Nevím']].map((m) => ({
+label: m[1], pressed: String(mode === m[0]), sel: mode === m[0] ? on : off, pick: pickKey('mode', m[0])
+}));
+const approxChips = [['30', '±30 min'], ['60', '±1 h'], ['120', '±2 h'], ['part', 'Jen část dne']].map((c) => ({
+label: c[1], pressed: String(approx === c[0]), sel: approx === c[0] ? on : off, pick: pickKey('approx', c[0])
+}));
+const dayparts = [['noc', 'Noc', '00:00–05:59'], ['rano', 'Ráno', '06:00–11:59'], ['odpoledne', 'Odpoledne', '12:00–17:59'], ['vecer', 'Večer', '18:00–23:59']].map((d) => ({
+label: d[1], range: d[2], pressed: String(part === d[0]), sel: part === d[0] ? on : off, pick: pickKey('part', d[0])
+}));
+return {
+isA: step === 'A',
+isB: step === 'B',
+title: step === 'A' ? 'První osoba' : 'Druhá osoba',
+sub: step === 'A' ? 'Začněte údaji o narození první osoby.' : 'Teď údaje o narození druhé osoby.',
+seg2: step === 'B' ? '#EDB894' : '#3A2535',
+isExact: mode === 'exact',
+isApprox: mode === 'approx',
+isUnknown: mode === 'unknown',
+isPart: approx === 'part',
+notPart: approx !== 'part',
+modes: modes,
+approxChips: approxChips,
+dayparts: dayparts,
+next: () => this.setState({ step: 'B' }),
+back: () => this.setState({ step: 'A' })
+};
+}
+}
+</script>
+</body>
+</html>

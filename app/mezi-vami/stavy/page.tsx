@@ -1,11 +1,12 @@
-import { Stavy } from "../_parts/Stavy";
+import Stavy from "../_dc/Stavy";
 
-export default function StavyPage() {
+// Hraniční stavy (galerie). Jeden artboard pro desktop i mobil.
+export default function MeziVamiStavy() {
   return (
-    <div className="mvp mvp-stavy">
-      <div className="mv-stavy-wrap">
+    <div className="mvp" style={{ background: "#0D070D" }}>
+      <main>
         <Stavy />
-      </div>
+      </main>
     </div>
   );
 }

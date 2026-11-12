@@ -1,9 +1,8 @@
-import { Osoba } from "../_parts/Osoba";
+import { Dual } from "../_lib/Dual";
+import OsobaD from "../_dc/OsobaD";
+import OsobaM from "../_dc/OsobaM";
 
-export default function OsobaPage() {
-  return (
-    <div className="mvp mvp-osoba">
-      <Osoba />
-    </div>
-  );
+// První a druhá osoba (krok A → B ve stavu komponenty).
+export default function MeziVamiOsoba() {
+  return <Dual bg="#120A12" desktop={<OsobaD />} mobile={<OsobaM />} />;
 }

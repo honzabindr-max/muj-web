@@ -17,7 +17,7 @@ export const garamond = localFont({
 });
 
 export const jost = localFont({
-  src: [{ path: "./fonts/Jost.woff2", weight: "300 500", style: "normal" }],
+  src: [{ path: "./fonts/Jost.woff2", weight: "400 500", style: "normal" }],
   variable: "--font-mv-jost",
   display: "swap",
 });

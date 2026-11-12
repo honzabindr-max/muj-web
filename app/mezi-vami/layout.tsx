@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { garamond, jost } from "./fonts";
 import "./mezi-vami.css";
+import "./design-a.css";
 
 // Prototyp: vše pod /mezi-vami je mimo indexaci a mimo navigaci zbytku webu.
 export const metadata: Metadata = {
@@ -12,6 +13,14 @@ export const viewport: Viewport = {
   themeColor: "#0D090E",
 };
 
-export default function MeziVamiLayout({ children }: { children: React.ReactNode }) {
-  return <div className={`${garamond.variable} ${jost.variable}`}>{children}</div>;
+export default function MeziVamiLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div lang="cs" className={`${garamond.variable} ${jost.variable}`}>
+      {children}
+    </div>
+  );
 }

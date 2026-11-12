@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Výpočet — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0E070F}
+a:focus-visible{outline:2px solid #EDB894;outline-offset:4px}
+.mv-breathe{animation:mvBreathe 6s ease-in-out infinite}
+.mv-spin{animation:mvSpin 40s linear infinite;transform-origin:center;transform-box:fill-box}
+.mv-pulse{animation:mvPulse 5s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes mvBreathe{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes mvSpin{to{transform:rotate(360deg)}}
+@keyframes mvPulse{0%,100%{opacity:.8;transform:scale(1)}50%{opacity:1;transform:scale(1.2)}}
+@media (prefers-reduced-motion: reduce){.mv-breathe,.mv-spin,.mv-pulse{animation:none}}
+h1,h2,h3{text-wrap:balance}p,li,dd,figcaption{text-wrap:pretty}
+@supports (animation-timeline: view()){.mv-reveal{animation:mvReveal linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@keyframes mvReveal{from{opacity:0;translate:0 28px}}
+@media (prefers-reduced-motion: reduce){.mv-reveal{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; min-height: 812px; box-sizing: border-box; background: #0E070F; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-weight: 400; overflow: hidden">
+<header style="position: relative; display: flex; justify-content: center; padding: 22px 16px">
+<span style="font-family: 'EB Garamond', serif; font-size: 17px; letter-spacing: 0.14em; color: #EADCE2">MEZI VÁMI</span>
+</header>
+<main style="position: relative; padding: 70px 24px 0; text-align: center">
+<a href="{{ nextHref }}" aria-label="Prototyp: přejít na výsledek" style="display: block; text-decoration: none">
+<svg aria-hidden="true" width="327" height="260" viewBox="0 0 375 300">
+<defs>
+<filter id="m2bB2" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="14"></feGaussianBlur></filter>
+<filter id="m2bB3" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="40"></feGaussianBlur></filter>
+<clipPath id="m2bClip"><circle cx="160" cy="150" r="74"></circle></clipPath>
+<radialGradient id="m2bFl"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="0.16" stop-color="#FFEBDD" stop-opacity="0.95"></stop><stop offset="0.45" stop-color="#F2A98E" stop-opacity="0.35"></stop><stop offset="1" stop-color="#F2A98E" stop-opacity="0"></stop></radialGradient>
+<linearGradient id="m2bRA" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F6C9D6"></stop><stop offset="1" stop-color="#9A74B8"></stop></linearGradient>
+<linearGradient id="m2bRB" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE3CC"></stop><stop offset="1" stop-color="#D98E78"></stop></linearGradient>
+</defs>
+<ellipse cx="188" cy="150" rx="170" ry="130" fill="#3A1838" opacity="0.65" filter="url(#m2bB3)"></ellipse>
+<circle cx="160" cy="150" r="74" fill="none" stroke="#E3A3BC" stroke-width="10" opacity="0.35" filter="url(#m2bB2)"></circle>
+<circle cx="216" cy="150" r="74" fill="none" stroke="#F0B48F" stroke-width="10" opacity="0.35" filter="url(#m2bB2)"></circle>
+<circle cx="160" cy="150" r="74" fill="none" stroke="url(#m2bRA)" stroke-width="1.4"></circle>
+<circle cx="216" cy="150" r="74" fill="none" stroke="url(#m2bRB)" stroke-width="1.4"></circle>
+<circle class="mv-spin" cx="160" cy="150" r="84" fill="none" stroke="#E3A3BC" stroke-width="0.6" stroke-dasharray="1 7" opacity="0.6"></circle>
+<circle class="mv-spin" cx="216" cy="150" r="84" fill="none" stroke="#F0B48F" stroke-width="0.6" stroke-dasharray="1 7" opacity="0.6"></circle>
+<g clip-path="url(#m2bClip)"><circle class="mv-breathe" cx="216" cy="150" r="74" fill="#F2A98E" opacity="0.5" filter="url(#m2bB2)"></circle></g>
+<g class="mv-pulse"><circle cx="188" cy="150" r="36" fill="url(#m2bFl)"></circle></g>
+</svg>
+</a>
+<h1 role="status" style="margin: 30px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 38px; line-height: 1.06; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">{{ headline }}</h1>
+<p style="margin: 14px 0 0; font-size: 16px; line-height: 1.6; color: #C2ACB7">{{ body }}</p>
+<sc-if value="{{ slow }}" hint-placeholder-val="{{ false }}">
+<p style="margin: 20px 0 0; padding: 10px 16px; border-radius: 14px; border: 1px solid rgba(240, 190, 165, 0.3); font-size: 14px; color: #EADCE2">Výpočet trvá déle než obvykle. Pokračuje dál.</p>
+</sc-if>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stav":{"editor":"enum","options":["Výpočet","Přepočet po úpravě"],"default":"Výpočet"},"prodleva":{"editor":"boolean","default":false},"$preview":{"width":375,"height":812}}'>
+class Component extends DCLogic {
+renderVals() {
+const re = (this.props.stav ?? 'Výpočet') !== 'Výpočet';
+return {
+headline: re ? 'Přepočítáváme Vztahovou DNA' : 'Počítáme vaši Vztahovou DNA',
+body: re ? 'Výpočet probíhá znovu podle upravených údajů. Předchozí výsledek zůstává označený jako neaktuální.' : 'Výpočet vychází z údajů o narození obou lidí. Výsledek se zobrazí, jakmile bude hotový.',
+slow: !!(this.props.prodleva ?? false),
+nextHref: re ? 'Mobil-06-Pokladna.dc.html' : 'Mobil-03-Vypocet.dc.html'
+};
+}
+}
+</script>
+</body>
+</html>

@@ -1,11 +1,10 @@
-import { Pokladna } from "../_parts/Pokladna";
+import { Dual } from "../_lib/Dual";
+import ObjednavkaD from "../_dc/ObjednavkaD";
+import ObjednavkaM from "../_dc/ObjednavkaM";
 
-export default function ObjednavkaPage() {
+// Dokončení objednávky (bez plateb — prototyp).
+export default function MeziVamiObjednavka() {
   return (
-    <div className="mvp mvp-pokladna">
-      <div style={{ position: "relative", maxWidth: "560px", margin: "0 auto", paddingBottom: "56px" }}>
-        <Pokladna />
-      </div>
-    </div>
+    <Dual bg="#120A12" desktop={<ObjednavkaD />} mobile={<ObjednavkaM />} />
   );
 }
