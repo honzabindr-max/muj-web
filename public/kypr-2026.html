@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kypr 2026 — katalog míst</title>
+<style>
+:root{--bg:#f6f7f5;--card:#fff;--ink:#1a2420;--muted:#63706a;--line:#e4e8e4;--acc:#0e7c66;--acc2:#1189b6;--sun:#e08a2b;--warn:#b7791f;--bad:#c0483a;--ok:#2f8f5b;--chip:#eef1ee;--shadow:0 1px 2px rgba(20,40,30,.05),0 6px 20px rgba(20,40,30,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#161d19;--ink:#e8efe9;--muted:#95a49c;--line:#232c27;--acc:#3fb79b;--acc2:#4fb6d9;--sun:#e8a24e;--chip:#1c2521;--shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35)}}
+:root[data-theme="dark"]{--bg:#0f1512;--card:#161d19;--ink:#e8efe9;--muted:#95a49c;--line:#232c27;--acc:#3fb79b;--acc2:#4fb6d9;--sun:#e8a24e;--chip:#1c2521;--shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35)}
+:root[data-theme="light"]{--bg:#f6f7f5;--card:#fff;--ink:#1a2420;--muted:#63706a;--line:#e4e8e4;--acc:#0e7c66;--acc2:#1189b6;--sun:#e08a2b;--chip:#eef1ee;--shadow:0 1px 2px rgba(20,40,30,.05),0 6px 20px rgba(20,40,30,.06)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+a{color:var(--acc2);text-decoration:none}a:hover{text-decoration:underline}
+.kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);font-weight:700}
+h1{font-size:clamp(26px,5vw,40px);margin:.24em 0 .1em;letter-spacing:-.02em;line-height:1.08}
+.sub{color:var(--muted);max-width:70ch;margin:.2em 0 0}
+.factrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.fact{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ink)}
+.seahero{position:relative;overflow:hidden;isolation:isolate;margin-bottom:-2px}
+.seahero .sea-bg{position:absolute;inset:0;z-index:-2;background:radial-gradient(120% 90% at 82% -10%,rgba(255,236,190,.6),rgba(255,236,190,0) 45%),linear-gradient(#9fe3ea 0%,#3cc3d6 26%,#16a6cc 46%,#0e83b8 66%,#0a5f9c 100%)}
+.seahero .sea-shine{position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(60% 40% at 20% 78%,rgba(255,255,255,.16),transparent 60%),repeating-linear-gradient(100deg,rgba(255,255,255,.05) 0,rgba(255,255,255,.05) 2px,transparent 2px,transparent 26px)}
+.seahero-inner{display:flex;gap:26px;align-items:center;padding:40px 18px 66px;position:relative;z-index:1}
+.portrait{flex:0 0 auto;background:#fff;padding:10px 10px 14px;border-radius:16px;box-shadow:rgba(6,40,70,.34) 0 10px 34px,rgba(6,40,70,.2) 0 2px 6px;transform:rotate(-2.4deg);transition:transform .3s;margin:0}
+.portrait:hover{transform:rotate(0) scale(1.02)}
+.portrait img{display:block;width:210px;height:200px;object-fit:cover;border-radius:9px}
+.portrait figcaption{text-align:center;font-size:12px;color:#5a6b74;margin-top:8px;font-weight:600;letter-spacing:.02em}
+.seahero-text{color:#fff;text-shadow:rgba(6,40,70,.35) 0 1px 14px}
+.seahero-text .kicker{color:#eafcff}
+.seahero-text h1{color:#fff;margin:.1em 0 .04em;font-size:clamp(30px,6.4vw,54px);text-shadow:rgba(6,40,70,.4) 0 2px 20px}
+.seahero-text .tagline{margin:.1em 0 .5em;font-size:clamp(15px,2.4vw,19px);font-weight:600;color:#f2fbff;opacity:.95}
+.seahero-text .sub{color:#eefaff;opacity:.96}
+.seahero-text .fact{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.28);color:#fff;backdrop-filter:blur(3px)}
+.wave{position:absolute;left:0;right:0;bottom:-1px;width:100%;height:64px;z-index:0;display:block}.wave path{fill:var(--bg)}
+@media (max-width:640px){.seahero-inner{flex-direction:column;text-align:center;gap:18px;padding:30px 18px 60px}.seahero-text .factrow{justify-content:center}.portrait img{width:180px;height:172px}}
+.flights{margin:22px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:640px){.flights{grid-template-columns:1fr}}
+.flight{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:16px;box-shadow:var(--shadow)}
+.flight .dir{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc2)}
+.flight .rt{display:flex;align-items:center;gap:10px;margin:8px 0 6px}
+.flight .ap{font-size:22px;font-weight:800}
+.flight .arrow{flex:1;height:0;border-top:2px dashed var(--line);position:relative}
+.flight .arrow::after{content:"✈";position:absolute;right:-2px;top:-11px;font-size:14px;color:var(--acc2)}
+.flight .tm{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted)}.flight .tm b{color:var(--ink)}
+.flight .ln{font-size:13px;color:var(--muted);margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.flnote{grid-column:1/-1;font-size:13px;color:var(--muted);background:var(--chip);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+.flnote b{color:var(--ink)}
+.sectionhdr{font-size:20px;margin:24px 0 4px;display:flex;align-items:center;gap:8px}
+.eric{margin:18px 0 4px;background:linear-gradient(90deg,var(--chip),transparent);border-left:3px solid var(--sun);border-radius:10px;padding:12px 14px;font-size:14.5px}
+.eric b{color:var(--sun)}
+.rhythm{margin:20px 0;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:18px;box-shadow:var(--shadow)}
+.rhythm h2{margin:0 0 6px;font-size:19px}
+.rhythm .day{font-weight:800;color:var(--acc2);margin:14px 0 2px;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+.rhythm .row{display:flex;gap:12px;padding:7px 0;border-top:1px dashed var(--line);font-size:14px}
+.rhythm .t{flex:0 0 auto;width:118px;font-weight:700;color:var(--acc)}
+.toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:saturate(1.4) blur(8px);padding:12px 0 10px;margin-top:14px;border-bottom:1px solid var(--line)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 13px;font-size:13.5px;font-weight:600}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.count{color:var(--muted);font-size:13px;margin-left:auto;align-self:center}
+#theme{margin-left:8px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;width:34px;height:32px;font-size:15px}
+main{padding:18px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);display:flex;flex-direction:column;position:relative;overflow:hidden}
+.card .ph{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--chip)}
+.card .bd{padding:14px 16px 14px;display:flex;flex-direction:column;gap:9px;flex:1}
+.card.star::after{content:"⭐ tip";position:absolute;top:11px;right:-30px;transform:rotate(38deg);background:var(--sun);color:#fff;font-size:10px;font-weight:800;letter-spacing:.04em;padding:3px 40px}
+.tag{align-self:flex-start;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--acc);background:var(--chip);border-radius:6px;padding:3px 8px}
+.card h3{margin:0;font-size:18px;letter-spacing:-.01em;line-height:1.2}
+.meta{display:flex;flex-wrap:wrap;gap:6px 10px;font-size:13px;color:var(--muted)}
+.pill{background:var(--chip);border-radius:7px;padding:2px 8px}.pill.rt{color:var(--acc);font-weight:700}
+.note{font-size:13.5px;color:var(--muted)}
+.go{margin-top:auto;padding-top:4px}
+.btn{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:13px;font-weight:700;color:var(--ink);background:var(--chip)}
+.btn:hover{text-decoration:none;border-color:var(--acc)}
+.secttl{grid-column:1/-1;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;margin:8px 2px 0}
+.checklist{margin:26px 0;background:var(--card);border:1px solid var(--line);border-radius:15px;padding:18px;box-shadow:var(--shadow)}
+.checklist h2{margin:0 0 12px;font-size:19px}
+.checklist ul{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+.checklist li{display:flex;gap:10px;font-size:14.5px;align-items:flex-start}
+.checklist li span.b{flex:0 0 auto;width:20px;height:20px;border-radius:6px;background:var(--chip);border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:12px;margin-top:1px}
+.checklist li.warn span.b{background:color-mix(in srgb,var(--warn) 22%,transparent);border-color:var(--warn)}
+.checklist li.ok span.b{background:color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok)}
+footer{border-top:1px solid var(--line);margin-top:20px;padding:22px 0 60px;color:var(--muted);font-size:12.5px}
+footer p{margin:.5em 0}
+</style>
+</head>
+<body>
+<header class="seahero">
+  <div class="sea-bg"></div><div class="sea-shine"></div>
+  <div class="wrap seahero-inner">
+    <figure class="portrait">
+      <img src="/kypr-2026/nissi-beach.jpg" alt="Nissi Beach" loading="eager" referrerpolicy="no-referrer">
+      <figcaption>Honzík &amp; Markéta 💙</figcaption>
+    </figure>
+    <div class="seahero-text">
+      <div class="kicker">Osobní katalog · Good Inventions</div>
+      <h1>Kypr 2026</h1>
+      <p class="tagline">Podzimní útěk za sluncem do Ayia Napy ☀️</p>
+      <p class="sub">Katalog míst a výletů ze základny <b>Aktea Beach Village</b> u pláže Nissi, <b>14.–17. 11. 2026</b>, pro 2 osoby s autem. Dva celé dny + úterní dopoledne cestou na letiště.</p>
+      <div class="factrow">
+        <span class="fact">🏨 Aktea Beach Village★★★★, Ayia Napa</span>
+        <span class="fact">✈️ Bratislava → Larnaka</span>
+        <span class="fact">🍳 snídaně · 3 noci</span>
+        <span class="fact">🚗 auto z letiště</span>
+      </div>
+    </div>
+  </div>
+  <svg class="wave" viewBox="0 0 1440 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0,32 C240,64 480,64 720,40 C960,16 1200,16 1440,40 L1440,64 L0,64 Z"></path></svg>
+</header>
+
+<div class="wrap">
+  <section aria-label="Odlety">
+    <h2 class="sectionhdr">✈️ Odlety</h2>
+    <div class="flights">
+      <div class="flight">
+        <div class="dir">Tam · sobota 14. 11. 2026</div>
+        <div class="rt"><span class="ap">BTS</span><span class="arrow"></span><span class="ap">LCA</span></div>
+        <div class="tm"><span>Bratislava <b>18:15</b></span><span>3 h 05 m</span><span>Larnaka <b>22:20</b></span></div>
+        <div class="ln">Wizz Air · <b>W6 4626</b> · přímý</div>
+      </div>
+      <div class="flight">
+        <div class="dir">Zpět · úterý 17. 11. 2026</div>
+        <div class="rt"><span class="ap">LCA</span><span class="arrow"></span><span class="ap">BTS</span></div>
+        <div class="tm"><span>Larnaka <b>15:40</b></span><span>3 h 20 m</span><span>Bratislava <b>18:00</b></span></div>
+        <div class="ln">Wizz Air · <b>W6 4625</b> · přímý</div>
+      </div>
+      <div class="flnote">🚗 <b>Transfer není v ceně</b> → auto z letiště (Avis nonstop, Hertz nonstop + shuttle), vyzvednutí ~23:00, plné pojištění bez spoluúčasti, kreditní karta. Taxi do Ayia Napy ~50–70 €. 🧳 <b>Zavazadla</b> ve smlouvě nejsou — ověřit, co je v ceně Wizz Air. 📄 Zájezd: Flexi Tours přes Invia, rez. 128605.</div>
+    </div>
+  </section>
+
+  <div class="eric">🌅 <b>Klíč k celému pobytu — krátký den:</b> slunce zapadá kolem <b>16:40</b>, v 17:00 je tma. Venkovní program plánuj do 16:30 a západ slunce si nech na Cape Greco. Přes den ~22 °C, moře ~22–23 °C — koupat se dá. 🚗 <b>Jezdí se vlevo</b>, hodně radarů. 🔌 Zásuvky britské (typ G).</div>
+
+  <section class="rhythm">
+    <h2>🗓️ Návrh programu</h2>
+    <div class="day">So 14. 11. · přílet</div>
+    <div class="row"><span class="t">22:20–00:00</span><span>Přílet, auto na letišti, ~45–55 min do hotelu.</span></div>
+    <div class="day">Ne 15. 11. · moře + Cape Greco</div>
+    <div class="row"><span class="t">dopoledne</span><span>Nissi Beach, Vathia Gonia, Landa — koupání.</span></div>
+    <div class="row"><span class="t">oběd</span><span>Protaras / Fig Tree Bay.</span></div>
+    <div class="row"><span class="t">14:30–16:45</span><span>Cape Greco: Konnos, Cyclops cave, Sea Caves, kaple Agioi Anargyroi → západ slunce u Crow's Arch.</span></div>
+    <div class="row"><span class="t">večer</span><span>Odyssos Tavern (pěšky).</span></div>
+    <div class="day">Po 16. 11. · sever: Famagusta + Varosha</div>
+    <div class="row"><span class="t">8:45</span><span>Auto nechat u přechodu Deryneia (půjčovny přejezd zakazují), pěšky přes hranici s pasem, taxi.</span></div>
+    <div class="row"><span class="t">9:30–11:30</span><span>Varosha – ghost town, na kole.</span></div>
+    <div class="row"><span class="t">11:45–14:15</span><span>Staré město Famagusta, Othellův hrad, Namik Kemal Dungeon, oběd.</span></div>
+    <div class="row"><span class="t">odpoledne</span><span>Sculpture Open Park + Love Bridge, večeře v přístavu (Vassos).</span></div>
+    <div class="day">Út 17. 11. · Larnaka cestou na letiště</div>
+    <div class="row"><span class="t">9:00–13:00</span><span>Sv. Lazar, Finikoudes, akvadukt Kamares, Solné jezero + Hala Sultan Tekke.</span></div>
+    <div class="row"><span class="t">13:30</span><span>Vrátit auto, odlet 15:40.</span></div>
+  </section>
+</div>
+
+<div class="toolbar">
+  <div class="wrap">
+    <div class="chips" id="filters">
+      <button class="chip" data-f="all" aria-pressed="true">Vše</button>
+      <button class="chip" data-f="beach">🏖️ Pláže</button>
+      <button class="chip" data-f="nature">🥾 Příroda</button>
+      <button class="chip" data-f="north">🏰 Sever</button>
+      <button class="chip" data-f="food">🍽️ Jídlo</button>
+      <button class="chip" data-f="extra">✨ Zážitky</button>
+      <button class="chip" data-f="base">🧭 Základna</button>
+      <span class="count" id="count"></span>
+      <button id="theme" title="Přepnout světlý/tmavý">◐</button>
+    </div>
+  </div>
+</div>
+
+<main class="wrap"><div class="grid" id="grid"></div>
+
+<section class="checklist">
+  <h2>✅ Než odletíte</h2>
+  <ul>
+    <li class="warn"><span class="b">!</span><span>Rezervovat auto na letišti (Avis/Hertz), vyzvednutí 23:00 + číslo letu W6 4626.</span></li>
+    <li class="warn"><span class="b">!</span><span>Ověřit zavazadla u Wizz Air, případně dokoupit online (na letišti dražší).</span></li>
+    <li class="warn"><span class="b">!</span><span>Pasy s sebou (na sever i na pasovou kontrolu).</span></li>
+    <li><span class="b"></span><span>Adaptér do britských zásuvek (typ G).</span></li>
+    <li><span class="b"></span><span>Kreditní karta na kauci za auto.</span></li>
+    <li class="ok"><span class="b">✓</span><span>Zájezd zaplacen a potvrzen (Invia / Flexi Tours, rez. 128605).</span></li>
+  </ul>
+</section>
+</main>
+
+<footer class="wrap">
+  <p><b>Metodika:</b> místa z uloženého seznamu v Mapách Google, doplněno rešerší (otevírací doby v listopadu, vzdálenosti, ceny). Otevírací doby restaurací se v listopadu mění — ověřit v Mapách.</p>
+  <p><b>Sever ostrova:</b> přechod Deryneia nonstop; půjčovny přejezd autem většinou zakazují → přejít pěšky. Na severu turecké liry, karta, často i euro.</p>
+  <p>Fotky: Mapy Google.</p>
+</footer>
+
+<script>
+const DATA = [{"cat": "beach", "star": true, "name": "Nissi Beach", "rating": "4,5 (9 098)", "type": "Pláž", "img": "/kypr-2026/nissi-beach.jpg", "loc": "Ayia Napa", "dist": "~0,5 km · pěšky 7 min", "when": "dopoledne", "note": "Nejznámější pláž v okolí, mimo sezónu prázdná. Mělkou písčinou se dá dobrodit na ostrůvek. Ležátka a bary v listopadu spíš zavřené, vzít ručník.", "maps": "https://www.google.com/maps/search/?api=1&query=Nissi%20Beach%2C%20Cyprus"}, {"cat": "beach", "star": false, "name": "Vathia Gonia", "rating": "4,5 (1 990)", "type": "Pláž", "img": "/kypr-2026/vathia-gonia.jpg", "loc": "Ayia Napa", "dist": "~0,5 km · pěšky", "when": "kdykoli", "note": "Malá klidná zátoka hned vedle hotelu. Ideální na ranní koupání v klidu.", "maps": "https://www.google.com/maps/search/?api=1&query=Vathia%20Gonia%2C%20Cyprus"}, {"cat": "beach", "star": false, "name": "Landa Beach", "rating": "4,7 (2 184)", "type": "Pláž", "img": "/kypr-2026/landa-beach.jpg", "loc": "Ayia Napa", "dist": "~1,8 km", "when": "kdykoli", "note": "Tišší písečná pláž západně od Nissi, mimo sezónu bez obsluhy.", "maps": "https://www.google.com/maps/search/?api=1&query=Landa%20Beach%2C%20Cyprus"}, {"cat": "beach", "star": false, "name": "Sandy Bay", "rating": "4,7 (119)", "type": "Zátoka", "img": "/kypr-2026/sandy-bay.jpg", "loc": "Ayia Napa", "dist": "v okolí", "when": "kdykoli", "note": "Malá chráněná písečná zátoka, dobrá na koupání při větru. Polohu ověřit v Mapách.", "maps": "https://www.google.com/maps/search/?api=1&query=Sandy%20Bay%2C%20Cyprus"}, {"cat": "beach", "star": true, "name": "Konnos Beach", "rating": "4,7 (2 993)", "type": "Pláž", "img": "/kypr-2026/konnos-beach.jpg", "loc": "Cape Greco", "dist": "~12 km · autem 15 min", "when": "odpoledne", "note": "Tyrkysová zátoka pod útesy, v listopadu poloprázdná a parkoviště volné. Odtud ~700 m po útesu ke Cyclops cave.", "maps": "https://www.google.com/maps/search/?api=1&query=Konnos%20Beach%2C%20Cyprus"}, {"cat": "beach", "star": false, "name": "Fig Tree Bay", "rating": "4,7 (1 732)", "type": "Pláž", "img": "/kypr-2026/fig-tree-bay.jpg", "loc": "Protaras", "dist": "~18 km · autem 15–20 min", "when": "oběd / káva", "note": "Krátká zastávka s promenádou a kávou, dá se spojit s Cape Greco.", "maps": "https://www.google.com/maps/search/?api=1&query=Fig%20Tree%20Bay%2C%20Cyprus"}, {"cat": "nature", "star": true, "name": "Cape Greco Peninsula", "rating": "národní park", "type": "Příroda", "img": "/kypr-2026/cape-greco-peninsula.jpg", "loc": "Cape Greco", "dist": "~10 km · autem 12 min", "when": "14:30 → západ 16:40", "note": "Útesy, vyhlídky, kaple Agioi Anargyroi a nejlepší západ slunce v okolí. Trasy Aphrodite Trail (2 km), Sea Caves Path (1 km). Vstup zdarma, útesy nejsou oplocené.", "maps": "https://www.google.com/maps/search/?api=1&query=Cape%20Greco%20Peninsula%2C%20Cyprus"}, {"cat": "nature", "star": true, "name": "Sea Caves", "rating": "4,9 (4 084)", "type": "Mořské jeskyně", "img": "/kypr-2026/sea-caves.jpg", "loc": "Cape Greco", "dist": "~9 km", "when": "odpoledne", "note": "Skalní jeskyně a mořské oblouky u kaple Agioi Anargyroi. Nejlepší fotky v podvečerním světle.", "maps": "https://www.google.com/maps/search/?api=1&query=Sea%20Caves%2C%20Cyprus"}, {"cat": "nature", "star": true, "name": "Crow's Arch (Kamara tou Koraka)", "rating": "4,6 (2 355)", "type": "Skalní oblouk", "img": "/kypr-2026/crow-s-arch-kamara-tou-koraka.jpg", "loc": "Cape Greco", "dist": "~10 km", "when": "16:15–16:45", "note": "Přírodní kamenný most nad mořem — tip na západ slunce. Pozor na kluzké skály.", "maps": "https://www.google.com/maps/search/?api=1&query=Crow%27s%20Arch%2C%20Cyprus"}, {"cat": "nature", "star": false, "name": "Sculpture Open Park", "rating": "4,7 (8 592)", "type": "Park soch", "img": "/kypr-2026/sculpture-open-park.jpg", "loc": "Ayia Napa", "dist": "~5 km", "when": "kdykoli", "note": "Venkovní park soch nad mořem, vstup zdarma. Spojit s procházkou k Love Bridge.", "maps": "https://www.google.com/maps/search/?api=1&query=Sculpture%20Open%20Park%2C%20Cyprus"}, {"cat": "extra", "star": false, "name": "Black Pearl", "rating": "—", "type": "Pirátská loď", "img": "/kypr-2026/black-pearl.jpg", "loc": "přístav Ayia Napa", "dist": "~3,5 km", "when": "dle provozu", "note": "Vyhlídková plavba podél pobřeží ke Cape Greco. V listopadu nemusí jezdit — ověřit v přístavu.", "maps": "https://www.google.com/maps/search/?api=1&query=Black%20Pearl%2C%20Cyprus"}, {"cat": "north", "star": true, "name": "Famagusta Ghost Town (Varosha)", "rating": "4,8 (1 734)", "type": "Opuštěné město", "img": "/kypr-2026/famagusta-ghost-town-varosha.jpg", "loc": "sever · Famagusta", "dist": "přechod Deryneia ~20 min + taxi", "when": "9:30–11:30", "note": "Opuštěná letovisková čtvrť od roku 1974. Vstup zdarma, zimní provoz 8–17, nejlépe na půjčeném kole po vyznačených trasách.", "maps": "https://www.google.com/maps/search/?api=1&query=Famagusta%20Ghost%20Town%2C%20Cyprus"}, {"cat": "north", "star": true, "name": "Gazimağusa Kalesi (Othellův hrad)", "rating": "4,5 (791)", "type": "Hrad", "img": "/kypr-2026/gazimagusa-kalesi-othelluv-hrad.jpg", "loc": "sever · Famagusta", "dist": "staré město", "when": "dopoledne", "note": "Benátská pevnost na hradbách starého města, spojená s Shakespearovým Othellem.", "maps": "https://www.google.com/maps/search/?api=1&query=Gazima%C4%9Fusa%20Kalesi%2C%20Cyprus"}, {"cat": "north", "star": false, "name": "Famagusta – staré město", "rating": "—", "type": "Město", "img": "/kypr-2026/famagusta-stare-mesto.jpg", "loc": "sever", "dist": "~25 km", "when": "11:45–14:15", "note": "Benátské hradby, gotická katedrála sv. Mikuláše (dnes mešita Lala Mustafa Paša), oběd. Platí se liry, kartou nebo často eurem.", "maps": "https://www.google.com/maps/search/?api=1&query=Famagusta%20%E2%80%93%20star%C3%A9%20m%C4%9Bsto%2C%20Cyprus"}, {"cat": "north", "star": false, "name": "Namik Kemal Dungeon", "rating": "4,5 (868)", "type": "Historické místo", "img": "/kypr-2026/namik-kemal-dungeon.jpg", "loc": "sever · Famagusta", "dist": "staré město", "when": "30 min", "note": "Vězení osmanského básníka Namıka Kemala, malé muzeum přímo u katedrály.", "maps": "https://www.google.com/maps/search/?api=1&query=Namik%20Kemal%20Dungeon%2C%20Cyprus"}, {"cat": "food", "star": true, "name": "Odyssos Tavern", "rating": "3,8 (967)", "type": "Taverna · sport bar", "img": "/kypr-2026/odyssos-tavern.jpg", "loc": "Nissi Avenue 88", "dist": "~1–1,5 km · pěšky", "when": "večeře", "note": "Otevřeno celoročně. Meze, ryby, chobotnice, kleftiko, stifado. Nejjednodušší večeře pěšky. Tel. 23816231.", "maps": "https://www.google.com/maps/search/?api=1&query=Odyssos%20Tavern%2C%20Cyprus"}, {"cat": "food", "star": true, "name": "Vassos (Psarolimano) Fish Tavern", "rating": "4,3 (3 662)", "type": "Rybí restaurace", "img": "/kypr-2026/vassos-psarolimano-fish-tavern.jpg", "loc": "přístav, Makariou 51", "dist": "~3,5 km", "when": "oběd / večeře", "note": "Klasika přístavu, rybu si vyberete z vitríny. Denně 11–24, celoroční provoz ověřit na tel. 23721884.", "maps": "https://www.google.com/maps/search/?api=1&query=Vassos%2C%20Cyprus"}, {"cat": "food", "star": false, "name": "Old Village Tavern", "rating": "4,3 (2 569)", "type": "Řecká restaurace", "img": "/kypr-2026/old-village-tavern.jpg", "loc": "viz Mapy", "dist": "—", "when": "večeře", "note": "Řecko-kyperská taverna s tradiční kuchyní. Otevírací dobu v listopadu ověřit v Mapách.", "maps": "https://www.google.com/maps/search/?api=1&query=Old%20Village%20Tavern%2C%20Cyprus"}, {"cat": "base", "star": false, "name": "Aktea Beach Village ★★★★", "rating": "4,4 (1 208)", "type": "Hotel", "img": "/kypr-2026/aktea-beach-village.jpg", "loc": "Neophytou Poullou 10, Ayia Napa", "dist": "základna", "when": "14.–17. 11.", "note": "Snídaně v ceně. Tel. +357 23 845000. Check-in 14:00, check-out 12:00.", "maps": "https://www.google.com/maps/search/?api=1&query=Aktea%20Beach%20Village%2C%20Cyprus"}, {"cat": "base", "star": false, "name": "Larnaka – centrum", "rating": "—", "type": "Město", "img": "/kypr-2026/larnaka-centrum.jpg", "loc": "Larnaka", "dist": "~47 km · 40 min", "when": "úterý dopoledne", "note": "Kostel sv. Lazara, promenáda Finikoudes, akvadukt Kamares, Solné jezero a Hala Sultan Tekke (8:30–17, zdarma). Plameňáci v polovině listopadu nejistí.", "maps": "https://www.google.com/maps/search/?api=1&query=Larnaka%20%E2%80%93%20centrum%2C%20Cyprus"}, {"cat": "base", "star": false, "name": "Letiště Larnaka (LCA)", "rating": "4,1 (12 873)", "type": "Letiště", "img": "/kypr-2026/letiste-larnaka-lca.jpg", "loc": "Larnaka", "dist": "~47 km od hotelu", "when": "so 22:20 / út 15:40", "note": "Půjčovna Avis má pult nonstop, Hertz nonstop se shuttlem. Auto vrátit v úterý ve 13:30.", "maps": "https://www.google.com/maps/search/?api=1&query=Leti%C5%A1t%C4%9B%20Larnaka%2C%20Cyprus"}];
+const CATS = {beach:"🏖️ Pláže",nature:"🥾 Příroda & Cape Greco",north:"🏰 Sever: Famagusta",food:"🍽️ Jídlo",extra:"✨ Zážitky",base:"🧭 Základna & Larnaka"};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function render(f){
+  const g=document.getElementById('grid');let h='',n=0;
+  for(const k of Object.keys(CATS)){
+    const items=DATA.filter(d=>d.cat===k&&(f==='all'||f===k));if(!items.length)continue;
+    h+=`<div class="secttl">${CATS[k]}</div>`;
+    for(const d of items){n++;
+      h+=`<article class="card ${d.star?'star':''}">
+        <img class="ph" src="${esc(d.local||d.img)}" alt="${esc(d.name)}" loading="lazy" referrerpolicy="no-referrer">
+        <div class="bd">
+        <span class="tag">${esc(d.type)}</span>
+        <h3>${esc(d.name)}</h3>
+        <div class="meta"><span class="pill rt">⭐ ${esc(d.rating)}</span><span class="pill">📍 ${esc(d.loc)} · ${esc(d.dist)}</span><span class="pill">⏱ ${esc(d.when)}</span></div>
+        <div class="note">${esc(d.note)}</div>
+        <div class="go"><a class="btn" href="${esc(d.maps)}" target="_blank" rel="noopener">Otevřít v Mapách&nbsp;↗</a></div>
+        </div></article>`;}
+  }
+  g.innerHTML=h;document.getElementById('count').textContent=n+' míst';
+}
+document.getElementById('filters').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;
+  document.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',c===b));render(b.dataset.f);});
+document.getElementById('theme').onclick=()=>{const r=document.documentElement;const cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark';};
+render('all');
+</script>
+</body>
+</html>
