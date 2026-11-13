@@ -6,7 +6,7 @@ import { withOwnerScope } from "@/h2/db/with-owner-scope";
 import type { FencingToken } from "@/h2/processing/lease";
 
 import { commitVoiceTranscript } from "./commit-transcript";
-import { decodeVoiceReferenceHandle, type VoiceReferenceHandle } from "./reference-handle";
+import { decodeVoiceReferenceHandle, isVoiceReferenceHandlePayload, type VoiceReferenceHandle } from "./reference-handle";
 import { downloadTelegramVoiceAudio, type DownloadedVoiceAudio } from "./telegram-download";
 import { transcribeAudio, type TranscriptionResult } from "./transcribe";
 
@@ -72,4 +72,34 @@ export async function transcribeVoiceJob(
   await commitVoiceTranscript(pool, registry, token, Buffer.from(text, "utf8"), handle.durationSeconds);
 
   return { transcriptText: text };
+}
+
+/**
+ * DC-17 — vrátí reference handle, pokud raw_event je VOICE a ještě NEBYL
+ * přepsán (`commitVoiceTranscript()` přepisuje payload in-place a nechává
+ * `payload_type='VOICE'`). Pro TEXT nebo už přepsaný VOICE vrací `null`.
+ * Poškozený handle throwne (`decodeVoiceReferenceHandle`) — volající ho
+ * pošle do karantény, nikdy do LLM.
+ */
+export async function readPendingVoiceHandle(
+  pool: Pool,
+  registry: EncryptionKeyRegistry,
+  ownerId: string,
+  rawEventId: string,
+): Promise<VoiceReferenceHandle | null> {
+  return withOwnerScope(pool, ownerId, async (client) => {
+    const result = await client.query<{ payload_type: string; payload_ciphertext: Buffer; encryption_key_version: number }>(
+      `select payload_type, payload_ciphertext, encryption_key_version from raw_events where id = $1`,
+      [rawEventId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("H2 voice: raw_event not found");
+    }
+    if (row.payload_type !== "VOICE") {
+      return null;
+    }
+    const plaintext = decryptPayload(row.payload_ciphertext, row.encryption_key_version, registry);
+    return isVoiceReferenceHandlePayload(plaintext) ? decodeVoiceReferenceHandle(plaintext) : null;
+  });
 }

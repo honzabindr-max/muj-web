@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
+import { auth } from '@/auth';
 import { ChecklistProvider } from './components/ChecklistProvider';
 import { Checklist } from './components/Checklist';
 import { ItemChecklist } from './components/ItemChecklist';
@@ -30,13 +32,13 @@ import {
 import './zlutak.css';
 
 export const metadata: Metadata = {
-  title: 'Ukončení nájmu Bystrcká — plán do 6. 10. 2026',
-  description: 'Soukromý plán a checklist k ukončení nájmu Bystrcká.',
+  title: 'Ukončení nájmu bytu — plán do 6. 10. 2026',
+  description: 'Soukromý plán a checklist k ukončení nájmu bytu.',
   robots: { index: false, follow: false },
 };
 
-const OZNAMENI_SUBJECT = 'Oznámení o neprodloužení nájemní smlouvy – Bystrcká č. ev. 201';
-const OZNAMENI_BODY = `Dobrý den, paní Žemlová,
+const OZNAMENI_SUBJECT = 'Oznámení o neprodloužení nájemní smlouvy – předmět nájmu dle smlouvy';
+const OZNAMENI_BODY = `Dobrý den, paní pronajímatelko,
 
 v souladu s článkem III nájemní smlouvy Vám tímto oznamuji, že nemám zájem nájemní vztah dále prodlužovat. Za předpokladu, že aktuální sjednaná doba nájmu končí dne 6. 10. 2026, nájem tímto dnem skončí uplynutím sjednané doby.
 
@@ -47,7 +49,17 @@ S pozdravem
 Jan Bindr`;
 const OZNAMENI_FULL_TEXT = `Předmět: ${OZNAMENI_SUBJECT}\n\n${OZNAMENI_BODY}`;
 
-export default function ZlutakPage() {
+export const dynamic = 'force-dynamic';
+
+// Soukromá stránka: stejný mechanismus jako H2 (NextAuth z auth.ts). Přihlásit se
+// může jen Google účet na allowlistu ownera (signIn callback v auth.ts), takže
+// existující session = owner. Bez session redirect na NextAuth login.
+export default async function ZlutakPage() {
+  const session = await auth();
+  if (!session?.googleSub) {
+    redirect('/api/auth/signin?callbackUrl=/zlutak');
+  }
+
   return (
     <ZlutakItemsProvider>
     <ChecklistProvider>
@@ -55,7 +67,7 @@ export default function ZlutakPage() {
         <StickyBar />
         <main className="z-content">
           <header className="z-hero">
-            <h1>🏠 Ukončení nájmu Bystrcká — plán do 6. 10. 2026</h1>
+            <h1>🏠 Ukončení nájmu bytu — plán do 6. 10. 2026</h1>
           </header>
 
           <section aria-labelledby="seznam-veci">
@@ -164,7 +176,7 @@ export default function ZlutakPage() {
               <p>
                 <strong>Předmět: {OZNAMENI_SUBJECT}</strong>
               </p>
-              <p>Dobrý den, paní Žemlová,</p>
+              <p>Dobrý den, paní pronajímatelko,</p>
               <p>
                 v souladu s článkem III nájemní smlouvy Vám tímto oznamuji, že nemám zájem nájemní
                 vztah dále prodlužovat. Za předpokladu, že aktuální sjednaná doba nájmu končí dne
