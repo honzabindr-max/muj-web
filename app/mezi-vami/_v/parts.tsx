@@ -50,6 +50,7 @@ export function Signature({
       role="img"
       aria-label={LABEL}
       viewBox={`0 0 ${W} ${H}`}
+      overflow="visible"
       style={{
         display: "block",
         width: fluid ? "100%" : W,
