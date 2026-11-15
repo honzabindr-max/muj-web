@@ -339,7 +339,9 @@ function convert(job: Job) {
         const name = labels[0]?.querySelector("input")?.getAttribute("name") ?? "";
         const m = /-(a|b)$/.exec(name);
         if (!m || labels.length !== 3) continue;
-        g.replaceChildren(
+        // popisek osoby (desktop: <p> + vnitřní grid) zůstává, nahradí se jen volby
+        const holder = labels[0].parentElement ?? g;
+        holder.replaceChildren(
           mk("pv-style", {
             p: m[1],
             name,
@@ -347,6 +349,22 @@ function convert(job: Job) {
             off: labels[1].getAttribute("style") ?? "",
           }),
         );
+      }
+      // e-mail pro doručení je povinný; CTA „Přejít k platbě“ ho před přechodem ověří
+      const email = rootNode.querySelector('input[type="email"]');
+      if (email) {
+        email.setAttribute("required", "");
+        email.setAttribute("aria-required", "true");
+        for (const a of Array.from(rootNode.querySelectorAll("a"))) {
+          if (!/Platba\.dc\.html$/.test(a.getAttribute("href") ?? "")) continue;
+          const cta = mk("pv-cta", {
+            emailId: email.getAttribute("id") ?? "",
+            href: mapHref(job.file, a.getAttribute("href") ?? ""),
+            style: a.getAttribute("style") ?? "",
+          });
+          while (a.firstChild) cta.appendChild(a.firstChild);
+          a.replaceWith(cta);
+        }
       }
     }
   }
@@ -475,6 +493,11 @@ function convert(job: Job) {
       return `<StyleChoice p=${JSON.stringify(el.getAttribute("p"))} name=${JSON.stringify(el.getAttribute("name"))} on={${styleObject(el.getAttribute("on") ?? "")}} off={${styleObject(el.getAttribute("off") ?? "")}} />`;
     }
 
+    if (tag === "pv-cta") {
+      usesPV = true;
+      return `<CheckoutCta emailId=${JSON.stringify(el.getAttribute("emailId"))} href=${JSON.stringify(el.getAttribute("href"))} style={${styleObject(el.getAttribute("style") ?? "")}}>${children(el, scope)}</CheckoutCta>`;
+    }
+
     if (tag === "sc-if") {
       const cond = expr(el.getAttribute("value") ?? "false", scope);
       return `{${cond} && (<>${children(el, scope)}</>)}`;
@@ -536,7 +559,7 @@ function convert(job: Job) {
     stateful ? `import { useDc } from '../_lib/dc-client'\n` : "",
     `import { nb } from '../_lib/nbsp'\n`,
     usesA ? `import { A } from '../_lib/A'\n` : "",
-    usesPV ? `import { PersonSummary, PersonField, StyleChoice } from '../_parts/PersonValues'\n` : "",
+    usesPV ? `import { PersonSummary, PersonField, StyleChoice, CheckoutCta } from '../_parts/PersonValues'\n` : "",
     usesLight || usesPools ? `import { ${[usesLight ? "LightCurve, LightLayer" : "", usesPools ? "Pools" : ""].filter(Boolean).join(", ")} } from '../_lib/LightCurve'\n` : "",
   ].join("");
 

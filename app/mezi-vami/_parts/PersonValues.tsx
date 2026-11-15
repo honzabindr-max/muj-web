@@ -3,7 +3,8 @@
 // Zadané údaje osob ve shrnutí výsledku a v pokladně. Dokud osoba není kompletně vyplněná
 // (např. přímý vstup na stránku), platí ukázka z návrhu (prototyp, ukázkový obsah).
 
-import type { CSSProperties } from "react";
+import { useRouter } from "next/navigation";
+import type { CSSProperties, ReactNode } from "react";
 import { nbsp } from "../_lib/nbsp";
 import { summaryOf, type Styl } from "../_lib/persons";
 import { updatePerson, useStoredPersons } from "../_lib/persons-store";
@@ -86,5 +87,42 @@ export function StyleChoice({
         </label>
       ))}
     </>
+  );
+}
+
+/**
+ * „Přejít k platbě“: bez platného e-mailu pro doručení nepustí dál — zaostří pole a ukáže
+ * nativní validační hlášku prohlížeče (COPY v3.2 text chyby e-mailu nemá, K-17a). Vzhled = odkaz z D-06.
+ */
+export function CheckoutCta({
+  emailId,
+  href,
+  style,
+  children,
+}: {
+  emailId: string;
+  href: string;
+  style: CSSProperties;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+  return (
+    <a
+      href={href}
+      style={style}
+      onClick={(e) => {
+        e.preventDefault();
+        const input = document.getElementById(emailId) as HTMLInputElement | null;
+        if (input && !input.checkValidity()) {
+          input.setAttribute("aria-invalid", "true");
+          input.focus();
+          input.reportValidity();
+          return;
+        }
+        router.push(href);
+      }}
+    >
+      {children}
+    </a>
   );
 }
