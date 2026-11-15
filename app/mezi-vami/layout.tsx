@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { garamond, jost } from "./fonts";
+import "./tokens.css";
 import "./mezi-vami.css";
 import "./design-a.css";
 
