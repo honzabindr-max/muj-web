@@ -5,7 +5,14 @@
 
 export const SAMPLE_BADGE_TEXT = "Ukázkový obsah · prototyp";
 
-export function SampleBadge({ mobile = false }: { mobile?: boolean }) {
+export function SampleBadge({
+  mobile = false,
+  align = "center",
+}: {
+  mobile?: boolean;
+  /** Mobil: osa loga v hlavičce — „start“ = logo vlevo (štítek u levého okraje loga), „center“ = logo na středu. */
+  align?: "start" | "center";
+}) {
   const pill = (
     <p
       data-sample-badge=""
@@ -25,7 +32,7 @@ export function SampleBadge({ mobile = false }: { mobile?: boolean }) {
   );
   if (!mobile) return pill;
   return (
-    <div style={{ flexBasis: "100%", display: "flex", justifyContent: "center", paddingTop: 4 }}>
+    <div style={{ flexBasis: "100%", display: "flex", justifyContent: align === "start" ? "flex-start" : "center", paddingTop: 4 }}>
       {pill}
     </div>
   );

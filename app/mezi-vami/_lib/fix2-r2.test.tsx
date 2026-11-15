@@ -64,6 +64,16 @@ describe("Kolo 2/1 — štítek „Ukázkový obsah · prototyp“ v hlavičce v
   });
 });
 
+describe("Kolo 3 — zarovnání štítku na mobilu s osou loga", () => {
+  it("levé logo (landing, výsledek) → štítek vlevo, ostatní centrovaně", () => {
+    for (const [C, start] of [[LandingM, true], [VysledekM, true], [PlatbaM, false], [DoruceniM, false], [StartM, false]] as const) {
+      const h = html(C, {});
+      const wrap = /<div style="[^"]*"><p data-sample-badge/.exec(h)?.[0] ?? "";
+      expect(wrap).toContain(start ? "justify-content:flex-start" : "justify-content:center");
+    }
+  });
+});
+
 describe("Kolo 2/2 — věty o podpoře jen s funkčním cílem podpory", () => {
   const SUPPORT = /podpor/i;
   const platba = ["Čeká na potvrzení", "Nepodařilo se ověřit", "Zrušeno", "Neúspěšná platba"];

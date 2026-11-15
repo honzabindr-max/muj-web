@@ -155,7 +155,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
         >
           MEZI VÁMI
         </A>
-        <SampleBadge mobile />
+        <SampleBadge mobile align="start" />
       </header>
 
       {/* HERO */}
