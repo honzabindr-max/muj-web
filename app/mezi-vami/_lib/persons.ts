@@ -24,6 +24,8 @@ export type Person = {
   approx: Approx;
   part: Part;
   styl: Styl;
+  /** V-03: nepovinné oslovení; jen v paměti klienta, do výpočtu nevstupuje */
+  nick: string;
 };
 
 export type Persons = { step: "A" | "B"; a: Person; b: Person };
@@ -55,6 +57,7 @@ export const emptyPerson = (mode: Mode): Person => ({
   approx: "60",
   part: "rano",
   styl: "neutral",
+  nick: "",
 });
 
 // výchozí režim času jako v návrhu: první osoba „Vím přesně“, druhá „Nevím“

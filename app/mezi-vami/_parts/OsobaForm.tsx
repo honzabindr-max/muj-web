@@ -2,7 +2,7 @@
 
 // První a druhá osoba — funkční formulář podle artboardů D-03 (desktop) a Mobil-02 (mobil).
 // Vzhled a texty 1:1 z artboardů; navíc: auto-posun a vložení data, combobox míst (WAI-ARIA),
-// validace při opuštění pole, údaje v sessionStorage. Chybové texty polí v COPY v3.2 nejsou
+// validace při opuštění pole, údaje jen v paměti klienta. Chybové texty polí v COPY v3.2 nejsou
 // (K-17a), proto se zobrazí „[chybí copy K-17a]“.
 
 import {
@@ -666,8 +666,97 @@ function PersonForm({
     cursor: "pointer",
   };
 
+  const nickId = `${pre}-nick`;
+  const nickLabel: CSSProperties = {
+    display: "block",
+    fontSize: 15,
+    color: "#F7EAE4",
+  };
+  const chipBase: CSSProperties = {
+    minHeight: 44,
+    padding: "0 16px",
+    borderRadius: 999,
+    border: "1px solid",
+    fontFamily: "inherit",
+    fontSize: 15,
+    fontWeight: 400,
+    cursor: "pointer",
+  };
+
   return (
     <>
+      {/* V-03: nepovinné oslovení (jen v paměti klienta, do výpočtu nevstupuje) */}
+      <div style={{ marginTop: v === D ? 28 : 20 }}>
+        <label htmlFor={nickId} style={nickLabel}>
+          Jak jí nebo mu říkat?{" "}
+          <span style={{ color: "#B79FAE" }}>(nepovinné)</span>
+        </label>
+        <input
+          id={nickId}
+          type="text"
+          value={p.nick}
+          onChange={(e) => updatePerson(which, { nick: e.target.value })}
+          placeholder={which === "a" ? "třeba Jana" : "třeba Tomáš"}
+          autoComplete="off"
+          maxLength={40}
+          aria-describedby={`${nickId}-hint`}
+          style={{
+            marginTop: 8,
+            width: "100%",
+            boxSizing: "border-box",
+            minHeight: 52,
+            padding: "0 16px",
+            borderRadius: 14,
+            border: "1px solid rgba(240, 190, 165, 0.35)",
+            background: "rgba(14, 7, 15, 0.6)",
+            color: "#FBEFE9",
+            fontFamily: "inherit",
+            fontSize: 17,
+          }}
+        />
+        <p
+          id={`${nickId}-hint`}
+          style={{
+            margin: "10px 0 0",
+            fontSize: 14,
+            lineHeight: 1.5,
+            color: "#C2ACB7",
+          }}
+        >
+          {t(
+            "Jméno uvidíte jen vy ve výsledku. Do výpočtu nevstupuje a neukládáme ho. Bez něj píšeme „První osoba“.",
+          )}
+        </p>
+        <p style={{ ...nickLabel, margin: "20px 0 0" }}>Oslovovat</p>
+        <Radios<Styl>
+          label="Oslovovat"
+          options={[
+            { id: "f", label: "v ženském rodě" },
+            { id: "m", label: "v mužském rodě" },
+            { id: "neutral", label: "neutrálně" },
+          ]}
+          value={p.styl}
+          onChange={(styl) => updatePerson(which, { styl })}
+          wrap={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
+          btn={chipBase}
+          btnStyle={(sel) =>
+            sel
+              ? {
+                  borderColor: "#F0BEA5",
+                  background: "rgba(240, 190, 165, 0.14)",
+                  color: "#F7EAE4",
+                }
+              : {
+                  borderColor: "rgba(240, 190, 165, 0.3)",
+                  background: "transparent",
+                  color: "#F7EAE4",
+                }
+          }
+        />
+        <p style={{ margin: "22px 0 0", fontSize: 14, color: "#B79FAE" }}>
+          {t("Dál následuje datum, čas a místo narození beze změny.")}
+        </p>
+      </div>
       <div
         style={{
           marginTop: v === D ? 36 : 24,
