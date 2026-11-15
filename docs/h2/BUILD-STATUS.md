@@ -73,6 +73,8 @@ M1 DOSAŽENO (produkční provoz funguje) a M1 deploy gate (formální checklist
 - BUILD-12+ čekají na rozhodnutí ownera pokračovat po pozastavení z 2026-09-23 (nákladová architektura) — **ne** z DEC-009.
 - M1 deploy gate: metering strop, `EXPERIMENT-0.md`, Neon Launch upgrade, `h2_migrator` heslo — viz checklist výše.
 - Retry taxonomie, Haiku Structured Outputs (`OPERATIONAL_EXTRACTION`) a refuz/ořez metering mezera — forward-pointery zapsané v historii, neimplementováno.
+- TARS: Chrome TARS-agent (`tars/orch/guard/tars-browser.sh`) při startu bere fokus okna — vyřešit bez kradení fokusu (okno mimo obrazovku / samostatný Space / druhý displej; plný headless nejde kvůli `display.ts`). Otevřeno 2026-11-15, nezačato. Zdroj: report „TARS prohlížeč 9333“ ze session 2026-11-15.
+- TARS: payload ~150k znaků (4 inline Notion stránky) přesahuje limit `browser_type` — dávkování nebo jiný způsob vložení (např. `browser_run_code_unsafe`). Zakázka `wo-20261104-212430` zaparkovaná jako FAILED (manual abort 2026-11-15), `work.good-inventions.tars-orch` vypnutý (`launchctl bootout`); návrat: `tars/orch/launchd/install.sh wake-gate` jen s GO. Zdroj: tentýž report.
 - Plné znění otevřených bodů (číslované 1–7, stav 2026-09-04) je v historii výše — nekopíruje se sem, ať se nerozchází se zdrojem.
 
 ## Pravidla — přehled (plné znění v historii)
