@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { A } from "../_lib/A";
+import { SampleBadge } from "../_lib/SampleBadge";
 import { LightCurve, LightLayer, Pools } from "../_lib/LightCurve";
 import {
   APPROX_LABELS,
@@ -1275,6 +1276,7 @@ export function OsobaD() {
           alignItems: "center",
           justifyContent: "space-between",
           gap: 20,
+          flexWrap: "wrap",
         }}
       >
         <A
@@ -1289,6 +1291,7 @@ export function OsobaD() {
         >
           MEZI VÁMI
         </A>
+        <SampleBadge />
         <ol
           aria-label="Kroky"
           style={{
@@ -1543,6 +1546,7 @@ export function OsobaM() {
           alignItems: "center",
           gap: 8,
           padding: "12px 16px",
+          flexWrap: "wrap",
         }}
       >
         {B ? (
@@ -1576,6 +1580,7 @@ export function OsobaM() {
           MEZI VÁMI
         </span>
         <span style={{ width: 44 }} />
+        <SampleBadge mobile />
       </header>
       <div
         aria-hidden="true"

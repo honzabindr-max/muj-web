@@ -4,6 +4,7 @@
 
 import type { CSSProperties } from "react";
 import { A } from "../_lib/A";
+import { SampleBadge } from "../_lib/SampleBadge";
 import { Pools } from "../_lib/LightCurve";
 import {
   JAK_JSME,
@@ -115,9 +116,7 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
         <A href="/mezi-vami" style={{ fontFamily: GARAMOND, fontSize: 23, letterSpacing: "0.14em", color: "#EADCE2", textDecoration: "none" }}>
           MEZI VÁMI
         </A>
-        <p style={{ margin: 0, padding: "6px 14px", border: "1px dashed #6E5566", borderRadius: 999, fontSize: 15, letterSpacing: "0.14em", textTransform: "uppercase", color: "#C9B0BE" }}>
-          Ukázkový obsah · prototyp
-        </p>
+        <SampleBadge />
       </header>
 
       {/* HERO */}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { A } from "../../_lib/A";
+import { SampleBadge } from "../../_lib/SampleBadge";
 import Karta from "../../_v/Karta";
 
 export const metadata: Metadata = {
@@ -23,6 +24,7 @@ export default function MeziVamiSdileciKarta() {
           padding: "32px 16px",
         }}
       >
+        <SampleBadge />
         <Karta />
         <A href="/mezi-vami/vysledek" style={{ fontSize: 15 }}>
           Zpět na výsledek

@@ -4,6 +4,7 @@
 
 import type { CSSProperties } from "react";
 import { A } from "../_lib/A";
+import { SampleBadge } from "../_lib/SampleBadge";
 import { Pools } from "../_lib/LightCurve";
 import {
   n,
@@ -138,6 +139,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
           alignItems: "center",
           justifyContent: "space-between",
           padding: "22px 20px 0",
+          flexWrap: "wrap",
         }}
       >
         <A
@@ -153,6 +155,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
         >
           MEZI VÁMI
         </A>
+        <SampleBadge mobile />
       </header>
 
       {/* HERO */}
