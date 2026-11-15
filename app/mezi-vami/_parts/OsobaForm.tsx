@@ -29,7 +29,12 @@ import {
   type Person,
   type Styl,
 } from "../_lib/persons";
-import { setStep, updatePerson, usePersons } from "../_lib/persons-store";
+import {
+  goStep,
+  updatePerson,
+  usePersons,
+  useStepHistory,
+} from "../_lib/persons-store";
 import { loadPlaces, searchPlaces, type IndexedPlace } from "../_lib/places";
 import { nbsp } from "../_lib/nbsp";
 
@@ -608,10 +613,12 @@ function PersonForm({
   v,
   which,
   p,
+  attempt,
 }: {
   v: Variant;
   which: "a" | "b";
   p: Person;
+  attempt: number;
 }) {
   const [touched, setTouched] = useState({
     date: false,
@@ -622,6 +629,24 @@ function PersonForm({
   const touch = (k: "date" | "place" | "cas") =>
     setTouched((s) => (s[k] ? s : { ...s, [k]: true }));
   const pre = `${v.id}-${which}`;
+  // pokus o „Pokračovat“ s neúplnými údaji: všechna pole jako touched, zaostřit první chybné
+  const lastAttempt = useRef(attempt);
+  useEffect(() => {
+    if (attempt === lastAttempt.current) return;
+    lastAttempt.current = attempt;
+    setTouched({ date: true, place: true, cas: true });
+    const target = err.date
+      ? `${pre}-den`
+      : err.place
+        ? `${pre}-misto`
+        : err.time
+          ? p.mode === "exact"
+            ? `${pre}-cas`
+            : `${pre}-cas-pribl`
+          : null;
+    if (target) document.getElementById(target)?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
   const dateInvalid = touched.date && !!err.date;
   const placeInvalid = touched.place && !!err.place;
   const timeInvalid = touched.cas && !!err.time;
@@ -724,7 +749,7 @@ function PersonForm({
           }}
         >
           {t(
-            "Jméno uvidíte jen vy ve výsledku. Do výpočtu nevstupuje a neukládáme ho. Bez něj píšeme „První osoba“.",
+            `Jméno uvidíte jen vy ve výsledku. Do výpočtu nevstupuje a neukládáme ho. Bez něj píšeme „${which === "a" ? "První osoba" : "Druhá osoba"}“.`,
           )}
         </p>
         <p style={{ ...nickLabel, margin: "20px 0 0" }}>Oslovovat</p>
@@ -1074,10 +1099,12 @@ function Cta({
   valid,
   step,
   v,
+  onAttempt,
 }: {
   valid: boolean;
   step: "A" | "B";
   v: Variant;
+  onAttempt: () => void;
 }) {
   const base: CSSProperties =
     v === D
@@ -1099,7 +1126,8 @@ function Cta({
     return (
       <button
         type="button"
-        disabled
+        aria-disabled="true"
+        onClick={onAttempt}
         style={{
           ...common,
           opacity: 0.4,
@@ -1115,7 +1143,7 @@ function Cta({
     return (
       <button
         type="button"
-        onClick={() => setStep("B")}
+        onClick={() => goStep("B")}
         style={{ ...common, cursor: "pointer" }}
       >
         Pokračovat
@@ -1131,6 +1159,15 @@ function Cta({
     </A>
   );
 }
+
+// V-03: eyebrow „Krok 1 ze 2“ nad nadpisem
+const EYEBROW: CSSProperties = {
+  margin: "0 0 10px",
+  fontSize: 13,
+  letterSpacing: "0.16em",
+  textTransform: "uppercase",
+  color: "#F0BEA5",
+};
 
 const titleStyle = (size: number): CSSProperties => ({
   margin: 0,
@@ -1167,6 +1204,9 @@ export function OsobaD() {
   const which = step === "A" ? "a" : "b";
   const p = s[which];
   const h1 = useFocusOnStep(step);
+  useStepHistory();
+  const [attempt, setAttempt] = useState(0);
+  const onAttempt = () => setAttempt((a) => a + 1);
   const valid = isPersonComplete(p);
   const B = step === "B";
   return (
@@ -1249,18 +1289,24 @@ export function OsobaD() {
         >
           MEZI VÁMI
         </A>
-        <div
-          aria-hidden="true"
+        <ol
+          aria-label="Kroky"
           style={{
             display: "flex",
             alignItems: "center",
             gap: 14,
+            margin: 0,
+            padding: 0,
+            listStyle: "none",
             fontSize: 13,
             color: "#BDA7B2",
           }}
         >
-          <span style={{ color: "#F1D0BC" }}>První osoba</span>
-          <span
+          <li aria-current={B ? undefined : "step"} style={{ color: "#F1D0BC" }}>
+            První osoba
+          </li>
+          <li
+            aria-hidden="true"
             style={{
               width: 60,
               height: 2,
@@ -1268,8 +1314,10 @@ export function OsobaD() {
               background: B ? "#EDB894" : "#3A2535",
             }}
           />
-          <span style={{ color: B ? "#F1D0BC" : "#A48D99" }}>Druhá osoba</span>
-        </div>
+          <li aria-current={B ? "step" : undefined} style={{ color: B ? "#F1D0BC" : "#A48D99" }}>
+            Druhá osoba
+          </li>
+        </ol>
       </header>
       <main
         style={{
@@ -1284,6 +1332,7 @@ export function OsobaD() {
         }}
       >
         <div style={{ flex: "1 1 620px", minWidth: 0, maxWidth: 680 }}>
+          <p style={EYEBROW}>{B ? "Krok 2 ze 2" : "Krok 1 ze 2"}</p>
           <h1 ref={h1} tabIndex={-1} style={titleStyle(72)}>
             {B ? "Druhá osoba" : "První osoba"}
           </h1>
@@ -1311,7 +1360,7 @@ export function OsobaD() {
               "Vyplňte datum a místo narození. Potom zvolte, zda znáte čas narození přesně, přibližně, nebo ho neznáte.",
             )}
           </p>
-          <PersonForm key={which} v={D} which={which} p={p} />
+          <PersonForm key={which} v={D} which={which} p={p} attempt={attempt} />
           <div
             style={{
               marginTop: 32,
@@ -1321,11 +1370,11 @@ export function OsobaD() {
               alignItems: "center",
             }}
           >
-            <Cta valid={valid} step={step} v={D} />
+            <Cta valid={valid} step={step} v={D} onAttempt={onAttempt} />
             {B ? (
               <button
                 type="button"
-                onClick={() => setStep("A")}
+                onClick={() => goStep("A")}
                 style={{
                   minHeight: 58,
                   padding: "0 22px",
@@ -1405,6 +1454,9 @@ export function OsobaM() {
   const which = step === "A" ? "a" : "b";
   const p = s[which];
   const h1 = useFocusOnStep(step);
+  useStepHistory();
+  const [attempt, setAttempt] = useState(0);
+  const onAttempt = () => setAttempt((a) => a + 1);
   const valid = isPersonComplete(p);
   const B = step === "B";
   const backBtn: CSSProperties = {
@@ -1497,7 +1549,7 @@ export function OsobaM() {
           <button
             type="button"
             aria-label="Zpět k první osobě"
-            onClick={() => setStep("A")}
+            onClick={() => goStep("A")}
             style={backBtn}
           >
             {chevron}
@@ -1547,7 +1599,8 @@ export function OsobaM() {
         />
       </div>
       <main style={{ position: "relative", padding: "30px 20px 0" }}>
-        <h1 ref={h1} tabIndex={-1} style={titleStyle(46)}>
+        <p style={EYEBROW}>{B ? "Krok 2 ze 2" : "Krok 1 ze 2"}</p>
+        <h1 ref={h1} tabIndex={-1} style={{ ...titleStyle(46) }}>
           {B ? "Druhá osoba" : "První osoba"}
         </h1>
         <p
@@ -1574,7 +1627,7 @@ export function OsobaM() {
             "Vyplňte datum a místo narození. Potom zvolte, zda znáte čas narození přesně, přibližně, nebo ho neznáte.",
           )}
         </p>
-        <PersonForm key={which} v={M} which={which} p={p} />
+        <PersonForm key={which} v={M} which={which} p={p} attempt={attempt} />
         {B && (
           <p
             style={{
@@ -1590,11 +1643,11 @@ export function OsobaM() {
           </p>
         )}
         <div style={{ marginTop: 24 }}>
-          <Cta valid={valid} step={step} v={M} />
+          <Cta valid={valid} step={step} v={M} onAttempt={onAttempt} />
           {B ? (
             <button
               type="button"
-              onClick={() => setStep("A")}
+              onClick={() => goStep("A")}
               style={{
                 marginTop: 8,
                 width: "100%",

@@ -60,11 +60,12 @@ export const emptyPerson = (mode: Mode): Person => ({
   nick: "",
 });
 
-// výchozí režim času jako v návrhu: první osoba „Vím přesně“, druhá „Nevím“
+// výchozí režim času jako v návrhu (D-03 / Mobil-02): u obou osob „Vím přesně“ — stav první
+// osoby tak nepůsobí jako přenesený do druhé
 export const defaultPersons = (): Persons => ({
   step: "A",
   a: emptyPerson("exact"),
-  b: emptyPerson("unknown"),
+  b: emptyPerson("exact"),
 });
 
 /* ---------- datum ---------- */

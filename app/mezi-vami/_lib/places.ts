@@ -15,9 +15,26 @@ export function buildIndex(file: PlacesFile): IndexedPlace[] {
   }));
 }
 
+// Největší města (název bez diakritiky | stát) — v rámci skupiny shody jdou první.
+const BIG = [
+  "praha|CZ", "brno|CZ", "ostrava|CZ", "plzen|CZ", "liberec|CZ", "olomouc|CZ",
+  "ceske budejovice|CZ", "hradec kralove|CZ", "usti nad labem|CZ", "pardubice|CZ",
+  "zlin|CZ", "jihlava|CZ", "karlovy vary|CZ", "bratislava|SK", "kosice|SK",
+  "presov|SK", "zilina|SK", "nitra|SK", "banska bystrica|SK", "trnava|SK",
+  "trencin|SK", "martin|SK", "poprad|SK",
+];
+const bigRank = (p: IndexedPlace) => {
+  const i = BIG.indexOf(`${p.key}|${p.cc}`);
+  return i < 0 ? BIG.length : i;
+};
+
+/** Řazení uvnitř skupiny: největší města, pak kratší název, pak pořadí číselníku (abecední). */
+const byRelevance = (a: IndexedPlace, b: IndexedPlace) =>
+  bigRank(a) - bigRank(b) || a.key.length - b.key.length;
+
 /**
  * Hledání: přesná shoda názvu → název začíná dotazem → slovo v názvu začíná dotazem →
- * dotaz je kdekoli v názvu. Uvnitř skupiny zůstává abecední pořadí číselníku.
+ * dotaz je kdekoli v názvu. Uvnitř skupiny největší města a kratší názvy dřív (Brn → Brno před Brňany).
  */
 export function searchPlaces(
   index: IndexedPlace[],
@@ -35,13 +52,14 @@ export function searchPlaces(
     else if (p.key.startsWith(q)) starts.push(p);
     else if (p.key.includes(` ${q}`)) words.push(p);
     else if (q.length >= 3 && p.key.includes(q)) inside.push(p);
-    if (
-      exact.length + starts.length >= limit * 4 &&
-      words.length + inside.length >= limit
-    )
-      break;
   }
-  return [...exact, ...starts, ...words, ...inside].slice(0, limit);
+  // Array.prototype.sort je stabilní → stejně relevantní zůstávají abecedně
+  return [
+    ...exact.sort(byRelevance),
+    ...starts.sort(byRelevance),
+    ...words.sort(byRelevance),
+    ...inside.sort(byRelevance),
+  ].slice(0, limit);
 }
 
 let cache: Promise<IndexedPlace[]> | null = null;

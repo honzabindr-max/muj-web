@@ -169,7 +169,7 @@ describe("osoba jako celek", () => {
     expect(isPersonComplete(d.a, TODAY)).toBe(false);
     expect(isPersonComplete(d.b, TODAY)).toBe(false);
     expect(d.a.mode).toBe("exact");
-    expect(d.b.mode).toBe("unknown");
+    expect(d.b.mode).toBe("exact");
   });
   it("přesný čas: vyžaduje platné HH:MM", () => {
     expect(isPersonComplete(base, TODAY)).toBe(true);

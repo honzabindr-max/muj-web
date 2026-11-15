@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { defaultPersons, type Person, type Persons } from "./persons";
 
 // Údaje obou osob jen v paměti klienta (modul): přežijí přechody mezi kroky toku
@@ -48,5 +48,36 @@ export function updatePerson(which: "a" | "b", patch: Partial<Person>) {
 }
 
 export function setStep(step: "A" | "B") {
+  if ((read()?.step ?? "A") === step) return;
   updatePersons((s) => ({ ...s, step }));
+}
+
+/* ---------- krok A/B v historii prohlížeče ---------- */
+// Přechod na druhou osobu přidá záznam do historie (history.state.mvStep = "B"), takže tlačítko
+// Zpět vrátí na první osobu. Vstup na stránku zvenku (odkazy „Upravit údaje…“) bez značky = krok A.
+
+type HistState = { mvStep?: "A" | "B" } | null;
+const histStep = (): "A" | "B" =>
+  (window.history.state as HistState)?.mvStep === "B" ? "B" : "A";
+
+/** Přejde na krok; „B“ přidá záznam do historie, „A“ z kroku B jde o krok zpět. */
+export function goStep(step: "A" | "B") {
+  if (step === "B") {
+    window.history.pushState({ mvStep: "B" }, "");
+    setStep("B");
+  } else if (histStep() === "B") {
+    window.history.back(); // krok srovná popstate (viz useStepHistory)
+  } else {
+    setStep("A");
+  }
+}
+
+/** Srovná krok formuláře s historií: při vstupu a při Zpět/Vpřed. */
+export function useStepHistory() {
+  useEffect(() => {
+    setStep(histStep());
+    const sync = () => setStep(histStep());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
 }
