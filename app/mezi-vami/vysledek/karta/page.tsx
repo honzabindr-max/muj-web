@@ -3,7 +3,7 @@ import { A } from "../../_lib/A";
 import Karta from "../../_v/Karta";
 
 export const metadata: Metadata = {
-  title: "Sdílecí karta · MEZI VÁMI",
+  title: "Sdílecí karta",
   robots: { index: false, follow: false },
 };
 

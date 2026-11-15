@@ -26,7 +26,7 @@ export default function Karta() {
     >
       <p style={{ margin: 0, fontFamily: GAR, fontSize: 14, letterSpacing: "0.18em", color: "#EADCE2" }}>{KARTA.znacka}</p>
       <p style={{ margin: "34px 0 0", fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase", color: "#F0BEA5" }}>{KARTA.eyebrow}</p>
-      <p style={{ margin: "8px 0 0", fontFamily: GAR, fontSize: 40, lineHeight: 1, color: "#F6E2D6" }}>{KARTA.title}</p>
+      <h1 style={{ margin: "8px 0 0", fontFamily: GAR, fontSize: 40, fontWeight: 400, lineHeight: 1, color: "#F6E2D6" }}>{KARTA.title}</h1>
       <div style={{ margin: "22px -26px 0" }}>
         <Signature W={360} H={140} />
       </div>
