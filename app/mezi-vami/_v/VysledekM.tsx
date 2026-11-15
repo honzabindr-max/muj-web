@@ -17,7 +17,10 @@ import {
   TEMATA_HEAD,
   type NoteTon,
 } from "../_data/fixtures";
+import { nbsp } from "../_lib/nbsp";
 import { A_COL, B_COL, Dot, Nit, Signature } from "./parts";
+
+export type SampleState = "s0" | "s1" | "s2";
 
 const EYEBROW: CSSProperties = {
   margin: 0,
@@ -102,7 +105,8 @@ const PAGES: CSSProperties = {
   boxSizing: "border-box",
 };
 
-export default function VysledekM({ sample = false }: { sample?: boolean }) {
+export default function VysledekM({ sampleState = "s0" }: { sampleState?: SampleState }) {
+  const sample = sampleState !== "s0";
   return (
     <div
       className="xv01"
@@ -156,7 +160,9 @@ export default function VysledekM({ sample = false }: { sample?: boolean }) {
         <p style={EYEBROW}>Vztahová DNA</p>
         <h1
           style={{
-            margin: "10px 20px 0",
+            // rezerva pro descender/diakritiku (viz VysledekD), rozvržení beze změny
+            margin: "calc(10px - 0.1em) 20px -0.16em",
+            padding: "0.1em 0 0.16em",
             fontFamily: GARAMOND,
             fontWeight: 400,
             fontSize: 46,
@@ -376,7 +382,7 @@ export default function VysledekM({ sample = false }: { sample?: boolean }) {
           )}
           <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(240, 190, 165, 0.2)" }}>
             <p style={{ margin: 0, fontSize: 14, letterSpacing: "0.12em", textTransform: "uppercase", color: "#C9B0BE" }}>
-              Z čeho to čteme
+              {nbsp("Z čeho to čteme")}
             </p>
             {t.dukazy.map((d) => (
               <p key={d.meta} style={{ margin: "10px 0 0", fontSize: 15, lineHeight: 1.4, color: "#F3E3DC" }}>
@@ -470,6 +476,11 @@ export default function VysledekM({ sample = false }: { sample?: boolean }) {
           ))}
         </ul>
         <PagePreview />
+        {sample && (
+          <p style={{ margin: "8px 0 0", fontSize: 14, lineHeight: 1.4, color: "#E2C9BC" }}>
+            {sampleState === "s1" ? NABIDKA.stitekS1 : NABIDKA.stitekS2}
+          </p>
+        )}
         <p style={{ margin: "8px 0 0", fontSize: 14, color: MUTED }}>
           {NABIDKA.nahledPoznamka}
           {sample && (
@@ -511,8 +522,11 @@ export default function VysledekM({ sample = false }: { sample?: boolean }) {
         >
           {NABIDKA.timeNote} <A href="/mezi-vami/osoba">{NABIDKA.timeNoteOdkaz}</A>
         </p>
-        <p data-tabular="" style={{ margin: "24px 0 0", fontFamily: GARAMOND, fontSize: 40, lineHeight: 1, color: "#FFF1E8" }}>
-          {NABIDKA.cena.replace(/ /g, " ")}{" "}
+        <p style={{ margin: "24px 0 0", fontSize: 14, letterSpacing: "0.18em", textTransform: "uppercase", color: "#C9B0BE" }}>
+          {NABIDKA.cenaLabel}
+        </p>
+        <p data-tabular="" style={{ margin: "2px 0 0", fontFamily: GARAMOND, fontSize: 40, lineHeight: 1, color: "#FFF1E8" }}>
+          {NABIDKA.cena}{" "}
           <span style={{ fontFamily: "var(--font-mv-jost), sans-serif", fontSize: 15, color: MUTED }}>
             {NABIDKA.cenaPozn}
           </span>
@@ -599,13 +613,13 @@ const OBSAH_NAHLED = [
   "7&nbsp;&nbsp;Co v sobě probouzíte",
   "8&nbsp;&nbsp;Na doma: modelové situace a&nbsp;co zkusit jinak",
   "9&nbsp;&nbsp;Pod kapotou: z&nbsp;čeho analýza vychází",
-].map(n);
+].map((l) => nbsp(n(l)));
 
 export function PagePreview() {
   const dark = "linear-gradient(170deg, #2B1430, #12080F)";
   const t6: CSSProperties = { display: "block", fontSize: 6, lineHeight: 1.6, color: "#3A2230" };
   return (
-    <div style={{ marginTop: 22, display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+    <div aria-hidden="true" style={{ marginTop: 22, display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
       <div
         style={{
           ...PAGES,
@@ -644,16 +658,17 @@ export function PagePreview() {
       >
         <span style={{ fontFamily: GARAMOND, fontSize: 22, color: "#E6B79C" }}>5</span>
         <span style={{ fontFamily: GARAMOND, fontSize: 11, lineHeight: 1.15, color: "#F6E2D6" }}>
-          Emoce, komunikace a konflikt
+          {nbsp("Emoce, komunikace a konflikt")}
         </span>
       </div>
       <div style={{ ...PAGES, background: "#F7F0EA" }}>
         <span style={{ display: "block", fontFamily: GARAMOND, fontSize: 10, lineHeight: 1.2, color: "#2A1220" }}>
-          Když je jednomu z vás těžko
+          {nbsp("Když je jednomu z vás těžko")}
         </span>
         <span style={{ display: "block", marginTop: 6, fontSize: 6, lineHeight: 1.55, color: "#4A3240" }}>
-          Po hádce chce Jana nejdřív klid. Tomáš potřebuje věc uzavřít hned, jinak mu nedá spát. Oba přitom chcete
-          totéž: aby bylo zase dobře. Rozdíl je jen v tom, kudy k tomu vede cesta…
+          {nbsp(
+            "Po hádce chce Jana nejdřív klid. Tomáš potřebuje věc uzavřít hned, jinak mu nedá spát. Oba přitom chcete totéž: aby bylo zase dobře. Rozdíl je jen v tom, kudy k tomu vede cesta…",
+          )}
         </span>
       </div>
     </div>

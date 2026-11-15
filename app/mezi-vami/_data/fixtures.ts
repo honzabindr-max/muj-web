@@ -4,6 +4,19 @@
 
 export const n = (s: string) => s.replaceAll("&nbsp;", " ");
 
+import { nbsp } from "../_lib/nbsp";
+
+/** Pevné mezery (česká typografie) ve všech řetězcích struktury; plátno je má jen místy. */
+function nbDeep<T>(value: T): T {
+  if (typeof value === "string") return nbsp(value) as T;
+  if (Array.isArray(value)) return value.map(nbDeep) as T;
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, nbDeep(v)]),
+    ) as T;
+  return value;
+}
+
 export const COPY_PROVENANCE = "PROTOTYPE_FIXTURE_COPY" as const;
 export const FIXTURE_ID = "FX-V-RESULT-DEMO-01";
 
@@ -19,7 +32,7 @@ export const VAZBY: { typ: VazbaTyp; strong: boolean }[] = [
   { typ: "conj", strong: false },
 ];
 
-export const PAIR = {
+const PAIR_RAW = {
   a: "Jana",
   b: "Tomáš",
   title: "Jana & Tomáš",
@@ -29,11 +42,12 @@ export const PAIR = {
   ),
   mainTheme: { title: "Navzájem se roztáčíte.", line: "Co jeden vysloví, druhý už balí." },
 } as const;
+export const PAIR = nbDeep(PAIR_RAW);
 
 export type NitTyp = "touch" | "cross" | "merge";
 export type NoteTon = "ladite" | "trete" | "plynete";
 
-export const KDO_JE_KDO = {
+const KDO_JE_KDO_RAW = {
   eyebrow: "Vaše dvě nebe",
   title: "Kdo je kdo",
   lead: "Čtyři věci o každém z vás. Poznáte se?",
@@ -94,6 +108,7 @@ export const KDO_JE_KDO = {
     poznamka: n("Měsíc zůstává v&nbsp;Raku i&nbsp;při nejistotě času ±1&nbsp;h."),
   },
 } as const;
+export const KDO_JE_KDO = nbDeep(KDO_JE_KDO_RAW);
 
 export type Tema = {
   id: string;
@@ -104,15 +119,16 @@ export type Tema = {
   dukazy: { text: string; meta: string }[];
 };
 
-export const TEMATA_HEAD = {
+const TEMATA_HEAD_RAW = {
   title: "Pět vazeb, které mezi vámi vyšly nejsilněji",
   lead: "Popisujeme sklony, ne osud. Jak je žijete, víte nejlíp vy dva.",
   note: n(
     "Texty témat píše jazykový model podle pevných pravidel, z&nbsp;vazeb ve vašem výpočtu.",
   ),
 };
+export const TEMATA_HEAD = nbDeep(TEMATA_HEAD_RAW);
 
-export const TEMATA: Tema[] = [
+const TEMATA_RAW: Tema[] = [
   {
     id: "t01",
     cislo: "01",
@@ -203,20 +219,23 @@ export const TEMATA: Tema[] = [
     ],
   },
 ];
+export const TEMATA: Tema[] = nbDeep(TEMATA_RAW);
 
-export const SDILENI = {
+const SDILENI_RAW = {
   title: "To je vaše Vztahová DNA.",
   lead: n("Ukažte ji tomu druhému. Schválně, kdo se v&nbsp;ní pozná dřív."),
   akce: ["Poslat obrázek", "Uložit do telefonu"],
   poznamka: "Obrázek neobsahuje data, časy ani místa narození.",
 };
+export const SDILENI = nbDeep(SDILENI_RAW);
 
-export const JAK_JSME = {
+const JAK_JSME_RAW = {
   title: n("Jak jsme k&nbsp;tomu došli"),
   sub: n("Údaje, polohy ve stupních, všech 7&nbsp;vazeb, jak výklad vzniká"),
 };
+export const JAK_JSME = nbDeep(JAK_JSME_RAW);
 
-export const OTEVRENE = {
+const OTEVRENE_RAW = {
   eyebrow: "Hloubková analýza",
   title: n("Co z&nbsp;vašeho výpočtu zůstalo otevřené"),
   lead: n(
@@ -252,8 +271,9 @@ export const OTEVRENE = {
     },
   ],
 };
+export const OTEVRENE = nbDeep(OTEVRENE_RAW);
 
-export const NABIDKA = {
+const NABIDKA_RAW = {
   eyebrow: "Hloubková analýza MEZI VÁMI",
   title: n("Všechno, co se sem nevešlo."),
   lead: n(
@@ -261,7 +281,7 @@ export const NABIDKA = {
   ),
   vyhody: [
     "Osobní PDF pro vás dva",
-    "Do 48 hodin, odkaz ke stažení e-mailem",
+    "PDF nejpozději do 48 hodin od potvrzené platby. Zabezpečený odkaz ke stažení obdržíte e-mailem; platí 30 dní.",
     "Jednorázově, žádné předplatné",
   ],
   nahledPoznamka: "Náhled stran je ilustrační, finální ukázky budou ze vzorového reportu.",
@@ -275,22 +295,26 @@ export const NABIDKA = {
     n("Emoce, komunikace a&nbsp;konflikt"),
     n("Blízkost, svoboda a&nbsp;každodenní fungování"),
     n("Co v&nbsp;sobě probouzíte a&nbsp;co vztah drží pohromadě"),
-    n("Na doma: modelové situace a&nbsp;co zkusit jinak"),
-    n("Pod kapotou: z&nbsp;čeho analýza vychází"),
+    "Na doma",
+    "Pod kapotou",
   ],
   timeNote: n(
     "Čas narození Jany je přibližný, takže ani Hloubková analýza nebude obsahovat ascendent a&nbsp;domy. Znáte přesný čas?",
   ),
   timeNoteOdkaz: "Upravte ho před objednávkou.",
+  cenaLabel: "Pracovní cena prototypu",
   cena: "1 990 Kč",
   cenaPozn: "vč. DPH",
+  stitekS1: "Provizorní ukázka — nejde o finální podobu zákaznického reportu.",
+  stitekS2: "Vzorový report",
   cta: "Objednat Hloubkovou analýzu",
   paticka: ["Platba kartou", "Prodávající [IČO]", "Obchodní podmínky", "Jak výklad vzniká"],
   uprava: n("Upravit údaje a&nbsp;přepočítat"),
 };
+export const NABIDKA = nbDeep(NABIDKA_RAW);
 
 /** V-02: sdílecí karta 9:16 — záměrně jen jména, téma, jeden řádek; bez dat, časů a míst */
-export const KARTA = {
+const KARTA_RAW = {
   znacka: "MEZI VÁMI",
   eyebrow: "Vztahová DNA",
   title: "Jana & Tomáš",
@@ -304,3 +328,4 @@ export const KARTA = {
   },
   paticka: "Spočítejte si svou · [DOMÉNA]",
 };
+export const KARTA = nbDeep(KARTA_RAW);

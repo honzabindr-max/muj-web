@@ -17,6 +17,9 @@ const THOUSANDS = /(\d)[ ](?=\d{3}(?!\d))/g;
 // datum: 14. 5. 1990
 const DATE = /(\d{1,2}\.)[ ](?=\d{1,2}\.|\d{4}(?!\d))/g;
 
+// zkratka „vč. DPH“ se na konci řádku nerozděluje
+const INCL_VAT = /(vč\.)[ ](?=DPH)/g;
+
 // před pomlčkou (jen když před ní není další mezera)
 const BEFORE_DASH = /(?<=\S)[ ](?=[–—](?:[  ]|$))/g;
 
@@ -27,6 +30,7 @@ export function nbsp(text: string): string {
     .replace(NUMBER_UNIT, `$1${NB}`)
     .replace(THOUSANDS, `$1${NB}`)
     .replace(DATE, `$1${NB}`)
+    .replace(INCL_VAT, `$1${NB}`)
     .replace(BEFORE_DASH, NB);
 }
 

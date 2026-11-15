@@ -40,7 +40,7 @@ describe("fixtures stránky V — tvar a zamčené invarianty", () => {
     expect(text).not.toMatch(/Brno|Praha|Žilina|Bratislava/);
   });
   it("cena nabídky 1 990 Kč vč. DPH, objednávka přes pokladnu", () => {
-    expect(NABIDKA.cena).toBe("1 990 Kč");
+    expect(NABIDKA.cena.replace(/\s/g, " ")).toBe("1 990 Kč");
     expect(NABIDKA.kapitoly).toHaveLength(9);
   });
 });

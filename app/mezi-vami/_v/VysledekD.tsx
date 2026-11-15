@@ -17,7 +17,8 @@ import {
   type NoteTon,
 } from "../_data/fixtures";
 import { A_COL, B_COL, Dot, Nit, Signature } from "./parts";
-import { PagePreview } from "./VysledekM";
+import { nbsp } from "../_lib/nbsp";
+import { PagePreview, type SampleState } from "./VysledekM";
 
 const GARAMOND = "var(--font-mv-garamond), serif";
 const MUTED = "#C2ACB7";
@@ -86,7 +87,8 @@ const NUM: CSSProperties = {
   color: "transparent",
 };
 
-export default function VysledekD({ sample = false }: { sample?: boolean }) {
+export default function VysledekD({ sampleState = "s0" }: { sampleState?: SampleState }) {
+  const sample = sampleState !== "s0";
   return (
     <div
       style={{
@@ -123,7 +125,10 @@ export default function VysledekD({ sample = false }: { sample?: boolean }) {
         <p style={EYEBROW}>Vztahová DNA</p>
         <h1
           style={{
-            margin: "14px 0 0",
+            // box se zvětší o rezervu pro descender/diakritiku (background-clip:text ořezává
+            // vše mimo box), vyrovná ji záporný margin → rozvržení beze změny
+            margin: "calc(14px - 0.1em) 0 -0.16em",
+            padding: "0.1em 0 0.16em",
             fontFamily: GARAMOND,
             fontWeight: 400,
             fontSize: 96,
@@ -304,6 +309,11 @@ export default function VysledekD({ sample = false }: { sample?: boolean }) {
               ))}
             </ul>
             <PagePreview />
+            {sample && (
+              <p style={{ margin: "10px 0 0", fontSize: 15, lineHeight: 1.4, color: "#E2C9BC" }}>
+                {sampleState === "s1" ? NABIDKA.stitekS1 : NABIDKA.stitekS2}
+              </p>
+            )}
             <p style={{ margin: "10px 0 0", fontSize: 15, color: MUTED }}>
               {NABIDKA.nahledPoznamka}
           {sample && (
@@ -327,8 +337,11 @@ export default function VysledekD({ sample = false }: { sample?: boolean }) {
             <p style={{ margin: "20px 0 0", padding: "14px 18px", borderRadius: 14, background: "rgba(240, 190, 165, 0.08)", fontSize: 15, lineHeight: 1.5, color: "#EADCE2" }}>
               {NABIDKA.timeNote} <A href="/mezi-vami/osoba">{NABIDKA.timeNoteOdkaz}</A>
             </p>
-            <p data-tabular="" style={{ margin: "28px 0 0", fontFamily: GARAMOND, fontSize: 56, lineHeight: 1, color: "#FFF1E8" }}>
-              {NABIDKA.cena.replace(/ /g, " ")}{" "}
+            <p style={{ margin: "28px 0 0", fontSize: 15, letterSpacing: "0.18em", textTransform: "uppercase", color: "#C9B0BE" }}>
+              {NABIDKA.cenaLabel}
+            </p>
+            <p data-tabular="" style={{ margin: "4px 0 0", fontFamily: GARAMOND, fontSize: 56, lineHeight: 1, color: "#FFF1E8" }}>
+              {NABIDKA.cena}{" "}
               <span style={{ fontFamily: "var(--font-mv-jost), sans-serif", fontSize: 16, color: MUTED }}>{NABIDKA.cenaPozn}</span>
             </p>
             <A href="/mezi-vami/objednavka" style={{ ...CTA, marginTop: 20 }}>
@@ -368,7 +381,7 @@ function Tema({ t, main = false }: { t: (typeof TEMATA)[number]; main?: boolean 
         <p style={{ margin: "20px 0 0", fontFamily: GARAMOND, fontStyle: "italic", fontSize: main ? 26 : 22, lineHeight: 1.3, color: "#F6D9C8" }}>{t.schvalne}</p>
       )}
       <div style={{ marginTop: 22, paddingTop: 16, borderTop: "1px solid rgba(240, 190, 165, 0.2)" }}>
-        <p style={{ margin: 0, fontSize: 15, letterSpacing: "0.12em", textTransform: "uppercase", color: "#C9B0BE" }}>Z čeho to čteme</p>
+        <p style={{ margin: 0, fontSize: 15, letterSpacing: "0.12em", textTransform: "uppercase", color: "#C9B0BE" }}>{nbsp("Z čeho to čteme")}</p>
         {t.dukazy.map((d) => (
           <p key={d.meta} style={{ margin: "10px 0 0", fontSize: 16, lineHeight: 1.45, color: "#F3E3DC" }}>
             {d.text} <span style={{ fontSize: 15, fontStyle: "italic", color: "#B9A1B0" }}>· {d.meta}</span>
