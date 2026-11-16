@@ -72,6 +72,15 @@ describe("odvozený výpočet", () => {
     expect(checkWriterOutput(short, d).join(" ")).toMatch(/přesně 5/);
     expect(WriterOutputSchema.parse(short).temata.length).toBe(4);
     expect(() => WriterOutputSchema.parse({ ...w, temata: w.temata.slice(0, 2) })).toThrow();
+    // nadbytečné vazby v tématu se oříznou, neplatný tón výsledek neshodí
+    const extra = {
+      ...w,
+      temata: w.temata.map((t) => ({ ...t, aspectIds: [...t.aspectIds, "x", "y"] })),
+      rows: w.rows.map((r) => ({ ...r, ton: "nevim" })),
+    };
+    const p = WriterOutputSchema.parse(extra);
+    expect(p.temata[0].aspectIds.length).toBe(2);
+    expect(p.rows[0].ton).toBe("plynete");
   });
 
   it("view: jména jen jako značky, poznámka k času, 7 vazeb, karta bez [DOMÉNA]", () => {
