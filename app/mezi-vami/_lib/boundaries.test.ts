@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Hranice prototypu /mezi-vami (zamčené invarianty), hlídané nad zdrojáky sekce:
-// noindex na celé sekci · žádné platby · žádný LLM výpočet · žádné ukládání osobních údajů ·
-// data jen z fixtures.
+// Hranice /mezi-vami (invarianty), hlídané nad zdrojáky sekce:
+// noindex na celé sekci · žádné platby · LLM jen na serveru (výpočet + texty, rozhodnutí sponzora
+// 16. 11. 2026) · oslovení se neposílá do výpočtu ani neukládá · draft jen v sessionStorage.
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -34,18 +34,18 @@ describe("noindex", () => {
   });
 });
 
-describe("žádné platby, žádný LLM, žádné volání ven", () => {
-  it("žádný fetch / XHR / beacon / formulář s akcí / API route v sekci", () => {
+describe("žádné platby; LLM jen na serveru (mezi-vami/, app/api/mezi-vami)", () => {
+  it("sekce volá jen vlastní API /api/mezi-vami/*; žádné XHR/beacon/formulář s akcí", () => {
     for (const f of FILES) {
       const src = read(f);
-      expect(src, rel(f)).not.toMatch(/\bfetch\s*\(/);
+      for (const m of src.matchAll(/\bfetch\s*\(\s*(["'`])([^"'`]*)\1/g))
+        expect(m[2], rel(f)).toMatch(/^\/api\/mezi-vami\//);
       expect(src, rel(f)).not.toMatch(/XMLHttpRequest|sendBeacon|EventSource|WebSocket/);
       expect(src, rel(f)).not.toMatch(/<form\b/);
-      expect(src, rel(f)).not.toMatch(/["'`]\/api\//);
     }
     expect(fs.existsSync(path.join(ROOT, "api"))).toBe(false);
   });
-  it("žádný platební ani LLM balíček či endpoint", () => {
+  it("žádný platební ani LLM balíček či endpoint v UI sekce", () => {
     const bad =
       /from\s+["'](stripe|@stripe\/[^"']*|openai|@anthropic-ai\/[^"']*|@google\/generative-ai|gopay[^"']*|comgate[^"']*)["']|api\.(stripe|openai|anthropic)\.com|gopay\.cz|comgate\.cz|gw\.sandbox/i;
     for (const f of FILES) expect(read(f), rel(f)).not.toMatch(bad);
@@ -57,18 +57,25 @@ describe("žádné platby, žádný LLM, žádné volání ven", () => {
   });
 });
 
-describe("žádné ukládání osobních údajů", () => {
-  it("žádné sessionStorage / localStorage / cookies / IndexedDB", () => {
+describe("osobní údaje", () => {
+  const SESSION_OK = ["_lib/persons-store.ts", "_parts/PersonValues.tsx", "_parts/PlatbaGuard.tsx"];
+  it("žádné localStorage / cookies / IndexedDB; sessionStorage jen ve vyjmenovaných souborech", () => {
     for (const f of FILES) {
       const src = read(f);
-      expect(src, rel(f)).not.toMatch(
-        /sessionStorage|localStorage|document\.cookie|indexedDB|cookies\(\)/,
-      );
+      expect(src, rel(f)).not.toMatch(/localStorage|document\.cookie|indexedDB|cookies\(\)/);
+      if (!SESSION_OK.includes(rel(f).split(path.sep).join("/")))
+        expect(src, rel(f)).not.toMatch(/sessionStorage/);
     }
   });
-  it("store osob je čistě v paměti modulu", () => {
-    const store = read(path.join(ROOT, "_lib/persons-store.ts"));
-    expect(store).toMatch(/let memory/);
+  it("oslovení (nick) nejde do výpočtu", () => {
+    const src = read(path.join(ROOT, "_lib/engine-client.ts"));
+    const fn = src.slice(src.indexOf("export function toCalcInput"), src.indexOf("export class ComputeError"));
+    expect(fn).not.toMatch(/nick/);
+  });
+  it("DB schéma neobsahuje jméno, oslovení ani e-mail", () => {
+    const db = fs.readFileSync(path.resolve(ROOT, "../../mezi-vami/db.ts"), "utf8");
+    const schema = db.slice(db.indexOf("const SCHEMA"), db.indexOf("`;", db.indexOf("const SCHEMA")));
+    expect(schema).not.toMatch(/\b(nick|name|jmeno|email)\b/i);
   });
 });
 

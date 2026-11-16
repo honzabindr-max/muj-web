@@ -338,6 +338,6 @@ const KARTA_RAW = {
     a: { jmeno: "Jana", text: n("něžně, i&nbsp;beze slov") },
     b: { jmeno: "Tomáš", text: "hluboko, nebo vůbec" },
   },
-  paticka: "Spočítejte si svou · [DOMÉNA]",
+  paticka: "Spočítejte si svou · good-inventions.work/mezi-vami",
 };
 export const KARTA = nbDeep(KARTA_RAW);

@@ -3,6 +3,7 @@ import { Dual } from "../_lib/Dual";
 import { resolveProps, type SearchParams } from "../_lib/dc";
 import PlatbaD, { propsMeta } from "../_dc/PlatbaD";
 import PlatbaM from "../_dc/PlatbaM";
+import { PlatbaGuard } from "../_parts/PlatbaGuard";
 
 // Titulek = název obrazovky z plátna (šablona „%s — MEZI VÁMI“ v layoutu).
 export const metadata: Metadata = { title: "Návrat z platby" };
@@ -15,12 +16,16 @@ export default async function MeziVamiPlatba({
 }) {
   // „Kontaktovat podporu“ a věty o podpoře: jen při doloženém funkčním cíli (COPY v3.2, 6.1 bod 10,
   // V31-03; cíl je UNKNOWN) → výchozí je skryto, ?podpora=1 ukáže jen variantu z návrhu.
-  const props = resolveProps(propsMeta, { podpora: "0", ...(await searchParams) });
+  const sp = await searchParams;
+  const props = resolveProps(propsMeta, { podpora: "0", ...sp });
   return (
+    <>
+    <PlatbaGuard preview={sp.stav !== undefined} />
     <Dual
       bg="#120A12"
       desktop={<PlatbaD props={props} />}
       mobile={<PlatbaM props={props} />}
     />
+    </>
   );
 }

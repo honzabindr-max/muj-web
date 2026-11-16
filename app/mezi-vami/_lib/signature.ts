@@ -4,6 +4,8 @@
 
 import { VAZBY, type VazbaTyp } from "../_data/fixtures";
 
+type Vazba = { typ: VazbaTyp; strong: boolean };
+
 export type SignatureGeometry = {
   W: number;
   H: number;
@@ -12,7 +14,7 @@ export type SignatureGeometry = {
   nodes: { x: number; y: number; typ: VazbaTyp; strong: boolean }[];
 };
 
-export function signature(W: number, H: number): SignatureGeometry {
+export function signature(W: number, H: number, vazby: Vazba[] = VAZBY): SignatureGeometry {
   const c = H / 2;
   const k = (7 * Math.PI) / (W - 40);
   const ya = (x: number) =>
@@ -34,7 +36,7 @@ export function signature(W: number, H: number): SignatureGeometry {
     H,
     pathA: path(ya),
     pathB: path(yb),
-    nodes: VAZBY.map((v, i) => ({
+    nodes: vazby.slice(0, 7).map((v, i) => ({
       x: xs[i],
       y: c,
       typ: v.typ,

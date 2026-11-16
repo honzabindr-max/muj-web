@@ -1,8 +1,11 @@
+"use client";
+
 // Sdílené stavební kameny stránky V: podpis dvojice (světelné křivky), nitě „Kdo je kdo“,
 // tečka osoby. Geometrie 1:1 z artboardů V-01 / V-02 (viz _lib/signature.ts).
 
 import { useId, type CSSProperties } from "react";
 import { signature } from "../_lib/signature";
+import { useDna } from "./view";
 import type { NitTyp } from "../_data/fixtures";
 
 export const A_COL = "#C98BC0";
@@ -40,7 +43,8 @@ export function Signature({
   style?: CSSProperties;
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-  const g = signature(W, H);
+  const { vazby } = useDna();
+  const g = signature(W, H, vazby);
   const f1 = `${uid}b1`;
   const f2 = `${uid}b2`;
   const ga = `${uid}ga`;

@@ -1,10 +1,12 @@
 "use client";
 
+import { track } from "../_lib/track";
+
 // Zadané údaje osob ve shrnutí výsledku a v pokladně. Dokud osoba není kompletně vyplněná
 // (např. přímý vstup na stránku), platí ukázka z návrhu (prototyp, ukázkový obsah).
 
 import { useRouter } from "next/navigation";
-import { useEffect, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { nbsp } from "../_lib/nbsp";
 import { ERROR_COPY, summaryOf, validateEmail, type EmailError as EmailErrorCode, type Styl } from "../_lib/persons";
 import { updatePerson, useStoredPersons } from "../_lib/persons-store";
@@ -158,23 +160,67 @@ export function CheckoutCta({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const [consent, setConsent] = useState(false);
+  const [consentErr, setConsentErr] = useState(false);
+  const cid = `${emailId}-souhlas`;
+  useEffect(() => {
+    track("order_view");
+  }, []);
   return (
-    <a
-      href={href}
-      style={style}
-      onClick={(e) => {
-        e.preventDefault();
-        const input = document.getElementById(emailId) as HTMLInputElement | null;
-        const err = validateEmail(input?.value ?? "");
-        if (input && err) {
-          setEmailErr(err);
-          input.focus();
-          return;
-        }
-        router.push(href);
-      }}
-    >
-      {children}
-    </a>
+    <>
+      {/* Souhlas se zahájením plnění před uplynutím lhůty k odstoupení (digitální obsah).
+          Text: LEGAL_PENDING — finální znění dodá právní track. */}
+      <div style={{ marginTop: 20, display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <input
+          id={cid}
+          type="checkbox"
+          checked={consent}
+          onChange={(e) => {
+            setConsent(e.target.checked);
+            if (e.target.checked) setConsentErr(false);
+          }}
+          aria-invalid={consentErr || undefined}
+          aria-describedby={consentErr ? `${cid}-err` : undefined}
+          style={{ width: 22, height: 22, marginTop: 2, accentColor: "#EDB894", flex: "0 0 auto" }}
+        />
+        <label htmlFor={cid} style={{ fontSize: 14, lineHeight: 1.5, color: "#E8DAE0" }}>
+          Souhlasím, aby se Hloubková analýza začala připravovat hned po zaplacení, a beru na
+          vědomí, že tím ztrácím právo od smlouvy odstoupit do 14 dnů. (LEGAL_PENDING)
+        </label>
+      </div>
+      {consentErr ? (
+        <p id={`${cid}-err`} role="alert" style={{ margin: "6px 0 0", fontSize: 14, color: "#F7B4A6" }}>
+          Pro pokračování potvrďte souhlas.
+        </p>
+      ) : null}
+      <a
+        href={href}
+        style={style}
+        onClick={(e) => {
+          e.preventDefault();
+          const input = document.getElementById(emailId) as HTMLInputElement | null;
+          const err = validateEmail(input?.value ?? "");
+          if (input && err) {
+            setEmailErr(err);
+            input.focus();
+            return;
+          }
+          if (!consent) {
+            setConsentErr(true);
+            document.getElementById(cid)?.focus();
+            return;
+          }
+          track("payment_click");
+          try {
+            window.sessionStorage.setItem("mv:order", String(Date.now()));
+          } catch {
+            /* ignorovat */
+          }
+          router.push(href);
+        }}
+      >
+        {children}
+      </a>
+    </>
   );
 }

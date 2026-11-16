@@ -1,10 +1,14 @@
+"use client";
+
+import { useDna } from "./view";
 // V-02 · Sdílecí karta 9:16 (360×640). Záměrně jen jména, téma a jeden řádek —
 // žádná data, časy ani místa narození (viz KARTA ve fixtures).
 
-import { KARTA } from "../_data/fixtures";
+
 import { Signature } from "./parts";
 
 export default function Karta() {
+  const { karta: KARTA } = useDna();
   const GAR = "var(--font-mv-garamond), serif";
   return (
     <div
@@ -34,7 +38,7 @@ export default function Karta() {
       <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.45, color: "#EADCE2" }}>{KARTA.veta}</p>
       <div style={{ marginTop: 24, width: "100%", paddingTop: 16, borderTop: "1px solid rgba(240, 190, 165, 0.2)" }}>
         <p style={{ margin: 0, fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase", color: "#F0BEA5" }}>
-          {KARTA.jakMiluje.glyph} {KARTA.jakMiluje.otazka}
+          <span aria-hidden="true">{KARTA.jakMiluje.glyph}</span> {KARTA.jakMiluje.otazka}
         </p>
         <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, fontSize: 15, lineHeight: 1.35 }}>
           <span style={{ textAlign: "right", color: "#E7C2DD" }}>

@@ -151,3 +151,15 @@
   position: absolute;
   inset: -13px -4px;
 }
+
+/* tmavé pozadí i pod stránkou (overscroll na iOS nesmí ukázat bílou) */
+html:has(.mvp),
+body:has(.mvp) {
+  background: #0d090e;
+}
+/* kolečkový výběr: skrytý posuvník, viditelný fokus */
+.mv-wheel::-webkit-scrollbar { display: none; }
+.mv-wheel:focus-visible { outline: 2px solid #edb894; }
+/* odkazy v patičkách: cíl aspoň 24 px (WCAG 2.5.8) */
+.mvp footer a, .mvp nav[aria-label="Právní informace"] a { display: inline-flex; align-items: center; min-height: 24px; }
+@media (hover: none) { .mv-kbd-hint { visibility: hidden; } }
