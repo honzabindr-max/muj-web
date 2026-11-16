@@ -1,3 +1,7 @@
+"use client";
+
+import { useDna } from "./view";
+import { ShareActions } from "./ShareActions";
 // V-01 · Výsledek (mobil, 375 px; na 390 se natahuje). Texty a hodnoty 1:1 z artboardu V-01
 // (fixtures v _data/fixtures.ts). Pořadí: hero → Vaše dvě nebe → 5 vazeb → sdílení → Jak jsme
 // k tomu došli → otevřené otázky → nabídka.
@@ -9,13 +13,8 @@ import { Pools } from "../_lib/LightCurve";
 import {
   n,
   JAK_JSME,
-  KDO_JE_KDO,
-  NABIDKA,
   ZDROJ_ANALYZY,
-  OTEVRENE,
-  PAIR,
   SDILENI,
-  TEMATA,
   TEMATA_HEAD,
   type NoteTon,
 } from "../_data/fixtures";
@@ -108,6 +107,7 @@ const PAGES: CSSProperties = {
 };
 
 export default function VysledekM({ sampleState = "s0" }: { sampleState?: SampleState }) {
+  const { pair: PAIR, kdoJeKdo: KDO_JE_KDO, temata: TEMATA, otevrene: OTEVRENE, nabidka: NABIDKA } = useDna();
   const sample = sampleState !== "s0";
   return (
     <div
@@ -266,7 +266,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
                 }}
               >
                 <span aria-hidden="true" style={{ letterSpacing: 0, marginRight: 6, color: "#F0BEA5" }}>
-                  {r.glyph}
+                  <span aria-hidden="true">{r.glyph}</span>
                 </span>
                 {r.otazka}{" "}
                 <span style={{ letterSpacing: 0, textTransform: "none", color: "#A98F9F" }}>
@@ -388,8 +388,8 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
             <p style={{ margin: 0, fontSize: 14, letterSpacing: "0.12em", textTransform: "uppercase", color: "#C9B0BE" }}>
               {nbsp("Z čeho to čteme")}
             </p>
-            {t.dukazy.map((d) => (
-              <p key={d.meta} style={{ margin: "10px 0 0", fontSize: 15, lineHeight: 1.4, color: "#F3E3DC" }}>
+            {t.dukazy.map((d, di) => (
+              <p key={di} style={{ margin: "10px 0 0", fontSize: 15, lineHeight: 1.4, color: "#F3E3DC" }}>
                 {d.text}{" "}
                 <span style={{ fontSize: 14, fontStyle: "italic", color: "#B9A1B0" }}>· {d.meta}</span>
               </p>
@@ -406,11 +406,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
         </p>
         <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.55, color: "#EADCE2" }}>{SDILENI.lead}</p>
         <div style={{ marginTop: 20, display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-          {SDILENI.akce.map((a) => (
-            <A key={a} href="/mezi-vami/vysledek/karta" style={GHOST}>
-              {a}
-            </A>
-          ))}
+          <ShareActions labels={SDILENI.akce} style={GHOST} />
         </div>
         <p style={{ margin: "10px 0 0", fontSize: 14, color: MUTED }}>{SDILENI.poznamka}</p>
       </section>
@@ -461,6 +457,11 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
             </li>
           ))}
         </ol>
+        <p style={{ margin: "22px 0 0" }}>
+          <A href="#nabidka" style={GHOST}>
+            {NABIDKA.eyebrow} <span aria-hidden="true">↓</span>
+          </A>
+        </p>
       </section>
 
       {/* NABÍDKA */}
@@ -513,7 +514,8 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
             </li>
           ))}
         </ol>
-        <p
+        {NABIDKA.timeNote ? (
+<p
           style={{
             margin: "18px 0 0",
             padding: "14px 16px",
@@ -526,6 +528,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
         >
           {NABIDKA.timeNote} <A href="/mezi-vami/osoba">{NABIDKA.timeNoteOdkaz}</A>
         </p>
+) : null}
         <p style={{ margin: "24px 0 0", fontSize: 14, letterSpacing: "0.18em", textTransform: "uppercase", color: "#C9B0BE" }}>
           {NABIDKA.cenaLabel}
         </p>
@@ -580,6 +583,7 @@ function BridgeMark() {
 
 /** „Jak jsme k tomu došli“: sbalené jako na plátně; rozbalený obsah je ODVOZENÝ (plátno ho nemá). */
 export function JakJsme() {
+  const { temata: TEMATA } = useDna();
   return (
     <details>
       <summary
@@ -603,8 +607,8 @@ export function JakJsme() {
         </span>
       </summary>
       <ol style={{ margin: 0, padding: "0 0 20px", listStyle: "none" }}>
-        {TEMATA.flatMap((t) => t.dukazy).map((d) => (
-          <li key={d.meta} style={{ padding: "9px 0", borderTop: "1px solid rgba(240, 190, 165, 0.12)", fontSize: 15, lineHeight: 1.4, color: "#F3E3DC" }}>
+        {TEMATA.flatMap((t) => t.dukazy).map((d, di) => (
+          <li key={di} style={{ padding: "9px 0", borderTop: "1px solid rgba(240, 190, 165, 0.12)", fontSize: 15, lineHeight: 1.4, color: "#F3E3DC" }}>
             {d.text} <span style={{ fontSize: 14, fontStyle: "italic", color: "#B9A1B0" }}>· {d.meta}</span>
           </li>
         ))}
@@ -626,6 +630,7 @@ const OBSAH_NAHLED = [
 ].map((l) => nbsp(n(l)));
 
 export function PagePreview() {
+  const { pair: PAIR } = useDna();
   const dark = "linear-gradient(170deg, #2B1430, #12080F)";
   const t6: CSSProperties = { display: "block", fontSize: 6, lineHeight: 1.6, color: "#3A2230" };
   return (

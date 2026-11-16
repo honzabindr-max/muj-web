@@ -76,6 +76,8 @@ describe("Kolo 3 — chybové hlášky K-17a podle kódu chyby", () => {
     expect(ERROR_COPY.time).toEqual({
       incomplete: "Doplňte čas narození v hodinách a minutách.",
       invalid: "Zadejte platný čas ve formátu HH:MM, například 14:30.",
+      // COPY_PENDING: stav bez výběru (audit Z2, 16. 11. 2026)
+      choose: "Vyberte, jestli čas narození znáte přesně, přibližně, nebo ne.",
     });
     expect(ERROR_COPY.email).toEqual({
       empty: "Doplňte e-mail pro doručení analýzy.",
@@ -163,7 +165,7 @@ describe("Kolo 3 — ascendent, B-P0, rod, pomlčky", () => {
       expect(text(html(C, props)), name).not.toContain("—");
       expect(html(C, props), name).not.toContain("—");
     }
-    for (const f of ["layout.tsx", "vysledek/page.tsx", "start/page.tsx"])
+    for (const f of ["layout.tsx", "vysledek/page.tsx"])
       expect(fs.readFileSync(path.resolve(__dirname, "..", f), "utf8")).toMatch(f === "layout.tsx" ? /%s – MEZI VÁMI/ : /–/);
     const lay = fs.readFileSync(path.resolve(__dirname, "../layout.tsx"), "utf8");
     expect(lay).not.toContain("%s — MEZI");

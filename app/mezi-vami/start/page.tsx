@@ -1,12 +1,6 @@
-import type { Metadata } from "next";
-import { Dual } from "../_lib/Dual";
-import StartD from "../_dc/StartD";
-import StartM from "../_dc/StartM";
+import { redirect } from "next/navigation";
 
-// Titulek = název obrazovky z plátna (šablona „%s — MEZI VÁMI“ v layoutu).
-export const metadata: Metadata = { title: "Vztahová DNA – start" };
-
-// Start Vztahové DNA.
+// Mezikrok /start byl sloučen do formuláře (audit Z8): vstup rovnou na první osobu.
 export default function MeziVamiStart() {
-  return <Dual bg="#120A12" desktop={<StartD />} mobile={<StartM />} />;
+  redirect("/mezi-vami/osoba");
 }

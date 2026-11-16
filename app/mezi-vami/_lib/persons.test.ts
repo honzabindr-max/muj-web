@@ -168,8 +168,8 @@ describe("osoba jako celek", () => {
     const d = defaultPersons();
     expect(isPersonComplete(d.a, TODAY)).toBe(false);
     expect(isPersonComplete(d.b, TODAY)).toBe(false);
-    expect(d.a.mode).toBe("exact");
-    expect(d.b.mode).toBe("exact");
+    expect(d.a.mode).toBe("none");
+    expect(d.b.mode).toBe("none");
   });
   it("přesný čas: vyžaduje platné HH:MM", () => {
     expect(isPersonComplete(base, TODAY)).toBe(true);

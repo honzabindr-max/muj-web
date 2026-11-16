@@ -2,7 +2,7 @@
 
 // První a druhá osoba — funkční formulář podle artboardů D-03 (desktop) a Mobil-02 (mobil).
 // Vzhled a texty 1:1 z artboardů; navíc: auto-posun a vložení data, combobox míst (WAI-ARIA),
-// validace při opuštění pole, údaje jen v paměti klienta. Chybové hlášky podle kódu: ERROR_COPY (K-17a).
+// validace při opuštění pole, rozpracované údaje v sessionStorage (persons-store). Chybové hlášky podle kódu: ERROR_COPY (K-17a).
 
 import {
   useEffect,
@@ -21,7 +21,7 @@ import {
   PART_INFO,
   isPersonComplete,
   normalizeTime,
-  parseDateInput,
+  MIN_YEAR,
   personErrors,
   type Approx,
   type Mode,
@@ -37,6 +37,16 @@ import {
 } from "../_lib/persons-store";
 import { loadPlaces, searchPlaces, type IndexedPlace } from "../_lib/places";
 import { nbsp } from "../_lib/nbsp";
+import { track } from "../_lib/track";
+import {
+  WheelField,
+  dateColumns,
+  timeColumns,
+  clampDate,
+  formatDateLong,
+  DEFAULT_DATE,
+  DEFAULT_TIME,
+} from "./WheelPicker";
 
 type Variant = {
   id: string;
@@ -98,6 +108,8 @@ const M: Variant = {
 };
 
 const ERR = "#F7B4A6";
+// okraj polí: kontrast ≥ 3 : 1 vůči pozadí (WCAG 1.4.11)
+const BORDER = "#8A6A7F";
 const ON = { background: "#EDB894", color: "#2A1220", borderColor: "#EDB894" };
 const OFF = {
   background: "transparent",
@@ -118,7 +130,7 @@ function inputStyle(
     boxSizing: "border-box",
     padding: "0 10px",
     borderRadius: 12,
-    border: `1px solid ${invalid ? ERR : "#5A3F53"}`,
+    border: `1px solid ${invalid ? ERR : BORDER}`,
     background: "rgba(255, 240, 232, 0.04)",
     color: "#F4E9E4",
     fontFamily: "inherit",
@@ -192,7 +204,7 @@ function Radios<T extends string>({
             type="button"
             role="radio"
             aria-checked={sel}
-            tabIndex={sel ? 0 : -1}
+            tabIndex={sel || (!options.some((x) => x.id === value) && o === options[0]) ? 0 : -1}
             onClick={() => onChange(o.id)}
             onKeyDown={(e) => move(e, i)}
             style={{ ...btn, ...(btnStyle ? btnStyle(sel) : sel ? ON : OFF) }}
@@ -415,7 +427,19 @@ function PlaceCombobox({
   );
 }
 
-/* ---------- datum: 3 pole ---------- */
+/* ---------- datum: kolečka den / měsíc / rok ---------- */
+
+function triggerStyle(v: Variant, invalid: boolean): CSSProperties {
+  return {
+    width: "100%",
+    minHeight: v.inputH,
+    boxSizing: "border-box",
+    padding: "0 16px",
+    borderRadius: 12,
+    border: `1px solid ${invalid ? ERR : BORDER}`,
+    background: "rgba(255, 240, 232, 0.04)",
+  };
+}
 
 function DateFields({
   v,
@@ -432,131 +456,31 @@ function DateFields({
   describedBy?: string;
   onTouched: () => void;
 }) {
-  const refs = [
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-  ];
-  const keys = ["den", "mesic", "rok"] as const;
-  const specs = [
-    {
-      key: "den",
-      label: "Den",
-      ph: "DD",
-      ac: "bday-day",
-      max: 2,
-      flex: "1 1 0",
-    },
-    {
-      key: "mesic",
-      label: "Měsíc",
-      ph: "MM",
-      ac: "bday-month",
-      max: 2,
-      flex: "1 1 0",
-    },
-    {
-      key: "rok",
-      label: "Rok",
-      ph: "RRRR",
-      ac: "bday-year",
-      max: 4,
-      flex: "1.6 1 0",
-    },
-  ] as const;
-
-  const focus = (i: number) => {
-    const el = refs[i].current;
-    if (el) {
-      el.focus();
-      el.select();
-    }
-  };
-
-  const applyParsed = (raw: string): boolean => {
-    const parsed = parseDateInput(raw);
-    if (!parsed) return false;
-    updatePerson(which, parsed);
-    focus(2);
-    return true;
-  };
-
   return (
-    <fieldset
-      style={{ margin: 0, padding: 0, border: 0, minWidth: 0 }}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-          onTouched();
+    <WheelField
+      idBase={`${v.id}-${which}-datum`}
+      label="Datum narození"
+      labelStyle={{ fontSize: v.legend, fontWeight: 400, color: "#E8DAE0" }}
+      placeholder="Vyberte datum"
+      display={formatDateLong(p)}
+      columns={dateColumns(p, MIN_YEAR)}
+      onOpen={() => {
+        if (!p.den || !p.mesic || p.rok.length !== 4)
+          updatePerson(which, clampDate({ ...DEFAULT_DATE }));
       }}
-    >
-      <legend
-        style={{
-          padding: 0,
-          fontSize: v.legend,
-          fontWeight: 400,
-          color: "#E8DAE0",
-        }}
-      >
-        Datum narození
-      </legend>
-      <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-        {specs.map((s, i) => (
-          <div
-            key={s.key}
-            style={{
-              flex: s.flex,
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-            }}
-          >
-            <label
-              htmlFor={`${v.id}-${which}-${s.key}`}
-              style={{ fontSize: v.fs, color: "#BDA7B2" }}
-            >
-              {s.label}
-            </label>
-            <input
-              ref={refs[i]}
-              id={`${v.id}-${which}-${s.key}`}
-              type="text"
-              inputMode="numeric"
-              autoComplete={s.ac}
-              maxLength={s.max}
-              placeholder={s.ph}
-              value={p[keys[i]]}
-              aria-invalid={invalid || undefined}
-              aria-describedby={describedBy}
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (applyParsed(raw)) return;
-                const digits = raw.replace(/\D/g, "").slice(0, s.max);
-                updatePerson(which, { [s.key]: digits });
-                if (i < 2 && digits.length === 2) focus(i + 1);
-              }}
-              onPaste={(e) => {
-                const text = e.clipboardData.getData("text");
-                if (parseDateInput(text)) {
-                  e.preventDefault();
-                  applyParsed(text);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Backspace" && p[keys[i]] === "" && i > 0) {
-                  e.preventDefault();
-                  focus(i - 1);
-                }
-              }}
-              style={inputStyle(v, invalid, { textAlign: "center" })}
-            />
-          </div>
-        ))}
-      </div>
-    </fieldset>
+      onChange={(key, value) => {
+        const next = { den: p.den || DEFAULT_DATE.den, mesic: p.mesic || DEFAULT_DATE.mesic, rok: p.rok || DEFAULT_DATE.rok, [key]: value };
+        updatePerson(which, clampDate(next));
+      }}
+      onClose={onTouched}
+      invalid={invalid}
+      describedBy={describedBy}
+      buttonStyle={triggerStyle(v, invalid)}
+    />
   );
 }
 
-/* ---------- pole času HH:MM ---------- */
+/* ---------- čas: kolečka hodiny / minuty ---------- */
 
 function TimeField({
   v,
@@ -579,50 +503,27 @@ function TimeField({
   describedBy?: string;
   onTouched: () => void;
 }) {
-  const id = `${v.id}-${which}-${idSuffix}`;
+  const cas = normalizeTime(p.cas);
   return (
-    <div
-      style={{
-        marginTop: 14,
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-      }}
-    >
-      <label htmlFor={id} style={{ fontSize: v.fs, color: "#E8DAE0" }}>
-        {label}
-      </label>
-      <input
-        id={id}
-        type="text"
-        inputMode="numeric"
-        placeholder="HH:MM"
-        value={p.cas}
-        aria-invalid={invalid || undefined}
-        aria-describedby={describedBy}
-        onChange={(e) =>
-          updatePerson(which, {
-            cas: e.target.value.replace(/[^\d:.]/g, "").slice(0, 5),
-          })
-        }
-        onBlur={() => {
-          const n = normalizeTime(p.cas);
-          if (n) updatePerson(which, { cas: n });
-          onTouched();
+    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6, maxWidth: 320 }}>
+      <WheelField
+        idBase={`${v.id}-${which}-${idSuffix}`}
+        label={label}
+        labelStyle={{ fontSize: v.fs, color: "#E8DAE0" }}
+        placeholder="Vyberte čas"
+        display={cas}
+        columns={timeColumns(cas ?? "")}
+        onOpen={() => {
+          if (!cas) updatePerson(which, { cas: DEFAULT_TIME });
         }}
-        style={{
-          width: v.timeW,
-          height: v.timeH,
-          boxSizing: "border-box",
-          padding: "0 16px",
-          borderRadius: 12,
-          border: `1px solid ${invalid ? ERR : "#5A3F53"}`,
-          background: "rgba(255, 240, 232, 0.04)",
-          color: "#F4E9E4",
-          fontFamily: "inherit",
-          fontSize: 17,
-          fontWeight: 400,
+        onChange={(key, value) => {
+          const [h, m] = (cas ?? DEFAULT_TIME).split(":");
+          updatePerson(which, { cas: key === "h" ? `${value}:${m}` : `${h}:${value}` });
         }}
+        onClose={onTouched}
+        invalid={invalid}
+        describedBy={describedBy}
+        buttonStyle={{ ...triggerStyle(v, invalid), minHeight: v.timeH }}
       />
       {hint ? (
         <p style={{ margin: 0, fontSize: v.small, color: "#C9B0BE" }}>{hint}</p>
@@ -891,7 +792,7 @@ function PersonForm({
           btn={modeBtn}
         />
 
-        <div style={{ marginTop: v === D ? 18 : 14, ...panel }}>
+        <div style={{ marginTop: v === D ? 18 : 14, ...(p.mode === "none" ? { display: "none" } : panel) }}>
           {p.mode === "exact" && (
             <>
               <p style={p1}>Přesný čas narození</p>
@@ -1093,7 +994,10 @@ function Cta({
     return (
       <button
         type="button"
-        onClick={() => goStep("B")}
+        onClick={() => {
+          track("osoba_a_done");
+          goStep("B");
+        }}
         style={{ ...common, cursor: "pointer" }}
       >
         Pokračovat
@@ -1103,6 +1007,7 @@ function Cta({
   return (
     <A
       href="/mezi-vami/vypocet"
+      onClick={() => track("osoba_b_done")}
       style={{ ...common, textDecoration: "none", color: "#2A1220" }}
     >
       Pokračovat
@@ -1343,7 +1248,7 @@ export function OsobaD() {
               </button>
             ) : (
               <A
-                href="/mezi-vami/start"
+                href="/mezi-vami"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -1509,7 +1414,7 @@ export function OsobaM() {
           </button>
         ) : (
           <A
-            href="/mezi-vami/start"
+            href="/mezi-vami"
             aria-label="Zpět"
             style={{ ...backBtn, textDecoration: "none" }}
           >
@@ -1619,7 +1524,7 @@ export function OsobaM() {
             </button>
           ) : (
             <A
-              href="/mezi-vami/start"
+              href="/mezi-vami"
               style={{
                 marginTop: 8,
                 display: "flex",

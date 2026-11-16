@@ -1,3 +1,7 @@
+"use client";
+
+import { useDna } from "./view";
+import { ShareActions } from "./ShareActions";
 // V · Výsledek (desktop 1440) — ODVOZENO. Plátno má V jen mobilně; mřížka, okraje, velikosti
 // písma a karty jsou z D-05-Vysledek (max-width 1280, okraje 40 px, nadpisy 64/96 px,
 // karta „hlavní“ 900 px, 26/22 px radius), obsah a pořadí bloků z V-01 (fixtures).
@@ -8,16 +12,12 @@ import { SampleBadge } from "../_lib/SampleBadge";
 import { Pools } from "../_lib/LightCurve";
 import {
   JAK_JSME,
-  KDO_JE_KDO,
-  NABIDKA,
   ZDROJ_ANALYZY,
-  OTEVRENE,
-  PAIR,
   SDILENI,
-  TEMATA,
   TEMATA_HEAD,
   type NoteTon,
 } from "../_data/fixtures";
+import type { Tema as TemaT } from "../_data/fixtures";
 import { A_COL, B_COL, Dot, Nit, Signature } from "./parts";
 import { nbsp } from "../_lib/nbsp";
 import { PagePreview, type SampleState } from "./VysledekM";
@@ -90,6 +90,7 @@ const NUM: CSSProperties = {
 };
 
 export default function VysledekD({ sampleState = "s0" }: { sampleState?: SampleState }) {
+  const { pair: PAIR, kdoJeKdo: KDO_JE_KDO, temata: TEMATA, otevrene: OTEVRENE, nabidka: NABIDKA } = useDna();
   const sample = sampleState !== "s0";
   return (
     <div
@@ -244,11 +245,7 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
         <p style={{ margin: "22px 0 0", fontFamily: GARAMOND, fontSize: 56, lineHeight: 1.1, color: "#F6DCE6" }}>{SDILENI.title}</p>
         <p style={{ margin: "14px 0 0", fontSize: 18, color: "#EADCE2" }}>{SDILENI.lead}</p>
         <div style={{ marginTop: 28, display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" }}>
-          {SDILENI.akce.map((a) => (
-            <A key={a} href="/mezi-vami/vysledek/karta" style={GHOST}>
-              {a}
-            </A>
-          ))}
+          <ShareActions labels={SDILENI.akce} style={GHOST} />
         </div>
         <p style={{ margin: "14px 0 0", fontSize: 15, color: MUTED }}>{SDILENI.poznamka}</p>
       </section>
@@ -264,8 +261,8 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
               <span aria-hidden="true" style={{ fontSize: 26, color: "#F0BEA5" }}>+</span>
             </summary>
             <ol style={{ margin: 0, padding: "0 0 24px", listStyle: "none" }}>
-              {TEMATA.flatMap((t) => t.dukazy).map((d) => (
-                <li key={d.meta} style={{ padding: "10px 0", borderTop: "1px solid rgba(240, 190, 165, 0.12)", fontSize: 16, lineHeight: 1.45, color: "#F3E3DC" }}>
+              {TEMATA.flatMap((t) => t.dukazy).map((d, di) => (
+                <li key={di} style={{ padding: "10px 0", borderTop: "1px solid rgba(240, 190, 165, 0.12)", fontSize: 16, lineHeight: 1.45, color: "#F3E3DC" }}>
                   {d.text} <span style={{ fontSize: 15, fontStyle: "italic", color: "#B9A1B0" }}>· {d.meta}</span>
                 </li>
               ))}
@@ -292,6 +289,11 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
             </li>
           ))}
         </ol>
+        <p style={{ margin: "22px 0 0" }}>
+          <A href="#nabidka" style={GHOST}>
+            {NABIDKA.eyebrow} <span aria-hidden="true">↓</span>
+          </A>
+        </p>
       </section>
 
       <section id="nabidka" style={{ position: "relative", maxWidth: 1360, margin: "80px auto 0", padding: "0 24px" }}>
@@ -334,9 +336,11 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
                 </li>
               ))}
             </ol>
-            <p style={{ margin: "20px 0 0", padding: "14px 18px", borderRadius: 14, background: "rgba(240, 190, 165, 0.08)", fontSize: 15, lineHeight: 1.5, color: "#EADCE2" }}>
+            {NABIDKA.timeNote ? (
+<p style={{ margin: "20px 0 0", padding: "14px 18px", borderRadius: 14, background: "rgba(240, 190, 165, 0.08)", fontSize: 15, lineHeight: 1.5, color: "#EADCE2" }}>
               {NABIDKA.timeNote} <A href="/mezi-vami/osoba">{NABIDKA.timeNoteOdkaz}</A>
             </p>
+) : null}
             <p style={{ margin: "28px 0 0", fontSize: 15, letterSpacing: "0.18em", textTransform: "uppercase", color: "#C9B0BE" }}>
               {NABIDKA.cenaLabel}
             </p>
@@ -366,7 +370,7 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
   );
 }
 
-function Tema({ t, main = false }: { t: (typeof TEMATA)[number]; main?: boolean }) {
+function Tema({ t, main = false }: { t: TemaT; main?: boolean }) {
   return (
     <article
       id={t.id}
@@ -388,8 +392,8 @@ function Tema({ t, main = false }: { t: (typeof TEMATA)[number]; main?: boolean 
       )}
       <div style={{ marginTop: 22, paddingTop: 16, borderTop: "1px solid rgba(240, 190, 165, 0.2)" }}>
         <p style={{ margin: 0, fontSize: 15, letterSpacing: "0.12em", textTransform: "uppercase", color: "#C9B0BE" }}>{nbsp("Z čeho to čteme")}</p>
-        {t.dukazy.map((d) => (
-          <p key={d.meta} style={{ margin: "10px 0 0", fontSize: 16, lineHeight: 1.45, color: "#F3E3DC" }}>
+        {t.dukazy.map((d, di) => (
+          <p key={di} style={{ margin: "10px 0 0", fontSize: 16, lineHeight: 1.45, color: "#F3E3DC" }}>
             {d.text} <span style={{ fontSize: 15, fontStyle: "italic", color: "#B9A1B0" }}>· {d.meta}</span>
           </p>
         ))}

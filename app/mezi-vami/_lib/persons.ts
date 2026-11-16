@@ -1,7 +1,8 @@
 // Údaje obou osob: model, parsování a validace (čistá logika, bez Reactu).
 // Validace vrací KÓD chyby; text hlášky podle kódu je v ERROR_COPY (Copy Studio, K-17a).
 
-export type Mode = "exact" | "approx" | "unknown";
+/** "none" = uživatel ještě nevybral (žádný předvýběr, audit Z2) */
+export type Mode = "none" | "exact" | "approx" | "unknown";
 export type Approx = "30" | "60" | "120" | "part";
 export type Part = "noc" | "rano" | "odpoledne" | "vecer";
 export type Styl = "neutral" | "m" | "f";
@@ -44,6 +45,8 @@ export const ERROR_COPY = {
   time: {
     incomplete: "Doplňte čas narození v hodinách a minutách.",
     invalid: "Zadejte platný čas ve formátu HH:MM, například 14:30.",
+    // COPY_PENDING (Copy Studio): nová hláška pro stav bez výběru
+    choose: "Vyberte, jestli čas narození znáte přesně, přibližně, nebo ne.",
   },
   email: {
     empty: "Doplňte e-mail pro doručení analýzy.",
@@ -89,12 +92,12 @@ export const emptyPerson = (mode: Mode): Person => ({
   nick: "",
 });
 
-// výchozí režim času jako v návrhu (D-03 / Mobil-02): u obou osob „Vím přesně“ — stav první
-// osoby tak nepůsobí jako přenesený do druhé
+// výchozí režim času: nic nepředvybráno (audit Z2 — „čas nemusíte znát“ nesmí vést k chybě
+// u přednastaveného „Vím přesně“); stejně u obou osob
 export const defaultPersons = (): Persons => ({
   step: "A",
-  a: emptyPerson("exact"),
-  b: emptyPerson("exact"),
+  a: emptyPerson("none"),
+  b: emptyPerson("none"),
 });
 
 /* ---------- datum ---------- */
@@ -157,7 +160,7 @@ export function formatDate(p: DateParts): string {
 
 /* ---------- čas ---------- */
 
-export type TimeError = "incomplete" | "invalid";
+export type TimeError = "incomplete" | "invalid" | "choose";
 
 /** Přijme 14:30, 1430, 7:05, 7.05 → „HH:MM“; jinak null. */
 export function normalizeTime(raw: string): string | null {
@@ -210,7 +213,8 @@ export function personErrors(
   today: Date = new Date(),
 ): PersonErrors {
   let time: TimeError | null = null;
-  if (p.mode === "exact") time = validateTime(p.cas);
+  if (p.mode === "none") time = "choose";
+  else if (p.mode === "exact") time = validateTime(p.cas);
   else if (p.mode === "approx" && p.approx !== "part")
     time = validateTime(p.cas);
   return { date: validateDate(p, today), place: validatePlace(p), time };
@@ -225,7 +229,7 @@ export function isPersonComplete(p: Person, today: Date = new Date()): boolean {
 
 /** Čas pro hodnotu „Čas narození“ (pokladna). */
 export function formatTimeValue(p: Person): string {
-  if (p.mode === "unknown") return "neznámý";
+  if (p.mode === "unknown" || p.mode === "none") return "neznámý";
   if (p.mode === "exact") return normalizeTime(p.cas) ?? p.cas;
   if (p.approx === "part") {
     const i = PART_INFO[p.part];
