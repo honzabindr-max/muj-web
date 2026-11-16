@@ -174,3 +174,60 @@ export async function generateStructured(req: StructuredRequest): Promise<Struct
   const { provider, model } = parseModelSpec(req.model);
   return ADAPTERS[provider](model, req);
 }
+
+/* ---------- Anthropic + spouštění kódu (server tool) ---------- */
+
+// Verze nástroje se mění; zkouší se od nejnovější, model si ji vybere podle chybové hlášky API.
+const CODE_TOOLS = [
+  { tool: { type: "code_execution_20250825", name: "code_execution" }, beta: "code-execution-2025-08-25" },
+  { tool: { type: "code_execution_20250522", name: "code_execution" }, beta: "code-execution-2025-05-22" },
+];
+
+/** Model napíše a spustí Python, výsledek vrátí jako JSON v závěrečném textu. Jen Anthropic. */
+export async function generateJsonWithCode(req: Omit<StructuredRequest, "schema" | "schemaName">): Promise<StructuredResult> {
+  const { provider, model } = parseModelSpec(req.model);
+  if (provider !== "anthropic") throw new LlmError("Spouštění kódu je zapojené jen pro Anthropic.");
+  const THINKING = [{ type: "disabled" }, { type: "enabled", budget_tokens: 1024 }, null];
+  let ti = 0;
+  let ci = 0;
+  let lastErr: unknown;
+  for (let i = 0; i < 6; i++) {
+    const ct = CODE_TOOLS[ci];
+    try {
+      const json = await post(
+        `${process.env.MEZI_VAMI_ANTHROPIC_BASE_URL || "https://api.anthropic.com"}/v1/messages`,
+        {
+          "x-api-key": key("MEZI_VAMI_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", "H2_ANTHROPIC_API_KEY"),
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": ct.beta,
+        },
+        {
+          model,
+          max_tokens: req.maxOutputTokens ?? 16000,
+          system: req.system,
+          messages: [{ role: "user", content: req.user }],
+          tools: [ct.tool],
+          ...(THINKING[ti] ? { thinking: THINKING[ti] } : {}),
+        },
+        req.timeoutMs ?? 240_000,
+      );
+      const content = (json.content as { type: string; text?: string }[]) ?? [];
+      const texts = content.filter((c) => c.type === "text").map((c) => c.text ?? "");
+      const last = texts[texts.length - 1] ?? "";
+      const u = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
+      console.info(`[llm] ${model}+code(${ct.tool.type}) thinking=${JSON.stringify(THINKING[ti])} stop=${String(json.stop_reason)} bloky=${content.map((c) => c.type).join(",")}`);
+      return {
+        data: extractJson(last),
+        usage: { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0 },
+        model: `${String(json.model ?? model)}+code`,
+      };
+    } catch (e) {
+      lastErr = e;
+      if (!(e instanceof LlmError) || e.status !== 400) throw e;
+      if (ti < THINKING.length - 1 && /thinking|budget/i.test(e.message)) ti++;
+      else if (ci < CODE_TOOLS.length - 1 && /code_execution|beta|tool/i.test(e.message)) ci++;
+      else throw e;
+    }
+  }
+  throw lastErr;
+}

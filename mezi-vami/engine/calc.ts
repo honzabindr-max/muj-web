@@ -4,7 +4,7 @@
 // MEZI_VAMI_CALC_PROVIDER=ephemeris, zbytek pipeline (astro.ts, writer, DB, UI) se nemění.
 
 import { BODIES, LongitudesSchema, toUt, type CalcInput, type Longitudes, type PersonInput } from "./astro";
-import { generateStructured, type Usage } from "../llm";
+import { generateJsonWithCode, generateStructured, type Usage } from "../llm";
 
 export type CalcOutput = {
   a: Longitudes;
@@ -36,6 +36,17 @@ const OUT_SCHEMA = {
   required: ["a", "b"],
   properties: { a: LON_SCHEMA, b: LON_SCHEMA },
 };
+
+const CODE_SYSTEM = `You compute planetary positions by WRITING AND RUNNING Python code (use the code
+execution tool; numpy is available, no internet, do not pip install).
+Implement standard low-precision algorithms: Sun and planets from JPL "Approximate Positions of the
+Planets" Keplerian elements (table 1800–2050, incl. Pluto) → heliocentric → geocentric; Moon from
+Meeus ch. 47 with at least the 30 largest longitude terms; convert to apparent TROPICAL ecliptic
+longitude of date (apply precession from J2000 to date). Work quickly: one script, run it once,
+check that the Sun longitude is plausible, fix only if clearly wrong.
+FINAL ANSWER: only one JSON object, no prose:
+{"a":{"sun":..,"moon":..,"mercury":..,"venus":..,"mars":..,"jupiter":..,"saturn":..,"uranus":..,"neptune":..,"pluto":..},"b":{...}}
+(degrees 0–360, two decimals).`;
 
 const SYSTEM = `You are a precise astronomical calculator. For each moment (UT) compute the apparent
 geocentric TROPICAL ecliptic longitude (degrees 0–360, of date) of: Sun, Moon, Mercury, Venus,
@@ -75,10 +86,28 @@ export function sanityCheck(input: CalcInput, a: Longitudes, b: Longitudes): voi
 
 export class AiCalcProvider implements CalcProvider {
   readonly name = "ai";
-  constructor(private readonly model: string) {}
+  constructor(
+    private readonly model: string,
+    /** "code" = model počítá spuštěným Pythonem (jen Anthropic); "direct" = odpověď bez nástrojů */
+    private readonly mode: "code" | "direct" = "direct",
+  ) {}
 
   async compute(input: CalcInput): Promise<CalcOutput> {
     const user = [moment("a", input.a), moment("b", input.b)].join("\n");
+    if (this.mode === "code") {
+      const r = await generateJsonWithCode({
+        model: this.model,
+        system: CODE_SYSTEM,
+        user,
+        maxOutputTokens: 16000,
+        timeoutMs: 270_000,
+      });
+      const d = r.data as { a: unknown; b: unknown };
+      const a = LongitudesSchema.parse(d.a);
+      const b = LongitudesSchema.parse(d.b);
+      sanityCheck(input, a, b);
+      return { a, b, provider: "ai-code", model: r.model, usage: r.usage };
+    }
     let lastErr: unknown;
     for (let attempt = 0; attempt < 1; attempt++) {
       try {
@@ -150,7 +179,10 @@ export function getCalcProvider(env: Record<string, string | undefined> = proces
   const wanted = env.MEZI_VAMI_CALC_MODEL || DEFAULT_CALC_MODEL;
   const backup = env.MEZI_VAMI_CALC_FALLBACK_MODEL || FALLBACK_CALC_MODEL;
   const ok = (spec: string) => hasKey(env, spec.split(":")[0]);
-  if (ok(wanted) && ok(backup) && wanted !== backup)
-    return new FallbackCalcProvider(new AiCalcProvider(wanted), new AiCalcProvider(backup));
-  return new AiCalcProvider(ok(wanted) ? wanted : backup);
+  // výchozí: model počítá Pythonem (rozhodnutí sponzora 16. 11. 2026), jen u Anthropic
+  const modeFor = (spec: string): "code" | "direct" =>
+    (env.MEZI_VAMI_CALC_MODE ?? "code") === "code" && spec.startsWith("anthropic:") ? "code" : "direct";
+  const make = (spec: string) => new AiCalcProvider(spec, modeFor(spec));
+  if (ok(wanted) && ok(backup) && wanted !== backup) return new FallbackCalcProvider(make(wanted), make(backup));
+  return make(ok(wanted) ? wanted : backup);
 }
