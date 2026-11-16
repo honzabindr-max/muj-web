@@ -87,30 +87,55 @@ const openai: Adapter = async (modelId, req) => {
   };
 };
 
-/** Anthropic Messages API; strukturovaný výstup přes vynucený nástroj. */
+/** Anthropic Messages API; strukturovaný výstup přes nástroj (vynucený, u modelů bez podpory „auto“). */
+function extractJson(text: string): unknown {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new LlmError("Anthropic: výstup neobsahuje JSON.");
+  return JSON.parse(text.slice(start, end + 1));
+}
+
 const anthropic: Adapter = async (modelId, req) => {
-  const json = await post(
-    `${process.env.MEZI_VAMI_ANTHROPIC_BASE_URL || "https://api.anthropic.com"}/v1/messages`,
-    {
-      "x-api-key": key("MEZI_VAMI_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", "H2_ANTHROPIC_API_KEY"),
-      "anthropic-version": "2023-06-01",
-    },
-    {
-      model: modelId,
-      max_tokens: req.maxOutputTokens ?? 8000,
-      system: req.system,
-      messages: [{ role: "user", content: req.user }],
-      tools: [{ name: req.schemaName, description: "Vrať výsledek.", input_schema: req.schema }],
-      tool_choice: { type: "tool", name: req.schemaName },
-    },
-    240_000,
-  );
-  const content = (json.content as { type: string; input?: unknown }[]) ?? [];
+  const call = (forced: boolean) =>
+    post(
+      `${process.env.MEZI_VAMI_ANTHROPIC_BASE_URL || "https://api.anthropic.com"}/v1/messages`,
+      {
+        "x-api-key": key("MEZI_VAMI_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", "H2_ANTHROPIC_API_KEY"),
+        "anthropic-version": "2023-06-01",
+      },
+      {
+        model: modelId,
+        max_tokens: req.maxOutputTokens ?? 8000,
+        system: forced
+          ? req.system
+          : `${req.system}\n\nVýsledek vrať výhradně voláním nástroje „${req.schemaName}“.`,
+        messages: [{ role: "user", content: req.user }],
+        tools: [{ name: req.schemaName, description: "Vrať výsledek.", input_schema: req.schema }],
+        tool_choice: forced ? { type: "tool", name: req.schemaName } : { type: "auto" },
+      },
+      240_000,
+    );
+  let json: Record<string, unknown>;
+  try {
+    json = await call(true);
+  } catch (e) {
+    // některé modely (s vždy zapnutým uvažováním) vynucený nástroj nepodporují
+    if (e instanceof LlmError && e.status === 400 && /tool_choice/.test(e.message)) json = await call(false);
+    else throw e;
+  }
+  const content = (json.content as { type: string; input?: unknown; text?: string }[]) ?? [];
   const tool = content.find((c) => c.type === "tool_use");
-  if (!tool) throw new LlmError("Anthropic: model nevrátil strukturovaný výstup.");
+  const data =
+    tool?.input ??
+    extractJson(
+      content
+        .filter((c) => c.type === "text")
+        .map((c) => c.text ?? "")
+        .join(""),
+    );
   const u = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
   return {
-    data: tool.input,
+    data,
     usage: { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0 },
     model: String(json.model ?? modelId),
   };
