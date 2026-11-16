@@ -9,7 +9,7 @@ import { ResultRecovery, TrackOnce } from "../../_parts/ResultClient";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ id: string }> };
+type Params = { params: Promise<{ id: string }>; searchParams?: Promise<{ psani?: string }> };
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
@@ -24,9 +24,11 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 }
 
 // Skutečný výsledek: uložený výpočet + texty z DB. Jména dosazuje jen prohlížeč, který výpočet spustil.
-export default async function MeziVamiVysledekId({ params }: Params) {
+export default async function MeziVamiVysledekId({ params, searchParams }: Params) {
   const { id } = await params;
-  const r = await loadResult(id).catch((e) => {
+  // ?psani=<id> zobrazí konkrétní verzi textu (srovnání modelů a zadání); jinak nejnovější
+  const psani = (await searchParams)?.psani;
+  const r = await loadResult(id, psani).catch((e) => {
     console.error("[mezi-vami/vysledek]", e instanceof Error ? e.message : e);
     return null;
   });

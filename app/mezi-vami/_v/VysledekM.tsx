@@ -426,38 +426,44 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
 
       {/* OTEVŘENÉ OTÁZKY */}
       <section style={{ position: "relative", margin: "64px 20px 0" }}>
-        <p style={EYEBROW}>{OTEVRENE.eyebrow}</p>
-        <h2 style={{ ...H2, marginTop: 10 }}>{OTEVRENE.title}</h2>
-        <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.55, color: MUTED }}>{OTEVRENE.lead}</p>
-        <ol
-          style={{
-            margin: "18px 0 0",
-            padding: 0,
-            listStyle: "none",
-            borderBottom: "1px solid rgba(240, 190, 165, 0.16)",
-          }}
-        >
-          {OTEVRENE.polozky.map((p) => (
-            <li
-              key={p.cislo}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "34px 1fr",
-                gap: 6,
-                padding: "16px 0",
-                borderTop: "1px solid rgba(240, 190, 165, 0.16)",
-              }}
-            >
-              <span style={{ fontFamily: GARAMOND, fontSize: 20, color: "#E6B79C" }}>{p.cislo}</span>
-              <span>
-                <span style={{ display: "block", fontFamily: GARAMOND, fontSize: 21, lineHeight: 1.25, color: "#FBEFE9" }}>
-                  {p.otazka}
+        {/* 1–3 personalizované otázky, první zvýrazněná; bez otázek zůstává jen obecná pozvánka níže */}
+        {OTEVRENE.polozky.length > 0 && (
+          <>
+          <p style={EYEBROW}>{OTEVRENE.eyebrow}</p>
+          <h2 style={{ ...H2, marginTop: 10 }}>{OTEVRENE.title}</h2>
+          <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.55, color: MUTED }}>{OTEVRENE.lead}</p>
+          <ol
+            style={{
+              margin: "18px 0 0",
+              padding: 0,
+              listStyle: "none",
+              borderBottom: "1px solid rgba(240, 190, 165, 0.16)",
+            }}
+          >
+            {OTEVRENE.polozky.map((p, i) => (
+              <li
+                key={p.cislo}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "34px 1fr",
+                  gap: 6,
+                  padding: i === 0 ? "20px 0 20px 12px" : "16px 0",
+                  borderTop: "1px solid rgba(240, 190, 165, 0.16)",
+                  ...(i === 0 ? { borderLeft: "2px solid #E6B79C", background: "rgba(230, 183, 156, 0.06)" } : {}),
+                }}
+              >
+                <span style={{ fontFamily: GARAMOND, fontSize: i === 0 ? 22 : 20, color: "#E6B79C" }}>{p.cislo}</span>
+                <span>
+                  <span style={{ display: "block", fontFamily: GARAMOND, fontSize: i === 0 ? 24 : 21, lineHeight: 1.25, color: "#FBEFE9" }}>
+                    {p.otazka}
+                  </span>
+                  <span style={{ display: "block", marginTop: 6, fontSize: 14, color: "#D9B29B" }}>{p.kapitola}</span>
                 </span>
-                <span style={{ display: "block", marginTop: 6, fontSize: 14, color: "#D9B29B" }}>{p.kapitola}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
+              </li>
+            ))}
+          </ol>
+          </>
+        )}
         <p style={{ margin: "22px 0 0" }}>
           <A href="#nabidka" style={GHOST}>
             {NABIDKA.eyebrow} <span aria-hidden="true">↓</span>

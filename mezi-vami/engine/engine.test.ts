@@ -134,3 +134,85 @@ describe("věta hlavní vazby", () => {
     );
   });
 });
+
+import { checkV2, normalizeV2, parseStoredOutput, SOFT, WriterOutputV2Schema } from "./writer";
+describe("writer-v2: kontrola, dorovnání a zobrazení", () => {
+  const d = derive(INPUT, LA, LB);
+  const [a0, a1, a2, a3, a4] = d.aspects;
+  const text =
+    "Třeba když {B1} vysloví nápad u snídaně: {A1} už v duchu balí, zatímco {B1} teprve zkouší, jak věta zní nahlas. Pro {A4} je to start, pro {B4} jen první náčrt. Vzniká z toho tempo, které oba baví, dokud si nevšimnou, že každý myslí jiný den. Zkuste se zeptat: „Je to plán, nebo nápad?“";
+  const tema = (ids: string[], nadpis: string) => ({
+    aspectIds: ids,
+    nadpis,
+    text,
+    schvalne: "",
+    dukazy: ids.map((id) => ({ aspectId: id, text: "Kde {A1} jde rovnou do věci, tam {B1} nejdřív zkouší, jak věc zní." })),
+  });
+  const rows = [0, 1, 2, 3].map((i) => ({
+    a: "člověk vlastních pravidel",
+    b: "člověk dálky",
+    ton: ["ladite", "plynete", "ladite", "trete"][i] as "ladite" | "trete" | "plynete",
+    veta: "Když {A1} rozjede nápad, {B1} k němu přidá směr.",
+  }));
+  const good: WriterOutput = {
+    mainTheme: { title: "Plán, nebo nápad?", line: "Co jeden řekne nahlas, druhý už bere jako domluvu.", aspectIds: [a2.id, a3.id] },
+    rows: rows.map((r, i) => ({ ...r, ton: ["sun", "moon", "venus", "mars"].map(() => r.ton)[i] })),
+    zaverVeta: "",
+    temata: [tema([a2.id, a3.id], "Věta, která pro každého znamená něco jiného"), tema([a0.id], "Tempo"), tema([a1.id, a4.id], "Klid")],
+    otazky: [{ otazka: "Kdy se z jedné poznámky stane spor o celý den?", kapitola: 5, tema: 1 }],
+  };
+
+  it("schéma přijme 3 karty a 0 otázek", () => {
+    const p = WriterOutputV2Schema.parse({ ...good, otazky: [] });
+    expect(p.temata.length).toBe(3);
+    expect(p.otazky).toEqual([]);
+  });
+
+  it("kontrola hlídá vazby hlavního tématu, důkazy, kapitoly a planety v textu", () => {
+    const bad: WriterOutput = {
+      ...good,
+      mainTheme: { ...good.mainTheme, title: "Venuše a Mars se potkávají nečekaně", aspectIds: [a0.id] },
+      temata: [{ ...good.temata[0], dukazy: good.temata[0].dukazy.slice(0, 1) }, good.temata[1], good.temata[1]],
+      otazky: [{ otazka: "Proč?", kapitola: 12, tema: 7 }],
+    };
+    const e = checkV2(bad, d).join(" | ");
+    expect(e).toMatch(/temata\[0\]\.aspectIds: musí obsahovat/);
+    expect(e).toMatch(/temata\[0\]\.dukazy/);
+    expect(e).toMatch(/stejná sada vazeb/);
+    expect(e).toMatch(/mainTheme\.title: obsahuje název planety/);
+    expect(e).toMatch(/kapitola: 12/);
+    expect(e).toMatch(/tema: 7/);
+  });
+
+  it("mírně přetažená délka je měkká chyba (bez dalšího pokusu)", () => {
+    const e = checkV2({ ...good, mainTheme: { ...good.mainTheme, title: "Plán, nebo jen nápad? To uvidíme." } }, d);
+    expect(e.some((x) => x.startsWith(SOFT) && x.includes("mainTheme.title"))).toBe(true);
+  });
+
+  it("dorovnání vyřadí otázku bez návaznosti a sjednotí hlavní téma s první kartou", () => {
+    const { output, fixes } = normalizeV2(
+      { ...good, mainTheme: { ...good.mainTheme, aspectIds: [a0.id] }, otazky: [{ otazka: "Kdy?", kapitola: 99, tema: 1 }] },
+      d,
+    );
+    expect(output.otazky).toEqual([]);
+    expect(output.mainTheme.aspectIds).toEqual(output.temata[0].aspectIds);
+    expect(fixes.join(" ")).toMatch(/otazky\[0\]/);
+  });
+
+  it("view: hero = hlavní téma, box ukáže obě vazby kontrastu, otázky 0 → sekce prázdná", () => {
+    const v = buildView("00000000-0000-0000-0000-000000000000", INPUT, d, { ...good, otazky: [] });
+    const sp = (x: string) => x.replace(/\u00a0/g, " ");
+    expect(sp(v.pair.mainTheme.title)).toBe("Plán, nebo nápad?");
+    expect(v.kdoJeKdo.zaver.astro.split(" · ").length).toBe(2);
+    expect(sp(v.kdoJeKdo.zaver.odkaz)).toContain("Plán, nebo nápad?");
+    expect(v.otevrene.polozky).toEqual([]);
+    const v1q = buildView("00000000-0000-0000-0000-000000000000", INPUT, d, good);
+    expect(v1q.otevrene.polozky.length).toBe(1);
+    expect(v1q.otevrene.lead).toMatch(/Tuhle otázku/);
+  });
+
+  it("uložené výstupy obou verzí jdou načíst", () => {
+    expect(parseStoredOutput("writer-v2", good).mainTheme.aspectIds).toEqual([a2.id, a3.id]);
+    expect(() => parseStoredOutput("writer-v1", { ...good, otazky: [] })).toThrow();
+  });
+});
