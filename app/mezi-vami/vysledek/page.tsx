@@ -5,7 +5,7 @@ import VysledekD from "../_v/VysledekD";
 import VysledekM from "../_v/VysledekM";
 
 // Titulek = název obrazovky z plátna (šablona „%s — MEZI VÁMI“ v layoutu).
-export const metadata: Metadata = { title: "Výsledek — Vztahová DNA a nabídka" };
+export const metadata: Metadata = { title: "Výsledek – Vztahová DNA a nabídka" };
 
 // Výsledek = stránka V (V-01 mobil 1:1, desktop ODVOZEN z mřížky D-05 + bloky V-01).
 // Nahrazuje dřívější D-05 / Mobil-03..05, kde se překrývají. Data jen z fixtures (_data/fixtures.ts).

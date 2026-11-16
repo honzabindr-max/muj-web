@@ -4,7 +4,7 @@ import StartD from "../_dc/StartD";
 import StartM from "../_dc/StartM";
 
 // Titulek = název obrazovky z plátna (šablona „%s — MEZI VÁMI“ v layoutu).
-export const metadata: Metadata = { title: "Vztahová DNA — start" };
+export const metadata: Metadata = { title: "Vztahová DNA – start" };
 
 // Start Vztahové DNA.
 export default function MeziVamiStart() {

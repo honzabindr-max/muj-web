@@ -56,7 +56,7 @@ describe("COPY-04/05/06 — nabídka na výsledku podle v3.2", () => {
   });
   it("štítek vzorku S1 / S2 podle matice SMP-M", () => {
     expect(NABIDKA.stitekS1.replace(/\s/g, " ")).toBe(
-      "Provizorní ukázka — nejde o finální podobu zákaznického reportu.",
+      "Provizorní ukázka – nejde o finální podobu zákaznického reportu.",
     );
     expect(NABIDKA.stitekS2).toBe("Vzorový report");
   });

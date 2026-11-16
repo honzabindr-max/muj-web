@@ -38,7 +38,7 @@ const PAIR_RAW = {
   title: "Jana & Tomáš",
   nodesLabel: "7 míst, kde se potkáváte",
   timeNote: n(
-    "Čas narození: Jana přibližně (±1&nbsp;h), Tomáš přesně. Proto vynecháváme ascendent a&nbsp;domy. Co nejde spočítat, nedopočítáváme.",
+    "Čas narození: Jana přibližně (±1&nbsp;h), Tomáš přesně. Části výkladu, které bez přesného času nelze bezpečně určit, vynecháváme. Co nejde spočítat, nedopočítáváme.",
   ),
   mainTheme: { title: "Navzájem se roztáčíte.", line: "Co jeden vysloví, druhý už balí." },
 } as const;
@@ -299,19 +299,31 @@ const NABIDKA_RAW = {
     "Pod kapotou",
   ],
   timeNote: n(
-    "Čas narození Jany je přibližný, takže ani Hloubková analýza nebude obsahovat ascendent a&nbsp;domy. Znáte přesný čas?",
+    "Čas narození Jany je přibližný. Části výkladu, které bez přesného času nelze bezpečně určit, vynecháváme i v&nbsp;Hloubkové analýze. Znáte přesný čas?",
   ),
   timeNoteOdkaz: "Upravte ho před objednávkou.",
   cenaLabel: "Pracovní cena prototypu",
   cena: "1 990 Kč",
   cenaPozn: "vč. DPH",
-  stitekS1: "Provizorní ukázka — nejde o finální podobu zákaznického reportu.",
+  stitekS1: "Provizorní ukázka – nejde o finální podobu zákaznického reportu.",
   stitekS2: "Vzorový report",
   cta: "Objednat Hloubkovou analýzu",
   paticka: ["Platba kartou", "Prodávající [IČO]", "Obchodní podmínky", "Jak výklad vzniká"],
   uprava: n("Upravit údaje a&nbsp;přepočítat"),
 };
 export const NABIDKA = nbDeep(NABIDKA_RAW);
+
+/** B-P0 + K-13: „Z čeho analýza vychází“, bezprostředně před tlačítkem objednávky (Copy Studio, doslovně). */
+const ZDROJ_ANALYZY_RAW = {
+  title: "Z čeho analýza vychází",
+  odstavce: [
+    "Interpretace vycházejí z astrologického výpočtu podle data a místa narození obou lidí. Čas narození zohledňujeme podle toho, zda a jak přesně je známý.",
+    "Neznámý čas nebrání vytvoření plnohodnotné Vztahové DNA. Části výkladu, které bez přesného času nelze bezpečně určit, vynecháváme. Přibližný čas nezaměňujeme za přesný.",
+    "Výklad nabízí možné souvislosti k zamyšlení. Zejména u soukromých a citlivých témat nejde o potvrzení skutečných událostí nebo úmyslů druhého člověka. Astrologická interpretace není vědeckým důkazem ani předpovědí.",
+    "Hloubka jednotlivých částí závisí na dostupných údajích obou lidí a na znalosti času narození. Zahrnujeme jen to, co lze pro danou dvojici z těchto údajů podložit.",
+  ],
+};
+export const ZDROJ_ANALYZY = nbDeep(ZDROJ_ANALYZY_RAW);
 
 /** V-02: sdílecí karta 9:16 — záměrně jen jména, téma, jeden řádek; bez dat, časů a míst */
 const KARTA_RAW = {

@@ -11,6 +11,7 @@ import {
   JAK_JSME,
   KDO_JE_KDO,
   NABIDKA,
+  ZDROJ_ANALYZY,
   OTEVRENE,
   PAIR,
   SDILENI,
@@ -473,7 +474,7 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
         <ul style={{ margin: "18px 0 0", padding: 0, listStyle: "none", fontSize: 15, lineHeight: 1.5, color: "#F7EAE4" }}>
           {NABIDKA.vyhody.map((v, i) => (
             <li key={v} style={{ display: "flex", gap: 10, marginTop: i ? 6 : 0 }}>
-              <span style={{ color: "#E6B79C" }}>—</span>
+              <span style={{ color: "#E6B79C" }}>–</span>
               {v}
             </li>
           ))}
@@ -534,6 +535,12 @@ export default function VysledekM({ sampleState = "s0" }: { sampleState?: Sample
             {NABIDKA.cenaPozn}
           </span>
         </p>
+        <section aria-labelledby="zdroj-analyzy" style={{ margin: "24px 0 0", padding: "14px 16px", borderRadius: 14, background: "rgba(240, 190, 165, 0.08)", fontSize: 14, lineHeight: 1.5, color: "#EADCE2" }}>
+          <h3 id="zdroj-analyzy" style={{ margin: 0, fontSize: 15, fontWeight: 400, color: "#F7EAE4" }}>{ZDROJ_ANALYZY.title}</h3>
+          {ZDROJ_ANALYZY.odstavce.map((t) => (
+            <p key={t} style={{ margin: "10px 0 0" }}>{t}</p>
+          ))}
+        </section>
         <A href="/mezi-vami/objednavka" style={{ ...CTA, marginTop: 18 }}>
           {NABIDKA.cta}
         </A>
