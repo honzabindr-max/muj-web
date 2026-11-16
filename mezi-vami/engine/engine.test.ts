@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { derive, signOf, toUt, type CalcInput, type Longitudes } from "./astro";
 import { buildView } from "./view";
-import { checkWriterOutput, type WriterOutput } from "./writer";
+import { WriterOutputSchema, checkWriterOutput, type WriterOutput } from "./writer";
 import { fillNames, FALLBACK_FORMS } from "@/app/mezi-vami/_lib/names";
 
 const INPUT: CalcInput = {
@@ -67,6 +67,11 @@ describe("odvozený výpočet", () => {
     expect(checkWriterOutput(w, d)).toEqual([]);
     const bad = { ...w, temata: [{ ...w.temata[1] }, ...w.temata.slice(1)] };
     expect(checkWriterOutput(bad, d).join(" ")).toMatch(/hlavní vazba/);
+    // méně témat: kontrola si řekne o opravu, schéma 3–4 témata ale přijme
+    const short = { ...w, temata: w.temata.slice(0, 4) };
+    expect(checkWriterOutput(short, d).join(" ")).toMatch(/přesně 5/);
+    expect(WriterOutputSchema.parse(short).temata.length).toBe(4);
+    expect(() => WriterOutputSchema.parse({ ...w, temata: w.temata.slice(0, 2) })).toThrow();
   });
 
   it("view: jména jen jako značky, poznámka k času, 7 vazeb, karta bez [DOMÉNA]", () => {

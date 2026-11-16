@@ -127,6 +127,11 @@ const TEMATA_HEAD_RAW = {
   ),
 };
 export const TEMATA_HEAD = nbDeep(TEMATA_HEAD_RAW);
+const POCET: Record<number, string> = { 1: "Jedna vazba, která", 2: "Dvě vazby, které", 3: "Tři vazby, které", 4: "Čtyři vazby, které", 5: "Pět vazeb, které" };
+/** nadpis sekce témat podle skutečného počtu témat */
+export function temataTitle(n: number): string {
+  return n === 5 || !POCET[n] ? TEMATA_HEAD.title : nbsp(`${POCET[n]} mezi vámi vyšly nejsilněji`);
+}
 
 const TEMATA_RAW: Tema[] = [
   {

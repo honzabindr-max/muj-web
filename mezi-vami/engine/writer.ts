@@ -49,7 +49,8 @@ export const WriterOutputSchema = z.object({
         dukazy: z.array(z.object({ aspectId: z.string(), text: z.string().min(5).max(240) })).min(1).max(3),
       }),
     )
-    .length(5),
+    .min(3)
+    .transform((a) => a.slice(0, 5)),
   otazky: z
     .array(z.object({ otazka: z.string().min(10).max(220), kapitola: z.number().int().min(1).max(9) }))
     .length(5),
@@ -89,6 +90,7 @@ const OUT_SCHEMA = {
       type: "array",
       minItems: 5,
       maxItems: 5,
+      description: "PŘESNĚ 5 témat",
       items: {
         type: "object",
         additionalProperties: false,
@@ -186,6 +188,7 @@ function summary(d: Derived): string {
 export function checkWriterOutput(out: WriterOutput, d: Derived): string[] {
   const ids = new Set(d.aspects.slice(0, 12).map((a) => a.id));
   const errs: string[] = [];
+  if (out.temata.length < 5) errs.push(`témat je jen ${out.temata.length}, musí jich být přesně 5`);
   out.temata.forEach((t, i) => {
     for (const id of [...t.aspectIds, ...t.dukazy.map((x) => x.aspectId)])
       if (!ids.has(id)) errs.push(`téma ${i + 1}: neznámá vazba ${id}`);

@@ -15,6 +15,7 @@ import {
   ZDROJ_ANALYZY,
   SDILENI,
   TEMATA_HEAD,
+  temataTitle,
   type NoteTon,
 } from "../_data/fixtures";
 import type { Tema as TemaT } from "../_data/fixtures";
@@ -223,7 +224,7 @@ export default function VysledekD({ sampleState = "s0" }: { sampleState?: Sample
       {/* PĚT VAZEB */}
       <section style={{ ...WRAP, padding: "110px 40px 0" }}>
         <div style={{ textAlign: "center" }}>
-          <h2 style={H2}>{TEMATA_HEAD.title}</h2>
+          <h2 style={H2}>{temataTitle(TEMATA.length)}</h2>
           <p style={{ margin: "16px 0 0", fontSize: 18, color: MUTED }}>{TEMATA_HEAD.lead}</p>
           <p style={{ margin: "10px 0 0", fontSize: 15, color: "#B9A1B0" }}>{TEMATA_HEAD.note}</p>
         </div>
