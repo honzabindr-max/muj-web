@@ -27,31 +27,31 @@ export const ROW_BODIES: Body[] = ["sun", "moon", "venus", "mars"];
 const PH = /\{[AB][1-7]\}/;
 
 export const WriterOutputSchema = z.object({
-  mainTheme: z.object({ title: z.string().min(3).max(60), line: z.string().min(3).max(90) }),
+  mainTheme: z.object({ title: z.string().min(3).max(90), line: z.string().min(3).max(180) }),
   rows: z
     .array(
       z.object({
-        a: z.string().min(2).max(48),
-        b: z.string().min(2).max(48),
+        a: z.string().min(2).max(90),
+        b: z.string().min(2).max(90),
         ton: z.enum(["ladite", "trete", "plynete"]),
-        veta: z.string().min(5).max(160),
+        veta: z.string().min(5).max(260),
       }),
     )
     .length(4),
-  zaverVeta: z.string().min(5).max(140),
+  zaverVeta: z.string().min(5).max(240),
   temata: z
     .array(
       z.object({
         aspectIds: z.array(z.string()).min(1).max(2),
-        nadpis: z.string().min(3).max(70),
-        text: z.string().min(80).max(700),
-        schvalne: z.string().max(120),
-        dukazy: z.array(z.object({ aspectId: z.string(), text: z.string().min(5).max(140) })).min(1).max(2),
+        nadpis: z.string().min(3).max(110),
+        text: z.string().min(80).max(1100),
+        schvalne: z.string().max(200),
+        dukazy: z.array(z.object({ aspectId: z.string(), text: z.string().min(5).max(240) })).min(1).max(3),
       }),
     )
     .length(5),
   otazky: z
-    .array(z.object({ otazka: z.string().min(10).max(130), kapitola: z.number().int().min(1).max(9) }))
+    .array(z.object({ otazka: z.string().min(10).max(220), kapitola: z.number().int().min(1).max(9) }))
     .length(5),
 });
 export type WriterOutput = z.infer<typeof WriterOutputSchema>;
@@ -220,6 +220,7 @@ export async function writeDna(
       return { output, model: r.model, usage: r.usage, promptVersion: PROMPT_VERSION };
     } catch (e) {
       lastErr = e;
+      feedback = `\n\nPŘEDCHOZÍ POKUS NEPROŠEL KONTROLOU (${e instanceof Error ? e.message.slice(0, 400) : "chyba"}). Dodrž délky a strukturu.`;
     }
   }
   throw lastErr;

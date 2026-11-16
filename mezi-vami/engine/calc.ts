@@ -63,7 +63,7 @@ export class AiCalcProvider implements CalcProvider {
           user,
           schema: OUT_SCHEMA,
           schemaName: "planet_longitudes",
-          maxOutputTokens: 4000,
+          maxOutputTokens: 8000,
           timeoutMs: 120_000,
         });
         const d = r.data as { a: unknown; b: unknown };

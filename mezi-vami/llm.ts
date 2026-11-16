@@ -126,14 +126,21 @@ const anthropic: Adapter = async (modelId, req) => {
   }
   const content = (json.content as { type: string; input?: unknown; text?: string }[]) ?? [];
   const tool = content.find((c) => c.type === "tool_use");
-  const data =
-    tool?.input ??
-    extractJson(
-      content
-        .filter((c) => c.type === "text")
-        .map((c) => c.text ?? "")
-        .join(""),
-    );
+  let data: unknown = tool?.input;
+  if (data === undefined) {
+    try {
+      data = extractJson(
+        content
+          .filter((c) => c.type === "text")
+          .map((c) => c.text ?? "")
+          .join(""),
+      );
+    } catch {
+      throw new LlmError(
+        `Anthropic ${modelId}: bez strukturovaného výstupu (stop_reason=${String(json.stop_reason)}, bloky=${content.map((c) => c.type).join(",")})`,
+      );
+    }
+  }
   const u = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
   return {
     data,
