@@ -208,6 +208,7 @@ export async function writeDna(
         schema: OUT_SCHEMA,
         schemaName: "vztahova_dna",
         maxOutputTokens: 6000,
+        timeoutMs: 120_000,
       });
       const output = WriterOutputSchema.parse(r.data);
       const errs = checkWriterOutput(output, d);

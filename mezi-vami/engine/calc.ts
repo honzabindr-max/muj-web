@@ -19,7 +19,9 @@ export interface CalcProvider {
   compute(input: CalcInput): Promise<CalcOutput>;
 }
 
-export const DEFAULT_CALC_MODEL = "openai:gpt-5-codex";
+// Rozhodnutí sponzora 16. 11. 2026: uvažující modely (Opus, Codex) výpočet nestihly do 5 min →
+// rychlejší model; přesnost je dočasná, nahradí ji ephemeris. Codex zůstává volitelný přes env.
+export const DEFAULT_CALC_MODEL = "anthropic:claude-sonnet-5-5";
 
 const LON_SCHEMA = {
   type: "object",
@@ -53,7 +55,7 @@ export class AiCalcProvider implements CalcProvider {
   async compute(input: CalcInput): Promise<CalcOutput> {
     const user = [moment("a", input.a), moment("b", input.b)].join("\n");
     let lastErr: unknown;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 1; attempt++) {
       try {
         const r = await generateStructured({
           model: this.model,
@@ -61,7 +63,8 @@ export class AiCalcProvider implements CalcProvider {
           user,
           schema: OUT_SCHEMA,
           schemaName: "planet_longitudes",
-          maxOutputTokens: 20000,
+          maxOutputTokens: 4000,
+          timeoutMs: 120_000,
         });
         const d = r.data as { a: unknown; b: unknown };
         return {
@@ -87,8 +90,8 @@ export class EphemerisCalcProvider implements CalcProvider {
   }
 }
 
-/** Záloha, dokud v prostředí chybí OpenAI klíč (výpočet pak běží na Claude Opus). */
-export const FALLBACK_CALC_MODEL = "anthropic:claude-opus-5-5";
+/** Záloha při chybě hlavního modelu nebo chybějícím klíči. */
+export const FALLBACK_CALC_MODEL = "anthropic:claude-haiku-5-5";
 
 const hasKey = (env: Record<string, string | undefined>, provider: string) =>
   provider === "openai"

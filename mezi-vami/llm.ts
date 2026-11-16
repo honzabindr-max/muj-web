@@ -14,6 +14,7 @@ export type StructuredRequest = {
   schema: JsonSchema;
   schemaName: string;
   maxOutputTokens?: number;
+  timeoutMs?: number;
 };
 
 export type Usage = { inputTokens: number; outputTokens: number };
@@ -69,7 +70,7 @@ const openai: Adapter = async (modelId, req) => {
       },
       max_output_tokens: req.maxOutputTokens ?? 16000,
     },
-    240_000,
+    req.timeoutMs ?? 240_000,
   );
   const output = (json.output as { type: string; content?: { type: string; text?: string }[] }[]) ?? [];
   const text = output
@@ -113,7 +114,7 @@ const anthropic: Adapter = async (modelId, req) => {
         tools: [{ name: req.schemaName, description: "Vrať výsledek.", input_schema: req.schema }],
         tool_choice: forced ? { type: "tool", name: req.schemaName } : { type: "auto" },
       },
-      240_000,
+      req.timeoutMs ?? 240_000,
     );
   let json: Record<string, unknown>;
   try {
