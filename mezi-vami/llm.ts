@@ -128,9 +128,11 @@ function extractJson(text: string): unknown {
 }
 
 const anthropic: Adapter = async (modelId, req) => {
-  // Uvažování co nejmenší (rychlost, tokeny na výstup): nejdřív vypnout, pak minimální rozpočet,
-  // nakonec bez parametru — podle toho, co daný model přijme.
-  const THINKING = [{ type: "disabled" }, { type: "enabled", budget_tokens: 1024 }, null];
+  // Uvažování co nejmenší (rychlost, tokeny na výstup), podle toho, co model přijme:
+  // vypnout (Haiku 5.5, Opus 5.5) → bez úvodního přemýšlení „between_tools“ (Sonnet 5.5)
+  // → minimální rozpočet (starší modely) → výchozí. Vynucený nástroj jen bez přemýšlení;
+  // modely, které ho nepodporují (Sonnet 5.5), dostanou „auto“ + pokyn v systémovém promptu.
+  const THINKING = [{ type: "disabled" }, { type: "between_tools" }, { type: "enabled", budget_tokens: 1024 }, null];
   let ti = 0;
   const call = (forced: boolean) =>
     post(
@@ -154,17 +156,21 @@ const anthropic: Adapter = async (modelId, req) => {
     );
   let json: Record<string, unknown> | null = null;
   let forced = true;
-  for (let i = 0; i < 5 && !json; i++) {
+  for (let i = 0; i < 8 && !json; i++) {
     try {
-      json = await call(forced && ti !== 1);
+      json = await call(forced && ti < 2);
     } catch (e) {
       if (!(e instanceof LlmError) || e.status !== 400) throw e;
-      if (ti < THINKING.length - 1 && /thinking|budget/i.test(e.message)) ti++;
-      else if (forced && /tool_choice/.test(e.message)) forced = false;
+      console.info(`[llm] ${modelId} 400 (thinking=${JSON.stringify(THINKING[ti])}, forced=${forced}): ${e.message.slice(-220)}`);
+      // nejdřív vzdát vynucení nástroje, teprve potom ustupovat v nastavení přemýšlení
+      if (forced && ti < 2 && /tool_choice|forced tool|tool use/i.test(e.message)) forced = false;
+      else if (ti < THINKING.length - 1 && /thinking|budget|between_tools|effort/i.test(e.message)) ti++;
       else throw e;
     }
   }
-  console.info(`[llm] ${modelId}: thinking=${JSON.stringify(THINKING[ti])} forced=${forced}`);
+  console.info(
+    `[llm] ${modelId}: thinking=${JSON.stringify(THINKING[ti])} forced=${forced && ti < 2} stop=${String(json?.stop_reason)}`,
+  );
   if (!json) throw new LlmError(`Anthropic ${modelId}: požadavek se nepodařilo sestavit.`);
   const content = (json.content as { type: string; input?: unknown; text?: string }[]) ?? [];
   const tool = content.find((c) => c.type === "tool_use");

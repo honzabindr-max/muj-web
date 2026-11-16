@@ -554,8 +554,8 @@ export async function writeDna(
         user: (v2 ? summaryV2(d) : summary(d)) + feedback,
         schema: v2 ? OUT_SCHEMA_V2 : OUT_SCHEMA_V1,
         schemaName: "vztahova_dna",
-        maxOutputTokens: 6000,
-        timeoutMs: 120_000,
+        maxOutputTokens: 12000,
+        timeoutMs: 150_000,
       });
       usage = r.usage;
       total.inputTokens += usage.inputTokens;
