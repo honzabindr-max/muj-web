@@ -216,3 +216,12 @@ describe("writer-v2: kontrola, dorovnání a zobrazení", () => {
     expect(() => parseStoredOutput("writer-v1", { ...good, otazky: [] })).toThrow();
   });
 });
+
+import { caseErrors } from "./writer";
+describe("writer-v2: pád po předložce", () => {
+  it("najde „u {A3}“ a „U {B3}“, nechá správné tvary", () => {
+    expect(caseErrors("se u {A3} ani u {B3} nic nehromadí").length).toBe(2);
+    expect(caseErrors("U {B3} se potkává")).toHaveLength(1);
+    expect(caseErrors("Vedle {B2} je {A1} odvážnější. S {A7} se {B1} nenudí. Pro {A4} je to výzva.")).toEqual([]);
+  });
+});

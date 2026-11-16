@@ -353,7 +353,8 @@ mainTheme
 rows
 - Přesně čtyři řádky v pořadí Slunce, Měsíc, Venuše, Mars.
 - a a b: nejvýš 48 znaků, bez jmen (vzor tvaru: „člověk …“). Jedna vlastnost ze zadaných klíčových slov
-  pro příslušnou pozici. Nepřidávej jiné vlastnosti.
+  pro příslušnou pozici. Nepřidávej jiné vlastnosti. U pozice označené NEJISTÉ vyber vlastnost, kterou
+  sdílejí všechna možná znamení; když žádnou nesdílejí, napiš „rozhodne přesný čas narození“.
 - ton: přepiš přesně hodnotu z dodaného řádku.
 - veta: jedna věta do 160 znaků s oběma značkami ve správném pádě. Popiš, jak se dva styly potkají
   v jedné situaci. Předepsaný tón je vodítko k formulaci, ne důkaz souhry nebo konfliktu.
@@ -391,9 +392,21 @@ vazbách. Ostatní karty se nesmějí významově opakovat. Ověř délky, pády
 s dukazy. Pokud věta zní přesvědčivě jen díky tomu, že tvrdí víc, než víš, přepiš ji.
 Výsledek vrať pouze voláním nástroje vztahova_dna.`;
 
+/** writer-v2: u nejisté pozice dostane model klíčová slova všech možných znamení (ne jen středového). */
 function summaryV2(d: Derived): string {
   const kap = CHAPTERS.map((c, i) => `  ${i + 1}: ${c}`).join("\n");
-  return `${summary(d)}\n\nKAPITOLY HLOUBKOVÉ ANALÝZY (jen ID a název):\n${kap}`;
+  const TONE_CS = { ladite: "ladíte", trete: "třete se", plynete: "plynete" };
+  const side = (p: { sign: keyof typeof SIGN_KEYWORDS; possibleSigns: (keyof typeof SIGN_KEYWORDS)[] }) =>
+    p.possibleSigns.length > 1
+      ? `NEJISTÉ ${p.possibleSigns.join(" / ")} (${p.possibleSigns.map((x) => `${x}: ${SIGN_KEYWORDS[x]}`).join("; ")})`
+      : `${p.sign} (${SIGN_KEYWORDS[p.sign]})`;
+  const rows = ROW_BODIES.map((b, i) => {
+    const pa = d.a.positions.find((p) => p.body === b)!;
+    const pb = d.b.positions.find((p) => p.body === b)!;
+    return `  řádek ${i + 1} ${BODY_CS[b].name}: {A} ${side(pa)} × {B} ${side(pb)} → TÓN ${rowTone(d, b)} (${TONE_CS[rowTone(d, b)]})`;
+  });
+  const base = summary(d).replace(/ŘÁDKY „KDO JE KDO“[\s\S]*?\n\nVAZBY/, `ŘÁDKY „KDO JE KDO“ (tón je pevný):\n${rows.join("\n")}\n\nVAZBY`);
+  return `${base}\n\nKAPITOLY HLOUBKOVÉ ANALÝZY (jen ID a název):\n${kap}`;
 }
 
 const PLANET_CASE = /(Slunce|Slunci|Měsíc|Merkur|Venuš|Mars|Jupiter|Saturn|Uran|Neptun|Pluto)/;
@@ -407,6 +420,22 @@ const len = (field: string, n: number, max: number, min = 0) =>
     : null;
 const FORBIDDEN = /(dynamik|harmoni|souzněn|energi|vesmír|hvězd|osud|spřízněn|komunikujte|pocit opory|prostor pro)/i;
 const MOZE = /\b(může|můžete|mohou|můžeš|mohl[aiy]?|mohli)\b/gi;
+
+/** Předložka → povolené pády značky (nejčastější chyba: „u {B3}“ místo „u {B2}“). */
+const PREP_CASE: [RegExp, string][] = [
+  [/(^|[\s„(])(u|bez|od|do|vedle|kvůli|podle|kromě|uprostřed|během)\s+\{([AB])([1-7])\}/gi, "2"],
+  [/(^|[\s„(])(k|ke|proti|díky|naproti)\s+\{([AB])([1-7])\}/gi, "3"],
+  [/(^|[\s„(])(při|po)\s+\{([AB])([1-7])\}/gi, "6"],
+  [/(^|[\s„(])(o)\s+\{([AB])([1-7])\}/gi, "46"],
+  [/(^|[\s„(])(s)\s+\{([AB])([1-7])\}/gi, "72"],
+];
+export function caseErrors(text: string): string[] {
+  const out: string[] = [];
+  for (const [re, ok] of PREP_CASE)
+    for (const m of text.matchAll(re))
+      if (!ok.includes(m[4])) out.push(`„${m[2]} {${m[3]}${m[4]}}“ → po „${m[2]}“ patří pád ${ok.split("").join(" nebo ")}`);
+  return out;
+}
 
 /** Kontroly writer-v2. Každá chyba nese pole, které ji způsobilo (zpětná vazba pro další pokus). */
 export function checkV2(out: WriterOutput, d: Derived): string[] {
@@ -432,6 +461,7 @@ export function checkV2(out: WriterOutput, d: Derived): string[] {
     if (!/\{A[1-7]\}/.test(r.veta) || !/\{B[1-7]\}/.test(r.veta)) errs.push(`rows[${i}].veta: chybí značka jedné z osob`);
     if (/\{[AB]5\}/.test(r.veta)) errs.push(`rows[${i}].veta: 5. pád (oslovení) se nepoužívá`);
     if (r.ton !== rowTone(d, ROW_BODIES[i])) errs.push(`rows[${i}].ton: má být ${rowTone(d, ROW_BODIES[i])}`);
+    for (const c of caseErrors(r.veta)) errs.push(`rows[${i}].veta: ${c}`);
   });
   if (out.temata.length < 3) errs.push(`temata: jen ${out.temata.length}, min 3`);
   const first = out.temata[0];
@@ -453,6 +483,8 @@ export function checkV2(out: WriterOutput, d: Derived): string[] {
     push(len(`${f}.text`, t.text.length, 550, 300));
     if (!PH.test(t.text)) errs.push(`${f}.text: bez značky jména`);
     if (/\{[AB]5\}/.test(t.text)) errs.push(`${f}.text: 5. pád (oslovení) se nepoužívá`);
+    for (const c of [...caseErrors(t.text), ...caseErrors(t.nadpis), ...t.dukazy.flatMap((x) => caseErrors(x.text))])
+      errs.push(`${f}: ${c}`);
     if (astroWord(t.text) || astroWord(t.nadpis)) errs.push(`${f}: text nebo nadpis obsahuje název planety nebo aspektu`);
     if (FORBIDDEN.test(t.text) || FORBIDDEN.test(t.nadpis)) errs.push(`${f}: zakázané slovo`);
     const m = (t.text.match(MOZE) ?? []).length;
