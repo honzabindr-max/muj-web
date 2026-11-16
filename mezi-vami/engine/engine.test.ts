@@ -225,3 +225,20 @@ describe("writer-v2: pád po předložce", () => {
     expect(caseErrors("Vedle {B2} je {A1} odvážnější. S {A7} se {B1} nenudí. Pro {A4} je to výzva.")).toEqual([]);
   });
 });
+
+describe("writer-v2: interní slovník", () => {
+  it("otázka s „z druhé karty“ neprojde", () => {
+    const d = derive(INPUT, LA, LB);
+    const errs = checkV2(
+      {
+        mainTheme: { title: "Plán.", line: "Krátká věta.", aspectIds: [d.aspects[0].id] },
+        rows: [],
+        zaverVeta: "",
+        temata: [],
+        otazky: [{ otazka: "Jak se projeví rozjezd z druhé karty?", kapitola: 6, tema: 1 }],
+      },
+      d,
+    );
+    expect(errs.join(" ")).toMatch(/interní slovo/);
+  });
+});

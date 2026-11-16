@@ -327,7 +327,9 @@ Neřetěz „může / můžete / mohou“: v jedné kartě nejvýš jednou. Nejv
 (spíš, obvykle, často).
 Nepoužívej: dynamika, harmonie, souznění, energie, vesmír, hvězdy, osud, spřízněné duše, komunikujte,
 pocit opory, prostor pro.
-V textu karet, řádků a hlavního tématu nepoužívej názvy planet, aspektů ani hodnoty orbů.
+V textu karet, řádků, hlavního tématu a otázek nepoužívej názvy planet, aspektů ani hodnoty orbů
+a nemluv o stavbě výsledku („karta“, „vazba“, „druhé téma“). Místo jmen nepoužívej zájmena on/ona
+ani oslovení „vy“ pro jednoho z nich.
 Typografie: české uvozovky „…“, pomlčka –, bez emoji.
 
 JMÉNA A PÁDY
@@ -412,11 +414,13 @@ function summaryV2(d: Derived): string {
 const PLANET_CASE = /(Slunce|Slunci|Měsíc|Merkur|Venuš|Mars|Jupiter|Saturn|Uran|Neptun|Pluto)/;
 const ASPECT_WORD = /(kvadratur|opozic|trigon|sextil|konjunkc|\borb\b)/i;
 const astroWord = (s: string) => PLANET_CASE.test(s) || ASPECT_WORD.test(s);
-/** Měkké chyby (jen mírně přetažená délka) se hlásí, ale nevolají další pokus. */
+/** Interní slovník produktu nesmí do zákaznického textu („z druhé karty“, „tahle vazba“). */
+const META_WORD = /(^|[^\p{L}])(kart[aěyuoá]\p{L}*|vazb[aěyuoá]\p{L}*|vazeb)(?![\p{L}])/iu;
+/** Měkké chyby (kratší text, nebo delší nejvýš o 20 %) se hlásí, ale nevolají další pokus. */
 export const SOFT = "(měkká) ";
 const len = (field: string, n: number, max: number, min = 0) =>
   n > max || n < min
-    ? `${n <= max * 1.2 && n >= min * 0.8 ? SOFT : ""}${field}: ${n} znaků, ${min ? `má být ${min}–${max}` : `max ${max}`}`
+    ? `${n <= max * 1.2 ? SOFT : ""}${field}: ${n} znaků, ${min ? `má být ${min}–${max}` : `max ${max}`}`
     : null;
 const FORBIDDEN = /(dynamik|harmoni|souzněn|energi|vesmír|hvězd|osud|spřízněn|komunikujte|pocit opory|prostor pro)/i;
 const MOZE = /\b(může|můžete|mohou|můžeš|mohl[aiy]?|mohli)\b/gi;
@@ -453,6 +457,7 @@ export function checkV2(out: WriterOutput, d: Derived): string[] {
   for (const [k, v] of Object.entries({ "mainTheme.title": mt.title, "mainTheme.line": mt.line })) {
     if (astroWord(v)) errs.push(`${k}: obsahuje název planety nebo aspektu`);
     if (FORBIDDEN.test(v)) errs.push(`${k}: zakázané slovo`);
+    if (META_WORD.test(v)) errs.push(`${k}: interní slovo (karta/vazba)`);
   }
   out.rows.forEach((r, i) => {
     push(len(`rows[${i}].a`, r.a.length, 48));
@@ -487,6 +492,7 @@ export function checkV2(out: WriterOutput, d: Derived): string[] {
       errs.push(`${f}: ${c}`);
     if (astroWord(t.text) || astroWord(t.nadpis)) errs.push(`${f}: text nebo nadpis obsahuje název planety nebo aspektu`);
     if (FORBIDDEN.test(t.text) || FORBIDDEN.test(t.nadpis)) errs.push(`${f}: zakázané slovo`);
+    if (META_WORD.test(t.text) || META_WORD.test(t.nadpis)) errs.push(`${f}: interní slovo (karta/vazba) v textu pro zákazníka`);
     const m = (t.text.match(MOZE) ?? []).length;
     if (m > 1) errs.push(`${f}.text: „může/můžete“ ${m}×, max 1×`);
     if (t.schvalne) {
@@ -501,6 +507,8 @@ export function checkV2(out: WriterOutput, d: Derived): string[] {
     if (!o.tema || o.tema < 1 || o.tema > out.temata.length) errs.push(`otazky[${i}].tema: ${o.tema} neodpovídá žádné kartě`);
     push(len(`otazky[${i}].otazka`, o.otazka.length, 130));
     if (!o.otazka.trim().endsWith("?")) errs.push(`otazky[${i}].otazka: není otázka`);
+    if (META_WORD.test(o.otazka) || astroWord(o.otazka)) errs.push(`otazky[${i}].otazka: interní slovo, planeta nebo aspekt`);
+    for (const c of caseErrors(o.otazka)) errs.push(`otazky[${i}].otazka: ${c}`);
   });
   return errs;
 }
