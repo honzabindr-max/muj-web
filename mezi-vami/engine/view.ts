@@ -89,8 +89,15 @@ export function buildView(id: string, input: CalcInput, d: Derived, w: WriterOut
   const signText = (p: { sign: Sign; possibleSigns: Sign[] }) =>
     p.possibleSigns.length > 1 ? p.possibleSigns.join(" / ") : p.sign;
 
-  // hlavní téma = nadpis tématu 01 (odkaz „Proto vaše hlavní téma" na něj míří)
-  const mainTitle = (w.temata[0]?.nadpis || w.mainTheme.title).trim().replace(/\.?$/, ".");
+  // writer-v2: hlavní téma si vybírá pisatel (mainTheme.aspectIds) a hero, karta 01 i box
+  // „Tady se potkáváte nejvíc“ stojí na stejných vazbách. writer-v1: hlavní téma = nadpis karty 01
+  // a box = nejsilnější vazba vstupu.
+  const mainIds = (w.mainTheme.aspectIds ?? []).filter((x) => byId.has(x));
+  const isV2 = mainIds.length > 0;
+  const mainTitle = (isV2 ? w.mainTheme.title : w.temata[0]?.nadpis || w.mainTheme.title)
+    .trim()
+    .replace(/([^.?!…])$/, "$1.");
+  const boxAspects = isV2 ? mainIds.map((x) => byId.get(x)!) : top.slice(0, 1);
 
   // poznámka k Měsíci: zůstává ve znamení i při nejistém času?
   let moonNote = "";
@@ -138,8 +145,12 @@ export function buildView(id: string, input: CalcInput, d: Derived, w: WriterOut
       }),
       zaver: {
         ...KDO_JE_KDO.zaver,
-        veta: top[0] ? aspectSentence(top[0]) : "",
-        astro: top[0] ? astroOf(top[0].id) : "",
+        // kontrast dvou vazeb: box ukáže obě, žádnou nevydává za vysvětlení celku
+        veta: boxAspects.map((a) => aspectSentence(a)).join(" "),
+        astro:
+          boxAspects.length === 1
+            ? astroOf(boxAspects[0].id)
+            : boxAspects.map((a) => astroOf(a.id, false)).join(" · "),
         odkaz: `${mainTitle.replace(/\.$/, "")} ↓`,
         poznamka: moonNote,
       },
@@ -154,7 +165,12 @@ export function buildView(id: string, input: CalcInput, d: Derived, w: WriterOut
     })),
     otevrene: {
       ...OTEVRENE,
-      polozky: w.otazky.map((o, i) => ({
+      // 1–3 personalizované otázky (první je hlavní); 0 = sekce se skryje a zůstane obecná pozvánka
+      lead:
+        w.otazky.length === 1
+          ? "Vztahová DNA ukázala, co mezi vámi je. Tuhle otázku otevřela a rozvádí ji až Hloubková analýza."
+          : OTEVRENE.lead,
+      polozky: w.otazky.slice(0, 3).map((o, i) => ({
         cislo: `0${i + 1}`,
         otazka: o.otazka,
         kapitola: `V analýze: ${o.kapitola} · ${CHAPTERS[o.kapitola - 1]}`,

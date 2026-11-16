@@ -99,3 +99,11 @@ export async function getLatestWriting(computationId: string) {
   );
   return r.rows[0] ?? null;
 }
+
+/** Konkrétní psaní k výpočtu (srovnání modelů / zadání na Preview). */
+export async function getWriting(computationId: string, writingId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(writingId)) return null;
+  const p = await db();
+  const r = await p.query(`SELECT * FROM mv_writings WHERE computation_id = $1 AND id = $2`, [computationId, writingId]);
+  return r.rows[0] ?? null;
+}

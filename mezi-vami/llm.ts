@@ -17,7 +17,8 @@ export type StructuredRequest = {
   timeoutMs?: number;
 };
 
-export type Usage = { inputTokens: number; outputTokens: number };
+/** inputTokens = nekešované vstupní tokeny; cache* jen u poskytovatelů, kteří je hlásí. */
+export type Usage = { inputTokens: number; outputTokens: number; cacheWriteTokens?: number; cacheReadTokens?: number };
 export type StructuredResult = { data: unknown; usage: Usage; model: string };
 
 type Adapter = (modelId: string, req: StructuredRequest) => Promise<StructuredResult>;
@@ -80,13 +81,43 @@ const openai: Adapter = async (modelId, req) => {
     .map((c) => c.text ?? "")
     .join("");
   if (!text) throw new LlmError(`OpenAI: prázdný výstup (status ${String(json.status)}).`);
-  const u = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
+  // OpenAI kešuje stálý začátek promptu automaticky (od ~1024 tokenů); jen čteme, kolik se trefilo.
+  const u =
+    (json.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }) ?? {};
+  const cached = u.input_tokens_details?.cached_tokens ?? 0;
   return {
     data: JSON.parse(text),
-    usage: { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0 },
+    usage: { inputTokens: (u.input_tokens ?? 0) - cached, outputTokens: u.output_tokens ?? 0, cacheReadTokens: cached },
     model: String(json.model ?? modelId),
   };
 };
+
+/* Prompt caching (Anthropic): stálé části požadavku (nástroje + systémový prompt) se kešují
+   bodem zlomu na systémovém bloku; proměnná data jsou až v uživatelské zprávě. Opakovaný pokus
+   i další zákazník v okně TTL pak platí za tuto část jen zlomek. Vypnutí: MEZI_VAMI_PROMPT_CACHE=off,
+   delší okno: MEZI_VAMI_PROMPT_CACHE_TTL=1h. */
+function cachedSystem(text: string): string | { type: "text"; text: string; cache_control: Record<string, string> }[] {
+  if (process.env.MEZI_VAMI_PROMPT_CACHE === "off") return text;
+  const cache_control: Record<string, string> = { type: "ephemeral" };
+  if (process.env.MEZI_VAMI_PROMPT_CACHE_TTL === "1h") cache_control.ttl = "1h";
+  return [{ type: "text", text, cache_control }];
+}
+
+function anthropicUsage(json: Record<string, unknown>): Usage {
+  const u =
+    (json.usage as {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    }) ?? {};
+  return {
+    inputTokens: u.input_tokens ?? 0,
+    outputTokens: u.output_tokens ?? 0,
+    cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: u.cache_read_input_tokens ?? 0,
+  };
+}
 
 /** Anthropic Messages API; strukturovaný výstup přes nástroj (vynucený, u modelů bez podpory „auto“). */
 function extractJson(text: string): unknown {
@@ -97,9 +128,11 @@ function extractJson(text: string): unknown {
 }
 
 const anthropic: Adapter = async (modelId, req) => {
-  // Uvažování co nejmenší (rychlost, tokeny na výstup): nejdřív vypnout, pak minimální rozpočet,
-  // nakonec bez parametru — podle toho, co daný model přijme.
-  const THINKING = [{ type: "disabled" }, { type: "enabled", budget_tokens: 1024 }, null];
+  // Uvažování co nejmenší (rychlost, tokeny na výstup), podle toho, co model přijme:
+  // vypnout (Haiku 5.5, Opus 5.5) → bez úvodního přemýšlení „between_tools“ (Sonnet 5.5)
+  // → minimální rozpočet (starší modely) → výchozí. Vynucený nástroj jen bez přemýšlení;
+  // modely, které ho nepodporují (Sonnet 5.5), dostanou „auto“ + pokyn v systémovém promptu.
+  const THINKING = [{ type: "disabled" }, { type: "between_tools" }, { type: "enabled", budget_tokens: 1024 }, null];
   let ti = 0;
   const call = (forced: boolean) =>
     post(
@@ -111,9 +144,9 @@ const anthropic: Adapter = async (modelId, req) => {
       {
         model: modelId,
         max_tokens: req.maxOutputTokens ?? 8000,
-        system: forced
-          ? req.system
-          : `${req.system}\n\nVýsledek vrať výhradně voláním nástroje „${req.schemaName}“.`,
+        system: cachedSystem(
+          forced ? req.system : `${req.system}\n\nVýsledek vrať výhradně voláním nástroje „${req.schemaName}“.`,
+        ),
         messages: [{ role: "user", content: req.user }],
         tools: [{ name: req.schemaName, description: "Vrať výsledek.", input_schema: req.schema }],
         tool_choice: forced ? { type: "tool", name: req.schemaName } : { type: "auto" },
@@ -123,17 +156,21 @@ const anthropic: Adapter = async (modelId, req) => {
     );
   let json: Record<string, unknown> | null = null;
   let forced = true;
-  for (let i = 0; i < 5 && !json; i++) {
+  for (let i = 0; i < 8 && !json; i++) {
     try {
-      json = await call(forced && ti !== 1);
+      json = await call(forced && ti < 2);
     } catch (e) {
       if (!(e instanceof LlmError) || e.status !== 400) throw e;
-      if (ti < THINKING.length - 1 && /thinking|budget/i.test(e.message)) ti++;
-      else if (forced && /tool_choice/.test(e.message)) forced = false;
+      console.info(`[llm] ${modelId} 400 (thinking=${JSON.stringify(THINKING[ti])}, forced=${forced}): ${e.message.slice(-220)}`);
+      // nejdřív vzdát vynucení nástroje, teprve potom ustupovat v nastavení přemýšlení
+      if (forced && ti < 2 && /tool_choice|forced tool|tool use/i.test(e.message)) forced = false;
+      else if (ti < THINKING.length - 1 && /thinking|budget|between_tools|effort/i.test(e.message)) ti++;
       else throw e;
     }
   }
-  console.info(`[llm] ${modelId}: thinking=${JSON.stringify(THINKING[ti])} forced=${forced}`);
+  console.info(
+    `[llm] ${modelId}: thinking=${JSON.stringify(THINKING[ti])} forced=${forced && ti < 2} stop=${String(json?.stop_reason)}`,
+  );
   if (!json) throw new LlmError(`Anthropic ${modelId}: požadavek se nepodařilo sestavit.`);
   const content = (json.content as { type: string; input?: unknown; text?: string }[]) ?? [];
   const tool = content.find((c) => c.type === "tool_use");
@@ -152,10 +189,9 @@ const anthropic: Adapter = async (modelId, req) => {
       );
     }
   }
-  const u = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
   return {
     data,
-    usage: { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0 },
+    usage: anthropicUsage(json),
     model: String(json.model ?? modelId),
   };
 };
@@ -204,7 +240,7 @@ export async function generateJsonWithCode(req: Omit<StructuredRequest, "schema"
         {
           model,
           max_tokens: req.maxOutputTokens ?? 16000,
-          system: req.system,
+          system: cachedSystem(req.system),
           messages: [{ role: "user", content: req.user }],
           tools: [ct.tool],
           ...(THINKING[ti] ? { thinking: THINKING[ti] } : {}),
@@ -214,11 +250,10 @@ export async function generateJsonWithCode(req: Omit<StructuredRequest, "schema"
       const content = (json.content as { type: string; text?: string }[]) ?? [];
       const texts = content.filter((c) => c.type === "text").map((c) => c.text ?? "");
       const last = texts[texts.length - 1] ?? "";
-      const u = (json.usage as { input_tokens?: number; output_tokens?: number }) ?? {};
       console.info(`[llm] ${model}+code(${ct.tool.type}) thinking=${JSON.stringify(THINKING[ti])} stop=${String(json.stop_reason)} bloky=${content.map((c) => c.type).join(",")}`);
       return {
         data: extractJson(last),
-        usage: { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0 },
+        usage: anthropicUsage(json),
         model: `${String(json.model ?? model)}+code`,
       };
     } catch (e) {
