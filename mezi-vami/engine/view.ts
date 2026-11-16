@@ -89,7 +89,8 @@ export function buildView(id: string, input: CalcInput, d: Derived, w: WriterOut
   const signText = (p: { sign: Sign; possibleSigns: Sign[] }) =>
     p.possibleSigns.length > 1 ? p.possibleSigns.join(" / ") : p.sign;
 
-  const mainTitle = w.mainTheme.title.trim().replace(/\.?$/, ".");
+  // hlavní téma = nadpis tématu 01 (odkaz „Proto vaše hlavní téma" na něj míří)
+  const mainTitle = (w.temata[0]?.nadpis || w.mainTheme.title).trim().replace(/\.?$/, ".");
 
   // poznámka k Měsíci: zůstává ve znamení i při nejistém času?
   let moonNote = "";

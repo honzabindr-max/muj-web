@@ -80,6 +80,9 @@ describe("odvozený výpočet", () => {
     expect(v.kdoJeKdo.rows[0].b.znameni).toBe("Střelec");
     expect(v.karta.paticka).not.toMatch(/DOMÉNA/);
     expect(JSON.stringify(v)).not.toMatch(/Honzík|Markétka/);
+    // hlavní téma v hlavičce = téma 01, na které míří odkaz
+    expect(v.pair.mainTheme.title.replace(/\.$/, "")).toBe(v.temata[0].nadpis.replace(/\.$/, ""));
+    expect(v.kdoJeKdo.zaver.odkaz).toContain(v.temata[0].nadpis.replace(/\.$/, ""));
   });
 
   it("dosazení jmen: pády a velké písmeno na začátku věty", () => {
