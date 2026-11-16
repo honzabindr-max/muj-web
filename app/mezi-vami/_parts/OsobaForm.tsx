@@ -2,8 +2,7 @@
 
 // První a druhá osoba — funkční formulář podle artboardů D-03 (desktop) a Mobil-02 (mobil).
 // Vzhled a texty 1:1 z artboardů; navíc: auto-posun a vložení data, combobox míst (WAI-ARIA),
-// validace při opuštění pole, údaje jen v paměti klienta. Chybové texty polí v COPY v3.2 nejsou
-// (K-17a), proto se zobrazí „[chybí copy K-17a]“.
+// validace při opuštění pole, údaje jen v paměti klienta. Chybové hlášky podle kódu: ERROR_COPY (K-17a).
 
 import {
   useEffect,
@@ -18,7 +17,7 @@ import { SampleBadge } from "../_lib/SampleBadge";
 import { LightCurve, LightLayer, Pools } from "../_lib/LightCurve";
 import {
   APPROX_LABELS,
-  COPY_MISSING_K17A,
+  ERROR_COPY,
   PART_INFO,
   isPersonComplete,
   normalizeTime,
@@ -129,11 +128,19 @@ function inputStyle(
   };
 }
 
-function FieldError({ id, show }: { id: string; show: boolean }) {
-  if (!show) return null;
+function FieldError({
+  id,
+  show,
+  text,
+}: {
+  id: string;
+  show: boolean;
+  text?: string;
+}) {
+  if (!show || !text) return null;
   return (
     <p id={id} style={{ margin: "4px 0 0", fontSize: 14, color: ERR }}>
-      {COPY_MISSING_K17A}
+      {text}
     </p>
   );
 }
@@ -233,6 +240,7 @@ function PlaceCombobox({
   const [results, setResults] = useState<IndexedPlace[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  const [noResult, setNoResult] = useState(false);
   const seq = useRef(0);
 
   const run = (text: string) => {
@@ -243,6 +251,7 @@ function PlaceCombobox({
       setResults(r);
       setActive(-1);
       setOpen(r.length > 0);
+      setNoResult(r.length === 0 && text.trim().length > 0);
     });
   };
 
@@ -254,6 +263,7 @@ function PlaceCombobox({
     seq.current++;
     setOpen(false);
     setActive(-1);
+    setNoResult(false);
   };
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -319,6 +329,7 @@ function PlaceCombobox({
             seq.current++;
             setResults([]);
             setOpen(false);
+            setNoResult(false);
           }
         }}
         onFocus={() => {
@@ -328,6 +339,7 @@ function PlaceCombobox({
         onBlur={() => {
           setOpen(false);
           setActive(-1);
+          setNoResult(false);
           onTouched();
         }}
         onKeyDown={onKey}
@@ -388,6 +400,17 @@ function PlaceCombobox({
           </li>
         ))}
       </ul>
+      <p
+        role="status"
+        aria-live="polite"
+        style={{
+          margin: noResult ? "6px 0 0" : 0,
+          fontSize: 14,
+          color: "#C9B0BE",
+        }}
+      >
+        {noResult ? ERROR_COPY.placeNoResult : ""}
+      </p>
     </div>
   );
 }
@@ -801,7 +824,11 @@ function PersonForm({
             describedBy={dateInvalid ? `${pre}-datum-err` : undefined}
             onTouched={() => touch("date")}
           />
-          <FieldError id={`${pre}-datum-err`} show={dateInvalid} />
+          <FieldError
+            id={`${pre}-datum-err`}
+            show={dateInvalid}
+            text={err.date ? ERROR_COPY.date[err.date] : undefined}
+          />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <label
@@ -818,7 +845,11 @@ function PersonForm({
             describedBy={placeInvalid ? `${pre}-misto-err` : undefined}
             onTouched={() => touch("place")}
           />
-          <FieldError id={`${pre}-misto-err`} show={placeInvalid} />
+          <FieldError
+            id={`${pre}-misto-err`}
+            show={placeInvalid}
+            text={err.place ? ERROR_COPY.place[err.place] : undefined}
+          />
           <p style={{ margin: 0, fontSize: v.small, color: "#C9B0BE" }}>
             {t("Podporujeme místa narození v Česku a na Slovensku.")}
           </p>
@@ -875,7 +906,11 @@ function PersonForm({
                 describedBy={timeInvalid ? `${pre}-cas-err` : undefined}
                 onTouched={() => touch("cas")}
               />
-              <FieldError id={`${pre}-cas-err`} show={timeInvalid} />
+              <FieldError
+                id={`${pre}-cas-err`}
+                show={timeInvalid}
+                text={err.time ? ERROR_COPY.time[err.time] : undefined}
+              />
               <p style={body1}>
                 {t(
                   "Přesný čas může rozšířit rozsah Vztahové DNA. Zahrneme pouze části, které jsou pro danou dvojici dostupné.",
@@ -955,6 +990,7 @@ function PersonForm({
               <FieldError
                 id={`${pre}-cas-err`}
                 show={timeInvalid && p.approx !== "part"}
+                text={err.time ? ERROR_COPY.time[err.time] : undefined}
               />
               <p
                 style={{ ...body1, margin: v === D ? "14px 0 0" : "12px 0 0" }}
@@ -985,93 +1021,6 @@ function PersonForm({
         </div>
       </fieldset>
 
-      <details
-        style={{
-          marginTop: v === D ? 24 : 22,
-          borderTop: "1px solid #3A2535",
-          borderBottom: "1px solid #3A2535",
-          padding: "4px 0",
-        }}
-      >
-        <summary
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            minHeight: v === D ? 52 : 48,
-            fontSize: v.fs,
-            color: "#E8DAE0",
-          }}
-        >
-          <span>
-            Gramatická podoba textu{" "}
-            <span style={{ color: "#C9B0BE" }}>(nepovinné)</span>
-          </span>
-          <svg
-            aria-hidden="true"
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="#EDB894"
-            strokeWidth="1.4"
-          >
-            <path d="M3 5l4 4 4-4" />
-          </svg>
-        </summary>
-        <div
-          role="radiogroup"
-          aria-label="Gramatická podoba textu"
-          style={{
-            display: "flex",
-            flexWrap: v === D ? "wrap" : undefined,
-            flexDirection: v === D ? "row" : "column",
-            gap: v === D ? "6px 28px" : 4,
-            padding: v === D ? "4px 0 8px" : "4px 0 14px",
-          }}
-        >
-          {(
-            [
-              ["neutral", "Neutrálně"],
-              ["m", "V mužském rodě"],
-              ["f", "V ženském rodě"],
-            ] as [Styl, string][]
-          ).map(([k, l]) => (
-            <label
-              key={k}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: v === D ? 10 : 12,
-                minHeight: 44,
-                fontSize: 15,
-                color: "#F4E9E4",
-              }}
-            >
-              <input
-                type="radio"
-                name={`${pre}-styl`}
-                checked={p.styl === k}
-                onChange={() => updatePerson(which, { styl: k })}
-                style={{ width: 20, height: 20, accentColor: "#EDB894" }}
-              />
-              {l}
-            </label>
-          ))}
-        </div>
-        <p
-          style={{
-            margin: "0 0 16px",
-            fontSize: v.fs,
-            lineHeight: 1.55,
-            color: "#C9B0BE",
-          }}
-        >
-          {t(
-            "Volba mění jen gramatiku textu o této osobě. Výpočet neovlivní. Bez výběru zůstává neutrální vyjadřování.",
-          )}
-        </p>
-      </details>
     </>
   );
 }

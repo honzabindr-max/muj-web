@@ -1,6 +1,5 @@
 // Údaje obou osob: model, parsování a validace (čistá logika, bez Reactu).
-// Chybové texty polí v COPY_SYSTEM_V1 DRAFT v3.2 neexistují (K-17a = UNKNOWN),
-// proto validace vrací jen KÓD chyby; UI zobrazí „[chybí copy K-17a]“.
+// Validace vrací KÓD chyby; text hlášky podle kódu je v ERROR_COPY (Copy Studio, K-17a).
 
 export type Mode = "exact" | "approx" | "unknown";
 export type Approx = "30" | "60" | "120" | "part";
@@ -30,7 +29,37 @@ export type Person = {
 
 export type Persons = { step: "A" | "B"; a: Person; b: Person };
 
-export const COPY_MISSING_K17A = "[chybí copy K-17a]";
+/** Chybové hlášky K-17a podle kódu chyby (Copy Studio, doslovně). */
+export const ERROR_COPY = {
+  date: {
+    incomplete: "Doplňte celé datum narození.",
+    invalid: "Zadejte platné datum narození.",
+    future: "Zadejte datum narození, které není v budoucnosti.",
+    range: "Zadejte datum narození od roku 1900.",
+  },
+  place: {
+    incomplete: "Zadejte místo narození a vyberte obec ze seznamu.",
+    "not-from-list": "Vyberte obec ze seznamu míst v Česku a na Slovensku.",
+  },
+  time: {
+    incomplete: "Doplňte čas narození v hodinách a minutách.",
+    invalid: "Zadejte platný čas ve formátu HH:MM, například 14:30.",
+  },
+  email: {
+    empty: "Doplňte e-mail pro doručení analýzy.",
+    invalid: "Zadejte platnou e-mailovou adresu, například jmeno@domena.cz.",
+  },
+  placeNoResult: "Obec nenalezena; zkuste název obce v ČR nebo SR bez městské části.",
+} as const;
+
+export type EmailError = "empty" | "invalid";
+
+/** E-mail v pokladně: prázdný / neplatný formát; null = platný. */
+export function validateEmail(raw: string): EmailError | null {
+  const t = raw.trim();
+  if (!t) return "empty";
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(t) ? null : "invalid";
+}
 
 export const APPROX_LABELS: Record<Approx, string> = {
   "30": "±30 min",

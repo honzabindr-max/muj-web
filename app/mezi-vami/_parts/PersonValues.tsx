@@ -4,9 +4,9 @@
 // (např. přímý vstup na stránku), platí ukázka z návrhu (prototyp, ukázkový obsah).
 
 import { useRouter } from "next/navigation";
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { nbsp } from "../_lib/nbsp";
-import { summaryOf, type Styl } from "../_lib/persons";
+import { ERROR_COPY, summaryOf, validateEmail, type EmailError as EmailErrorCode, type Styl } from "../_lib/persons";
 import { updatePerson, useStoredPersons } from "../_lib/persons-store";
 
 type Which = "a" | "b";
@@ -90,9 +90,61 @@ export function StyleChoice({
   );
 }
 
+const EMAIL_ERR = "#F7B4A6";
+
+/** Stav chyby e-mailu v pokladně (po pokusu o „Přejít k platbě“); jen v paměti klienta. */
+let emailErr: EmailErrorCode | null = null;
+const emailListeners = new Set<() => void>();
+const setEmailErr = (e: EmailErrorCode | null) => {
+  if (e === emailErr) return;
+  emailErr = e;
+  emailListeners.forEach((l) => l());
+};
+const subscribeEmail = (l: () => void) => {
+  emailListeners.add(l);
+  return () => {
+    emailListeners.delete(l);
+  };
+};
+
+/** Vlastní hláška k poli e-mailu (K-17a): aria-invalid + aria-describedby, styl jako chyby osoby. */
+export function EmailError({ emailId }: { emailId: string }) {
+  const err = useSyncExternalStore(
+    subscribeEmail,
+    () => emailErr,
+    () => null,
+  );
+  const errId = `${emailId}-err`;
+  useEffect(() => {
+    const input = document.getElementById(emailId) as HTMLInputElement | null;
+    if (!input) return;
+    if (err) {
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", errId);
+      input.style.borderColor = EMAIL_ERR;
+    } else {
+      input.removeAttribute("aria-invalid");
+      input.removeAttribute("aria-describedby");
+      input.style.borderColor = "";
+    }
+    const onInput = () => {
+      if (emailErr) setEmailErr(validateEmail(input.value));
+    };
+    input.addEventListener("input", onInput);
+    return () => input.removeEventListener("input", onInput);
+  }, [err, emailId, errId]);
+  useEffect(() => () => setEmailErr(null), []);
+  if (!err) return null;
+  return (
+    <p id={errId} style={{ margin: "4px 0 0", fontSize: 14, color: EMAIL_ERR }}>
+      {ERROR_COPY.email[err]}
+    </p>
+  );
+}
+
 /**
- * „Přejít k platbě“: bez platného e-mailu pro doručení nepustí dál — zaostří pole a ukáže
- * nativní validační hlášku prohlížeče (COPY v3.2 text chyby e-mailu nemá, K-17a). Vzhled = odkaz z D-06.
+ * „Přejít k platbě“: bez platného e-mailu pro doručení nepustí dál; zaostří pole a ukáže
+ * vlastní hlášku K-17a (<EmailError>). Vzhled = odkaz z D-06.
  */
 export function CheckoutCta({
   emailId,
@@ -113,10 +165,10 @@ export function CheckoutCta({
       onClick={(e) => {
         e.preventDefault();
         const input = document.getElementById(emailId) as HTMLInputElement | null;
-        if (input && !input.checkValidity()) {
-          input.setAttribute("aria-invalid", "true");
+        const err = validateEmail(input?.value ?? "");
+        if (input && err) {
+          setEmailErr(err);
           input.focus();
-          input.reportValidity();
           return;
         }
         router.push(href);
