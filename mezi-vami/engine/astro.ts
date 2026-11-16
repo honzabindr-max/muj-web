@@ -242,3 +242,69 @@ export function derive(input: CalcInput, lonA: Longitudes, lonB: Longitudes): De
     aspects: synastry(pa, pb, ua.plusMinusMin, ub.plusMinusMin),
   };
 }
+
+/* ---------- deterministické věty a tóny ---------- */
+
+const ELEMENT: Record<Sign, "fire" | "earth" | "air" | "water"> = {
+  Beran: "fire", Lev: "fire", Střelec: "fire",
+  Býk: "earth", Panna: "earth", Kozoroh: "earth",
+  Blíženci: "air", Váhy: "air", Vodnář: "air",
+  Rak: "water", Štír: "water", Ryby: "water",
+};
+
+/** Tón řádku „Kdo je kdo“ pro dvojici stejných těles: podle vazby, jinak podle živlů. */
+export function rowTone(d: Derived, body: Body): "ladite" | "trete" | "plynete" {
+  const asp = d.aspects.find((x) => x.a === body && x.b === body);
+  if (asp) {
+    if (asp.type === "conj") return "plynete";
+    if (asp.type === "trine" || asp.type === "sextile") return "ladite";
+    return "trete";
+  }
+  const ea = ELEMENT[d.a.positions.find((p) => p.body === body)!.sign];
+  const eb = ELEMENT[d.b.positions.find((p) => p.body === body)!.sign];
+  if (ea === eb) return "plynete";
+  const pair = new Set([ea, eb]);
+  if ((pair.has("fire") && pair.has("air")) || (pair.has("earth") && pair.has("water"))) return "ladite";
+  return "trete";
+}
+
+const PHRASE: Record<Body, (x: string) => string> = {
+  sun: (x) => `kým je ${x}`,
+  moon: (x) => `co k bezpečí potřebuje ${x}`,
+  mercury: (x) => `jak mluví ${x}`,
+  venus: (x) => `jak miluje ${x}`,
+  mars: (x) => `jak jde ${x} do věcí`,
+  jupiter: (x) => `kde ${x} povzbuzuje`,
+  saturn: (x) => `čím drží ${x} stálost`,
+  uranus: (x) => `kde ${x} potřebuje volnost`,
+  neptune: (x) => `kde ${x} čte mezi řádky`,
+  pluto: (x) => `co ${x} v sobě proměňuje`,
+};
+const VERB: Record<AspectType, string> = {
+  conj: "splývá s tím",
+  trine: "plyne s tím",
+  sextile: "snadno se doplňuje s tím",
+  square: "se tře s tím",
+  opposition: "stojí naproti tomu",
+};
+
+/** „Jak jde {A1} do věcí, splývá s tím, kým je {B1}.“ — přesně podle vazby. */
+export function aspectSentence(a: Aspect): string {
+  const left = PHRASE[a.a]("{A1}");
+  return `${left.charAt(0).toUpperCase()}${left.slice(1)}, ${VERB[a.type]}, ${PHRASE[a.b]("{B1}")}.`;
+}
+
+export const SIGN_KEYWORDS: Record<Sign, string> = {
+  Beran: "odvaha, rychlý start, přímost, netrpělivost",
+  Býk: "stálost, smysly, jistota, trpělivost",
+  Blíženci: "zvědavost, řeč, pestrost, lehkost",
+  Rak: "domov, péče, citlivost, potřeba blízkých",
+  Lev: "srdce, velkorysost, potřeba být vidět",
+  Panna: "pečlivost, služba, detail, praktičnost",
+  Váhy: "harmonie, vztah, férovost, estetika",
+  Štír: "hloubka, intenzita, všechno nebo nic",
+  Střelec: "svoboda, dálka, smysl, optimismus",
+  Kozoroh: "odpovědnost, cíl, vytrvalost, struktura",
+  Vodnář: "vlastní pravidla, nezávislost, nápady, přátelství",
+  Ryby: "vcítění, fantazie, splývání, něha",
+};

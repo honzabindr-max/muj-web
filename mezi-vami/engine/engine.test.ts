@@ -52,7 +52,7 @@ describe("odvozený výpočet", () => {
   const w: WriterOutput = {
     mainTheme: { title: "Navzájem se roztáčíte", line: "Co jeden vysloví, druhý už balí." },
     rows: [0, 1, 2, 3].map(() => ({ a: "člověk vlastních pravidel", b: "člověk dálky", ton: "ladite" as const, veta: "{A1} rozjede, {B1} dá směr." })),
-    zaverVeta: "Jak jde {A1} do věcí, splývá s tím, kým je {B1}.",
+    zaverVeta: "",
     temata: [0, 1, 2, 3, 4].map((i) => ({
       aspectIds: [top[i].id],
       nadpis: `Téma ${i}`,
@@ -103,5 +103,17 @@ describe("pojistka výpočtu AI", () => {
     const zero = Object.fromEntries(Object.keys(LA).map((k) => [k, 0])) as Longitudes;
     expect(() => sanityCheck(INPUT, zero, zero)).toThrow();
     expect(() => sanityCheck(INPUT, LA, LB)).not.toThrow();
+  });
+});
+
+import { aspectSentence } from "./astro";
+describe("věta hlavní vazby", () => {
+  it("skládá se přesně podle vazby", () => {
+    expect(aspectSentence({ id: "x", a: "mars", b: "sun", type: "conj", orb: 1, weight: 1, uncertain: false })).toBe(
+      "Jak jde {A1} do věcí, splývá s tím, kým je {B1}.",
+    );
+    expect(aspectSentence({ id: "y", a: "venus", b: "mercury", type: "square", orb: 2, weight: 1, uncertain: false })).toBe(
+      "Jak miluje {A1}, se tře s tím, jak mluví {B1}.",
+    );
   });
 });

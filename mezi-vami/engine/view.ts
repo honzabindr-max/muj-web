@@ -13,7 +13,7 @@ import {
 } from "@/app/mezi-vami/_data/fixtures";
 import { nbsp } from "@/app/mezi-vami/_lib/nbsp";
 import type { DnaView } from "@/app/mezi-vami/_v/view-data";
-import { ASPECTS, BODY_CS, fmtDeg, type AspectType, type CalcInput, type Derived, type Sign } from "./astro";
+import { ASPECTS, BODY_CS, aspectSentence, fmtDeg, rowTone, type AspectType, type CalcInput, type Derived, type Sign } from "./astro";
 import { CHAPTERS, ROW_BODIES, type WriterOutput } from "./writer";
 
 const SIGN_LOC: Record<Sign, string> = {
@@ -124,7 +124,7 @@ export function buildView(id: string, input: CalcInput, d: Derived, w: WriterOut
       ...KDO_JE_KDO,
       rows: KDO_JE_KDO.rows.map((r, i) => {
         const body = ROW_BODIES[i];
-        const row = w.rows[i];
+        const row = { ...w.rows[i], ton: rowTone(d, body) };
         return {
           ...r,
           a: { text: row.a, znameni: signText(posA[body]) },
@@ -137,7 +137,7 @@ export function buildView(id: string, input: CalcInput, d: Derived, w: WriterOut
       }),
       zaver: {
         ...KDO_JE_KDO.zaver,
-        veta: w.zaverVeta,
+        veta: top[0] ? aspectSentence(top[0]) : "",
         astro: top[0] ? astroOf(top[0].id) : "",
         odkaz: `${mainTitle.replace(/\.$/, "")} ↓`,
         poznamka: moonNote,

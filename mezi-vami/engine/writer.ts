@@ -4,7 +4,7 @@
 // nahradí oslovením ve správném tvaru.
 
 import { z } from "zod";
-import { BODY_CS, ASPECTS, fmtDeg, type Derived, type Body } from "./astro";
+import { BODY_CS, ASPECTS, SIGN_KEYWORDS, fmtDeg, rowTone, type Derived, type Body } from "./astro";
 import { generateStructured, type Usage } from "../llm";
 
 export const DEFAULT_WRITER_MODEL = "anthropic:claude-haiku-5-5";
@@ -38,7 +38,7 @@ export const WriterOutputSchema = z.object({
       }),
     )
     .length(4),
-  zaverVeta: z.string().min(5).max(240),
+  zaverVeta: z.string().max(240),
   temata: z
     .array(
       z.object({
@@ -144,13 +144,14 @@ PRAVIDLA
 - Typografie: české uvozovky „…“, pomlčka –, žádné emoji.
 
 VÝSTUP
-- mainTheme: hlavní téma = vazba s nejvyšší vahou (první v seznamu). title max ~30 znaků, končí tečkou
-  („Navzájem se roztáčíte.“); line jedna krátká věta.
+- mainTheme: hlavní téma = vazba s nejvyšší vahou (první v seznamu). title = VLASTNÍ krátký název
+  této vazby (max ~30 znaků, končí tečkou; nepřebírej příklady z tohoto zadání); line jedna krátká věta.
 - rows: přesně 4 řádky v pořadí Slunce (kým je), Měsíc (co potřebuje k bezpečí), Venuše (jak miluje),
-  Mars (jak jde do věcí). a/b = krátká charakteristika podle znamení dané osoby BEZ jmen
-  („člověk vlastních pravidel“). ton: ladite (podobné/harmonické), trete (napětí), plynete (splývají).
-  veta = jedna věta s oběma značkami, jak to spolu funguje. Je-li u Měsíce znamení nejisté, piš opatrně.
-- zaverVeta: jedna věta o vazbě hlavního tématu ve tvaru „Jak jde {A1} do věcí, splývá s tím, kým je {B1}.“
+  Mars (jak jde do věcí). a/b = krátká charakteristika PODLE KLÍČOVÝCH SLOV ZNAMENÍ dané osoby (viz data),
+  BEZ jmen („člověk vlastních pravidel“). ton: použij PŘESNĚ tón zadaný v datech u řádku.
+  veta = jedna věta s oběma značkami, jak to spolu funguje, v souladu se zadaným tónem.
+  Je-li u Měsíce znamení nejisté, piš opatrně.
+- zaverVeta: vrať prázdný řetězec (větu skládá systém).
 - temata: přesně 5 témat z nejsilnějších vazeb (první = hlavní téma). aspectIds jen z dodaného seznamu.
   text 3–5 vět (300–550 znaků), schvalne = otázka „Schválně: …?“ nebo prázdný řetězec (aspoň 3 témata ji mají),
   dukazy = ke každé vazbě jedna věta „Kde {A1} …, … s tím, jak {B1} …“ (bez symbolů).
@@ -172,7 +173,13 @@ function summary(d: Derived): string {
     const def = ASPECTS.find((x) => x.type === a.type)!;
     return `  ${a.id}: ${BODY_CS[a.a].name} {A} ${def.cs} ${BODY_CS[a.b].name} {B}, orb ${fmtDeg(a.orb)}, váha ${a.weight.toFixed(2)}${a.uncertain ? ", NEJISTÉ (čas)" : ""}`;
   });
-  return `${person("a")}\n\n${person("b")}\n\nVAZBY (seřazené podle váhy):\n${asp.join("\n")}`;
+  const TONE_CS = { ladite: "ladíte", trete: "třete se", plynete: "plynete" };
+  const rows = ROW_BODIES.map((b, i) => {
+    const pa = d.a.positions.find((p) => p.body === b)!;
+    const pb = d.b.positions.find((p) => p.body === b)!;
+    return `  řádek ${i + 1} ${BODY_CS[b].name}: {A} ${pa.sign} (${SIGN_KEYWORDS[pa.sign]}) × {B} ${pb.sign} (${SIGN_KEYWORDS[pb.sign]}) → TÓN ${rowTone(d, b)} (${TONE_CS[rowTone(d, b)]})`;
+  });
+  return `${person("a")}\n\n${person("b")}\n\nŘÁDKY „KDO JE KDO“ (tón je pevný):\n${rows.join("\n")}\n\nVAZBY (seřazené podle váhy):\n${asp.join("\n")}`;
 }
 
 /** Kontroly nad rámec schématu: značky, existující vazby, hlavní téma. */
@@ -186,7 +193,6 @@ export function checkWriterOutput(out: WriterOutput, d: Derived): string[] {
   });
   if (d.aspects[0] && out.temata[0]?.aspectIds[0] !== d.aspects[0].id)
     errs.push("první téma není hlavní vazba");
-  if (!PH.test(out.zaverVeta)) errs.push("zaverVeta bez značek");
   return errs;
 }
 
