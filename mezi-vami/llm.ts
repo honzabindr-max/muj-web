@@ -97,6 +97,8 @@ function extractJson(text: string): unknown {
 }
 
 const anthropic: Adapter = async (modelId, req) => {
+  // Uvažování vypnout (rychlost, tokeny jdou do výstupu); model, který to nepodporuje, ho dostane bez parametru.
+  let noThinking = true;
   const call = (forced: boolean) =>
     post(
       `${process.env.MEZI_VAMI_ANTHROPIC_BASE_URL || "https://api.anthropic.com"}/v1/messages`,
@@ -113,17 +115,23 @@ const anthropic: Adapter = async (modelId, req) => {
         messages: [{ role: "user", content: req.user }],
         tools: [{ name: req.schemaName, description: "Vrať výsledek.", input_schema: req.schema }],
         tool_choice: forced ? { type: "tool", name: req.schemaName } : { type: "auto" },
+        ...(noThinking ? { thinking: { type: "disabled" } } : {}),
       },
       req.timeoutMs ?? 240_000,
     );
-  let json: Record<string, unknown>;
-  try {
-    json = await call(true);
-  } catch (e) {
-    // některé modely (s vždy zapnutým uvažováním) vynucený nástroj nepodporují
-    if (e instanceof LlmError && e.status === 400 && /tool_choice/.test(e.message)) json = await call(false);
-    else throw e;
+  let json: Record<string, unknown> | null = null;
+  let forced = true;
+  for (let i = 0; i < 3 && !json; i++) {
+    try {
+      json = await call(forced);
+    } catch (e) {
+      if (!(e instanceof LlmError) || e.status !== 400) throw e;
+      if (noThinking && /thinking/i.test(e.message)) noThinking = false;
+      else if (forced && /tool_choice/.test(e.message)) forced = false;
+      else throw e;
+    }
   }
+  if (!json) throw new LlmError(`Anthropic ${modelId}: požadavek se nepodařilo sestavit.`);
   const content = (json.content as { type: string; input?: unknown; text?: string }[]) ?? [];
   const tool = content.find((c) => c.type === "tool_use");
   let data: unknown = tool?.input;
