@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { ObfuscatedEmail } from '../components/ObfuscatedEmail';
 
 export type ChecklistItemData = {
   id: string;
@@ -149,7 +148,7 @@ export const SEC_CO_UDELAT_TED = section('co-udelat-ted', [
     nečekat a poslat ho hned.
   </>,
   <>
-    Oznámení poslat e-mailem na <ObfuscatedEmail /> a
+    Oznámení poslat e-mailem na adresu pronajímatelky uvedenou ve smlouvě a
     současně doporučeným dopisem s dodejkou na adresu pronajímatelky uvedenou ve smlouvě.
   </>,
   'Požádat o krátké písemné potvrzení přijetí a potvrzení, že nájem skončí uplynutím doby dne 6. 10. 2026.',

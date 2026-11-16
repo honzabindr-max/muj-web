@@ -14,6 +14,7 @@ import { getActivePromptVersion } from "@/h2/prompts/registry";
 import { recordAnthropicUsage } from "@/h2/prompts/usage";
 import { commitJobResult } from "@/h2/processing/commit";
 import type { FencingToken } from "@/h2/processing/lease";
+import { isVoiceReferenceHandlePayload } from "@/h2/voice/reference-handle";
 
 import { runCommandGate } from "./command-gate";
 import { H2BuddyRuntimeError } from "./errors";
@@ -67,15 +68,22 @@ export async function readMessageText(
   rawEventId: string,
 ): Promise<string> {
   return withOwnerScope(pool, ownerId, async (client) => {
-    const result = await client.query<{ payload_ciphertext: Buffer; encryption_key_version: number }>(
-      `select payload_ciphertext, encryption_key_version from raw_events where id = $1 and payload_type in ('TEXT', 'VOICE')`,
+    const result = await client.query<{ payload_type: string; payload_ciphertext: Buffer; encryption_key_version: number }>(
+      `select payload_type, payload_ciphertext, encryption_key_version from raw_events where id = $1 and payload_type in ('TEXT', 'VOICE')`,
       [rawEventId],
     );
     const row = result.rows[0];
     if (!row) {
       throw new Error("H2 buddy: raw_event not found or not TEXT/VOICE payload_type");
     }
-    return decryptPayload(row.payload_ciphertext, row.encryption_key_version, registry).toString("utf8");
+    const plaintext = decryptPayload(row.payload_ciphertext, row.encryption_key_version, registry);
+    // DC-17 — VOICE řádek bez přepisu drží jen reference handle
+    // ({telegramFileId,durationSeconds}). Ten NIKDY nesmí odejít do LLM jako
+    // text zprávy; volající musí nejdřív projít `transcribeVoiceJob()`.
+    if (row.payload_type === "VOICE" && isVoiceReferenceHandlePayload(plaintext)) {
+      throw new H2BuddyRuntimeError("VOICE_NOT_TRANSCRIBED");
+    }
+    return plaintext.toString("utf8");
   });
 }
 

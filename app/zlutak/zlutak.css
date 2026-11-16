@@ -639,12 +639,3 @@
 .z-copy-btn[data-copied="true"] {
   background: #16a34a;
 }
-
-.z-email-link {
-  font-weight: 600;
-}
-
-.z-email-placeholder {
-  color: var(--z-muted);
-  font-style: italic;
-}

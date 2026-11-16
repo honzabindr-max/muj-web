@@ -1,4 +1,5 @@
 import { H2VoiceTranscriptionError } from "./errors";
+import { TRANSCRIBE_TIMEOUT_MS } from "./timeouts";
 
 /**
  * OpenAI Whisper transkripce (BUILD-06 plán, Rozhodnutí 6). Pinned model
@@ -6,7 +7,6 @@ import { H2VoiceTranscriptionError } from "./errors";
  * pro české hlasovky"). `AbortController` timeout 45s — stejný rozpočtový
  * důvod jako `telegram-download.ts`.
  */
-const TRANSCRIBE_TIMEOUT_MS = 45_000;
 const OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions";
 export const WHISPER_MODEL_ID = "whisper-1";
 
