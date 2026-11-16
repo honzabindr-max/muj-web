@@ -26,33 +26,37 @@ export const ROW_BODIES: Body[] = ["sun", "moon", "venus", "mars"];
 
 const PH = /\{[AB][1-7]\}/;
 
+/** Tolerantní schéma: nadbytečné položky se oříznou, pole, která přepisuje
+ *  deterministická vrstva (tón, závěrečná věta), výsledek neshodí. Odmítá jen
+ *  skutečně nepoužitelný výstup (chybějící text, málo témat). */
+const upTo = <T extends z.ZodTypeAny>(item: T, min: number, max: number) =>
+  z.array(item).min(min).transform((a) => a.slice(0, max));
+
 export const WriterOutputSchema = z.object({
-  mainTheme: z.object({ title: z.string().min(3).max(90), line: z.string().min(3).max(180) }),
-  rows: z
-    .array(
-      z.object({
-        a: z.string().min(2).max(90),
-        b: z.string().min(2).max(90),
-        ton: z.enum(["ladite", "trete", "plynete"]),
-        veta: z.string().min(5).max(260),
-      }),
-    )
-    .length(4),
-  zaverVeta: z.string().max(240),
-  temata: z
-    .array(
-      z.object({
-        aspectIds: z.array(z.string()).min(1).max(2),
-        nadpis: z.string().min(3).max(110),
-        text: z.string().min(80).max(1100),
-        schvalne: z.string().max(200),
-        dukazy: z.array(z.object({ aspectId: z.string(), text: z.string().min(5).max(240) })).min(1).max(3),
-      }),
-    )
-    .length(5),
-  otazky: z
-    .array(z.object({ otazka: z.string().min(10).max(220), kapitola: z.number().int().min(1).max(9) }))
-    .length(5),
+  mainTheme: z.object({ title: z.string().min(3).max(140), line: z.string().min(3).max(260) }),
+  rows: upTo(
+    z.object({
+      a: z.string().min(2).max(120),
+      b: z.string().min(2).max(120),
+      ton: z.enum(["ladite", "trete", "plynete"]).catch("plynete"),
+      veta: z.string().min(5).max(320),
+    }),
+    4,
+    4,
+  ),
+  zaverVeta: z.string().catch(""),
+  temata: upTo(
+    z.object({
+      aspectIds: upTo(z.string(), 1, 2),
+      nadpis: z.string().min(3).max(140),
+      text: z.string().min(80).max(1400),
+      schvalne: z.string().max(260).catch(""),
+      dukazy: upTo(z.object({ aspectId: z.string(), text: z.string().min(5).max(300) }), 1, 3),
+    }),
+    3,
+    5,
+  ),
+  otazky: upTo(z.object({ otazka: z.string().min(10).max(260), kapitola: z.number().int().min(1).max(9) }), 3, 5),
 });
 export type WriterOutput = z.infer<typeof WriterOutputSchema>;
 
@@ -89,6 +93,7 @@ const OUT_SCHEMA = {
       type: "array",
       minItems: 5,
       maxItems: 5,
+      description: "PŘESNĚ 5 témat",
       items: {
         type: "object",
         additionalProperties: false,
@@ -186,6 +191,7 @@ function summary(d: Derived): string {
 export function checkWriterOutput(out: WriterOutput, d: Derived): string[] {
   const ids = new Set(d.aspects.slice(0, 12).map((a) => a.id));
   const errs: string[] = [];
+  if (out.temata.length < 5) errs.push(`témat je jen ${out.temata.length}, musí jich být přesně 5`);
   out.temata.forEach((t, i) => {
     for (const id of [...t.aspectIds, ...t.dukazy.map((x) => x.aspectId)])
       if (!ids.has(id)) errs.push(`téma ${i + 1}: neznámá vazba ${id}`);
@@ -198,6 +204,8 @@ export function checkWriterOutput(out: WriterOutput, d: Derived): string[] {
 
 export type WriterResult = { output: WriterOutput; model: string; usage: Usage; promptVersion: string };
 
+const MAX_ATTEMPTS = 3;
+
 export async function writeDna(
   d: Derived,
   env: Record<string, string | undefined> = process.env,
@@ -205,7 +213,7 @@ export async function writeDna(
   const model = env.MEZI_VAMI_WRITER_MODEL || DEFAULT_WRITER_MODEL;
   let feedback = "";
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       const r = await generateStructured({
         model,
@@ -218,7 +226,7 @@ export async function writeDna(
       });
       const output = WriterOutputSchema.parse(r.data);
       const errs = checkWriterOutput(output, d);
-      if (errs.length && attempt === 0) {
+      if (errs.length && attempt < MAX_ATTEMPTS - 1) {
         feedback = `\n\nOPRAV V PŘEDCHOZÍM POKUSU:\n- ${errs.join("\n- ")}`;
         lastErr = new Error(errs.join("; "));
         continue;
