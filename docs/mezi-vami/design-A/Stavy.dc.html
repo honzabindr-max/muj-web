@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Hraniční stavy</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D070D}
+button:focus-visible{outline:2px solid #EDB894;outline-offset:2px}
+h1,h2,h3{text-wrap:balance}p,li,dd,figcaption{text-wrap:pretty}
+@supports (animation-timeline: view()){.mv-reveal{animation:mvReveal linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@keyframes mvReveal{from{opacity:0;translate:0 28px}}
+@media (prefers-reduced-motion: reduce){.mv-reveal{animation:none}}
+</style>
+</helmet>
+<div style="width: 1772px; height: 2240px; box-sizing: border-box; padding: 64px; background: #0D070D; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 300">
+<h1 style="margin: 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 60px; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block">Hraniční stavy</h1>
+<p style="margin: 10px 0 0; font-size: 17px; color: #BDA7B2">Mobil 375 px · texty COPY_SYSTEM_V1 DRAFT v3.2. Čárkovaný rámeček = akce, kterou copy zatím neurčuje.</p>
+<div style="margin-top: 48px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 56px 48px">
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Upřesnění času · neexistuje</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Čas je potřeba upřesnit</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Zadaný místní čas pro toto místo a datum neexistuje.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Časový posun neodhadujeme.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><button type="button" style="min-height: 52px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.35), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer">Upravit čas</button><button type="button" style="min-height: 48px; border: 1px solid #7E6274; border-radius: 999px; background: transparent; color: #F4E9E4; font-family: inherit; font-size: 15px; cursor: pointer">Použít přibližný nebo neznámý čas</button></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Upřesnění času · dvojznačný</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Čas je potřeba upřesnit</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Zadaný místní čas je pro toto místo a datum dvojznačný. Je potřeba zvolit odpovídající časový posun.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Časový posun nevybíráme odhadem.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><button type="button" style="min-height: 52px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.35), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer">Zvolit časový posun</button><button type="button" style="min-height: 48px; border: 1px solid #7E6274; border-radius: 999px; background: transparent; color: #F4E9E4; font-family: inherit; font-size: 15px; cursor: pointer">Použít přibližný nebo neznámý čas</button></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Upřesnění času · historický posun</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Časový posun nelze bezpečně určit</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Historický časový posun pro zadané místo a datum se nepodařilo bezpečně určit.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Časový posun neodhadujeme.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><button type="button" style="min-height: 52px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.35), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer">Upravit čas</button><button type="button" style="min-height: 48px; border: 1px solid #7E6274; border-radius: 999px; background: transparent; color: #F4E9E4; font-family: inherit; font-size: 15px; cursor: pointer">Použít přibližný nebo neznámý čas</button></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Nepodporované místo</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Toto místo narození není podporované</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Pro výpočet podporujeme pouze ověřená místa narození v Česku a na Slovensku.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Podporovaný rozsah Česko a Slovensko se vztahuje k místům narození.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><p style="margin: 0; padding: 12px 14px; border-radius: 14px; border: 1px dashed #6E5566; font-size: 12px; line-height: 1.5; color: #A48D99">Akce zatím neurčena (K-17b)</p></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Vztahová DNA · jediné téma</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 26px 18px; display: flex; flex-direction: column">
+<p style="margin: 0 4px; font-family: 'EB Garamond', serif; font-size: 30px; color: #F1D0BC">Vztahová DNA</p>
+<p style="margin: 6px 4px 0; font-size: 14px; line-height: 1.55; color: #E8DAE0">Jedno hlavní téma s oporou ve vašem výpočtu.</p>
+<div style="margin-top: 16px; padding: 20px 18px; border-radius: 18px; border: 1px solid rgba(242, 198, 166, 0.3); background: #1E1120">
+<p style="margin: 0; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: #EDB894">Hlavní téma</p>
+<p style="margin: 10px 0 0; font-family: 'EB Garamond', serif; font-size: 24px; line-height: 1.12; color: #F4E9E4">Blízkost s vlastním prostorem</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: #E8DAE0">Ve vašem spojení se může potkávat chuť být spolu s potřebou zachovat si vlastní prostor. Společné chvíle a samostatnost tu nemusí představovat dvě opačné volby.</p>
+<p style="margin: 10px 0 0; font-size: 12px; color: #A48D99">Opora tohoto závěru ve vašem výpočtu: Blízkost a samostatnost</p>
+</div>
+<p style="margin: 16px 4px 0; font-family: 'EB Garamond', serif; font-size: 20px; color: #F1D0BC">To je vaše Vztahová DNA.</p>
+<p style="margin: 12px 4px 0; font-size: 13px; line-height: 1.55; color: #BDA7B2">Hloubková analýza MEZI VÁMI nabízí širší pohled. Níže si můžete prohlédnout její rozsah.</p>
+<p style="margin: auto 4px 0; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #A48D99">Ukázkový obsah · prototyp</p>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Neaktuální výsledek</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Výsledek už není aktuální</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Předchozí výsledek už neodpovídá upraveným údajům. Je nutné analýzu přepočítat.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Předchozí výsledek je označený jako neaktuální.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><button type="button" style="min-height: 52px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.35), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer">Přepočítat analýzu</button></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Výpočet · technická chyba</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="alert" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Výpočet se nepodařilo dokončit</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Při výpočtu došlo k technické chybě.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Zachování zadaných údajů není zaručené.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><p style="margin: 0; padding: 12px 14px; border-radius: 14px; border: 1px dashed #6E5566; font-size: 12px; line-height: 1.5; color: #A48D99">Primární akce zatím neurčena (K-17a) · helper LEGAL_PENDING</p></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Výpočet · nedostatek opory</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="alert" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Vztahovou DNA nelze sestavit</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">V tomto výpočtu není dostatečná opora pro sestavení Vztahové DNA.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Zachování zadaných údajů není zaručené.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><p style="margin: 0; padding: 12px 14px; border-radius: 14px; border: 1px dashed #6E5566; font-size: 12px; line-height: 1.5; color: #A48D99">Primární akce zatím neurčena (K-17a) · helper LEGAL_PENDING</p></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Vypršená obnova</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Možnost návratu vypršela</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Platnost obnovení této analýzy vypršela.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Pokračovat můžete novou analýzou.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><button type="button" style="min-height: 52px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.35), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer">Začít novou analýzu</button></div>
+</div>
+</div>
+<div>
+<p style="margin: 0 0 12px; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #A48D99">Neplatná obnova</p>
+<div style="height: 560px; box-sizing: border-box; border-radius: 24px; border: 1px solid #3A2535; background: #120A12; padding: 28px 20px; display: flex; flex-direction: column">
+<p role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-size: 28px; line-height: 1.12; color: #F1D0BC">Analýzu se nepodařilo obnovit</p>
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #E8DAE0">Tímto způsobem se k předchozí analýze nelze vrátit.</p>
+<p style="margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #A48D99">Pokračovat můžete novou analýzou.</p>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px"><button type="button" style="min-height: 52px; border: 0; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.35), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer">Začít novou analýzu</button></div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1772,"height":2240}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

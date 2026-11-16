@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Objednávka a doručení (desktop)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#120A12}
+a{color:#F1D0BC}a:hover{color:#FFE6D6}
+a:focus-visible,button:focus-visible{outline:2px solid #EDB894;outline-offset:3px}
+.mv-breathe{animation:mvBreathe 8s ease-in-out infinite}
+@keyframes mvBreathe{0%,100%{opacity:.55}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){.mv-breathe{animation:none}}
+h1,h2,h3{text-wrap:balance}p,li,dd,figcaption{text-wrap:pretty}
+@supports (animation-timeline: view()){.mv-reveal{animation:mvReveal linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@keyframes mvReveal{from{opacity:0;translate:0 28px}}
+@media (prefers-reduced-motion: reduce){.mv-reveal{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 100%; min-height: 960px; background: #120A12; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 400; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 1440 520" preserveAspectRatio="xMidYMid slice" style="position: absolute; left: 0; top: 0; width: 100%; height: 520px; pointer-events: none"><defs><filter id="d8Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="90"></feGaussianBlur></filter><filter id="d8B" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"></feGaussianBlur></filter><linearGradient id="d8A" gradientUnits="userSpaceOnUse" x1="-40" y1="0" x2="1480" y2="0"><stop offset="0" stop-color="#9C6A9C" stop-opacity="0"></stop><stop offset="0.4" stop-color="#C995B0" stop-opacity="0.8"></stop><stop offset="0.6" stop-color="#FFEBDC"></stop><stop offset="1" stop-color="#9C6A9C" stop-opacity="0"></stop></linearGradient></defs><ellipse cx="1100" cy="200" rx="420" ry="260" fill="#3A1838" opacity="0.6" filter="url(#d8Pool)"></ellipse><path class="mv-breathe" d="M -40 420 C 420 180, 1020 180, 1480 420" fill="none" stroke="#F6C2A4" stroke-width="6" opacity="0.5" filter="url(#d8B)"></path><path d="M -40 420 C 420 180, 1020 180, 1480 420" fill="none" stroke="url(#d8A)" stroke-width="1.4"></path></svg>
+<header style="position: relative; max-width: 1280px; margin: 0 auto; padding: 28px 40px">
+<a href="Main.dc.html" style="font-family: 'EB Garamond', serif; font-size: 23px; letter-spacing: 0.14em; color: #EADCE2; text-decoration: none">MEZI VÁMI</a>
+</header>
+<main style="position: relative; max-width: 1280px; margin: 0 auto; padding: 96px 40px 120px; display: flex; flex-wrap: wrap; gap: 56px; align-items: flex-start">
+<div style="flex: 1.3 1 520px; min-width: 0">
+<h1 role="status" style="margin: 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 72px; line-height: 1.02; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">{{ headline }}</h1>
+<sc-if value="{{ hasSub }}" hint-placeholder-val="{{ true }}">
+<p style="margin: 14px 0 0; font-family: 'EB Garamond', serif; font-size: 30px; color: #F1D0BC">{{ sub }}</p>
+</sc-if>
+<p style="margin: 20px 0 0; font-size: 18px; line-height: 1.65; color: #E8DAE0; max-width: 600px">{{ body }}</p>
+<sc-if value="{{ hasHelper }}" hint-placeholder-val="{{ true }}">
+<p style="margin: 12px 0 0; font-size: 15px; line-height: 1.6; color: #BDA7B2; max-width: 600px">{{ helper }}</p>
+</sc-if>
+<div style="margin-top: 34px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center">
+<sc-if value="{{ isDel }}" hint-placeholder-val="{{ false }}">
+<a href="#" style="display: inline-flex; align-items: center; gap: 10px; min-height: 60px; padding: 0 40px; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; text-decoration: none; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.4), 0 0 70px rgba(240, 160, 130, 0.22), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-size: 17px; font-weight: 500">Stáhnout Hloubkovou analýzu <span aria-hidden="true">↓</span></a>
+</sc-if>
+<sc-if value="{{ showSupport }}" hint-placeholder-val="{{ true }}">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 56px; padding: 0 28px; border-radius: 999px; border: 1px solid rgba(240, 190, 165, 0.45); color: #F4E9E4; text-decoration: none; font-size: 15px">Kontaktovat podporu</a>
+</sc-if>
+</div>
+</div>
+<aside style="flex: 1 1 360px; min-width: 300px; padding: 30px 32px; border-radius: 22px; border: 1px solid transparent; background: linear-gradient(170deg, rgba(46, 24, 48, 0.92), rgba(22, 11, 24, 0.96)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.45), rgba(185, 138, 198, 0.12) 55%, rgba(255, 214, 190, 0.3)) border-box; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5)">
+<dl style="margin: 0; display: flex; flex-direction: column; gap: 18px">
+<div><dt style="font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: #C9B0BE">Číslo objednávky</dt><dd style="margin: 6px 0 0; font-size: 20px; color: #F4E9E4">MV-[REF]</dd></div>
+<sc-if value="{{ showEmail }}" hint-placeholder-val="{{ true }}">
+<div><dt style="font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: #C9B0BE">E-mail pro doručení</dt><dd style="margin: 6px 0 0; font-size: 18px; color: #F4E9E4; word-break: break-all">jana.novakova@email.cz</dd></div>
+</sc-if>
+<sc-if value="{{ showDue }}" hint-placeholder-val="{{ false }}">
+<div><dt style="font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: #C9B0BE">Doručíme nejpozději</dt><dd style="margin: 6px 0 0; font-size: 18px; color: #F4E9E4">[TERMÍN DORUČENÍ]</dd></div>
+</sc-if>
+</dl>
+</aside>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stav":{"editor":"enum","options":["Platba potvrzena","Analýza se připravuje","Analýza připravená","Odkaz vypršel"],"default":"Platba potvrzena"},"podpora":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+renderVals() {
+const st = this.props.stav ?? 'Platba potvrzena';
+const sup = !!(this.props.podpora ?? true);
+const S = {
+'Platba potvrzena': { h: 'Platba potvrzena', s: 'Objednávku jsme přijali.', b: 'Potvrzení objednávky vám ihned pošleme e-mailem. Hloubkovou analýzu doručíme do 48 hodin od potvrzení platby; odkaz ke stažení přijde v samostatném e-mailu.', hp: 'Při kontaktu s podporou uveďte číslo objednávky.', hpSup: true, sup: true, email: true, due: false, del: false },
+'Analýza se připravuje': { h: 'Hloubková analýza se připravuje', s: 'Objednávku jsme přijali.', b: 'Hloubkovou analýzu MEZI VÁMI doručíme nejpozději do 48 hodin od potvrzení platby.', hp: 'Jakmile bude analýza připravená, pošleme vám e-mail s bezpečným odkazem ke stažení.', hpSup: false, sup: false, email: false, due: true, del: false },
+'Analýza připravená': { h: 'Vaše Hloubková analýza je připravená', s: 'Stáhněte si ji prostřednictvím zabezpečeného odkazu.', b: 'Odkaz platí 30 dní. O nový odkaz můžete požádat podporu po dobu uchování analýzy.', hp: 'Při žádosti o nový odkaz uveďte číslo objednávky.', hpSup: true, sup: true, email: false, due: false, del: true },
+'Odkaz vypršel': { h: 'Platnost odkazu vypršela', s: '', b: 'O nový odkaz můžete požádat podporu. Vystavit jej lze po dobu uchování analýzy.', hp: 'Uveďte číslo objednávky.', hpSup: true, sup: true, email: false, due: false, del: false }
+};
+const x = S[st] || S['Platba potvrzena'];
+return {
+headline: x.h, sub: x.s, hasSub: !!x.s, body: x.b,
+helper: x.hp, hasHelper: !!x.hp && (!x.hpSup || sup),
+showSupport: x.sup && sup, showEmail: x.email, showDue: x.due, isDel: x.del
+};
+}
+}
+</script>
+</body>
+</html>

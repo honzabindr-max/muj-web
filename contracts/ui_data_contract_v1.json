@@ -1,0 +1,659 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mezivami.cz/contracts/ui_data_contract_v1.json",
+  "title": "MEZI VÁMI — ui_data_contract_v1",
+  "description": "Customer-facing UI data contract for the CZ/SK validation MVP. contract_version 1.0.1 applies GPT P1 Readiness Gate patch G1. Derived from locked Funnel V1 (A+/B.1/C.2/D.1/E.1), V3 Deep Dive + T-ASTRO Control Tower decisions, and Build OS V1 amendment A2. Expresses the ALREADY LOCKED customer-facing contract; must not be extended for implementation convenience. Cross-field rules that JSON Schema cannot express are enforced by validate:fixture-semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "fixture_id", "locale", "view"],
+  "properties": {
+    "contract_version": { "const": "1.0.1" },
+    "fixture_id": { "type": "string", "pattern": "^(FX|CF)-[A-Z0-9_-]+$" },
+    "locale": { "const": "cs-CZ" },
+    "copy_provenance": {
+      "description": "G2: any human-readable text present in a fixture is prototype copy, not production personalized output and not evidence of engine accuracy.",
+      "enum": ["PROTOTYPE_FIXTURE_COPY", "APPROVED_STATIC_COPY"]
+    },
+    "view": { "$ref": "#/$defs/View" }
+  },
+
+  "$defs": {
+
+    "OpaqueRef": {
+      "description": "Opaque identifier. Must never encode birth data, e-mail or payment identity.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,64}$"
+    },
+
+    "DateOnly": {
+      "description": "G1.9: deterministic pattern PLUS format assertion. Calendar validity is additionally checked by validate:fixture-semantics.",
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+
+    "DateTimeUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+
+    "TimeCoverageClass": {
+      "description": "Funnel V1 Fáze D locked six cohorts. CANONICAL UNORDERED PAIR CLASSIFICATION: the cohort describes the multiset of both persons' time modes, not an ordered A-then-B string. Exactly six labels exist because {E,A,U} yields six unordered pairs; an ordered reading would require nine. Canonical label is formed by sorting the two modes by precision rank E < A < U and concatenating, so {U,E} is written EU and never UE.",
+      "enum": ["EE", "EA", "EU", "AA", "AU", "UU"]
+    },
+
+    "TimeSensitiveAvailability": {
+      "enum": ["AVAILABLE_STABLE", "UNAVAILABLE_TIME_UNCERTAINTY"]
+    },
+
+    "ReferenceStyle": {
+      "description": "B.1 presentation-only grammatical attribute. Not an astro input, not identity, not gender data.",
+      "enum": ["masculine", "feminine", "neutral"],
+      "default": "neutral"
+    },
+
+    "ContentBudget": {
+      "description": "Provisional WEB UI content budget owned by P1, distinct from the deferred PDF Factory component content contracts. Overflow is resolved by rewrite/recomposition, never by shrinking typography. Actual text length is checked against this budget by validate:fixture-semantics.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline_max_chars", "body_max_chars", "overflow_policy", "provisional"],
+      "properties": {
+        "headline_max_chars": { "type": "integer", "minimum": 20, "maximum": 120 },
+        "body_max_chars": { "type": "integer", "minimum": 80, "maximum": 1200 },
+        "overflow_policy": { "const": "REWRITE_OR_RECOMPOSE" },
+        "provisional": { "const": true }
+      }
+    },
+
+    "PlaceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name", "country_code", "supported"],
+      "properties": {
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "country_code": { "type": "string", "pattern": "^[A-Z]{2}$" },
+        "supported": { "type": "boolean" }
+      }
+    },
+
+    "SupportedPlaceRef": {
+      "description": "G1.5: any birthplace that has actually entered calculation (RESULTS / RESULTS_STALE / CHECKOUT) must be inside the locked MVP SupportedGeographyContract = CZ + SK.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name", "country_code", "supported"],
+      "properties": {
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "country_code": { "enum": ["CZ", "SK"] },
+        "supported": { "const": true }
+      }
+    },
+
+    "PersonInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "ui_label", "birth_date", "birth_place", "time_mode", "reference_style", "presented_as_exact"],
+      "properties": {
+        "slot": { "enum": ["A", "B"] },
+        "ui_label": { "enum": ["První osoba", "Druhá osoba"] },
+        "birth_date": { "$ref": "#/$defs/DateOnly" },
+        "birth_place": { "$ref": "#/$defs/PlaceRef" },
+        "time_mode": { "enum": ["EXACT", "APPROXIMATE", "UNKNOWN"] },
+        "exact_time": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "approximate": { "$ref": "#/$defs/ApproximateTime" },
+        "reference_style": { "$ref": "#/$defs/ReferenceStyle" },
+        "presented_as_exact": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "time_mode": { "const": "EXACT" } }, "required": ["time_mode"] },
+          "then": {
+            "required": ["exact_time"],
+            "properties": { "presented_as_exact": { "const": true } },
+            "not": { "required": ["approximate"] }
+          }
+        },
+        {
+          "if": { "properties": { "time_mode": { "const": "APPROXIMATE" } }, "required": ["time_mode"] },
+          "then": {
+            "required": ["approximate"],
+            "properties": { "presented_as_exact": { "const": false } },
+            "not": { "required": ["exact_time"] }
+          }
+        },
+        {
+          "if": { "properties": { "time_mode": { "const": "UNKNOWN" } }, "required": ["time_mode"] },
+          "then": {
+            "properties": { "presented_as_exact": { "const": false } },
+            "not": { "anyOf": [{ "required": ["exact_time"] }, { "required": ["approximate"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "slot": { "const": "A" } }, "required": ["slot"] },
+          "then": { "properties": { "ui_label": { "const": "První osoba" } } }
+        },
+        {
+          "if": { "properties": { "slot": { "const": "B" } }, "required": ["slot"] },
+          "then": { "properties": { "ui_label": { "const": "Druhá osoba" } } }
+        }
+      ]
+    },
+
+    "PersonInputSupported": {
+      "allOf": [
+        { "$ref": "#/$defs/PersonInput" },
+        { "properties": { "birth_place": { "$ref": "#/$defs/SupportedPlaceRef" } }, "required": ["birth_place"] }
+      ]
+    },
+
+    "PersonPair": {
+      "description": "G1.4: exactly one A and one B.",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/PersonInputSupported" },
+      "allOf": [
+        { "contains": { "properties": { "slot": { "const": "A" } }, "required": ["slot"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "slot": { "const": "B" } }, "required": ["slot"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
+
+    "ApproximateTime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "cross_day_spill"],
+      "properties": {
+        "kind": { "enum": ["CENTERED_WINDOW", "DAYPART"] },
+        "center_time": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "window_minutes": { "enum": [30, 60, 120] },
+        "daypart": { "enum": ["NOC", "RANO", "ODPOLEDNE", "VECER"] },
+        "daypart_interval_local": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "cross_day_spill": { "const": false }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "CENTERED_WINDOW" } }, "required": ["kind"] },
+          "then": { "required": ["center_time", "window_minutes"] } },
+        { "if": { "properties": { "kind": { "const": "DAYPART" } }, "required": ["kind"] },
+          "then": { "required": ["daypart", "daypart_interval_local"] } }
+      ]
+    },
+
+    "AnalysisRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis_id", "revision", "analysis_revision_ref"],
+      "properties": {
+        "analysis_id": { "$ref": "#/$defs/OpaqueRef" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "analysis_revision_ref": { "$ref": "#/$defs/OpaqueRef" }
+      }
+    },
+
+    "EvidenceAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "supports_insight_id", "analysis_revision_ref", "customer_label"],
+      "properties": {
+        "anchor_id": { "$ref": "#/$defs/OpaqueRef" },
+        "supports_insight_id": { "$ref": "#/$defs/OpaqueRef" },
+        "analysis_revision_ref": { "$ref": "#/$defs/OpaqueRef" },
+        "customer_label": { "type": "string", "minLength": 1, "maxLength": 180 }
+      }
+    },
+
+    "Coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage_line", "layers_available", "layers_unavailable"],
+      "properties": {
+        "coverage_line": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "layers_available": { "type": "array", "items": { "type": "string", "maxLength": 80 } },
+        "layers_unavailable": { "type": "array", "items": { "type": "string", "maxLength": 80 } },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric_contract_version", "deterministic", "customer_meaning", "value"],
+          "properties": {
+            "metric_contract_version": { "type": "string" },
+            "deterministic": { "const": true },
+            "customer_meaning": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "value": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+
+    "Limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "customer_text"],
+      "properties": {
+        "code": {
+          "enum": ["TIME_UNKNOWN_PERSON_A", "TIME_UNKNOWN_PERSON_B", "TIME_APPROXIMATE_PERSON_A", "TIME_APPROXIMATE_PERSON_B", "TIMED_LAYERS_UNAVAILABLE", "COMPOSITE_ANGLES_UNAVAILABLE", "EVIDENCE_DENSITY_LOW"]
+        },
+        "customer_text": { "type": "string", "minLength": 1, "maxLength": 400 }
+      }
+    },
+
+    "InsightBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["insight_id", "slot", "slot_realisation", "headline", "body", "evidence_anchors", "content_budget"],
+      "properties": {
+        "insight_id": { "$ref": "#/$defs/OpaqueRef" },
+        "slot": { "enum": ["R1", "R2", "R3", "R4", "R5"] },
+        "slot_realisation": {
+          "enum": ["CORE_SIGNATURE", "PARADOX", "SECOND_DISTINCTIVE_PATTERN", "SUPPORTIVE_PATTERN", "SALIENT_NEUTRAL_PATTERN", "STRONG_MISMATCH", "ASYMMETRY_OR_DIFFERENT_RHYTHM", "ACTIONABLE_RECOMMENDATION", "OBSERVATIONAL_APPLICATION"]
+        },
+        "headline": { "type": "string", "minLength": 1 },
+        "body": { "type": "string", "minLength": 1 },
+        "evidence_anchors": { "type": "array", "items": { "$ref": "#/$defs/EvidenceAnchor" } },
+        "content_budget": { "$ref": "#/$defs/ContentBudget" }
+      },
+      "allOf": [
+        { "if": { "properties": { "slot": { "const": "R1" } }, "required": ["slot"] },
+          "then": { "properties": { "slot_realisation": { "const": "CORE_SIGNATURE" } } } },
+        { "if": { "properties": { "slot": { "const": "R2" } }, "required": ["slot"] },
+          "then": { "properties": { "slot_realisation": { "enum": ["PARADOX", "SECOND_DISTINCTIVE_PATTERN"] } } } },
+        { "if": { "properties": { "slot": { "const": "R3" } }, "required": ["slot"] },
+          "then": { "properties": { "slot_realisation": { "enum": ["SUPPORTIVE_PATTERN", "SALIENT_NEUTRAL_PATTERN"] } } } },
+        { "if": { "properties": { "slot": { "const": "R4" } }, "required": ["slot"] },
+          "then": { "properties": { "slot_realisation": { "enum": ["STRONG_MISMATCH", "ASYMMETRY_OR_DIFFERENT_RHYTHM", "SALIENT_NEUTRAL_PATTERN"] } } } },
+        { "if": { "properties": { "slot": { "const": "R5" } }, "required": ["slot"] },
+          "then": { "properties": { "slot_realisation": { "enum": ["ACTIONABLE_RECOMMENDATION", "OBSERVATIONAL_APPLICATION"] } } } }
+      ]
+    },
+
+    "R1Insight": {
+      "allOf": [
+        { "$ref": "#/$defs/InsightBase" },
+        { "properties": { "slot": { "const": "R1" }, "slot_realisation": { "const": "CORE_SIGNATURE" } }, "required": ["slot", "slot_realisation"] }
+      ]
+    },
+
+    "OptionalInsight": {
+      "allOf": [
+        { "$ref": "#/$defs/InsightBase" },
+        { "properties": { "slot": { "enum": ["R2", "R3", "R4", "R5"] } }, "required": ["slot"] }
+      ]
+    },
+
+    "FreeDnaResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["r1", "optional_insights", "r1_only", "time_coverage_class", "timed_layers", "coverage", "limitations"],
+      "properties": {
+        "r1": { "$ref": "#/$defs/R1Insight" },
+        "optional_insights": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/OptionalInsight" } },
+        "r1_only": { "type": "boolean" },
+        "singular_copy_required": { "type": "boolean" },
+        "time_coverage_class": { "$ref": "#/$defs/TimeCoverageClass" },
+        "timed_layers": { "$ref": "#/$defs/TimeSensitiveAvailability" },
+        "coverage": { "$ref": "#/$defs/Coverage" },
+        "limitations": { "type": "array", "items": { "$ref": "#/$defs/Limitation" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "r1_only": { "const": true } }, "required": ["r1_only"] },
+          "then": { "required": ["singular_copy_required"], "properties": { "optional_insights": { "maxItems": 0 }, "singular_copy_required": { "const": true } } } },
+        { "if": { "properties": { "time_coverage_class": { "enum": ["EU", "AU", "UU", "EA", "AA"] } }, "required": ["time_coverage_class"] },
+          "then": { "properties": { "timed_layers": { "const": "UNAVAILABLE_TIME_UNCERTAINTY" } } } }
+      ]
+    },
+
+    "PriceConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount_minor_units", "currency", "display", "is_config", "vat_included", "one_time_purchase", "confirmation_status"],
+      "properties": {
+        "amount_minor_units": { "type": "integer", "minimum": 1 },
+        "currency": { "const": "CZK" },
+        "display": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "is_config": { "const": true },
+        "vat_included": { "const": true },
+        "one_time_purchase": { "const": true },
+        "confirmation_status": {
+          "description": "Prototype value is not a locked launch price. PENDING_FOUNDER_CONFIRMATION until Honzík confirms; LAUNCH_PRICE_LOCKED only after a Control Tower decision before paid traffic.",
+          "enum": ["PENDING_FOUNDER_CONFIRMATION", "P1_WORKING_DISPLAY_PRICE", "LAUNCH_PRICE_LOCKED"]
+        }
+      }
+    },
+
+    "ScopeSection": {
+      "description": "G1.10: stable section IDs and fixed order. display_label is Copy Studio territory and is never authoritative for ordering or identity.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section_id"],
+      "properties": {
+        "section_id": {
+          "enum": ["PS1_MOST_IMPORTANT_FIRST", "PS2_HOW_EACH_FUNCTIONS", "PS3_FIVE_RELATIONSHIPS", "PS4_LOVE_ATTRACTION_INTIMACY", "PS5_EMOTIONS_COMMUNICATION_CONFLICT", "PS6_CLOSENESS_FREEDOM_EVERYDAY", "PS7_WHAT_YOU_AWAKEN_AND_HOLDS", "PS8_FOR_HOME_PRACTICAL", "PS9_UNDER_THE_HOOD_TECHNICAL"]
+        },
+        "display_label": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+
+    "SampleAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is_provisional", "preview_pages", "full_sample_pdf_url", "labelled_as_sample", "email_gate"],
+      "properties": {
+        "is_provisional": { "type": "boolean" },
+        "design_version": { "type": "string" },
+        "preview_pages": {
+          "type": "array", "minItems": 3, "maxItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["page_slot", "image_url", "aspect"],
+            "properties": {
+              "page_slot": { "type": "integer", "minimum": 1, "maximum": 5 },
+              "image_url": { "type": "string" },
+              "aspect": { "const": "A5_PORTRAIT_148x210" }
+            }
+          }
+        },
+        "full_sample_pdf_url": { "type": "string" },
+        "labelled_as_sample": { "const": true },
+        "email_gate": { "const": false }
+      }
+    },
+
+    "OfferViewModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_code", "product_version", "scope_sections", "price", "delivery_window_hours", "signed_link_validity_days", "length_claim_allowed", "sample", "sticky_cta_allowed"],
+      "properties": {
+        "product_code": { "const": "DEEP_DIVE_V3" },
+        "product_version": { "type": "string" },
+        "scope_sections": {
+          "type": "array", "minItems": 9, "maxItems": 9, "uniqueItems": true,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS1_MOST_IMPORTANT_FIRST" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS2_HOW_EACH_FUNCTIONS" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS3_FIVE_RELATIONSHIPS" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS4_LOVE_ATTRACTION_INTIMACY" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS5_EMOTIONS_COMMUNICATION_CONFLICT" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS6_CLOSENESS_FREEDOM_EVERYDAY" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS7_WHAT_YOU_AWAKEN_AND_HOLDS" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS8_FOR_HOME_PRACTICAL" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/ScopeSection" }, { "properties": { "section_id": { "const": "PS9_UNDER_THE_HOOD_TECHNICAL" } } }] }
+          ],
+          "items": false
+        },
+        "price": { "$ref": "#/$defs/PriceConfig" },
+        "delivery_window_hours": { "const": 48 },
+        "signed_link_validity_days": { "const": 30 },
+        "length_claim_allowed": { "const": false },
+        "sample": { "$ref": "#/$defs/SampleAsset" },
+        "sticky_cta_allowed": { "const": true }
+      }
+    },
+
+    "DepthBridge": {
+      "description": "C.2 locked, plus G2: a theme must reference an insight actually detected in this analysis revision. Referential check in validate:fixture-semantics.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline", "detected_themes", "fake_open_loop"],
+      "properties": {
+        "headline": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "detected_themes": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["theme_label", "supports_insight_id"],
+            "properties": {
+              "theme_label": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "supports_insight_id": { "$ref": "#/$defs/OpaqueRef" }
+            }
+          }
+        },
+        "fake_open_loop": { "const": false }
+      }
+    },
+
+    "RecoveryContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token_kind", "status", "carries_raw_birth_data"],
+      "properties": {
+        "token_kind": { "const": "OPAQUE" },
+        "status": { "enum": ["VALID", "EXPIRED", "INVALID"] },
+        "carries_raw_birth_data": { "const": false }
+      }
+    },
+
+    "AnalyticsHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_name", "unit"],
+      "properties": {
+        "event_name": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "unit": { "enum": ["SESSION", "ATTEMPT", "REVISION", "ORDER"] }
+      }
+    },
+
+    "OrderViewModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order_reference", "delivery_email_display", "analysis_revision_ref", "fulfillment_state", "promised_delivery_at", "support_path"],
+      "properties": {
+        "order_reference": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "delivery_email_display": { "type": "string", "minLength": 3, "maxLength": 254 },
+        "analysis_revision_ref": { "$ref": "#/$defs/OpaqueRef" },
+        "fulfillment_state": { "enum": ["CONFIRMED", "GENERATING", "READY"] },
+        "promised_delivery_at": { "$ref": "#/$defs/DateTimeUtc" },
+        "signed_link": {
+          "type": "object", "additionalProperties": false,
+          "required": ["url", "expires_at", "validity_days"],
+          "properties": {
+            "url": { "type": "string" },
+            "expires_at": { "$ref": "#/$defs/DateTimeUtc" },
+            "validity_days": { "const": 30 }
+          }
+        },
+        "support_path": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["birth_date"] }, { "required": ["birth_place"] }, { "required": ["birth_time"] },
+          { "required": ["person_a"] }, { "required": ["person_b"] }, { "required": ["persons"] }
+        ]
+      }
+    },
+
+    "RecoverableFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure_code", "recoverable", "customer_text", "retry_action", "persistence_promise"],
+      "properties": {
+        "failure_code": { "enum": ["CALCULATION_FAILED", "INSUFFICIENT_EVIDENCE_FOR_R1", "PROVIDER_UNAVAILABLE", "TIMEOUT"] },
+        "recoverable": { "const": true },
+        "customer_text": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "retry_action": { "enum": ["RETRY_CALCULATION", "REVIEW_INPUTS", "START_NEW_ANALYSIS"] },
+        "persistence_promise": { "enum": ["INPUTS_RETAINED", "INPUTS_NOT_GUARANTEED"] }
+      }
+    },
+
+    "View": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "price", "primary_cta", "email_gate_before_free_dna", "analytics"],
+          "properties": {
+            "state": { "const": "LANDING" },
+            "price": { "$ref": "#/$defs/PriceConfig" },
+            "primary_cta": { "description": "G2: exact wording is NOT locked. Copy Studio may propose new marketing wording inside the locked meaning.", "type": "string", "minLength": 1, "maxLength": 80 },
+            "email_gate_before_free_dna": { "const": false },
+            "trust_branches": { "type": "array", "items": { "enum": ["SAMPLE", "EXPLAINER", "METHOD", "PRIVACY", "FAQ"] } },
+            "sample": { "$ref": "#/$defs/SampleAsset" },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "slot", "ui_label", "reference_style_default", "analytics"],
+          "properties": {
+            "state": { "enum": ["INTAKE_PERSON_A", "INTAKE_PERSON_B"] },
+            "slot": { "enum": ["A", "B"] },
+            "ui_label": { "enum": ["První osoba", "Druhá osoba"] },
+            "reference_style_default": { "const": "neutral" },
+            "person_b_knowledge_checkbox": { "const": false },
+            "analyzed_person_age_gate": { "const": false },
+            "draft_storage": { "enum": ["SESSION_STORAGE_ONLY"] },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          },
+          "allOf": [
+            { "if": { "properties": { "state": { "const": "INTAKE_PERSON_A" } }, "required": ["state"] },
+              "then": { "properties": { "slot": { "const": "A" }, "ui_label": { "const": "První osoba" } } } },
+            { "if": { "properties": { "state": { "const": "INTAKE_PERSON_B" } }, "required": ["state"] },
+              "then": { "properties": { "slot": { "const": "B" }, "ui_label": { "const": "Druhá osoba" } } } }
+          ]
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "slot", "reason", "resolution_options", "guessed_offset_used", "analytics"],
+          "properties": {
+            "state": { "const": "TIME_INPUT_RESOLUTION_REQUIRED" },
+            "slot": { "enum": ["A", "B"] },
+            "reason": { "enum": ["NONEXISTENT_EXACT_LOCAL_TIME", "AMBIGUOUS_EXACT_LOCAL_TIME", "UNRESOLVED_HISTORICAL_OFFSET"] },
+            "resolution_options": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["CORRECT_TIME", "SWITCH_TO_APPROXIMATE", "SWITCH_TO_UNKNOWN", "CHOOSE_OFFSET_INTERPRETATION"] } },
+            "guessed_offset_used": { "const": false },
+            "customer_text": { "type": "string", "maxLength": 400 },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "slot", "place", "supported_scope", "analytics"],
+          "properties": {
+            "state": { "const": "UNSUPPORTED_GEOGRAPHY" },
+            "slot": { "enum": ["A", "B"] },
+            "place": { "$ref": "#/$defs/PlaceRef" },
+            "supported_scope": {
+              "description": "G1.6: exactly the locked CZ + SK set.",
+              "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+              "items": { "enum": ["CZ", "SK"] },
+              "allOf": [
+                { "contains": { "const": "CZ" }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "const": "SK" }, "minContains": 1, "maxContains": 1 }
+              ]
+            },
+            "customer_text": { "type": "string", "maxLength": 400 },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "analysis", "real_computation", "fake_progress", "analytics"],
+          "properties": {
+            "state": { "enum": ["CALCULATING", "RECALCULATING"] },
+            "analysis": { "$ref": "#/$defs/AnalysisRef" },
+            "real_computation": { "const": true },
+            "fake_progress": { "const": false },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "analysis", "persons", "free_dna", "depth_bridge", "offer", "stale", "analytics"],
+          "properties": {
+            "state": { "enum": ["RESULTS", "RESULTS_STALE"] },
+            "analysis": { "$ref": "#/$defs/AnalysisRef" },
+            "persons": { "$ref": "#/$defs/PersonPair" },
+            "free_dna": { "$ref": "#/$defs/FreeDnaResult" },
+            "depth_bridge": { "$ref": "#/$defs/DepthBridge" },
+            "offer": { "$ref": "#/$defs/OfferViewModel" },
+            "stale": { "type": "boolean" },
+            "stale_reason": { "enum": ["BIRTH_DATA_EDITED"] },
+            "recalculation_required": { "type": "boolean" },
+            "recovery": { "$ref": "#/$defs/RecoveryContext" },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          },
+          "allOf": [
+            { "if": { "properties": { "state": { "const": "RESULTS_STALE" } }, "required": ["state"] },
+              "then": { "required": ["stale_reason", "recalculation_required"], "properties": { "stale": { "const": true }, "recalculation_required": { "const": true } } } },
+            { "if": { "properties": { "state": { "const": "RESULTS" } }, "required": ["state"] },
+              "then": { "properties": { "stale": { "const": false } } } }
+          ]
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "failure", "analytics"],
+          "properties": {
+            "state": { "const": "ANALYSIS_FAILED_RECOVERABLE" },
+            "analysis": { "$ref": "#/$defs/AnalysisRef" },
+            "failure": { "$ref": "#/$defs/RecoverableFailure" },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "recovery", "next_action", "analytics"],
+          "properties": {
+            "state": { "enum": ["RECOVERY_EXPIRED", "RECOVERY_INVALID"] },
+            "recovery": { "$ref": "#/$defs/RecoveryContext" },
+            "next_action": { "const": "START_NEW_ANALYSIS" },
+            "customer_text": { "type": "string", "maxLength": 400 },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          },
+          "allOf": [
+            { "if": { "properties": { "state": { "const": "RECOVERY_EXPIRED" } }, "required": ["state"] },
+              "then": { "properties": { "recovery": { "properties": { "status": { "const": "EXPIRED" } } } } } },
+            { "if": { "properties": { "state": { "const": "RECOVERY_INVALID" } }, "required": ["state"] },
+              "then": { "properties": { "recovery": { "properties": { "status": { "const": "INVALID" } } } } } }
+          ]
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "analysis", "birth_data_review", "offer", "account_required_before_payment", "legal_slots", "analytics"],
+          "properties": {
+            "state": { "const": "CHECKOUT" },
+            "analysis": { "$ref": "#/$defs/AnalysisRef" },
+            "birth_data_review": { "$ref": "#/$defs/PersonPair" },
+            "offer": { "$ref": "#/$defs/OfferViewModel" },
+            "account_required_before_payment": { "const": false },
+            "reference_style_reoffered": { "const": true },
+            "legal_slots": {
+              "type": "array",
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["slot_id", "status"],
+                "properties": {
+                  "slot_id": { "enum": ["TERMS", "PRIVACY_NOTICE", "WITHDRAWAL_ACKNOWLEDGEMENT", "SELLER_IDENTIFICATION", "REFUND_POLICY"] },
+                  "status": { "enum": ["LEGAL_PENDING", "APPROVED"] },
+                  "text": { "type": "string", "maxLength": 2000 }
+                }
+              }
+            },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "failure_reason", "retry_available", "charge_created", "analytics"],
+          "properties": {
+            "state": { "const": "PAYMENT_FAILED" },
+            "failure_reason": { "enum": ["DECLINED", "CANCELLED_BY_USER", "PROVIDER_ERROR", "TIMEOUT"] },
+            "retry_available": { "const": true },
+            "charge_created": { "const": false },
+            "customer_text": { "type": "string", "maxLength": 400 },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "order", "analytics"],
+          "properties": {
+            "state": { "enum": ["ORDER_CONFIRMED_GENERATING", "ORDER_DELIVERY_READY"] },
+            "order": { "$ref": "#/$defs/OrderViewModel" },
+            "analytics": { "$ref": "#/$defs/AnalyticsHook" }
+          },
+          "allOf": [
+            { "if": { "properties": { "state": { "const": "ORDER_DELIVERY_READY" } }, "required": ["state"] },
+              "then": { "properties": { "order": { "properties": { "fulfillment_state": { "const": "READY" } }, "required": ["signed_link", "fulfillment_state"] } } } },
+            { "if": { "properties": { "state": { "const": "ORDER_CONFIRMED_GENERATING" } }, "required": ["state"] },
+              "then": { "properties": { "order": { "properties": { "fulfillment_state": { "enum": ["CONFIRMED", "GENERATING"] } }, "required": ["fulfillment_state"], "not": { "required": ["signed_link"] } } } } }
+          ]
+        }
+      ]
+    }
+  }
+}

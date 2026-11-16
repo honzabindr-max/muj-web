@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Vztahová DNA — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0E070F}
+a{color:#F4CDB6}a:hover{color:#FFE9DB}
+.mv-breathe{animation:mvBreathe 8s ease-in-out infinite}
+.mv-travel{animation:mvTravel 6s linear infinite}
+.mv-pulse{animation:mvPulse 6s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes mvBreathe{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes mvTravel{from{stroke-dashoffset:0}to{stroke-dashoffset:-660}}
+@keyframes mvPulse{0%,100%{opacity:.75;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
+@media (prefers-reduced-motion: reduce){.mv-breathe,.mv-travel,.mv-pulse{animation:none}}
+h1,h2,h3{text-wrap:balance}p,li,dd,figcaption{text-wrap:pretty}
+@supports (animation-timeline: view()){.mv-reveal{animation:mvReveal linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@keyframes mvReveal{from{opacity:0;translate:0 28px}}
+@media (prefers-reduced-motion: reduce){.mv-reveal{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; min-height: 2280px; box-sizing: border-box; background: #0E070F; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-variant-numeric: lining-nums; font-weight: 400; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 375 2280" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 375px; height: 2280px; pointer-events: none">
+<defs><filter id="m4Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="50"></feGaussianBlur></filter></defs>
+<ellipse cx="300" cy="620" rx="170" ry="200" fill="#341533" opacity="0.5" filter="url(#m4Pool)"></ellipse>
+<ellipse cx="60" cy="1250" rx="160" ry="200" fill="#2A1230" opacity="0.5" filter="url(#m4Pool)"></ellipse>
+<ellipse cx="188" cy="2060" rx="200" ry="140" fill="#3A1838" opacity="0.5" filter="url(#m4Pool)"></ellipse>
+</svg>
+
+<section style="position: relative; padding: 52px 20px 40px; text-align: center; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 375 300" style="position: absolute; left: 0; top: 0; width: 375px; height: 300px; pointer-events: none">
+<defs>
+<filter id="m4B1" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"></feGaussianBlur></filter>
+<filter id="m4B2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12"></feGaussianBlur></filter>
+<linearGradient id="m4A" gradientUnits="userSpaceOnUse" x1="-20" y1="0" x2="400" y2="0"><stop offset="0" stop-color="#6E3C8A" stop-opacity="0"></stop><stop offset="0.4" stop-color="#C77FAA"></stop><stop offset="0.66" stop-color="#FFF1E6"></stop><stop offset="1" stop-color="#EFB49A" stop-opacity="0.2"></stop></linearGradient>
+</defs>
+<g class="mv-breathe">
+<path d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="url(#m4A)" stroke-width="22" opacity="0.22" filter="url(#m4B2)"></path>
+<path d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="url(#m4A)" stroke-width="7" opacity="0.6" filter="url(#m4B1)"></path>
+</g>
+<path d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="url(#m4A)" stroke-width="1.4"></path>
+<path class="mv-travel" d="M -20 240 C 100 140, 280 140, 400 40" fill="none" stroke="#FFF3EA" stroke-width="2" stroke-linecap="round" stroke-dasharray="36 624" filter="url(#m4B1)"></path>
+</svg>
+<p style="position: relative; margin: 0; font-family: 'EB Garamond', serif; font-size: 14px; letter-spacing: 0.14em; color: #EADCE2">MEZI VÁMI</p>
+<h1 style="position: relative; margin: 22px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 58px; line-height: 0.98; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Vztahová DNA</h1>
+<p style="position: relative; margin: 14px 0 0; font-size: 15px; color: #C2ACB7">Témata, která mají oporu ve vašem výpočtu.</p>
+<p style="position: relative; margin: 24px auto 0; display: inline-block; padding: 6px 12px; border: 1px dashed #6E5566; border-radius: 999px; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: #C9B0BE">Ukázkový obsah · prototyp</p>
+</section>
+
+<article class="mv-reveal" style="position: relative; margin: 0 14px; padding: 28px 22px; border-radius: 22px; border: 1px solid transparent; background: linear-gradient(170deg, rgba(50, 26, 52, 0.96), rgba(22, 11, 24, 0.97)) padding-box, linear-gradient(140deg, rgba(255, 214, 190, 0.8), rgba(185, 138, 198, 0.2) 45%, rgba(255, 214, 190, 0.6)) border-box; box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6), 0 0 80px rgba(220, 130, 150, 0.22), inset 0 1px 0 rgba(255, 230, 215, 0.15)">
+<p style="margin: 0; display: flex; align-items: center; gap: 12px; font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: #F0BEA5"><span style="font-family: 'EB Garamond', serif; font-size: 34px; letter-spacing: 0; background: linear-gradient(135deg, #FFE7D6, #D9917C); -webkit-background-clip: text; background-clip: text; color: transparent">01</span>Hlavní téma</p>
+<h2 style="margin: 16px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 32px; line-height: 1.1; color: #FBEFE9">Blízkost s vlastním prostorem</h2>
+<p style="margin: 16px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Ve vašem spojení se může potkávat chuť být spolu s potřebou zachovat si vlastní prostor. Společné chvíle a samostatnost tu nemusí představovat dvě opačné volby.</p>
+<p style="margin: 20px 0 0; padding-top: 14px; border-top: 1px solid rgba(240, 190, 165, 0.2); font-size: 14px; line-height: 1.5; color: #C2ACB7">Opora tohoto závěru ve vašem výpočtu: <span style="color: #F7EAE4">Blízkost a samostatnost</span></p>
+</article>
+
+<article class="mv-reveal" style="position: relative; margin: 48px 20px 0">
+<p style="margin: 0; font-family: 'EB Garamond', serif; font-size: 30px; background: linear-gradient(135deg, #EBB3C2, #A987C4); -webkit-background-clip: text; background-clip: text; color: transparent">02</p>
+<h2 style="margin: 6px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 28px; line-height: 1.12; color: #F7EAE4">Společný rytmus všedních dní</h2>
+<p style="margin: 12px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">V každodenních činnostech se mezi vámi může objevovat podobné tempo. Tento motiv se týká běžného fungování, nikoli shody ve všech oblastech vztahu.</p>
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: #C2ACB7">Opora tohoto závěru ve vašem výpočtu: <span style="color: #EADCE2">Rytmus každodenních činností</span></p>
+</article>
+
+<article class="mv-reveal" style="position: relative; margin: 44px 20px 0">
+<p style="margin: 0; font-family: 'EB Garamond', serif; font-size: 30px; background: linear-gradient(135deg, #EBB3C2, #A987C4); -webkit-background-clip: text; background-clip: text; color: transparent">03</p>
+<h2 style="margin: 6px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 28px; line-height: 1.12; color: #F7EAE4">Když se mění plán</h2>
+<p style="margin: 12px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Ve vašem spojení vystupuje do popředí způsob, jakým reagujete na změnu zaběhnutého plánu. Tento pohled popisuje téma změny, bez hodnocení, zda je pro vás výhodou, nebo obtíží.</p>
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: #C2ACB7">Opora tohoto závěru ve vašem výpočtu: <span style="color: #EADCE2">Reakce na změnu plánu</span></p>
+</article>
+
+<article class="mv-reveal" style="position: relative; margin: 44px 20px 0">
+<p style="margin: 0; font-family: 'EB Garamond', serif; font-size: 30px; background: linear-gradient(135deg, #EBB3C2, #A987C4); -webkit-background-clip: text; background-clip: text; color: transparent">04</p>
+<h2 style="margin: 6px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 28px; line-height: 1.12; color: #F7EAE4">Rozdílné tempo odpovědi</h2>
+<p style="margin: 12px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">První z vás může hledat odpověď už během rozhovoru, druhý z vás až po chvíli klidu. Tento rozdíl popisuje tempo odpovídání, nikoli míru zájmu.</p>
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: #C2ACB7">Opora tohoto závěru ve vašem výpočtu: <span style="color: #EADCE2">Tempo odpovědi</span></p>
+</article>
+
+<article class="mv-reveal" style="position: relative; margin: 48px 14px 0; padding: 26px 22px; border-radius: 20px; border: 1px solid transparent; background: linear-gradient(160deg, rgba(70, 36, 50, 0.85), rgba(36, 18, 30, 0.9)) padding-box, linear-gradient(120deg, rgba(255, 214, 190, 0.7), rgba(240, 180, 143, 0.15) 50%, rgba(255, 214, 190, 0.55)) border-box; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), 0 0 60px rgba(240, 160, 130, 0.18)">
+<p style="margin: 0; font-family: 'EB Garamond', serif; font-size: 30px; background: linear-gradient(135deg, #FFE7D6, #D9917C); -webkit-background-clip: text; background-clip: text; color: transparent">05</p>
+<h2 style="margin: 6px 0 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 27px; line-height: 1.12; color: #F7EAE4">Všimnout si chvíle před odpovědí</h2>
+<p style="margin: 12px 0 0; font-size: 16px; line-height: 1.72; color: #EADCE2">Tohoto rozdílu si můžete všímat při rozhovoru: kdy odpověď přichází hned a kdy až po chvíli klidu.</p>
+<p style="margin: 12px 0 0; font-size: 14px; line-height: 1.5; color: #C2ACB7">Opora tohoto závěru ve vašem výpočtu: <span style="color: #EADCE2">Tempo odpovědi</span></p>
+</article>
+
+<section style="position: relative; margin: 60px 20px 0; text-align: center">
+<svg aria-hidden="true" width="140" height="80" viewBox="0 0 140 80" style="display: block; margin: 0 auto"><defs><filter id="m4E" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4"></feGaussianBlur></filter><clipPath id="m4EC"><circle cx="56" cy="40" r="28"></circle></clipPath><radialGradient id="m4EF"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset="0.3" stop-color="#FFEBDD" stop-opacity="0.8"></stop><stop offset="1" stop-color="#F2A98E" stop-opacity="0"></stop></radialGradient></defs><circle cx="56" cy="40" r="28" fill="none" stroke="#E3A3BC" stroke-width="6" opacity="0.35" filter="url(#m4E)"></circle><circle cx="84" cy="40" r="28" fill="none" stroke="#F0B48F" stroke-width="6" opacity="0.35" filter="url(#m4E)"></circle><circle cx="56" cy="40" r="28" fill="none" stroke="#F2C3D2" stroke-width="1"></circle><circle cx="84" cy="40" r="28" fill="none" stroke="#FFDCC4" stroke-width="1"></circle><g clip-path="url(#m4EC)"><circle class="mv-breathe" cx="84" cy="40" r="28" fill="#F2A98E" opacity="0.45" filter="url(#m4E)"></circle></g><g class="mv-pulse"><circle cx="70" cy="40" r="14" fill="url(#m4EF)"></circle></g></svg>
+<p style="margin: 18px 0 0; font-family: 'EB Garamond', serif; font-size: 30px; line-height: 1.18; background: linear-gradient(100deg, #FFE7D6, #E9AFC0); -webkit-background-clip: text; background-clip: text; color: transparent">To je vaše Vztahová DNA.</p>
+</section>
+
+<a href="Mobil-05-Nabidka.dc.html" style="position: relative; margin: 44px 20px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 64px; text-decoration: none">
+<span style="font-size: 14px; color: #EADCE2">Pro hlubší pohled</span>
+<svg aria-hidden="true" width="16" height="22" viewBox="0 0 16 22" fill="none" stroke="#F0B48F" stroke-width="1.3"><path d="M8 1v19M2 14l6 6 6-6"></path></svg>
+</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":375,"height":2280}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Vzorový report — mobil</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;family=Jost:wght@300;400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0E070F}
+a{color:#F4CDB6}a:hover{color:#FFE9DB}
+a:focus-visible{outline:2px solid #EDB894;outline-offset:3px}
+h1,h2,h3{text-wrap:balance}p,li,dd,figcaption{text-wrap:pretty}
+@supports (animation-timeline: view()){.mv-reveal{animation:mvReveal linear both;animation-timeline:view();animation-range:entry 0% cover 28%}}
+@keyframes mvReveal{from{opacity:0;translate:0 28px}}
+@media (prefers-reduced-motion: reduce){.mv-reveal{animation:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 375px; min-height: 1100px; box-sizing: border-box; background: #0E070F; color: #F4E9E4; font-family: 'Jost', system-ui, sans-serif; font-weight: 400; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 375 300" style="position: absolute; left: 0; top: 0; width: 375px; height: 300px; pointer-events: none"><defs><filter id="m9Pool" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="40"></feGaussianBlur></filter></defs><ellipse cx="290" cy="110" rx="150" ry="110" fill="#3A1838" opacity="0.6" filter="url(#m9Pool)"></ellipse></svg>
+<header style="position: relative; display: flex; align-items: center; gap: 8px; padding: 12px 16px">
+<a href="Mobil-01-Landing.dc.html" aria-label="Zpět" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #4A3045"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#F4E9E4" stroke-width="1.4"><path d="M10 3L5 8l5 5"></path></svg></a>
+<span style="flex: 1; text-align: center; font-family: 'EB Garamond', serif; font-size: 17px; letter-spacing: 0.14em; color: #E8DAE0">MEZI VÁMI</span>
+<span style="width: 44px"></span>
+</header>
+<main style="position: relative; padding: 32px 20px 0">
+<h1 style="margin: 0; font-family: 'EB Garamond', serif; font-weight: 400; font-size: 38px; line-height: 1.06; background: linear-gradient(180deg, #F6E6DA 0%, #E5C6B5 100%); -webkit-background-clip: text; background-clip: text; color: transparent">Nahlédněte do vzorové analýzy.</h1>
+<p style="margin: 14px 0 0; display: inline-flex; padding: 7px 12px; border-radius: 12px; border: 1px dashed #8C6F80; font-size: 14px; line-height: 1.45; color: #E2C9BC">{{ sampleLabel }}</p>
+<p style="margin: 16px 0 0; font-size: 14px; line-height: 1.65; color: #C2ACB7">Prohlédněte si stránku Obsahu, skutečné náhledy stran a celý vzorový report v PDF. Uvidíte, jak jsou témata rozvedená do konkrétního textu, nejen jak se kapitoly jmenují. Jde o vzorový report, nikoli o analýzu vaší dvojice. Rozsah jednotlivých částí vaší analýzy závisí na dostupných podkladech. Konkrétní počet stran není předem zaručen.</p>
+</main>
+<div style="position: relative; margin-top: 24px; display: flex; gap: 14px; overflow-x: auto; padding: 0 20px 10px">
+<sc-for list="{{ pages }}" as="p" hint-placeholder-count="3">
+<figure style="flex: 0 0 160px; margin: 0"><div style="position: relative; height: 226px; border-radius: 8px; border: 1px solid rgba(236, 212, 200, 0.22); background: linear-gradient(170deg, #26132A, #120812); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: #C9B0BE">[Náhled]<sc-if value="{{ p.isS1 }}" hint-placeholder-val="{{ true }}"><span style="position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 5px 6px; border-radius: 6px; background: rgba(14, 7, 15, 0.85); font-size: 13px; letter-spacing: 0; text-transform: none; line-height: 1.35; color: #E2C9BC">Provizorní ukázka — nejde o finální podobu zákaznického reportu.</span></sc-if></div><figcaption style="margin-top: 8px; font-size: 14px; color: #C2ACB7">{{ p.label }}</figcaption></figure>
+</sc-for>
+</div>
+<div style="position: relative; padding: 20px 20px 0">
+<a href="#" style="display: flex; align-items: center; justify-content: center; min-height: 56px; border-radius: 999px; background: linear-gradient(180deg, #F7D5BB 0%, #E8B391 100%); color: #2A1220; text-decoration: none; box-shadow: 0 12px 36px rgba(240, 160, 130, 0.4), inset 0 1px 0 rgba(255, 244, 236, 0.7); font-size: 16px; font-weight: 500">Otevřít vzorové PDF</a>
+<p style="margin: 12px 0 0; text-align: center; font-size: 14px; color: #C9B0BE">E-mail není potřeba.</p>
+<p style="margin: 4px 0 0; text-align: center; font-size: 14px; color: #C9B0BE">[počet stran a velikost PDF podle skutečného souboru]</p>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"vzorek":{"editor":"enum","options":["S1 — provizorní ukázka","S2 — schválený vzorek"],"default":"S1 — provizorní ukázka"},"$preview":{"width":375,"height":1100}}'>
+class Component extends DCLogic {
+renderVals() {
+const s = (this.props.vzorek ?? 'S1').slice(0, 2);
+return {
+isS1: s === 'S1',
+sampleLabel: s === 'S1' ? 'Provizorní ukázka — nejde o finální podobu zákaznického reportu.' : 'Vzorový report',
+pages: ['Obsah', 'Nejdřív to nejdůležitější', 'Na doma'].map((l) => ({ label: l, isS1: s === 'S1' }))
+};
+}
+}
+</script>
+</body>
+</html>
