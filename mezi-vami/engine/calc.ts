@@ -97,10 +97,29 @@ const hasKey = (env: Record<string, string | undefined>, provider: string) =>
       ? !!(env.MEZI_VAMI_ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || env.H2_ANTHROPIC_API_KEY)
       : true;
 
+/** Když hlavní model selže (např. neznámé ID modelu), zkusí zálohu; do DB se zapíše skutečný model. */
+export class FallbackCalcProvider implements CalcProvider {
+  readonly name = "ai";
+  constructor(
+    private readonly primary: CalcProvider,
+    private readonly fallback: CalcProvider,
+  ) {}
+  async compute(input: CalcInput): Promise<CalcOutput> {
+    try {
+      return await this.primary.compute(input);
+    } catch (e) {
+      console.error("[mezi-vami/calc] hlavní model selhal, záloha:", e instanceof Error ? e.message : e);
+      return this.fallback.compute(input);
+    }
+  }
+}
+
 export function getCalcProvider(env: Record<string, string | undefined> = process.env): CalcProvider {
   if ((env.MEZI_VAMI_CALC_PROVIDER ?? "ai") === "ephemeris") return new EphemerisCalcProvider();
   const wanted = env.MEZI_VAMI_CALC_MODEL || DEFAULT_CALC_MODEL;
-  const provider = wanted.split(":")[0];
-  if (hasKey(env, provider)) return new AiCalcProvider(wanted);
-  return new AiCalcProvider(env.MEZI_VAMI_CALC_FALLBACK_MODEL || FALLBACK_CALC_MODEL);
+  const backup = env.MEZI_VAMI_CALC_FALLBACK_MODEL || FALLBACK_CALC_MODEL;
+  const ok = (spec: string) => hasKey(env, spec.split(":")[0]);
+  if (ok(wanted) && ok(backup) && wanted !== backup)
+    return new FallbackCalcProvider(new AiCalcProvider(wanted), new AiCalcProvider(backup));
+  return new AiCalcProvider(ok(wanted) ? wanted : backup);
 }

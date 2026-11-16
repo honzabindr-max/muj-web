@@ -226,14 +226,18 @@ export async function writeDna(
 
 /* ---------- skloňování oslovení (neukládá se) ---------- */
 
+const CASES = ["nominativ", "genitiv", "dativ", "akuzativ", "vokativ", "lokal", "instrumental"] as const;
+const FORMS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [...CASES],
+  properties: Object.fromEntries(CASES.map((c) => [c, { type: "string", maxLength: 60 }])),
+};
 const NAMES_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["a", "b"],
-  properties: {
-    a: { type: "array", minItems: 7, maxItems: 7, items: { type: "string" } },
-    b: { type: "array", minItems: 7, maxItems: 7, items: { type: "string" } },
-  },
+  properties: { a: FORMS_SCHEMA, b: FORMS_SCHEMA },
 };
 
 export async function declineNames(
@@ -245,12 +249,13 @@ export async function declineNames(
   const r = await generateStructured({
     model,
     system:
-      "Vyskloňuj česká oslovení (jméno, přezdívku) do 7 pádů v pořadí 1–7 (5. pád = oslovení). Zachovej velká písmena. Nerozumíš-li slovu, vrať ho ve všech pádech beze změny.",
+      "Vyskloňuj česká oslovení (jméno, přezdívku). nominativ = kdo/co (Honzík), genitiv = bez koho (Honzíka), dativ = komu (Honzíkovi), akuzativ = koho vidím (Honzíka), vokativ = oslovení (Honzíku), lokal = o kom (o Honzíkovi), instrumental = s kým (s Honzíkem). Bez předložek. Zachovej velká písmena. Nerozumíš-li slovu, vrať ho všude beze změny.",
     user: `a: „${a.nick}“ (rod: ${a.styl})\nb: „${b.nick}“ (rod: ${b.styl})`,
     schema: NAMES_SCHEMA,
     schemaName: "sklonovani",
-    maxOutputTokens: 400,
+    maxOutputTokens: 500,
   });
-  const d = z.object({ a: z.array(z.string().max(60)).length(7), b: z.array(z.string().max(60)).length(7) }).parse(r.data);
-  return d;
+  const F = z.object(Object.fromEntries(CASES.map((c) => [c, z.string().max(60)])) as Record<(typeof CASES)[number], z.ZodString>);
+  const d = z.object({ a: F, b: F }).parse(r.data);
+  return { a: CASES.map((c) => d.a[c]), b: CASES.map((c) => d.b[c]) };
 }
