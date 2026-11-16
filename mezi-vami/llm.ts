@@ -97,8 +97,10 @@ function extractJson(text: string): unknown {
 }
 
 const anthropic: Adapter = async (modelId, req) => {
-  // Uvažování vypnout (rychlost, tokeny jdou do výstupu); model, který to nepodporuje, ho dostane bez parametru.
-  let noThinking = true;
+  // Uvažování co nejmenší (rychlost, tokeny na výstup): nejdřív vypnout, pak minimální rozpočet,
+  // nakonec bez parametru — podle toho, co daný model přijme.
+  const THINKING = [{ type: "disabled" }, { type: "enabled", budget_tokens: 1024 }, null];
+  let ti = 0;
   const call = (forced: boolean) =>
     post(
       `${process.env.MEZI_VAMI_ANTHROPIC_BASE_URL || "https://api.anthropic.com"}/v1/messages`,
@@ -115,22 +117,23 @@ const anthropic: Adapter = async (modelId, req) => {
         messages: [{ role: "user", content: req.user }],
         tools: [{ name: req.schemaName, description: "Vrať výsledek.", input_schema: req.schema }],
         tool_choice: forced ? { type: "tool", name: req.schemaName } : { type: "auto" },
-        ...(noThinking ? { thinking: { type: "disabled" } } : {}),
+        ...(THINKING[ti] ? { thinking: THINKING[ti] } : {}),
       },
       req.timeoutMs ?? 240_000,
     );
   let json: Record<string, unknown> | null = null;
   let forced = true;
-  for (let i = 0; i < 3 && !json; i++) {
+  for (let i = 0; i < 5 && !json; i++) {
     try {
-      json = await call(forced);
+      json = await call(forced && ti !== 1);
     } catch (e) {
       if (!(e instanceof LlmError) || e.status !== 400) throw e;
-      if (noThinking && /thinking/i.test(e.message)) noThinking = false;
+      if (ti < THINKING.length - 1 && /thinking|budget/i.test(e.message)) ti++;
       else if (forced && /tool_choice/.test(e.message)) forced = false;
       else throw e;
     }
   }
+  console.info(`[llm] ${modelId}: thinking=${JSON.stringify(THINKING[ti])} forced=${forced}`);
   if (!json) throw new LlmError(`Anthropic ${modelId}: požadavek se nepodařilo sestavit.`);
   const content = (json.content as { type: string; input?: unknown; text?: string }[]) ?? [];
   const tool = content.find((c) => c.type === "tool_use");

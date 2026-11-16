@@ -48,6 +48,31 @@ function moment(label: string, p: PersonInput): string {
   return `${label}: ${u.ut} (UT); birthplace ${p.misto.name}, ${p.misto.okres}, ${p.misto.cc}.`;
 }
 
+/** Přibližná délka Slunce (Meeus, ±0,01°) pro kontrolu výstupu AI. */
+export function approxSunLongitude(utIso: string): number {
+  const jd = Date.parse(utIso) / 86_400_000 + 2440587.5;
+  const n = jd - 2451545.0;
+  const L = 280.46 + 0.9856474 * n;
+  const g = ((357.528 + 0.9856003 * n) * Math.PI) / 180;
+  return (((L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) % 360) + 360) % 360;
+}
+
+const angDiff = (x: number, y: number) => {
+  const d = Math.abs((((x - y) % 360) + 360) % 360);
+  return d > 180 ? 360 - d : d;
+};
+
+/** Zahodí zjevně nesmyslný výstup (Slunce mimo o > 2°, všechny hodnoty stejné). */
+export function sanityCheck(input: CalcInput, a: Longitudes, b: Longitudes): void {
+  for (const [k, lon] of [["a", a], ["b", b]] as const) {
+    const sun = approxSunLongitude(toUt(input[k]).ut);
+    if (angDiff(lon.sun, sun) > 2)
+      throw new Error(`Výpočet ${k}: Slunce ${lon.sun.toFixed(1)}° neodpovídá ${sun.toFixed(1)}°.`);
+    if (new Set(Object.values(lon).map((x) => x.toFixed(1))).size < 6)
+      throw new Error(`Výpočet ${k}: podezřele mnoho stejných hodnot.`);
+  }
+}
+
 export class AiCalcProvider implements CalcProvider {
   readonly name = "ai";
   constructor(private readonly model: string) {}
@@ -63,13 +88,16 @@ export class AiCalcProvider implements CalcProvider {
           user,
           schema: OUT_SCHEMA,
           schemaName: "planet_longitudes",
-          maxOutputTokens: 8000,
+          maxOutputTokens: 16000,
           timeoutMs: 120_000,
         });
         const d = r.data as { a: unknown; b: unknown };
+        const a = LongitudesSchema.parse(d.a);
+        const b = LongitudesSchema.parse(d.b);
+        sanityCheck(input, a, b);
         return {
-          a: LongitudesSchema.parse(d.a),
-          b: LongitudesSchema.parse(d.b),
+          a,
+          b,
           provider: this.name,
           model: r.model,
           usage: r.usage,
@@ -91,7 +119,7 @@ export class EphemerisCalcProvider implements CalcProvider {
 }
 
 /** Záloha při chybě hlavního modelu nebo chybějícím klíči. */
-export const FALLBACK_CALC_MODEL = "anthropic:claude-haiku-5-5";
+export const FALLBACK_CALC_MODEL = "anthropic:claude-sonnet-5-5";
 
 const hasKey = (env: Record<string, string | undefined>, provider: string) =>
   provider === "openai"

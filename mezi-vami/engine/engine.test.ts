@@ -92,3 +92,16 @@ describe("odvozený výpočet", () => {
     expect(fillNames("Když {B1} mluví", FALLBACK_FORMS)).toBe("Když druhá osoba mluví");
   });
 });
+
+import { approxSunLongitude, sanityCheck } from "./calc";
+describe("pojistka výpočtu AI", () => {
+  it("přibližné Slunce sedí s referencí (astronomy-engine: 329,08° / 249,20°)", () => {
+    expect(Math.abs(approxSunLongitude("1983-02-18T07:31:00Z") - 329.08)).toBeLessThan(0.1);
+    expect(Math.abs(approxSunLongitude("1976-12-01T06:30:00Z") - 249.2)).toBeLessThan(0.1);
+  });
+  it("zahodí nuly i špatné Slunce, projde rozumný výstup", () => {
+    const zero = Object.fromEntries(Object.keys(LA).map((k) => [k, 0])) as Longitudes;
+    expect(() => sanityCheck(INPUT, zero, zero)).toThrow();
+    expect(() => sanityCheck(INPUT, LA, LB)).not.toThrow();
+  });
+});
