@@ -1,5 +1,5 @@
 // Textový engine: z odvozeného výpočtu napíše bloky stránky Vztahové DNA.
-// Model je vyměnitelný (MEZI_VAMI_WRITER_MODEL, výchozí Claude Sonnet), zadání má verze
+// Model je vyměnitelný (MEZI_VAMI_WRITER_MODEL, výchozí GPT‑6.1 Sol), zadání má verze
 // (writer-v1 = původní, writer-v2 = aktuální). Haiku zůstává jen jako srovnávací základ,
 // ne jako tichá záloha. Jména model nedostává a do DB se neukládají: v textu jsou místa
 // {A1}…{A7} / {B1}…{B7} (pád 1–7), která prohlížeč nahradí oslovením ve správném tvaru.
@@ -8,7 +8,7 @@ import { z } from "zod";
 import { BODY_CS, ASPECTS, SIGN_KEYWORDS, fmtDeg, rowTone, type Derived, type Body } from "./astro";
 import { generateStructured, type Usage } from "../llm";
 
-export const DEFAULT_WRITER_MODEL = "anthropic:claude-sonnet-5-5";
+export const DEFAULT_WRITER_MODEL = "openai:gpt-6.1-sol";
 /** Skloňování oslovení zůstává na rychlém modelu (není to zákaznický text DNA). */
 export const DEFAULT_NAMES_MODEL = "anthropic:claude-haiku-5-5";
 export type PromptVersion = "writer-v1" | "writer-v2";
