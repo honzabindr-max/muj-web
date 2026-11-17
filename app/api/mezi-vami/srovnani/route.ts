@@ -35,7 +35,9 @@ export async function GET(req: Request) {
     if (!/^[0-9a-f-]{36}$/i.test(q.id ?? "") || !/^[0-9a-f-]{36}$/i.test(q.w ?? ""))
       return NextResponse.json({ error: "invalid_input" }, { status: 400 });
     const r = await loadResult(q.id, q.w);
-    return NextResponse.json(r.state === "ready" ? { view: r.view, meta: r.meta } : r);
+    if (r.state !== "ready") return NextResponse.json(r);
+    const { pair, kdoJeKdo, temata, otevrene } = r.view;
+    return NextResponse.json({ pair, kdoJeKdo, temata, otevrene, meta: r.meta });
   }
   if (q.action === "write" && q.bg !== "0") {
     let b: { id: string; model: string; prompt: "writer-v1" | "writer-v2" };
