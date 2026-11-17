@@ -4,6 +4,7 @@ import { getComputation, insertComputation, insertWriting, listWritings } from "
 import { writeDna, type Attempt } from "@/mezi-vami/engine/writer";
 import type { Derived } from "@/mezi-vami/engine/astro";
 import { listOpenAiModels } from "@/mezi-vami/llm";
+import { loadResult } from "@/mezi-vami/result";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -29,6 +30,12 @@ export async function GET(req: Request) {
   if (q.action === "list") {
     if (!/^[0-9a-f-]{36}$/i.test(q.id ?? "")) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
     return NextResponse.json({ writings: await listWritings(q.id) });
+  }
+  if (q.action === "view") {
+    if (!/^[0-9a-f-]{36}$/i.test(q.id ?? "") || !/^[0-9a-f-]{36}$/i.test(q.w ?? ""))
+      return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+    const r = await loadResult(q.id, q.w);
+    return NextResponse.json(r.state === "ready" ? { view: r.view, meta: r.meta } : r);
   }
   if (q.action === "write" && q.bg !== "0") {
     let b: { id: string; model: string; prompt: "writer-v1" | "writer-v2" };
