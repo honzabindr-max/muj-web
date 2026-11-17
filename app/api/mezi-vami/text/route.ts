@@ -8,7 +8,7 @@ import { allow, clientKey } from "@/mezi-vami/rate-limit";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-// Texty Vztahové DNA k uloženému výpočtu (vyměnitelný model MEZI_VAMI_WRITER_MODEL, výchozí Sonnet; bez tiché zálohy).
+// Texty Vztahové DNA k uloženému výpočtu (vyměnitelný model MEZI_VAMI_WRITER_MODEL, výchozí GPT‑6.1 Sol; bez tiché zálohy).
 export async function POST(req: Request) {
   if (!allow(`text:${clientKey(req)}`, 15, 10 * 60_000))
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });

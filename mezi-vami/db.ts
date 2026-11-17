@@ -101,6 +101,16 @@ export async function getLatestWriting(computationId: string) {
 }
 
 /** Konkrétní psaní k výpočtu (srovnání modelů / zadání na Preview). */
+/** Všechna psaní k výpočtu (srovnávací nástroj mimo produkci). */
+export async function listWritings(computationId: string) {
+  const p = await db();
+  const r = await p.query(
+    `SELECT id, model, prompt_version, usage, created_at FROM mv_writings WHERE computation_id = $1 ORDER BY created_at`,
+    [computationId],
+  );
+  return r.rows;
+}
+
 export async function getWriting(computationId: string, writingId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(writingId)) return null;
   const p = await db();
