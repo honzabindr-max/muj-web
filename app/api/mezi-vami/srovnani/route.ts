@@ -3,12 +3,14 @@ import { z } from "zod";
 import { getComputation, insertComputation, insertWriting } from "@/mezi-vami/db";
 import { writeDna, type Attempt } from "@/mezi-vami/engine/writer";
 import type { Derived } from "@/mezi-vami/engine/astro";
+import { listOpenAiModels } from "@/mezi-vami/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 // Srovnání modelů a verzí zadání nad stejným výpočtem. Jen mimo produkci (Preview / lokálně).
 const Body = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("models") }),
   z.object({ action: z.literal("clone"), from: z.string().uuid() }),
   z.object({
     action: z.literal("write"),
@@ -25,6 +27,13 @@ export async function POST(req: Request) {
     body = Body.parse(await req.json());
   } catch {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  }
+  if (body.action === "models") {
+    try {
+      return NextResponse.json({ openai: await listOpenAiModels() });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message.slice(0, 300) : String(e) }, { status: 502 });
+    }
   }
   const c = await getComputation(body.action === "clone" ? body.from : body.id);
   if (!c) return NextResponse.json({ error: "not_found" }, { status: 404 });

@@ -242,3 +242,20 @@ describe("writer-v2: interní slovník", () => {
     expect(errs.join(" ")).toMatch(/interní slovo/);
   });
 });
+
+import { openaiSchema } from "../llm";
+describe("openaiSchema", () => {
+  it("vynechá délky, enum a strukturu nechá", () => {
+    const s = openaiSchema({
+      type: "object",
+      required: ["a"],
+      additionalProperties: false,
+      properties: { a: { type: "string", maxLength: 5 }, b: { type: "integer", enum: [1, 2] }, c: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
+    }) as Record<string, any>;
+    expect(s.properties.a).toEqual({ type: "string" });
+    expect(s.properties.b.enum).toEqual([1, 2]);
+    expect(s.properties.c.minItems).toBe(1);
+    expect(s.properties.c.items).toEqual({ type: "string" });
+    expect(s.additionalProperties).toBe(false);
+  });
+});

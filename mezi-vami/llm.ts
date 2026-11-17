@@ -23,6 +23,17 @@ export type StructuredResult = { data: unknown; usage: Usage; model: string };
 
 type Adapter = (modelId: string, req: StructuredRequest) => Promise<StructuredResult>;
 
+/** Seznam modelů OpenAI dostupných pro klíč (jen pro srovnávací nástroj mimo produkci). */
+export async function listOpenAiModels(): Promise<string[]> {
+  const res = await fetch(`${process.env.MEZI_VAMI_OPENAI_BASE_URL || "https://api.openai.com"}/v1/models`, {
+    headers: { authorization: `Bearer ${key("MEZI_VAMI_OPENAI_API_KEY", "OPENAI_API_KEY")}` },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new LlmError(`models → HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
+  return ((JSON.parse(text) as { data?: { id: string }[] }).data ?? []).map((m) => m.id).sort();
+}
+
 export class LlmError extends Error {
   constructor(
     message: string,
@@ -55,24 +66,49 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
   return JSON.parse(text) as Record<string, unknown>;
 }
 
+/** Striktní režim OpenAI nebere některá omezení schématu. Délky (a při druhém pokusu i počty)
+ *  hlídá naše validace po odpovědi, takže je ze schématu pro OpenAI vynecháme. */
+const OPENAI_DROP_SOFT = new Set(["minLength", "maxLength"]);
+const OPENAI_DROP_ALL = new Set(["minLength", "maxLength", "minItems", "maxItems", "minimum", "maximum"]);
+export function openaiSchema(schema: unknown, drop: Set<string> = OPENAI_DROP_SOFT): unknown {
+  if (Array.isArray(schema)) return schema.map((x) => openaiSchema(x, drop));
+  if (!schema || typeof schema !== "object") return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (drop.has(k)) continue;
+    out[k] = k === "enum" ? v : openaiSchema(v, drop);
+  }
+  return out;
+}
+
 /** OpenAI Responses API se strukturovaným výstupem (json_schema, strict). */
 const openai: Adapter = async (modelId, req) => {
-  const json = await post(
-    `${process.env.MEZI_VAMI_OPENAI_BASE_URL || "https://api.openai.com"}/v1/responses`,
-    { authorization: `Bearer ${key("MEZI_VAMI_OPENAI_API_KEY", "OPENAI_API_KEY")}` },
-    {
-      model: modelId,
-      input: [
-        { role: "system", content: req.system },
-        { role: "user", content: req.user },
-      ],
-      text: {
-        format: { type: "json_schema", name: req.schemaName, schema: req.schema, strict: true },
+  const call = (drop: Set<string>) =>
+    post(
+      `${process.env.MEZI_VAMI_OPENAI_BASE_URL || "https://api.openai.com"}/v1/responses`,
+      { authorization: `Bearer ${key("MEZI_VAMI_OPENAI_API_KEY", "OPENAI_API_KEY")}` },
+      {
+        model: modelId,
+        input: [
+          { role: "system", content: req.system },
+          { role: "user", content: req.user },
+        ],
+        text: {
+          format: { type: "json_schema", name: req.schemaName, schema: openaiSchema(req.schema, drop), strict: true },
+        },
+        max_output_tokens: req.maxOutputTokens ?? 16000,
       },
-      max_output_tokens: req.maxOutputTokens ?? 16000,
-    },
-    req.timeoutMs ?? 240_000,
-  );
+      req.timeoutMs ?? 240_000,
+    );
+  let json: Record<string, unknown>;
+  try {
+    json = await call(OPENAI_DROP_SOFT);
+  } catch (e) {
+    // schéma odmítnuté jako nepodporované → druhý pokus bez číselných omezení
+    if (!(e instanceof LlmError && e.status === 400 && /schema|not permitted|not supported|invalid_json_schema/i.test(e.message))) throw e;
+    console.warn(`[llm] openai ${modelId}: schéma odmítnuto, zkouším bez omezení: ${e.message.slice(0, 200)}`);
+    json = await call(OPENAI_DROP_ALL);
+  }
   const output = (json.output as { type: string; content?: { type: string; text?: string }[] }[]) ?? [];
   const text = output
     .filter((o) => o.type === "message")
