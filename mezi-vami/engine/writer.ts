@@ -311,6 +311,8 @@ PODKLADY A HRANICE
 - Stejné znamení neopravňuje k tvrzení, že si dva lidé automaticky rozumějí. Pokud máš jen podklad
   pro podobný styl, popiš podobný styl. Nejistou pozici (NEJISTÉ, „nejisté: …“) nepoužij jako jedinou
   oporu konkrétního závěru.
+- O čase narození, nejistotě ani chybějících údajích v textu nepiš. Stránka to uvádí jednou nad
+  výsledkem. U nejisté pozice napiš jen to, co platí pro všechna možná znamení, nebo ji vynech.
 
 HLAS
 Přesný spolupachatel s disciplínou prémiového odhalení. Každý blok má zamčené pořadí:
@@ -356,7 +358,7 @@ rows
 - Přesně čtyři řádky v pořadí Slunce, Měsíc, Venuše, Mars.
 - a a b: nejvýš 48 znaků, bez jmen (vzor tvaru: „člověk …“). Jedna vlastnost ze zadaných klíčových slov
   pro příslušnou pozici. Nepřidávej jiné vlastnosti. U pozice označené NEJISTÉ vyber vlastnost, kterou
-  sdílejí všechna možná znamení; když žádnou nesdílejí, napiš „rozhodne přesný čas narození“.
+  sdílejí všechna možná znamení; když žádnou výraznou nesdílejí, vyber nejobecnější společný rys.
 - ton: přepiš přesně hodnotu z dodaného řádku.
 - veta: jedna věta do 160 znaků s oběma značkami ve správném pádě. Popiš, jak se dva styly potkají
   v jedné situaci. Předepsaný tón je vodítko k formulaci, ne důkaz souhry nebo konfliktu.
@@ -422,6 +424,8 @@ const len = (field: string, n: number, max: number, min = 0) =>
   n > max || n < min
     ? `${n <= max * 1.2 ? SOFT : ""}${field}: ${n} znaků, ${min ? `má být ${min}–${max}` : `max ${max}`}`
     : null;
+/** Text nesmí mluvit o čase narození ani o nejistotě údajů (to říká jednou stránka). */
+export const TIME_TALK = /(čas\p{L}*\s+narozen|neurčím|nevyčtem|zatím nevíme|z (nejistého|chybějícího) údaje)/iu;
 const FORBIDDEN = /(dynamik|harmoni|souzněn|energi|vesmír|hvězd|osud|spřízněn|komunikujte|pocit opory|prostor pro)/i;
 const MOZE = /\b(může|můžete|mohou|můžeš|mohl[aiy]?|mohli)\b/gi;
 
@@ -510,6 +514,14 @@ export function checkV2(out: WriterOutput, d: Derived): string[] {
     if (META_WORD.test(o.otazka) || astroWord(o.otazka)) errs.push(`otazky[${i}].otazka: interní slovo, planeta nebo aspekt`);
     for (const c of caseErrors(o.otazka)) errs.push(`otazky[${i}].otazka: ${c}`);
   });
+  const texts: [string, string][] = [
+    ["mainTheme.title", mt.title],
+    ["mainTheme.line", mt.line],
+    ...out.rows.flatMap((r, i): [string, string][] => [[`rows[${i}].a`, r.a], [`rows[${i}].b`, r.b], [`rows[${i}].veta`, r.veta]]),
+    ...out.temata.flatMap((t, i): [string, string][] => [[`temata[${i}].nadpis`, t.nadpis], [`temata[${i}].text`, t.text], [`temata[${i}].schvalne`, t.schvalne ?? ""]]),
+    ...(out.otazky ?? []).map((q, i): [string, string] => [`otazky[${i}]`, typeof q === "string" ? q : q.otazka]),
+  ];
+  for (const [k, v] of texts) if (TIME_TALK.test(v)) errs.push(`${k}: nepiš o čase narození ani o nejistotě údajů`);
   return errs;
 }
 

@@ -259,3 +259,15 @@ describe("openaiSchema", () => {
     expect(s.additionalProperties).toBe(false);
   });
 });
+
+import { TIME_TALK } from "./writer";
+describe("TIME_TALK", () => {
+  it("chytí zmínky o čase narození a nejistotě", () => {
+    for (const t of ["rozhodne přesný čas narození", "bez přesného času narození neurčíme", "co potřebuje {B1}, z nejistého údaje nevyčteme", "zatím nevíme"])
+      expect(TIME_TALK.test(t)).toBe(true);
+  });
+  it("nechá běžný text", () => {
+    for (const t of ["když si je {B1} nejistý, ozve se", "kam nikdo nejezdí", "neznámé místo na výletě"])
+      expect(TIME_TALK.test(t)).toBe(false);
+  });
+});
