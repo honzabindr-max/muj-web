@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
-import { getComputation, insertComputation, insertWriting } from "@/mezi-vami/db";
+import { getComputation, insertComputation, insertWriting, listWritings } from "@/mezi-vami/db";
 import { writeDna, type Attempt } from "@/mezi-vami/engine/writer";
 import type { Derived } from "@/mezi-vami/engine/astro";
 import { listOpenAiModels } from "@/mezi-vami/llm";
@@ -19,6 +19,49 @@ const Body = z.discriminatedUnion("action", [
     prompt: z.enum(["writer-v1", "writer-v2"]),
   }),
 ]);
+
+// GET varianta pro spouštění bez prohlížeče (Vercel konektor umí jen GET):
+//   ?action=models | ?action=clone&from= | ?action=list&id= | ?action=write&id=&model=&prompt=
+// Zápis běží na pozadí (after) a výsledek se uloží jako psaní; chyba jde do logu „[srovnani]“.
+export async function GET(req: Request) {
+  if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
+  const q = Object.fromEntries(new URL(req.url).searchParams);
+  if (q.action === "list") {
+    if (!/^[0-9a-f-]{36}$/i.test(q.id ?? "")) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+    return NextResponse.json({ writings: await listWritings(q.id) });
+  }
+  if (q.action === "write" && q.bg !== "0") {
+    let b: { id: string; model: string; prompt: "writer-v1" | "writer-v2" };
+    try {
+      b = WriteQ.parse(q);
+    } catch {
+      return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+    }
+    const c = await getComputation(b.id);
+    if (!c) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    after(async () => {
+      try {
+        const r = await writeDna(c.derived as Derived, process.env, { model: b.model, prompt: b.prompt });
+        const meta = { ...r.usage, ms: r.ms, attempts: r.attempts, remaining: r.remaining, fixes: r.fixes };
+        const writingId = await insertWriting({ computationId: b.id, model: r.model, promptVersion: r.promptVersion, output: r.output, usage: meta });
+        console.log(`[srovnani] ok ${b.model} ${b.id} → ${writingId}`);
+      } catch (e) {
+        const attempts = (e as { attempts?: Attempt[] }).attempts ?? [];
+        console.error(
+          `[srovnani] chyba ${b.model} ${b.id}: ${e instanceof Error ? e.message.slice(0, 600) : String(e)} | pokusy ${JSON.stringify(attempts).slice(0, 1500)}`,
+        );
+      }
+    });
+    return NextResponse.json({ started: true });
+  }
+  return POST(new Request(req.url, { method: "POST", body: JSON.stringify(q) }));
+}
+
+const WriteQ = z.object({
+  id: z.string().uuid(),
+  model: z.string().regex(/^(anthropic|openai):[\w.-]+$/),
+  prompt: z.enum(["writer-v1", "writer-v2"]),
+});
 
 export async function POST(req: Request) {
   if (process.env.VERCEL_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
