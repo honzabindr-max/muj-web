@@ -2,7 +2,9 @@
 // All run on subscriptions: API-key env vars are stripped so no CLI silently falls back
 // to paid API billing (paid API calls = 0 without owner GO).
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { currentAttempt, killGroup, settleGroup } from "./attempts";
@@ -427,6 +429,70 @@ export function runProcess(
  */
 export const ORCH_CLAUDE_SETTINGS = JSON.stringify({ enabledPlugins: { "codex@openai-codex": false } });
 
+/**
+ * ADP-K1-01: proměnné, které v Claude Code 2.1.317 zapínají debug log (DEBUG/DEBUG_SDK = pravdivá hodnota; log jde do
+ * <config>/debug/<session>.txt a nese i celý stdout hooků, tedy prompt z `updatedInput`). Dítě je dostane vždy prázdné.
+ */
+export const CLAUDE_DEBUG_ENV_OFF: Record<string, string> = { DEBUG: "", DEBUG_SDK: "" };
+
+/** Domovská složka Claude Code (`CLAUDE_CONFIG_DIR`, jinak ~/.claude); stejně ji určuje CLI. */
+export function claudeConfigHome(env: Record<string, string | undefined> = process.env): string {
+  return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * ADP-K1-01: `--no-session-persistence` vypne přepis sezení (.jsonl), ale CLI 2.1.317 dál ukládá stdout hooku delší
+ * než 10 000 znaků do <config>/projects/<klíč cwd>/<session>/tool-results/hook-…-stdout.txt (ověřeno živě i v binárce).
+ * Proto TARS sezení pojmenuje (`--session-id`) a po pokusu smaže jeho složku i případný přepis ve všech klíčích
+ * projektu (klíč cwd se nepočítá, hledá se přesné jméno UUID). Vrací smazané cesty.
+ */
+export function removeClaudeSessionArtifacts(
+  sessionId: string,
+  configHome = claudeConfigHome(),
+): { removed: string[]; failed: string[] } {
+  if (!UUID_RE.test(sessionId)) throw new Error(`neplatné session id: ${sessionId.slice(0, 60)}`);
+  const removed: string[] = [];
+  const failed: string[] = [];
+  let projects: string;
+  let keys: string[];
+  try {
+    projects = fs.realpathSync(path.join(configHome, "projects"));
+    keys = fs.readdirSync(projects);
+  } catch {
+    return { removed, failed };
+  }
+  for (const k of keys)
+    for (const name of [sessionId, `${sessionId}.jsonl`]) {
+      const p = path.join(projects, k, name);
+      try {
+        // Symlink (klíče projektu i artefaktu) se nikdy nesleduje: přeskočit a nahlásit.
+        const keySt = fs.lstatSync(path.join(projects, k));
+        if (keySt.isSymbolicLink()) {
+          if (fs.existsSync(p)) failed.push(`${p} (symlink klíče projektu, přeskočeno)`);
+          continue;
+        }
+        if (!keySt.isDirectory()) continue;
+        let st: fs.Stats;
+        try {
+          st = fs.lstatSync(p);
+        } catch {
+          continue; // chybějící artefakt není chyba
+        }
+        if (st.isSymbolicLink() || path.dirname(fs.realpathSync(p)) !== path.join(projects, k)) {
+          failed.push(`${p} (symlink nebo realpath mimo projects/, přeskočeno)`);
+          continue;
+        }
+        fs.rmSync(p, { recursive: true, force: true });
+        removed.push(p);
+      } catch (e) {
+        failed.push(`${p} (${String((e as Error)?.message ?? e).slice(0, 100)})`);
+      }
+    }
+  return { removed, failed };
+}
+
 export class ClaudeCli implements TextAdapter {
   family: ModelFamily = "claude";
   name: string;
@@ -437,7 +503,21 @@ export class ClaudeCli implements TextAdapter {
     // PR 4c: `stream-json` (+ `--verbose`, které CLI pro stream v `-p` vyžaduje), aby TARS viděl `system/api_retry`
     // (doklad třídy limitu i po ukončení tvrdým limitem). Výsledek je poslední událost `result` = stejná obálka jako
     // dřív `--output-format json` (`result`, `is_error`).
-    const args = ["-p", "--model", this.model, "--output-format", "stream-json", "--verbose", "--settings", opts.settings ?? ORCH_CLAUDE_SETTINGS];
+    // ADP-K1-01: bez přepisu sezení a s vlastním ID sezení, aby šla jeho zbylá složka (tool-results) po pokusu smazat.
+    const sessionId = randomUUID();
+    const args = [
+      "-p",
+      "--model",
+      this.model,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--no-session-persistence",
+      "--session-id",
+      sessionId,
+      "--settings",
+      opts.settings ?? ORCH_CLAUDE_SETTINGS,
+    ];
     if (opts.mcpConfig) args.push("--mcp-config", opts.mcpConfig, "--strict-mcp-config");
     if (opts.noBuiltinTools) args.push("--tools", "");
     if (opts.allowedTools?.length) args.push("--allowedTools", opts.allowedTools.join(","));
@@ -450,7 +530,22 @@ export class ClaudeCli implements TextAdapter {
     const version = claudeCliVersion(childEnv());
     const wd = watchdogEnv(version, hardLimitMs);
     const callerEnv = Object.fromEntries(Object.entries(opts.env ?? {}).filter(([k]) => !WATCHDOG_ENV_RE.test(k)));
-    const r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, { ...callerEnv, ...wd.env });
+    const childVars = { ...callerEnv, ...wd.env, ...CLAUDE_DEBUG_ENV_OFF };
+    // Úklid míří do stejného CLAUDE_CONFIG_DIR, jaké dostane dítě (runProcess: childEnv() přepsané extraEnv).
+    const configHome = claudeConfigHome({ ...childEnv(), ...childVars });
+    let r: Awaited<ReturnType<typeof runProcess>>;
+    let cleanupFailure: string | undefined;
+    try {
+      r = await runProcess("claude", args, prompt, opts.cwd, hardLimitMs, childVars);
+    } finally {
+      try {
+        const c = removeClaudeSessionArtifacts(sessionId, configHome);
+        if (c.failed.length) cleanupFailure = c.failed.join("; ").slice(0, 300);
+      } catch (e) {
+        cleanupFailure = String((e as Error)?.message ?? e).slice(0, 200);
+      }
+      if (cleanupFailure) process.stderr.write(`TARS: úklid sezení Claude ${sessionId} selhal (${cleanupFailure})\n`);
+    }
     let text = "";
     let isError = r.code !== 0;
     // FIX1 nález 1: chybová obálka CLI (`is_error: true`) je jediný zdroj času resetu; text modelu ani stderr nejsou.
@@ -476,14 +571,16 @@ export class ClaudeCli implements TextAdapter {
     const warning = limit ? undefined : limitWarning(r.stderr, [prompt, text]);
     if (warning) reportLimitWarning({ source: "claude", text: warning, received_at: r.received_at, model: this.model });
     return {
-      ok: !isError && !r.timedOut && text.trim().length > 0,
+      ok: !isError && !r.timedOut && text.trim().length > 0 && !cleanupFailure,
       text,
       limit,
       error: r.timedOut
         ? "timeout"
         : isError
           ? `exit ${r.code}: ${(text || r.stderr).slice(0, 300)}`
-          : undefined,
+          : cleanupFailure
+            ? `úklid sezení selhal: ${cleanupFailure}`
+            : undefined,
       duration_ms: r.duration_ms,
       // FIX1 nález 2: claude -p nevypisuje na stderr prompt ani průběh modelu; přesto se řádek obsažený v promptu
       // nebo v odpovědi modelu nebere (citace) a varování musí hláškou CLI začínat (limitWarning).
