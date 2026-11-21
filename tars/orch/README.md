@@ -274,7 +274,7 @@ tars/orch/launchd/install.sh wake-gate   # minutová brána wake-gate.sh (etapa 
 ## Etapa 5: pozorovatelnost (`cli.ts health`, jen čtení)
 
 `npx tsx tars/orch/cli.ts health [--json|--compact]` — projekce `audit-health.ts` (P0-a, #103) + `health-live.ts`
-(PR 2a), schéma `tars-audit-health/v3`. Nic nezapisuje, nebere zámek, nesahá na panel ani síť; čte jen soubory, které
+(PR 2a) + `health-go.ts` (PR 2b), schéma `tars-audit-health/v4`. Nic nezapisuje, nebere zámek, nesahá na panel ani síť; čte jen soubory, které
 už zapisují existující části, a `launchctl print` / `kill -0` / `ps` (čtení).
 
 - **Živost (skutečný heartbeat):** nejnovější signál ze všech zdrojů — začátek ticku (guard v `runs/log.jsonl`),
@@ -291,6 +291,10 @@ už zapisují existující části, a `launchctl print` / `kill -0` / `ps` (čte
   nainstalovaná). Doplňuje čítač `manual_interventions` ze `state.json`.
 - **`--compact`:** jeden odstavec (nejvýš 600 znaků) s vlastním časem „stav k“, aby starý text byl poznat jako starý.
   Zatím se nikam nezapisuje (napojení do řádku orchestrátoru v panelu = samostatný PR třídy B).
+- **GO→převzetí (PR 2b):** čte `runs/idle/go-latency.jsonl` (zapisuje `IdleRecorder.goLatency` při převzetí rozhodnutí
+  z panelu). Výstup: poslední změřené převzetí, medián, max, počet. Bez souboru `NOT_INSTRUMENTED`, nečitelný soubor
+  nebo jen záznamy bez času zápisu vlastníka (`latency_ms: null`) `UNKNOWN`. Chybějící data nejsou nikdy 0. Latence je
+  jen informace: nemění `overall`.
 
 ## Konzilium Lite (`konzilium-lite.ts`, místo PR #86)
 

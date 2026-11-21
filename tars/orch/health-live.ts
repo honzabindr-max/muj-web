@@ -194,8 +194,14 @@ export function collectIdle(runsDir: string): IdleSnapshot {
     readable: true,
     at: str(s.at),
     tick_status: str(s.tick_status),
-    idle_reason:
-      s.idle_reason === null ? null : (str(s.idle_reason) ?? undefined),
+    // Missing key = undefined (as before); present but invalid ("" or non-string) = "" (never a known value → UNKNOWN).
+    idle_reason: !("idle_reason" in s)
+      ? undefined
+      : s.idle_reason === null
+        ? null
+        : typeof s.idle_reason === "string"
+          ? s.idle_reason
+          : "",
     detail: str(s.detail),
     pending: Array.isArray(ov.pending_decisions)
       ? ov.pending_decisions.map((x) => {
@@ -543,10 +549,20 @@ export function projectLive(input: unknown, ctx: LiveContext) {
     systemGaps.push("runs/dispatch-mode.json nejde přečíst: režim je neznámý");
   // Readable source, but mode missing or not hold/run (e.g. `{}`): still an unknown system value.
   else if (dispatchMode === "unknown")
-    systemGaps.push("režim dispatche chybí nebo není hold/run: režim je neznámý");
+    systemGaps.push(
+      "režim dispatche chybí nebo není hold/run: režim je neznámý",
+    );
   // Readable idle/status.json whose idle_reason is not a known value must not pass as a healthy state.
   if (idle && idle.readable === true && idleReason === "UNKNOWN")
     systemGaps.push("runs/idle/status.json: neznámý idle_reason");
+  // idle_reason null means "tick worked"; without a valid tick_status it is an unsupported claim.
+  else if (
+    idle &&
+    idle.readable === true &&
+    idleReason === null &&
+    tickStatus === null
+  )
+    systemGaps.push("runs/idle/status.json: idle_reason null bez tick_status");
   if (dispatch !== undefined && dispatch.hold_file === undefined)
     systemGaps.push("existenci runs/HOLD nejde ověřit");
   const blockers: string[] = [];
