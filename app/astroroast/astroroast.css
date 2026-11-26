@@ -22,8 +22,8 @@ body:has(.ar) {
   --ar-line: rgba(255, 246, 233, 0.2);
 
   /* Typografie */
-  --ar-font-display: var(--font-ar-display), "Arial Black", Impact, system-ui, sans-serif;
-  --ar-font-body: var(--font-ar-body), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ar-font-display: "Bricolage Grotesque", "Arial Black", Impact, system-ui, sans-serif;
+  --ar-font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   /* Tvar */
   --ar-radius: 22px;

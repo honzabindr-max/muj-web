@@ -1,24 +1,18 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, DM_Sans } from "next/font/google";
+// Fonty self-hostované přes @fontsource (OFL): build nezávisí na síti (next/font/google padal v CI).
+import "@fontsource/bricolage-grotesque/latin-800.css";
+import "@fontsource/bricolage-grotesque/latin-ext-800.css";
+import "@fontsource/dm-sans/latin-400.css";
+import "@fontsource/dm-sans/latin-ext-400.css";
+import "@fontsource/dm-sans/latin-500.css";
+import "@fontsource/dm-sans/latin-ext-500.css";
+import "@fontsource/dm-sans/latin-700.css";
+import "@fontsource/dm-sans/latin-ext-700.css";
 import { Analytics } from "@vercel/analytics/next";
 import "./astroroast.css";
 import { SiteHeader } from "./_components/SiteHeader";
 import { SiteFooter } from "./_components/SiteFooter";
 import { OG_DEFAULT_IMAGE } from "./_lib/helpers";
-
-const display = Bricolage_Grotesque({
-  subsets: ["latin", "latin-ext"],
-  weight: ["800"],
-  display: "swap",
-  variable: "--font-ar-display",
-});
-
-const body = DM_Sans({
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "700"],
-  display: "swap",
-  variable: "--font-ar-body",
-});
 
 const DESCRIPTION =
   "Vtipný roast podle znamení zvěrokruhu. Zadej datum narození (zůstane ve tvém prohlížeči), vyber pálivost 1 až 5 a hvězdy tě nešetří. Zdarma, bez registrace.";
@@ -64,7 +58,7 @@ export const viewport: Viewport = {
 
 export default function AstroRoastLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`ar ${display.variable} ${body.variable}`}>
+    <div className="ar">
       <a className="ar-skip" href="#obsah">
         Přeskočit na obsah
       </a>
