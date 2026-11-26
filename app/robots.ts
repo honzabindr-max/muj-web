@@ -7,5 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: ['/zlutak', '/sam-byt'],
     },
+    sitemap: ['https://www.good-inventions.work/astroroast/sitemap.xml'],
   };
 }

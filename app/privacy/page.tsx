@@ -38,6 +38,18 @@ export default function PrivacyPage() {
         </div>
 
         <div>
+          <h2 className="font-semibold mb-2">AstroRoast.ai</h2>
+          <p>
+            Datum narození zadané na AstroRoast.ai se zpracuje jen ve tvém
+            prohlížeči a nikam se neodesílá ani neukládá. Ve sdílených odkazech
+            je jen znamení, úroveň, téma a náhodné číslo. Web měří anonymní
+            návštěvnost a kliknutí (cookieless Vercel Web Analytics): adresy
+            stránek včetně sdíleného kódu a názvy akcí, bez data narození a bez
+            osobních údajů.
+          </p>
+        </div>
+
+        <div>
           <h2 className="font-semibold mb-2">Sdílení dat</h2>
           <p>
             Data se nesdílí s třetími stranami s výjimkou zpracovatelů
@@ -79,6 +91,13 @@ export default function PrivacyPage() {
         <p>
           Google Calendar access is used only to create events and read the
           list of calendars on the operator&apos;s own account.
+        </p>
+        <p>
+          AstroRoast.ai: the birth date entered there is processed in your
+          browser only and is never sent or stored. Shared links carry only a
+          sign, level, topic and random number. The site measures anonymous
+          pageviews and clicks (cookieless Vercel Web Analytics), without birth
+          dates or personal data.
         </p>
         <p>
           Data is not shared with third parties except processors required
