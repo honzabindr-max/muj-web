@@ -5,6 +5,9 @@ import { SITE_URL } from "./_lib/helpers";
 /** Datum poslední úpravy statického obsahu (ručně zvyšovat při větší změně textů). */
 const CONTENT_UPDATED = "2026-11-26";
 
+// Denní obsah se mění každý den, sitemap proto nesmí zůstat zmražená z buildu.
+export const revalidate = 3600;
+
 export default function sitemap(): MetadataRoute.Sitemap {
   // Denní stránky (úvod a znamení) se opravdu mění každý den. Ostatní mají stabilní datum poslední úpravy obsahu.
   const now = new Date();
