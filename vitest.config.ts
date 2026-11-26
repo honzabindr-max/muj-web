@@ -13,6 +13,7 @@ export default defineConfig({
       "sam-byt/**/*.test.{ts,tsx}",
       "tars/**/*.test.ts",
       "mezi-vami/**/*.test.ts",
+      "astroroast/**/*.test.ts",
     ],
     globalSetup: ["h2/db/scripts/ensure-test-roles.ts"],
   },
