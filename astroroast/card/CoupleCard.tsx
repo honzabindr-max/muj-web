@@ -25,7 +25,12 @@ function Story({ couple }: { couple: CoupleRoast }) {
   const B = SIGN_NAME[couple.b];
   const title = clamp(couple.title, 80);
   const ts = fit(title.length, [[28, 84], [50, 70]], 58);
-  const scene = couple.scene.slice(0, 6);
+  // Dlouhá scéna (8 replik: úvod, 2× otázka + odpovědi obou, závěr) se na story nevejde.
+  // Nesekat uprostřed dialogu: první kompletní výměna (úvod, otázka, A, B) + závěrečná pointa.
+  const scene =
+    couple.scene.length <= 6
+      ? couple.scene
+      : [...couple.scene.slice(0, 4), couple.scene[couple.scene.length - 1]];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", position: "relative", width: W, height: H, padding: "64px 64px 52px", gap: 20, background: GRAIN_BG, fontFamily: FONT, color: C.cream }}>
