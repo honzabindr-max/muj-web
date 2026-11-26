@@ -1,4 +1,5 @@
 import { H2VoiceDownloadError } from "./errors";
+import { DOWNLOAD_TIMEOUT_MS } from "./timeouts";
 
 /**
  * Telegram voice download (BUILD-06 plán, Rozhodnutí 6): `getFile` +
@@ -9,7 +10,6 @@ import { H2VoiceDownloadError } from "./errors";
  * Telegram `message.voice` je vždy OGG/OPUS (na rozdíl od obecného
  * `audio`/`document`), mimeType je proto pevný.
  */
-const DOWNLOAD_TIMEOUT_MS = 45_000;
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const VOICE_MIME_TYPE = "audio/ogg";
 

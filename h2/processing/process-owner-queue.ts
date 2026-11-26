@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { runCommandGate } from "@/h2/buddy/command-gate";
 import { H2BuddyRuntimeError } from "@/h2/buddy/errors";
 import { generateBuddyResponse, readMessageText } from "@/h2/buddy/generate-response";
+import { H2ConfigError } from "@/h2/config/errors";
 import { H2_MODELS } from "@/h2/config/models";
 import type { EncryptionKeyRegistry } from "@/h2/crypto/keys";
 import type { DeliveryProviderConfig } from "@/h2/delivery/config";
@@ -15,6 +16,10 @@ import { logH2Event } from "@/h2/logging/logger";
 import { CALL_TIMEOUT_MS } from "@/h2/prompts/anthropic-adapter";
 import type { PromptProviderConfig } from "@/h2/prompts/config";
 import { ANTHROPIC_ERROR_RETRYABLE, H2AnthropicCallError } from "@/h2/prompts/errors";
+import { loadVoiceProviderConfig } from "@/h2/voice/config";
+import { H2VoiceDownloadError, H2VoiceTranscriptionError } from "@/h2/voice/errors";
+import { readPendingVoiceHandle, transcribeVoiceJob, type VoiceJobAdapters } from "@/h2/voice/process-voice-job";
+import { VOICE_WORST_CASE_DURATION_MS } from "@/h2/voice/timeouts";
 
 import { H2FencingError } from "./errors";
 import { claimNextJob } from "./lease";
@@ -22,7 +27,12 @@ import type { FencingToken } from "./lease";
 import { withLlmAttempt } from "./llm-attempts";
 import { recordJobFailure } from "./quarantine";
 
-export type ProcessQueueCredentials = PromptProviderConfig & DeliveryProviderConfig;
+/**
+ * `openaiApiKey` je volitelný: TEXT joby ho nepotřebují, takže chybějící
+ * `H2_OPENAI_API_KEY` nesmí shodit zpracování textu. Pro VOICE job se při
+ * absenci dočte líně přes `loadVoiceProviderConfig()` (fail-closed → karanténa).
+ */
+export type ProcessQueueCredentials = PromptProviderConfig & DeliveryProviderConfig & { openaiApiKey?: string };
 
 const BUDDY_RESPONSE_PURPOSE = "BUDDY_RESPONSE";
 
@@ -38,7 +48,10 @@ const BUDDY_RESPONSE_PURPOSE = "BUDDY_RESPONSE";
  * dokončit v rámci zbývajícího function budgetu.
  */
 const DB_OVERHEAD_MS = 5_000;
-export const WORST_CASE_JOB_DURATION_MS = CALL_TIMEOUT_MS * 2 + DELIVERY_CALL_TIMEOUT_MS + DB_OVERHEAD_MS;
+// DC-17: + voice transkripce (Telegram getFile + download + Whisper). Typ jobu
+// se zjistí až po claimu, proto rozpočet počítá s horší (VOICE) variantou.
+export const WORST_CASE_JOB_DURATION_MS =
+  VOICE_WORST_CASE_DURATION_MS + CALL_TIMEOUT_MS * 2 + DELIVERY_CALL_TIMEOUT_MS + DB_OVERHEAD_MS;
 
 /** Rezerva odečtená z route `maxDuration` PŘED výpočtem `deadlineAt` — místo pro ACK response write / after() scheduling overhead. */
 export const DEFAULT_QUEUE_DEADLINE_SAFETY_MARGIN_MS = 5_000;
@@ -77,6 +90,13 @@ function classifyError(error: unknown): { reasonCode: string; retryable: boolean
   if (error instanceof H2BuddyRuntimeError) {
     return { reasonCode: error.code, retryable: false };
   }
+  // DC-17: selhaný přepis hlasovky → rovnou karanténa (neretryovatelné).
+  if (error instanceof H2VoiceDownloadError || error instanceof H2VoiceTranscriptionError) {
+    return { reasonCode: error.code, retryable: false };
+  }
+  if (error instanceof H2ConfigError) {
+    return { reasonCode: "H2_CONFIG_INVALID", retryable: false };
+  }
   return { reasonCode: "UNKNOWN_ERROR", retryable: false };
 }
 
@@ -107,6 +127,34 @@ async function tryExtractOperationalCandidates(
 }
 
 /**
+ * DC-17 — VOICE job, jehož raw_event pořád drží reference handle, se
+ * PŘED extrakcí a Buddy odpovědí přepíše (`transcribeVoiceJob()`, BUILD-06).
+ * Chyby se nepolykají: propadnou do `processOneJob()` catch větve →
+ * `recordJobFailure()` (neretryovatelné → karanténa). Už přepsaný VOICE
+ * (retry po úspěšném přepisu) i TEXT job jsou no-op.
+ */
+async function transcribePendingVoice(
+  pool: Pool,
+  registry: EncryptionKeyRegistry,
+  credentials: ProcessQueueCredentials,
+  token: FencingToken,
+  voiceAdapters: VoiceJobAdapters,
+): Promise<void> {
+  const handle = await readPendingVoiceHandle(pool, registry, token.ownerId, token.rawEventId);
+  if (!handle) {
+    return;
+  }
+  const openaiApiKey = credentials.openaiApiKey ?? loadVoiceProviderConfig().openaiApiKey;
+  await transcribeVoiceJob(
+    pool,
+    registry,
+    token,
+    { telegramBotToken: credentials.telegramBotToken, openaiApiKey },
+    voiceAdapters,
+  );
+}
+
+/**
  * Zpracuje JEDEN claimnutý job — extrakce (best-effort, přeskočena pro
  * control command, stejné pořadí jako §7.1: Command Gate PŘED entity/
  * intent detekcí) → Buddy response (metered přes `withLlmAttempt`,
@@ -126,8 +174,11 @@ async function processOneJob(
   registry: EncryptionKeyRegistry,
   credentials: ProcessQueueCredentials,
   token: FencingToken,
+  voiceAdapters: VoiceJobAdapters,
 ): Promise<void> {
   try {
+    await transcribePendingVoice(pool, registry, credentials, token, voiceAdapters);
+
     const messageText = await readMessageText(pool, registry, token.ownerId, token.rawEventId);
 
     if (!runCommandGate(messageText).isControlCommand) {
@@ -189,6 +240,7 @@ export async function processOwnerQueueBounded(
   credentials: ProcessQueueCredentials,
   ownerId: string,
   deadlineAt: Date,
+  voiceAdapters: VoiceJobAdapters = {},
 ): Promise<ProcessQueueOutcome> {
   let jobsProcessed = 0;
   for (;;) {
@@ -202,7 +254,7 @@ export async function processOwnerQueueBounded(
       return { jobsProcessed, stoppedReason: "QUEUE_EMPTY" };
     }
 
-    await processOneJob(pool, registry, credentials, token);
+    await processOneJob(pool, registry, credentials, token, voiceAdapters);
     jobsProcessed += 1;
   }
 }
