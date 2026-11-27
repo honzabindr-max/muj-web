@@ -1,8 +1,8 @@
-// AstroRoast.ai: ručně psaný katalog hotových vtipů (originální obsah, žádný LLM).
+// AstroRoast.ai: ručně psaný katalog hotových vtipů tohoto modelu (originální obsah, žádný LLM za běhu).
 // Každé znamení má 5 sérií po 2 vtipech. Id: "{sign}-{series}-{n}".
 
-import type { CatalogJoke, SignId } from "../types";
-import { SIGN_IDS } from "../types";
+import type { CatalogJoke, SignId } from "../../types";
+import { buildCatalog } from "../build";
 
 type Series = CatalogJoke["series"];
 
@@ -14,9 +14,7 @@ export const SERIES_LABELS: Record<Series, string> = {
   "one-liner": "Jednohubky",
 };
 
-const SERIES_ORDER: Series[] = ["sejde-se", "dovolena", "zprava", "rika-vs-mysli", "one-liner"];
-
-const RAW: Record<SignId, Record<Series, string[]>> = {
+export const RAW_CATALOG: Record<SignId, Record<Series, string[]>> = {
   beran: {
     "sejde-se": [
       "Sejde se deset Beranů u semaforu. Naskočí zelená, všichni vyrazí a nikdo neví kam. Hlavně že první.",
@@ -294,14 +292,4 @@ const RAW: Record<SignId, Record<Series, string[]>> = {
   },
 };
 
-export const CATALOG: CatalogJoke[] = SIGN_IDS.flatMap((sign) =>
-  SERIES_ORDER.flatMap((series) =>
-    RAW[sign][series].map(
-      (text, i): CatalogJoke => ({ id: `${sign}-${series}-${i + 1}`, sign, series, text }),
-    ),
-  ),
-);
-
-export function catalogFor(sign: SignId, series?: CatalogJoke["series"]): CatalogJoke[] {
-  return CATALOG.filter((j) => j.sign === sign && (series === undefined || j.series === series));
-}
+export const CATALOG: CatalogJoke[] = buildCatalog(RAW_CATALOG as Record<SignId, Record<Series, string[]>>);

@@ -1,12 +1,15 @@
-import { LEVEL_NAMES, type CoupleRoast, type SignInfo } from "@/astroroast/types";
+import type { UiCopy } from "@/astroroast/copy";
+import type { CoupleRoast, SignInfo } from "@/astroroast/types";
 
 interface CoupleCardProps {
   couple: CoupleRoast;
   a: SignInfo;
   b: SignInfo;
+  copy: UiCopy;
 }
 
-export function CoupleCard({ couple, a, b }: CoupleCardProps) {
+export function CoupleCard({ couple, a, b, copy }: CoupleCardProps) {
+  const c = copy.coupleCard;
   return (
     <article className="ar-card ar-couple-card" data-level={couple.level} aria-label={couple.title}>
       <div className="ar-card-top">
@@ -24,7 +27,7 @@ export function CoupleCard({ couple, a, b }: CoupleCardProps) {
       <h2 className="ar-card-headline">{couple.title}</h2>
       <p className="ar-couple-level">
         <span className="ar-sticker ar-sticker-level">
-          LEVEL {couple.level} · {LEVEL_NAMES[couple.level]}
+          {copy.card.levelTag(couple.level, copy.common.levelNames[couple.level])}
         </span>
       </p>
 
@@ -48,24 +51,24 @@ export function CoupleCard({ couple, a, b }: CoupleCardProps) {
           className="ar-compat-ring"
           style={{ ["--p" as string]: `${couple.compatibility}%` }}
           role="img"
-          aria-label={`Kosmická kompatibilita ${couple.compatibility} procent`}
+          aria-label={c.compatAria(couple.compatibility)}
         >
           <b>{couple.compatibility}</b>
           <small>%</small>
         </div>
         <div className="ar-compat-text">
-          <span className="ar-compat-title">Kosmická kompatibilita</span>
-          <span className="ar-compat-note">(vymyšlená, jako většina horoskopů)</span>
+          <span className="ar-compat-title">{c.compatTitle}</span>
+          <span className="ar-compat-note">{c.compatNote}</span>
         </div>
       </div>
 
       <p className="ar-verdict">
-        <span className="ar-verdict-tag">Verdikt hvězd</span>
+        <span className="ar-verdict-tag">{copy.card.verdictTag}</span>
         {couple.verdict}
       </p>
 
       <p className="ar-card-foot">
-        <span>Astro Battle</span>
+        <span>{c.battle}</span>
         <span>AstroRoast.ai</span>
       </p>
     </article>

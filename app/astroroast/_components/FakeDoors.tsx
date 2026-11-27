@@ -3,26 +3,12 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { track } from "@/astroroast/analytics";
+import { useCopy } from "./ModelProvider";
 
+// Texty nabídek jsou v UiCopy.doors.offers, tady jen id a ikona.
 const OFFERS = [
-  {
-    id: "year",
-    emoji: "📜",
-    title: "Rozšířený roast",
-    sub: "Celý rok, 12 kapitol. Každý měsíc nová porce hvězdné hanby.",
-    price: "49 Kč",
-    cta: "Chci celý rok",
-    short: "Celý rok roastů?",
-  },
-  {
-    id: "birthday_pdf",
-    emoji: "🎂",
-    title: "Narozeninové PDF pro kámoše",
-    sub: "Vytištěný roast do rámečku. Dárek, po kterém se bude mluvit (a nebudou to chvály).",
-    price: "149 Kč",
-    cta: "Chci pro kámoše",
-    short: "Narozeninové PDF pro kámoše?",
-  },
+  { id: "year", emoji: "📜" },
+  { id: "birthday_pdf", emoji: "🎂" },
 ] as const;
 
 type Offer = (typeof OFFERS)[number];
@@ -36,6 +22,7 @@ interface FakeDoorsProps {
 }
 
 export function FakeDoors({ placement = "landing", variant = "list" }: FakeDoorsProps) {
+  const c = useCopy().doors;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const toFree = useRef(false);
@@ -66,24 +53,27 @@ export function FakeDoors({ placement = "landing", variant = "list" }: FakeDoors
         <button type="button" className="ar-offer-line" onClick={() => open(OFFERS[0])}>
           <span aria-hidden="true">{OFFERS[0].emoji}</span>
           <span>
-            {OFFERS[0].short} <b>{OFFERS[0].price}</b>
+            {c.offers[OFFERS[0].id].short} <b>{c.offers[OFFERS[0].id].price}</b>
           </span>
           <span aria-hidden="true">→</span>
         </button>
       ) : (
         <ul className="ar-doors-list">
-          {OFFERS.map((o, i) => (
+          {OFFERS.map((o, i) => {
+            const t = c.offers[o.id];
+            return (
             <li key={o.id} className="ar-door" style={{ ["--r" as string]: i === 0 ? "-1.2deg" : "1deg" }}>
               <span className="ar-door-emoji" aria-hidden="true">
                 {o.emoji}
               </span>
-              <h3>{o.title}</h3>
-              <p>{o.sub}</p>
+              <h3>{t.title}</h3>
+              <p>{t.sub}</p>
               <button type="button" className="ar-btn ar-btn-lime" onClick={() => open(o)}>
-                {o.cta} · {o.price}
+                {t.cta} · {t.price}
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
@@ -99,13 +89,13 @@ export function FakeDoors({ placement = "landing", variant = "list" }: FakeDoors
       >
         <div ref={innerRef} className="ar-sheet-in">
           <div className="ar-sheet-grip" aria-hidden="true" />
-          <p className="ar-sticker ar-sticker-level ar-sheet-tag">Pokladna se ještě nenarodila</p>
-          <h2 id={`ar-sheet-title-${placement}`}>Brzy! Zatím zdarma tohle 👇</h2>
+          <p className="ar-sticker ar-sticker-level ar-sheet-tag">{c.sheetTag}</p>
+          <h2 id={`ar-sheet-title-${placement}`}>{c.sheetTitle}</h2>
           <p id={`ar-sheet-desc-${placement}`}>
-            <b>{offer.title}</b> ještě vyrábíme. Tvůj zájem jsme si započítali, čím víc vás klikne, tím dřív to
-            dostane Merkur schváleno.
+            <b>{c.offers[offer.id].title}</b>
+            {c.sheetDescAfter}
           </p>
-          <p>Mezitím je tu pořád to nejlepší: nekonečné roasty zdarma a navíc ten, který pošleš kámošovi.</p>
+          <p>{c.sheetMore}</p>
           <div className="ar-sheet-actions">
             <Link
               href="/astroroast#roast"
@@ -116,10 +106,10 @@ export function FakeDoors({ placement = "landing", variant = "list" }: FakeDoors
                 close();
               }}
             >
-              Roastnout kámoše zdarma <span aria-hidden="true">🎁</span>
+              {c.toFree} <span aria-hidden="true">🎁</span>
             </Link>
             <button type="button" className="ar-btn ar-btn-ghost" onClick={close}>
-              Zavřít
+              {c.close}
             </button>
           </div>
         </div>

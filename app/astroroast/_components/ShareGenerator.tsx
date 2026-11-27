@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { encodeShare, generateRoast } from "@/astroroast/engine";
 import { track } from "@/astroroast/analytics";
-import type { Level, Roast, SignId } from "@/astroroast/types";
+import type { Level, RoastInput, SignId } from "@/astroroast/types";
 import { randomSeed, signOf } from "../_lib/helpers";
 import { SignChooser } from "./SignChooser";
 import { RoastCard } from "./RoastCard";
 import { ShareBar } from "./ShareBar";
 import { FakeDoors } from "./FakeDoors";
+import { useCopy, useModel } from "./ModelProvider";
 
 interface Props {
   /** Znamení ze sdíleného odkazu: předvybrané, příjemce ho může změnit. */
@@ -18,8 +19,9 @@ interface Props {
   source: "share_roast" | "share_couple";
 }
 
+/** Výsledek se drží jako vstup (bez textu), aby se při přepnutí modelu překreslil jeho verzí. */
 interface Result {
-  roast: Roast;
+  input: RoastInput;
   code: string;
 }
 
@@ -28,12 +30,19 @@ interface Result {
  * Úroveň 3, téma Život, cíl „já“. Delší nastavení je na hlavní stránce.
  */
 export function ShareGenerator({ defaultSign, source }: Props) {
+  const { model } = useModel();
+  const copy = useCopy();
+  const c = copy.shareGen;
   const [sign, setSign] = useState<SignId | null>(defaultSign);
   const [level, setLevel] = useState<Level>(3);
   const [result, setResult] = useState<Result | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(false);
   const slotRef = useRef<HTMLDivElement>(null);
   const [fresh, setFresh] = useState(0);
+  const roast = useMemo(
+    () => (result ? generateRoast({ ...result.input, model }) : null),
+    [result, model],
+  );
 
   useEffect(() => {
     if (!fresh) return;
@@ -48,18 +57,18 @@ export function ShareGenerator({ defaultSign, source }: Props) {
 
   function run(nextLevel: Level) {
     if (!sign) {
-      setError("Nejdřív vyber znamení. Hvězdy potřebují vědět, koho roastnout.");
+      setError(true);
       return;
     }
-    setError("");
+    setError(false);
     setLevel(nextLevel);
-    const input = { sign, level: nextLevel, topic: "zivot" as const, target: "self" as const, seed: randomSeed() };
-    setResult({ roast: generateRoast(input), code: encodeShare(input) });
+    const input: RoastInput = { sign, level: nextLevel, topic: "zivot" as const, target: "self" as const, seed: randomSeed() };
+    setResult({ input, code: encodeShare(input) });
     setFresh((n) => n + 1);
     track("generate", { sign, level: nextLevel, topic: "zivot", target: "self", source });
   }
 
-  const resultSign = result ? signOf(result.roast.input.sign) : null;
+  const resultSign = roast ? signOf(roast.input.sign) : null;
 
   return (
     <div className="ar-receiver" data-level={level}>
@@ -68,52 +77,52 @@ export function ShareGenerator({ defaultSign, source }: Props) {
           value={sign}
           onChange={(s) => {
             setSign(s);
-            if (s) setError("");
+            if (s) setError(false);
           }}
-          legend="A jaké je tvoje znamení?"
-          cuspLead="Jsi"
+          legend={c.legend}
+          cuspLead={c.cuspLead}
           defaultMode="pick"
         />
         {error && (
           <p className="ar-error" role="alert">
-            {error}
+            {c.errNoSign}
           </p>
         )}
         <button type="button" className="ar-btn ar-btn-hero" onClick={() => run(3)}>
-          Roastni mě <span aria-hidden="true">🔥</span>
+          {c.btn} <span aria-hidden="true">🔥</span>
         </button>
       </div>
 
       <p className="ar-vh" role="status">
-        {result ? "Roast je hotový." : ""}
+        {result ? c.statusDone : ""}
       </p>
       <div ref={slotRef} className="ar-result-slot">
-        {result && resultSign && (
-          <div key={result.code} className="ar-result" data-level={result.roast.input.level}>
-            <RoastCard roast={result.roast} sign={resultSign} />
-            <ShareBar kind="roast" code={result.code} headline={result.roast.headline} />
+        {result && roast && resultSign && (
+          <div key={result.code} className="ar-result" data-level={roast.input.level}>
+            <RoastCard roast={roast} sign={resultSign} copy={copy} />
+            <ShareBar kind="roast" code={result.code} headline={roast.headline} />
             <FakeDoors variant="inline" placement="share" />
             <div className="ar-again">
               <button
                 type="button"
                 className="ar-btn ar-btn-ghost"
-                onClick={() => run(result.roast.input.level)}
+                onClick={() => run(roast.input.level)}
               >
-                <span aria-hidden="true">🎲</span> Ještě jednou
+                <span aria-hidden="true">🎲</span> {c.again}
               </button>
               <button
                 type="button"
                 className="ar-btn ar-btn-hot"
-                disabled={result.roast.input.level >= 5}
-                onClick={() => run((result.roast.input.level + 1) as Level)}
+                disabled={roast.input.level >= 5}
+                onClick={() => run((roast.input.level + 1) as Level)}
               >
-                {result.roast.input.level >= 5 ? (
+                {roast.input.level >= 5 ? (
                   <>
-                    Víc už nejde <span aria-hidden="true">🔥</span>
+                    {c.maxed} <span aria-hidden="true">🔥</span>
                   </>
                 ) : (
                   <>
-                    Přitlač <span aria-hidden="true">🌶️</span>
+                    {c.push} <span aria-hidden="true">🌶️</span>
                   </>
                 )}
               </button>
@@ -123,7 +132,7 @@ export function ShareGenerator({ defaultSign, source }: Props) {
       </div>
 
       <Link href={`/astroroast?z=${sign ?? defaultSign}#roast`} className="ar-textlink ar-receiver-more">
-        Víc nastavení: pálivost, téma, kámoš →
+        {c.more}
       </Link>
     </div>
   );

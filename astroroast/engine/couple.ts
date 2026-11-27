@@ -1,13 +1,13 @@
-import { SIGN_IDS, type CoupleRoast, type Element, type Level, type SignId } from "../types";
 import {
-  COMPAT_BASE,
-  COUPLE_OUTROS,
-  COUPLE_PAIRS,
-  COUPLE_SITUATIONS,
-  FRAGMENTS,
-  STEJNE_ECHO,
-  type ElementPairKey,
-} from "../content/fragments";
+  DEFAULT_MODEL,
+  SIGN_IDS,
+  type CoupleRoast,
+  type Element,
+  type Level,
+  type ModelId,
+  type SignId,
+} from "../types";
+import { COMPAT_BASE, CONTENT, type ElementPairKey } from "../content";
 import { hashString, mixSeed, mulberry32, pick, pickN, randInt, shuffle } from "./rng";
 import { normalizeSeed } from "./roast";
 import { SIGNS } from "./signs";
@@ -36,7 +36,13 @@ export function capCoupleLevel(level: number): Level {
  * každou situaci (otázku vypráví narrator) zodpoví nejdřív jedno a potom druhé znamení, v druhé situaci
  * v opačném pořadí. Úroveň se ořízne na 3. Kompatibilita je záměrně vymyšlená a závisí na živlech.
  */
-export function generateCouple(a: SignId, b: SignId, level: number, seed: number): CoupleRoast {
+export function generateCouple(
+  a: SignId,
+  b: SignId,
+  level: number,
+  seed: number,
+  model: ModelId = DEFAULT_MODEL,
+): CoupleRoast {
   if (!(SIGN_IDS as readonly string[]).includes(a) || !(SIGN_IDS as readonly string[]).includes(b)) {
     throw new RangeError("Neznámé znamení");
   }
@@ -44,22 +50,23 @@ export function generateCouple(a: SignId, b: SignId, level: number, seed: number
   const sd = normalizeSeed(seed);
   const rng = mulberry32(mixSeed(sd, hashString(`${a}|${b}|${lv}|couple`)));
   const key = pairKey(a, b);
-  const content = COUPLE_PAIRS[key];
-  const fa = FRAGMENTS[a];
-  const fb = FRAGMENTS[b];
+  const mc = CONTENT[model];
+  const content = mc.couplePairs[key];
+  const fa = mc.fragments[a];
+  const fb = mc.fragments[b];
 
   const rounds = randInt(rng, 1, 2); // scéna má 5 nebo 8 replik
   const situations = pickN(
     rng,
-    COUPLE_SITUATIONS.map((_, i) => i),
+    mc.coupleSituations.map((_, i) => i),
     rounds,
   );
 
-  const echoes = a === b ? shuffle(rng, STEJNE_ECHO) : [];
+  const echoes = a === b ? shuffle(rng, mc.stejneEcho) : [];
 
   const scene: CoupleRoast["scene"] = [{ who: "narrator", text: pick(rng, content.intros) }];
   situations.forEach((idx, round) => {
-    scene.push({ who: "narrator", text: COUPLE_SITUATIONS[idx] });
+    scene.push({ who: "narrator", text: mc.coupleSituations[idx] });
     const first = round % 2 === 0 ? "a" : "b";
     const second = first === "a" ? "b" : "a";
     const text = (who: "a" | "b") => (who === "a" ? fa.couple[idx] : fb.couple[idx]);
@@ -67,7 +74,7 @@ export function generateCouple(a: SignId, b: SignId, level: number, seed: number
     // Dvě stejná znamení by odpověděla slovo od slova stejně. Druhý mluvčí proto jen krátce zareaguje.
     scene.push({ who: second, text: a === b ? echoes[round % echoes.length] : text(second) });
   });
-  scene.push({ who: "narrator", text: pick(rng, COUPLE_OUTROS[lv as 1 | 2 | 3]) });
+  scene.push({ who: "narrator", text: pick(rng, mc.coupleOutros[lv as 1 | 2 | 3]) });
 
   const compatibility = Math.max(
     0,
@@ -79,6 +86,7 @@ export function generateCouple(a: SignId, b: SignId, level: number, seed: number
     b,
     level: lv,
     seed: sd,
+    model,
     title: `${SIGNS[a].name} × ${SIGNS[b].name}: ${pick(rng, content.titles)}`,
     scene,
     compatibility,

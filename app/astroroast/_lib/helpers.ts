@@ -59,20 +59,13 @@ export function randomSeed(): number {
   return a[0] & 0x7fffffff;
 }
 
-export const LEVEL_BLURB: Record<Level, string> = {
-  1: "Hvězdy tě jen lehce poplácají po rameni.",
-  2: "Drobný štulec do žeber. Jen aby sis nezvykl/a.",
-  3: "Sarkasmus s ledovým úsměvem.",
-  4: "Bez rukavic. Budeš se smát a trochu i bolet.",
-  5: "Vesmír se nebude omlouvat. Ty se připrav.",
-};
-
-export const TOPIC_LABELS: Record<Topic, { label: string; emoji: string }> = {
-  vztahy: { label: "Vztahy", emoji: "💔" },
-  prace: { label: "Práce", emoji: "💼" },
-  zivot: { label: "Život", emoji: "🌀" },
-  pratele: { label: "Přátelé", emoji: "🫂" },
-  narozeniny: { label: "Narozeniny", emoji: "🎂" },
+/** Ikony témat (texty témat jsou v UiCopy.common.topics). */
+export const TOPIC_EMOJI: Record<Topic, string> = {
+  vztahy: "💔",
+  prace: "💼",
+  zivot: "🌀",
+  pratele: "🫂",
+  narozeniny: "🎂",
 };
 
 export const SITE_URL = "https://www.good-inventions.work";

@@ -1,11 +1,12 @@
 import {
+  DEFAULT_MODEL,
   SIGN_IDS,
   TOPIC_IDS,
   type Level,
   type Roast,
   type RoastInput,
 } from "../types";
-import { FRAGMENTS, FRIEND_KICKERS, KICKERS, TOPIC_STATS } from "../content/fragments";
+import { CONTENT } from "../content";
 import { hashString, mixSeed, mulberry32, pick, pickN, randInt, shuffle } from "./rng";
 
 const MAX_SEED = 0x7fffffff;
@@ -44,7 +45,7 @@ export function normalizeInput(input: RoastInput): RoastInput {
 /**
  * Deterministický roast. Skládá hotové, ručně psané věty (žádné skloňování):
  *   headline = jedna z hlaviček znamení pro danou úroveň
- *   lines    = [core znamení, 2x situace podle tématu, závěrečná věta (u kamaráda přátelská)]
+ *   lines    = [core znamení, 2x situace podle tématu a úrovně (t[téma][úroveň]), závěrečná věta (u kamaráda přátelská)]
  *   stats    = 1 statistika podle tématu + 1-2 podle znamení
  *   verdict  = jedna z hlášek znamení pro danou úroveň
  * Kamarád: úroveň se ořízne na 3, v `input` se vrací už ořezaná.
@@ -52,21 +53,21 @@ export function normalizeInput(input: RoastInput): RoastInput {
 export function generateRoast(rawInput: RoastInput): Roast {
   const input = normalizeInput(rawInput);
   const { sign, level, topic, target, seed } = input;
-  const frag = FRAGMENTS[sign];
+  const content = CONTENT[rawInput.model ?? DEFAULT_MODEL];
+  const frag = content.fragments[sign];
   const rng = mulberry32(mixSeed(seed, hashString(`${sign}|${level}|${topic}|${target}`)));
 
   const headline = pick(rng, frag.headlines[level]);
   const core = pick(rng, frag.core[level]);
-  const band = level <= 3 ? frag.topic[topic].soft : frag.topic[topic].hot;
-  const [topicA, topicB] = pickN(rng, band, 2);
+  const [topicA, topicB] = pickN(rng, frag.topic[topic][level], 2);
   const kicker =
     target === "friend"
-      ? pick(rng, FRIEND_KICKERS[level as 1 | 2 | 3])
-      : pick(rng, KICKERS[topic][level - 1]);
+      ? pick(rng, content.friendKickers[level as 1 | 2 | 3])
+      : pick(rng, content.kickers[topic][level - 1]);
   const lines = [core, topicA, topicB, kicker];
 
   const signStats = pickN(rng, frag.stats, randInt(rng, 1, 2));
-  const stats = shuffle(rng, [pick(rng, TOPIC_STATS[topic]), ...signStats]).map((s) => ({
+  const stats = shuffle(rng, [pick(rng, content.topicStats[topic]), ...signStats]).map((s) => ({
     label: s.label,
     value: s.value,
   }));

@@ -1,25 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { generateCouple } from "@/astroroast/engine";
 import { track } from "@/astroroast/analytics";
-import type { CoupleRoast, Level, SignId } from "@/astroroast/types";
+import type { Level, SignId } from "@/astroroast/types";
 import { isSignId, randomSeed, signOf } from "../_lib/helpers";
 import { coupleCode } from "../_lib/couple";
 import { SignChooser } from "./SignChooser";
 import { SpiceMeter } from "./SpiceMeter";
 import { CoupleCard } from "./CoupleCard";
 import { ShareBar } from "./ShareBar";
+import { useCopy, useModel } from "./ModelProvider";
 
-const LOADING_LINES = [
-  "Svolávám kosmickou manželskou poradnu…",
-  "Venuše a Mars si vyměňují pohledy…",
-  "Počítám, kdo komu naposledy nepřipustil pravdu…",
-  "Rozdávám obě strany rovným dílem…",
-];
-
+/** Výsledek se drží jako vstup (bez textu), aby se při přepnutí modelu překreslil jeho verzí. */
 interface Result {
-  couple: CoupleRoast;
+  a: SignId;
+  b: SignId;
+  level: Level;
+  seed: number;
   code: string;
 }
 
@@ -38,14 +36,21 @@ function usePresetA(): SignId | null {
 
 export function CoupleGenerator() {
   const presetA = usePresetA();
+  const { model } = useModel();
+  const copy = useCopy();
+  const c = copy.coupleGen;
   const [pickedA, setA] = useState<SignId | null | undefined>(undefined);
   const a = pickedA !== undefined ? pickedA : presetA;
   const [b, setB] = useState<SignId | null>(null);
   const [level, setLevel] = useState<Level>(3);
   const [phase, setPhase] = useState<"idle" | "loading" | "done">("idle");
-  const [line, setLine] = useState(LOADING_LINES[0]);
+  const [lineIdx, setLineIdx] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(false);
+  const couple = useMemo(
+    () => (result ? generateCouple(result.a, result.b, result.level, result.seed, model) : null),
+    [result, model],
+  );
   const slotRef = useRef<HTMLDivElement>(null);
   const timers = useRef<{ tick?: ReturnType<typeof setInterval>; done?: ReturnType<typeof setTimeout> }>({});
 
@@ -66,39 +71,40 @@ export function CoupleGenerator() {
 
   function run(nextLevel?: Level) {
     if (!a || !b) {
-      setError("Potřebujeme oba. Hvězdy nerady vedou souboj s jedním účastníkem.");
+      setError(true);
       return;
     }
-    setError("");
+    setError(false);
     const lvl = (nextLevel ?? level) as Level;
     setLevel(lvl);
     const seed = randomSeed();
     if (timers.current.tick) clearInterval(timers.current.tick);
     if (timers.current.done) clearTimeout(timers.current.done);
-    let i = Math.floor(Math.random() * LOADING_LINES.length);
-    setLine(LOADING_LINES[i]);
+    const lineCount = c.loadingLines.length;
+    let i = Math.floor(Math.random() * lineCount);
+    setLineIdx(i);
     setPhase("loading");
     timers.current.tick = setInterval(() => {
-      i = (i + 1) % LOADING_LINES.length;
-      setLine(LOADING_LINES[i]);
+      i = (i + 1) % lineCount;
+      setLineIdx(i);
     }, 280);
     timers.current.done = setTimeout(() => {
       if (timers.current.tick) clearInterval(timers.current.tick);
-      const couple = generateCouple(a, b, lvl, seed);
-      setResult({ couple, code: coupleCode({ a, b, level: lvl, seed }) });
+      const capped = generateCouple(a, b, lvl, seed, model).level;
+      setResult({ a, b, level: capped, seed, code: coupleCode({ a, b, level: lvl, seed }) });
       setPhase("done");
       track("couple_generate", { a, b, level: lvl });
     }, 900);
   }
 
-  const ra = result ? signOf(result.couple.a) : null;
-  const rb = result ? signOf(result.couple.b) : null;
+  const ra = couple ? signOf(couple.a) : null;
+  const rb = couple ? signOf(couple.b) : null;
 
   return (
     <section id="duel" className="ar-gen ar-gen-couple" data-level={level} aria-labelledby="ar-couple-title">
       <div className="ar-gen-panel">
         <h2 id="ar-couple-title" className="ar-gen-title">
-          <span className="ar-step">1</span> Dvě znamení, jeden souboj
+          <span className="ar-step">1</span> {c.step1}
         </h2>
         <div className="ar-couple-choosers">
           <SignChooser
@@ -106,8 +112,8 @@ export function CoupleGenerator() {
             value={a}
             defaultMode={presetA ? "pick" : "date"}
             onChange={setA}
-            legend="Ty (datum nebo znamení)"
-            cuspLead="Jsi"
+            legend={c.legendA}
+            cuspLead={c.cuspA}
             tone="pink"
           />
           <div className="ar-vs" aria-hidden="true">
@@ -116,31 +122,31 @@ export function CoupleGenerator() {
           <SignChooser
             value={b}
             onChange={setB}
-            legend="Tvůj protějšek"
-            cuspLead="Je to"
+            legend={c.legendB}
+            cuspLead={c.cuspB}
             tone="lime"
           />
         </div>
 
         <h2 className="ar-gen-title ar-gen-title-2">
-          <span className="ar-step">2</span> Pálivost (u párů max. 3)
+          <span className="ar-step">2</span> {c.step2}
         </h2>
         <div className="ar-gen-block">
-          <SpiceMeter value={level} max={3} onChange={setLevel} label="Pálivost" />
-          <p className="ar-note">Na oba padne stejně. Spravedlnost je to nejpálivější, co hvězdy mají.</p>
+          <SpiceMeter value={level} max={3} onChange={setLevel} label={c.meterLabel} />
+          <p className="ar-note">{c.fairNote}</p>
         </div>
 
         {error && (
           <p className="ar-error" role="alert">
-            {error}
+            {c.errBoth}
           </p>
         )}
 
         <button type="button" className="ar-btn ar-btn-hero" onClick={() => run()} disabled={phase === "loading"}>
-          {phase === "loading" ? "Hvězdy se radí…" : "Roastni nás oba"}{" "}
+          {phase === "loading" ? c.btnLoading : c.btn}{" "}
           <span aria-hidden="true">{phase === "loading" ? "🔮" : "⚔️"}</span>
         </button>
-        <p className="ar-hint ar-hint-center">Datum narození zůstává v prohlížeči. Sdílí se jen znamení.</p>
+        <p className="ar-hint ar-hint-center">{c.hint}</p>
       </div>
 
       <div ref={slotRef} className="ar-result-slot" aria-live="polite">
@@ -149,16 +155,16 @@ export function CoupleGenerator() {
             <span className="ar-orb" aria-hidden="true">
               🔮
             </span>
-            <p>{line}</p>
+            <p>{c.loadingLines[lineIdx % c.loadingLines.length]}</p>
           </div>
         )}
-        {phase === "done" && result && ra && rb && (
-          <div key={result.code} className="ar-result" data-level={result.couple.level}>
-            <CoupleCard couple={result.couple} a={ra} b={rb} />
-            <ShareBar kind="couple" code={result.code} headline={result.couple.title} />
+        {phase === "done" && result && couple && ra && rb && (
+          <div key={result.code} className="ar-result" data-level={couple.level}>
+            <CoupleCard couple={couple} a={ra} b={rb} copy={copy} />
+            <ShareBar kind="couple" code={result.code} headline={couple.title} />
             <div className="ar-again">
               <button type="button" className="ar-btn ar-btn-ghost" onClick={() => run()}>
-                <span aria-hidden="true">🎲</span> Ještě jedna hádka
+                <span aria-hidden="true">🎲</span> {c.again}
               </button>
               <button
                 type="button"
@@ -166,7 +172,7 @@ export function CoupleGenerator() {
                 disabled={level >= 3}
                 onClick={() => run((level + 1) as Level)}
               >
-                {level >= 3 ? "U párů víc nejde" : "Zvyš pálivost"} <span aria-hidden="true">🌶️</span>
+                {level >= 3 ? c.maxed : c.raise} <span aria-hidden="true">🌶️</span>
               </button>
             </div>
           </div>

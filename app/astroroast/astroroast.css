@@ -1180,3 +1180,101 @@ body:has(.ar) {
 @media (min-width: 1100px) and (prefers-reduced-motion: reduce) {
   .ar-hero-aside { position: static; }
 }
+
+/* ======================================================================================
+   INTERNAL MODEL TOGGLE (Claude/Codex text comparison). Temporary.
+   To remove: delete this whole block together with ModelToggle.tsx, ModelProvider.tsx and T.tsx
+   (see "How to remove the model toggle" in docs/astroroast/SPEC.md).
+   ====================================================================================== */
+
+/* Server-rendered text exists in both variants; the inactive one is hidden. */
+.ar:not([data-model="codex"]) [data-m="codex"],
+.ar[data-model="codex"] [data-m="claude"] {
+  display: none !important;
+}
+/* Layout-neutral wrapper used by <T> when no element is given. */
+.ar [data-m][data-ct] {
+  display: contents;
+}
+
+/* In-page anchors that sit before a duplicated section (a duplicated id would hit the hidden copy). */
+.ar-anchor {
+  display: block;
+  height: 0;
+}
+html:has(.ar-modelbar) {
+  scroll-padding-top: 56px;
+}
+
+/* Compact sticky strip: "interní · Texty píše: [Claude | Codex]". 44px tall, so tap targets stay >= 44px. */
+.ar-modelbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: 44px;
+  background: rgba(11, 4, 32, 0.86);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px dashed var(--ar-line);
+}
+.ar-modelbar-in {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--ar-muted);
+}
+.ar-modelbar-tag {
+  padding: 1px 7px;
+  border: 1px dashed var(--ar-lime);
+  border-radius: 999px;
+  color: var(--ar-lime);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ar-modelseg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--ar-line);
+  border-radius: 999px;
+}
+.ar-modelseg-btn {
+  position: relative;
+  min-width: 64px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ar-cream);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* Invisible extension of the hit area to 44px tall. */
+.ar-modelseg-btn::before {
+  content: "";
+  position: absolute;
+  inset: -7px 0;
+}
+.ar-modelseg-btn[aria-pressed="true"] {
+  background: var(--ar-lime);
+  color: var(--ar-ink);
+}
+.ar-modelseg-btn:focus-visible {
+  outline: 3px solid var(--ar-lime);
+  outline-offset: 2px;
+}
+@media (max-width: 420px) {
+  .ar-modelbar-label {
+    display: none;
+  }
+}
+/* ====== END INTERNAL MODEL TOGGLE ====== */

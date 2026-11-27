@@ -4,11 +4,7 @@ import { useId, useState } from "react";
 import { SIGN_LIST, resolveSign } from "@/astroroast/engine";
 import type { SignId, SignResolution } from "@/astroroast/types";
 import { formatRange, signOf } from "../_lib/helpers";
-
-const MONTHS = [
-  "Leden", "Únor", "Březen", "Duben", "Květen", "Červen",
-  "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec",
-];
+import { useCopy } from "./ModelProvider";
 
 // Počet dní v měsíci. Únor bereme jako přestupný (29), rok nezjišťujeme.
 const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -36,6 +32,7 @@ export function SignChooser({
   tone = "pink",
 }: SignChooserProps) {
   const uid = useId();
+  const c = useCopy().chooser;
   const [mode, setMode] = useState<"date" | "pick">(defaultMode);
   const [day, setDay] = useState("");
   const [month, setMonth] = useState("");
@@ -90,14 +87,14 @@ export function SignChooser({
     <fieldset className="ar-chooser" data-tone={tone}>
       <legend className="ar-label">{legend}</legend>
 
-      <div className="ar-seg ar-seg-sm" role="group" aria-label="Způsob zadání">
+      <div className="ar-seg ar-seg-sm" role="group" aria-label={c.modeAria}>
         <button
           type="button"
           aria-pressed={mode === "date"}
           className="ar-seg-btn"
           onClick={() => switchMode("date")}
         >
-          <span aria-hidden="true">📅</span> Datum narození
+          <span aria-hidden="true">📅</span> {c.modeDate}
         </button>
         <button
           type="button"
@@ -105,7 +102,7 @@ export function SignChooser({
           className="ar-seg-btn"
           onClick={() => switchMode("pick")}
         >
-          <span aria-hidden="true">✨</span> Vyberu znamení
+          <span aria-hidden="true">✨</span> {c.modePick}
         </button>
       </div>
 
@@ -113,7 +110,7 @@ export function SignChooser({
         <div className="ar-date">
           <div className="ar-date-row">
             <label className="ar-field" htmlFor={`${uid}-d`}>
-              <span>Den</span>
+              <span>{c.day}</span>
               <select
                 id={`${uid}-d`}
                 className="ar-select"
@@ -130,7 +127,7 @@ export function SignChooser({
               </select>
             </label>
             <label className="ar-field ar-field-wide" htmlFor={`${uid}-m`}>
-              <span>Měsíc</span>
+              <span>{c.month}</span>
               <select
                 id={`${uid}-m`}
                 className="ar-select"
@@ -139,7 +136,7 @@ export function SignChooser({
                 onChange={(e) => handleDate(day, e.target.value)}
               >
                 <option value="">–</option>
-                {MONTHS.map((name, i) => (
+                {c.months.map((name, i) => (
                   <option key={name} value={i + 1}>
                     {name}
                   </option>
@@ -147,10 +144,10 @@ export function SignChooser({
               </select>
             </label>
           </div>
-          <p className="ar-hint">🔒 Rok nepotřebujeme. Datum zůstává ve tvém prohlížeči.</p>
+          <p className="ar-hint">{c.dateHint}</p>
         </div>
       ) : (
-        <div className="ar-signgrid" role="radiogroup" aria-label="Znamení zvěrokruhu">
+        <div className="ar-signgrid" role="radiogroup" aria-label={c.signsAria}>
           {SIGN_LIST.map((s) => (
             <button
               key={s.id}
@@ -173,10 +170,10 @@ export function SignChooser({
       )}
 
       {mode === "date" && cuspPair && (
-        <div className="ar-cusp" role="group" aria-label="Hraniční datum">
+        <div className="ar-cusp" role="group" aria-label={c.cuspAria}>
           <p className="ar-cusp-q">
-            <span aria-hidden="true">⚖️</span> Datum je na hraně dvou znamení. {cuspLead} spíš{" "}
-            <b>{signOf(cuspPair[0]).name}</b>, nebo <b>{signOf(cuspPair[1]).name}</b>?
+            <span aria-hidden="true">⚖️</span> {c.cuspPre(cuspLead)}{" "}
+            <b>{signOf(cuspPair[0]).name}</b>{c.cuspOr}<b>{signOf(cuspPair[1]).name}</b>?
           </p>
           <div className="ar-cusp-btns">
             {cuspPair.map((id) => (

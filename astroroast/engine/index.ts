@@ -1,4 +1,4 @@
-export { SIGNS, SIGN_LIST, signBySlug } from "./signs";
+export { SIGNS, SIGN_LIST, signBySlug, signText } from "./signs";
 export { resolveSign } from "./resolve";
 export { mulberry32, hashString, mixSeed, pick, pickN, shuffle, randInt } from "./rng";
 export type { Rng } from "./rng";
