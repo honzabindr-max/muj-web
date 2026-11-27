@@ -62,6 +62,13 @@ function extract(file) {
 
 const show = (s) => s.replace(/ /g, "⍽");
 
+const SENTINEL = "xqzvkontrolnislovo";
+
+function fail(reason, detail) {
+  console.error(`cspell selhal (${reason}), pravopis nebyl zkontrolován:\n${detail ?? ""}`);
+  process.exit(2);
+}
+
 function spelling(strings) {
   let raw = "";
   try {
@@ -69,12 +76,18 @@ function spelling(strings) {
       "npx",
       ["--no-install", "cspell", "lint", "--no-progress", "--no-summary", "--unique", "--words-only",
         "-c", join(ROOT, "astroroast/cspell.json"), "--language-id", "plaintext", "stdin"],
-      { cwd: ROOT, encoding: "utf8", input: strings.map((s) => s.text).join("\n"), stdio: ["pipe", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 },
+      { cwd: ROOT, encoding: "utf8", input: [...strings.map((s) => s.text), SENTINEL].join("\n"), stdio: ["pipe", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 },
     );
   } catch (e) {
-    raw = e.stdout ?? ""; // cspell končí kódem 1, když najde chyby
+    // Kód 1 vrací cspell při nálezech, ale i při chybě konfigurace. Rozliší je až kontrolní slovo níže.
+    if (e.status !== 1) fail(`exit ${e.status ?? e.code}`, e.stderr ?? e.message);
+    raw = e.stdout ?? "";
+    if (/error/i.test(e.stderr ?? "")) fail("chyba v stderr", e.stderr);
   }
-  return [...new Set(raw.split("\n").map((w) => w.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "cs"));
+  const words = [...new Set(raw.split("\n").map((w) => w.trim()).filter(Boolean))];
+  // Kontrolní slovo musí cspell vždy nahlásit. Když chybí, kontrola pravopisu reálně neproběhla.
+  if (!words.includes(SENTINEL)) fail("kontrolní slovo nebylo nahlášeno", raw);
+  return words.filter((w) => w !== SENTINEL).sort((a, b) => a.localeCompare(b, "cs"));
 }
 
 let total = 0;
