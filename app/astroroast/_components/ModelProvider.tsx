@@ -4,7 +4,8 @@
 // Provides the active text model to client components and owns the `.ar` root element (data-model attribute).
 // With MODEL_TOGGLE_ENABLED = false the model is always "claude" and nothing is persisted or read.
 
-import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { COPY, MODEL_TOGGLE_ENABLED, type UiCopy } from "@/astroroast/copy";
 import { DEFAULT_MODEL, MODEL_IDS, type ModelId } from "@/astroroast/types";
 
@@ -48,8 +49,10 @@ const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
+  if (listeners.size === 1) window.addEventListener("popstate", syncFromUrl);
   return () => {
     listeners.delete(listener);
+    if (listeners.size === 0) window.removeEventListener("popstate", syncFromUrl);
   };
 }
 function getSnapshot(): ModelId {
@@ -66,6 +69,16 @@ function setStored(m: ModelId) {
   listeners.forEach((l) => l());
 }
 
+/** ?m= v aktuální URL má přednost i po klientské navigaci (Zpět, odkaz s ?m=). */
+function syncFromUrl() {
+  try {
+    const q = new URLSearchParams(window.location.search).get("m");
+    if (isModel(q)) setStored(q);
+  } catch {
+    // ignorováno
+  }
+}
+
 interface ModelContextValue {
   model: ModelId;
   setModel: (m: ModelId) => void;
@@ -79,6 +92,10 @@ const EARLY_SCRIPT = `try{var m=new URLSearchParams(location.search).get("m");if
 export function ModelProvider({ children }: { children: ReactNode }) {
   const stored = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const model: ModelId = MODEL_TOGGLE_ENABLED ? stored : DEFAULT_MODEL;
+  const pathname = usePathname();
+  useEffect(() => {
+    if (MODEL_TOGGLE_ENABLED) syncFromUrl();
+  }, [pathname]);
   const value = useMemo<ModelContextValue>(
     () => ({ model, setModel: MODEL_TOGGLE_ENABLED ? setStored : () => {} }),
     [model],
