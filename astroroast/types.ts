@@ -9,6 +9,21 @@ export type SignId = (typeof SIGN_IDS)[number];
 
 export type Element = "ohen" | "zeme" | "vzduch" | "voda";
 
+/** Which language model wrote the texts. Internal comparison tool: see MODEL_TOGGLE_ENABLED in copy/index.ts. */
+export const MODEL_IDS = ["claude", "codex"] as const;
+export type ModelId = (typeof MODEL_IDS)[number];
+export const DEFAULT_MODEL: ModelId = "claude";
+export const MODEL_LABELS: Record<ModelId, string> = { claude: "Claude", codex: "Codex" };
+
+/** Per-sign texts that differ per model (content/<model>/signinfo.ts). */
+export interface SignText {
+  /** One-line comedic tagline for the sign page / card */
+  tagline: string;
+  /** 3–5 stereotype traits used as humor motifs */
+  motifs: string[];
+}
+
+/** Model-independent sign data. The texts (tagline, motifs) come from signText(sign, model). */
 export interface SignInfo {
   id: SignId;
   /** Czech name, nominative: "Vodnář" */
@@ -21,10 +36,6 @@ export interface SignInfo {
   /** Inclusive date range, "MM-DD" */
   from: string;
   to: string;
-  /** One-line comedic tagline for the sign page / card */
-  tagline: string;
-  /** 3–5 stereotype traits used as humor motifs */
-  motifs: string[];
 }
 
 /** 1 Pohlazení · 2 Šťouchnutí · 3 Sarkasmus · 4 Roast · 5 Kosmická poprava */
@@ -56,6 +67,8 @@ export interface RoastInput {
   target: Target;
   /** Deterministic variety. Same input + seed = same roast. 0..2^31-1 */
   seed: number;
+  /** Which model's texts to use. Default "claude". Never encoded into share codes. */
+  model?: ModelId;
 }
 
 export interface Roast {
@@ -82,6 +95,7 @@ export interface CoupleRoast {
   scene: { who: "a" | "b" | "narrator"; text: string }[];
   compatibility: number; // 0–100 "kosmická kompatibilita" (obviously fake)
   verdict: string;
+  model?: ModelId;
 }
 
 export interface CatalogJoke {
@@ -93,9 +107,10 @@ export interface CatalogJoke {
 
 // Engine API (implemented in astroroast/engine/*):
 //   resolveSign(month: number, day: number): SignResolution
-//   generateRoast(input: RoastInput): Roast
-//   generateCouple(a: SignId, b: SignId, level: Level, seed: number): CoupleRoast
-//   dailyRoast(sign: SignId, isoDate: string): string
+//   generateRoast(input: RoastInput): Roast               (input.model ?? "claude")
+//   generateCouple(a, b, level, seed, model = "claude"): CoupleRoast
+//   dailyRoast(sign, isoDate, model = "claude"): string
+//   signText(sign, model): SignText
 //   encodeShare(input: RoastInput): string  // short url-safe code, NO birth date
 //   decodeShare(code: string): RoastInput | null
 //   encodeCouple / decodeCouple: same for couples

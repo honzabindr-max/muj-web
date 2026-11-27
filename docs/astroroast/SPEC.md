@@ -74,3 +74,20 @@ Content library (`astroroast/content/`): `catalog.ts` (CatalogJoke[], ≥ 8 per 
 
 ## Out of scope for MVP
 Payments, accounts, LLM generation, email capture, i18n, audio/video.
+
+## Text models (internal comparison tool)
+Every user-facing text exists in two variants: `claude` and `codex` (Codex rewrites its copy later). A sticky strip
+"interní · Texty píše: [Claude | Codex]" switches them instantly. The choice is `?m=claude|codex` (wins), then
+`localStorage["ar-model"]`, else Claude. Share codes (v1), `/r`, `/p`, OG and karta stay Claude-only. No analytics event.
+- Content: `astroroast/content/<model>/{signs/<sign>.ts, shared.ts, catalog.ts, signinfo.ts}`, assembled in
+  `astroroast/content/index.ts` (`CONTENT[model]`). Topics are per level: `t: Record<Topic, Five<string[]>>`.
+- UI copy: `astroroast/copy/{types,claude,codex,index}.ts` (`COPY[model]`, typed by `UiCopy`).
+- Engine: `generateRoast(input)` reads `input.model`, `generateCouple(a,b,level,seed,model)`, `dailyRoast(sign,iso,model)`, `signText(sign,model)`.
+
+### How to remove the model toggle
+1. Quick off: set `MODEL_TOGGLE_ENABLED = false` in `astroroast/copy/index.ts`. No toggle is rendered, the model is always
+   `claude`, `<T>` renders only the claude variant (no hidden codex HTML).
+2. Full removal: delete `app/astroroast/_components/{ModelProvider,ModelToggle,T}.tsx` and the block between
+   "INTERNAL MODEL TOGGLE" and "END INTERNAL MODEL TOGGLE" at the end of `astroroast.css`; make the layout render
+   `<div className="ar">` instead of `<ModelProvider>` and replace `useCopy()`/`<T>` with `COPY.claude`; delete
+   `astroroast/content/codex/` and `astroroast/copy/codex.ts`, drop the `model` parameters.

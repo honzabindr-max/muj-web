@@ -7,6 +7,7 @@ import { cardPath, signOf } from "../../_lib/helpers";
 import { RoastCard } from "../../_components/RoastCard";
 import { ShareBar } from "../../_components/ShareBar";
 import { ShareGenerator } from "../../_components/ShareGenerator";
+import { T } from "../../_components/T";
 
 type Props = { params: Promise<{ code: string }> };
 
@@ -50,25 +51,47 @@ export default async function SharedRoastPage({ params }: Props) {
   return (
     <section className="ar-hero ar-shared">
       <div className="ar-wrap ar-narrow">
-        <p className="ar-badge">
-          <span aria-hidden="true">{sign.emoji}</span> Někdo ti poslal roast
-        </p>
-        <h1 className="ar-h1 ar-h1-sm">
-          Hvězdy roastnuly znamení <span className="ar-h1-hot">{sign.name}.</span>
-        </h1>
+        <T as="p" className="ar-badge">
+          {(c) => (
+            <>
+              <span aria-hidden="true">{sign.emoji}</span> {c.sharedRoast.badge}
+            </>
+          )}
+        </T>
+        <T as="h1" className="ar-h1 ar-h1-sm">
+          {(c) => (
+            <>
+              {c.sharedRoast.h1Before}
+              <span className="ar-h1-hot">{sign.name}.</span>
+            </>
+          )}
+        </T>
 
         <div className="ar-result" data-level={input.level}>
-          <RoastCard roast={roast} sign={sign} />
+          {/* Sdílený roast je psaný Claudem (kód model nenese). Mění se jen text karty. */}
+          <T>{(c) => <RoastCard roast={roast} sign={sign} copy={c} />}</T>
           <ShareBar kind="roast" code={code} headline={roast.headline} target={input.target} />
         </div>
 
         <div className="ar-bigcta">
-          <p className="ar-bigcta-lead">A teď to zkus na sebe <span aria-hidden="true">🔥</span></p>
-          <p className="ar-sub">Dobrý, co? Teď přijde ta těžší část. Vyber znamení a hvězdy ti odpoví hned tady.</p>
+          <T as="p" className="ar-bigcta-lead">
+            {(c) => (
+              <>
+                {c.sharedRoast.bigCtaLead} <span aria-hidden="true">🔥</span>
+              </>
+            )}
+          </T>
+          <T as="p" className="ar-sub">
+            {(c) => c.sharedRoast.bigCtaSub}
+          </T>
           <ShareGenerator defaultSign={sign.id} source="share_roast" />
-          <Link href={`/astroroast/znameni/${sign.id}`} className="ar-textlink">
-            Víc vtipů o znamení {sign.name} →
-          </Link>
+          <T>
+            {(c) => (
+              <Link href={`/astroroast/znameni/${sign.id}`} className="ar-textlink">
+                {c.sharedRoast.moreLink(sign.name)}
+              </Link>
+            )}
+          </T>
         </div>
       </div>
     </section>

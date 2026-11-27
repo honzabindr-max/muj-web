@@ -9,6 +9,7 @@ import { CoupleCard } from "../../_components/CoupleCard";
 import { ShareBar } from "../../_components/ShareBar";
 import { ShareGenerator } from "../../_components/ShareGenerator";
 import { CrossSell } from "../../_components/CrossSell";
+import { T } from "../../_components/T";
 
 type Props = { params: Promise<{ code: string }> };
 
@@ -52,24 +53,42 @@ export default async function SharedCouplePage({ params }: Props) {
   return (
     <section className="ar-hero ar-shared">
       <div className="ar-wrap ar-narrow">
-        <p className="ar-badge">
-          <span aria-hidden="true">⚔️</span> Astro Battle
-        </p>
-        <h1 className="ar-h1 ar-h1-sm">
-          <span className="ar-h1-hot">{a.name}</span> × <span className="ar-h1-hot ar-h1-lime">{b.name}</span>: hvězdy rozhodly
-        </h1>
+        <T as="p" className="ar-badge">
+          {(c) => (
+            <>
+              <span aria-hidden="true">⚔️</span> {c.sharedCouple.badge}
+            </>
+          )}
+        </T>
+        <T as="h1" className="ar-h1 ar-h1-sm">
+          {(c) => (
+            <>
+              <span className="ar-h1-hot">{a.name}</span> × <span className="ar-h1-hot ar-h1-lime">{b.name}</span>
+              {c.sharedCouple.h1After}
+            </>
+          )}
+        </T>
 
         <div className="ar-result" data-level={couple.level}>
-          <CoupleCard couple={couple} a={a} b={b} />
+          {/* Sdílený souboj je psaný Claudem (kód model nenese). Mění se jen text karty. */}
+          <T>{(c) => <CoupleCard couple={couple} a={a} b={b} copy={c} />}</T>
           <ShareBar kind="couple" code={code} headline={couple.title} />
         </div>
 
         <div className="ar-bigcta">
-          <p className="ar-bigcta-lead">A co vy dva? Hvězdy mají ještě munici.</p>
-          <Link href="/astroroast/par" className="ar-btn ar-btn-hero">
-            Zkus to na vás dva <span aria-hidden="true">⚔️</span>
-          </Link>
-          <p className="ar-sub">Nebo si nech roastnout jen sebe, rovnou tady:</p>
+          <T as="p" className="ar-bigcta-lead">
+            {(c) => c.sharedCouple.bigCtaLead}
+          </T>
+          <T>
+            {(c) => (
+              <Link href="/astroroast/par" className="ar-btn ar-btn-hero">
+                {c.sharedCouple.bigCtaBtn} <span aria-hidden="true">⚔️</span>
+              </Link>
+            )}
+          </T>
+          <T as="p" className="ar-sub">
+            {(c) => c.sharedCouple.bigCtaSub}
+          </T>
           <ShareGenerator defaultSign={a.id} source="share_couple" />
         </div>
 

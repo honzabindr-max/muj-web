@@ -1,23 +1,26 @@
-import { LEVEL_NAMES, type Roast, type SignInfo } from "@/astroroast/types";
-import { TOPIC_LABELS } from "../_lib/helpers";
+import type { UiCopy } from "@/astroroast/copy";
+import type { Roast, SignInfo } from "@/astroroast/types";
 
 interface RoastCardProps {
   roast: Roast;
   sign: SignInfo;
+  /** Texty UI (server: z <T>, klient: useCopy()). */
+  copy: UiCopy;
 }
 
 /** Hlavní „tabloidní“ karta výsledku. Čistě prezentační, použitelná na serveru i klientu. */
-export function RoastCard({ roast, sign }: RoastCardProps) {
+export function RoastCard({ roast, sign, copy }: RoastCardProps) {
   const { level, target, topic } = roast.input;
+  const c = copy.card;
   const doom = level === 5;
   return (
-    <article className="ar-card" data-level={level} aria-label={`Roast: ${sign.name}`}>
+    <article className="ar-card" data-level={level} aria-label={c.ariaLabel(sign.name)}>
       <div className="ar-card-top">
         <span className="ar-sticker ar-sticker-sign">
           <span aria-hidden="true">{sign.glyph}</span> {sign.name}
         </span>
         <span className="ar-sticker ar-sticker-level">
-          {doom ? "KOSMICKÁ POPRAVA" : `LEVEL ${level} · ${LEVEL_NAMES[level]}`}
+          {doom ? copy.common.doom : c.levelTag(level, copy.common.levelNames[level])}
         </span>
       </div>
 
@@ -44,26 +47,26 @@ export function RoastCard({ roast, sign }: RoastCardProps) {
 
       <div className="ar-burn">
         <div className="ar-burn-head">
-          <span>Index spálení</span>
+          <span>{c.burnLabel}</span>
           <b>{roast.burn} %</b>
         </div>
         <div
           className="ar-burn-bar"
           role="img"
-          aria-label={`Index spálení ${roast.burn} procent`}
+          aria-label={c.burnAria(roast.burn)}
         >
           <span style={{ width: `${Math.max(4, Math.min(100, roast.burn))}%` }} />
         </div>
       </div>
 
       <p className="ar-verdict">
-        <span className="ar-verdict-tag">Verdikt hvězd</span>
+        <span className="ar-verdict-tag">{c.verdictTag}</span>
         {roast.verdict}
       </p>
 
       <p className="ar-card-foot">
         <span>
-          {target === "friend" ? "Roast na kámoše" : "Roast na mě"} · {TOPIC_LABELS[topic].label}
+          {target === "friend" ? c.footFriend : c.footSelf} · {copy.common.topics[topic]}
         </span>
         <span>AstroRoast.ai</span>
       </p>

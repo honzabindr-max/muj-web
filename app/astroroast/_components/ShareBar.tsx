@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { track } from "@/astroroast/analytics";
 import { CARD_VERSION } from "@/astroroast/card/version";
+import { useCopy } from "./ModelProvider";
 
 const ORIGIN = "https://www.good-inventions.work";
 
@@ -36,6 +37,7 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export function ShareBar({ kind, code, headline, target = "self" }: Props) {
+  const c = useCopy().shareBar;
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,10 +54,10 @@ export function ShareBar({ kind, code, headline, target = "self" }: Props) {
   const url = `${ORIGIN}/astroroast/${path}/${encodeURIComponent(code)}`;
   const text =
     kind === "couple"
-      ? `„${headline}“ — hvězdy nás právě roastnuly 🌶️ Zkus to na vás dva:`
+      ? c.textCouple(headline)
       : target === "friend"
-        ? `„${headline}“ — tohle hvězdy napsaly o tobě 🌶️ Zkus to na sebe a pošli to dál:`
-        : `„${headline}“ — hvězdy mě právě roastnuly 🌶️ Zkus to na sebe:`;
+        ? c.textFriend(headline)
+        : c.textSelf(headline);
   const cardUrl = `/astroroast/api/karta?c=${encodeURIComponent(code)}&k=${kind}&f=story&v=${CARD_VERSION}`;
   const fileName = `astroroast-${code}.png`;
 
@@ -71,18 +73,18 @@ export function ShareBar({ kind, code, headline, target = "self" }: Props) {
     }
     if (await copyText(`${text} ${url}`)) {
       track("share", { kind, channel: "copy" });
-      say("Zkopírováno ✓");
+      say(c.toastCopied);
     } else {
-      say("Sdílení se nepovedlo");
+      say(c.toastShareFail);
     }
   }
 
   async function onCopy() {
     if (await copyText(url)) {
       track("share", { kind, channel: "link" });
-      say("Zkopírováno ✓");
+      say(c.toastCopied);
     } else {
-      say("Kopírování se nepovedlo");
+      say(c.toastCopyFail);
     }
   }
 
@@ -114,9 +116,9 @@ export function ShareBar({ kind, code, headline, target = "self" }: Props) {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(href), 4000);
       track("download", { kind, channel: "png" });
-      say("Karta stažena ✓");
+      say(c.toastDownloaded);
     } catch {
-      say("Kartu se nepodařilo stáhnout");
+      say(c.toastDownloadFail);
     } finally {
       setBusy(false);
     }
@@ -126,17 +128,17 @@ export function ShareBar({ kind, code, headline, target = "self" }: Props) {
   const xHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
 
   return (
-    <div className="ar-share" role="group" aria-label="Sdílení">
+    <div className="ar-share" role="group" aria-label={c.groupAria}>
       <style>{CSS}</style>
       <div className="ar-share__row">
         <button type="button" className="ar-share__btn ar-share__btn--main" onClick={onShare}>
-          Sdílet
+          {c.share}
         </button>
         <button type="button" className="ar-share__btn" onClick={onCopy}>
-          Kopírovat odkaz
+          {c.copyLink}
         </button>
         <button type="button" className="ar-share__btn ar-share__btn--lime" onClick={onDownload} disabled={busy} aria-busy={busy}>
-          {busy ? "Kreslím…" : "Stáhnout kartu"}
+          {busy ? c.drawing : c.download}
         </button>
       </div>
       <div className="ar-share__row ar-share__row--quick">

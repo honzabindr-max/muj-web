@@ -6,13 +6,13 @@ import { track } from "@/astroroast/analytics";
 import {
   TOPIC_IDS,
   type Level,
-  type Roast,
+  type RoastInput,
   type SignId,
   type Target,
   type Topic,
 } from "@/astroroast/types";
 import {
-  TOPIC_LABELS,
+  TOPIC_EMOJI,
   clampLevel,
   isSignId,
   isTopic,
@@ -25,18 +25,11 @@ import { SpiceMeter } from "./SpiceMeter";
 import { RoastCard } from "./RoastCard";
 import { ShareBar } from "./ShareBar";
 import { FakeDoors } from "./FakeDoors";
+import { useCopy, useModel } from "./ModelProvider";
 
-const LOADING_LINES = [
-  "Konzultuji Saturn…",
-  "Merkur je zase retrográdní. Je to tvoje vina…",
-  "Ptám se Měsíce, jestli ti to můžu říct…",
-  "Vesmír si brousí jazyk…",
-  "Sčítám tvoje kosmické prohřešky…",
-  "Venuše se ušklíbla. Dobré znamení (pro mě)…",
-];
-
+/** Výsledek se drží jako vstup (bez textu), aby se při přepnutí modelu překreslil jeho verzí. */
 interface Result {
-  roast: Roast;
+  input: RoastInput;
   code: string;
 }
 
@@ -62,6 +55,9 @@ function useUrlPreset(): { sign: SignId | null; topic: Topic | null } {
 
 export function Generator() {
   const preset = useUrlPreset();
+  const { model } = useModel();
+  const copy = useCopy();
+  const c = copy.generator;
 
   const [target, setTarget] = useState<Target>("self");
   // undefined = zatím nic nevybráno ručně, platí předvolba z URL
@@ -71,9 +67,9 @@ export function Generator() {
   const sign = pickedSign !== undefined ? pickedSign : preset.sign;
   const topic: Topic = pickedTopic ?? preset.topic ?? "zivot";
   const [phase, setPhase] = useState<"idle" | "loading" | "done">("idle");
-  const [loadingLine, setLoadingLine] = useState(LOADING_LINES[0]);
+  const [loadingIdx, setLoadingIdx] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [lockNudge, setLockNudge] = useState(false);
 
@@ -107,32 +103,37 @@ export function Generator() {
 
   const max = maxLevelFor(target);
   const effectiveLevel = clampLevel(level, target);
+  const roast = useMemo(
+    () => (result ? generateRoast({ ...result.input, model }) : null),
+    [result, model],
+  );
 
   const run = (nextLevel: Level) => {
       if (!sign) {
-        setError("Nejdřív vyber znamení. Hvězdy nejsou věštci, ale potřebují vědět, koho roastnout.");
+        setError(true);
         chooserRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
       }
-      setError("");
+      setError(false);
       const lvl = clampLevel(nextLevel, target);
       setLevel(lvl);
-      const input = { sign, level: lvl, topic, target, seed: randomSeed() };
+      const input: RoastInput = { sign, level: lvl, topic, target, seed: randomSeed() };
+      const lineCount = c.loadingLines.length;
 
       if (timers.current.tick) clearInterval(timers.current.tick);
       if (timers.current.done) clearTimeout(timers.current.done);
 
-      let i = Math.floor(Math.random() * LOADING_LINES.length);
-      setLoadingLine(LOADING_LINES[i]);
+      let i = Math.floor(Math.random() * lineCount);
+      setLoadingIdx(i);
       setPhase("loading");
       timers.current.tick = setInterval(() => {
-        i = (i + 1) % LOADING_LINES.length;
-        setLoadingLine(LOADING_LINES[i]);
+        i = (i + 1) % lineCount;
+        setLoadingIdx(i);
       }, 280);
       timers.current.done = setTimeout(() => {
         if (timers.current.tick) clearInterval(timers.current.tick);
-        const roast = generateRoast(input);
-        setResult({ roast, code: encodeShare(input) });
+        const normalized = generateRoast({ ...input, model }).input;
+        setResult({ input: normalized, code: encodeShare(normalized) });
         setPhase("done");
         if (lvl === 5) setShaking(true);
         track("generate", { sign, level: lvl, topic, target, source: "landing" });
@@ -151,10 +152,10 @@ export function Generator() {
     if (next === 5) setShaking(true);
   }
 
-  const resultSign = result ? signOf(result.roast.input.sign) : null;
+  const resultSign = roast ? signOf(roast.input.sign) : null;
   // Přitlačit jde podle aktuálně zvoleného cíle (run() ořezává úroveň podle něj), ne podle cíle starého výsledku.
-  const canPush = result ? result.roast.input.level < maxLevelFor(target) : false;
-  const friendLockedAtMax = target === "friend" && (result?.roast.input.level ?? 0) >= 3;
+  const canPush = roast ? roast.input.level < maxLevelFor(target) : false;
+  const friendLockedAtMax = target === "friend" && (roast?.input.level ?? 0) >= 3;
 
   return (
     <section
@@ -168,13 +169,13 @@ export function Generator() {
     >
       <div className="ar-gen-panel">
         <h2 id="ar-gen-title" className="ar-vh">
-          Generátor roastů
+          {c.panelTitle}
         </h2>
         <h3 className="ar-gen-title">
-          <span className="ar-step">1</span> Kdo půjde na gril?
+          <span className="ar-step">1</span> {c.step1}
         </h3>
 
-        <div className="ar-seg" role="radiogroup" aria-label="Koho roastnout">
+        <div className="ar-seg" role="radiogroup" aria-label={c.targetAria}>
           <button
             type="button"
             role="radio"
@@ -182,7 +183,7 @@ export function Generator() {
             className="ar-seg-btn"
             onClick={() => changeTarget("self")}
           >
-            <span aria-hidden="true">🙋</span> Mě
+            <span aria-hidden="true">🙋</span> {c.targetSelf}
           </button>
           <button
             type="button"
@@ -191,12 +192,12 @@ export function Generator() {
             className="ar-seg-btn"
             onClick={() => changeTarget("friend")}
           >
-            <span aria-hidden="true">😈</span> Kámoše
+            <span aria-hidden="true">😈</span> {c.targetFriend}
           </button>
         </div>
         {target === "friend" && (
           <p className="ar-note" role="note">
-            U kamaráda max. Sarkasmus. Kosmickou popravu si musí odkliknout sám.
+            {c.friendNote}
           </p>
         )}
 
@@ -206,16 +207,16 @@ export function Generator() {
             value={sign}
             onChange={(s) => {
               setPickedSign(s);
-              if (s) setError("");
+              if (s) setError(false);
             }}
-            legend={target === "friend" ? "Kdy se narodil kámoš?" : "Kdy ses narodil/a?"}
-            cuspLead={target === "friend" ? "Je kámoš" : "Jsi"}
+            legend={target === "friend" ? c.legendFriend : c.legendSelf}
+            cuspLead={target === "friend" ? c.cuspLeadFriend : c.cuspLeadSelf}
             defaultMode={preset.sign ? "pick" : "date"}
           />
         </div>
 
         <h3 className="ar-gen-title ar-gen-title-2">
-          <span className="ar-step">2</span> Kolik pálivosti snesete?
+          <span className="ar-step">2</span> {c.step2}
         </h3>
         <div className="ar-gen-block">
           <SpiceMeter
@@ -226,15 +227,15 @@ export function Generator() {
           />
           {lockNudge && (
             <p className="ar-note" role="status">
-              🔒 Na kámoše jen do úrovně 3. Vyšší pálivost si musí zapnout on sám.
+              {c.lockNudge}
             </p>
           )}
         </div>
 
         <h3 className="ar-gen-title ar-gen-title-2">
-          <span className="ar-step">3</span> Do čeho se hvězdy zakousnou?
+          <span className="ar-step">3</span> {c.step3}
         </h3>
-        <div className="ar-chips" role="radiogroup" aria-label="Téma">
+        <div className="ar-chips" role="radiogroup" aria-label={c.topicsAria}>
           {TOPIC_IDS.map((t) => (
             <button
               key={t}
@@ -244,14 +245,14 @@ export function Generator() {
               className="ar-chip"
               onClick={() => setPickedTopic(t)}
             >
-              <span aria-hidden="true">{TOPIC_LABELS[t].emoji}</span> {TOPIC_LABELS[t].label}
+              <span aria-hidden="true">{TOPIC_EMOJI[t]}</span> {copy.common.topics[t]}
             </button>
           ))}
         </div>
 
         {error && (
           <p className="ar-error" role="alert">
-            {error}
+            {c.errNoSign}
           </p>
         )}
 
@@ -261,18 +262,14 @@ export function Generator() {
           onClick={() => run(effectiveLevel)}
           disabled={phase === "loading"}
         >
-          {phase === "loading"
-            ? "Hvězdy se soustředí…"
-            : target === "friend"
-              ? "Roastni kámoše"
-              : "Roastni mě"}{" "}
+          {phase === "loading" ? c.btnLoading : target === "friend" ? c.btnFriend : c.btnSelf}{" "}
           <span aria-hidden="true">{phase === "loading" ? "🔮" : "🔥"}</span>
         </button>
-        <p className="ar-hint ar-hint-center">Zdarma. Bez registrace. Bez ukládání data narození.</p>
+        <p className="ar-hint ar-hint-center">{c.hint}</p>
       </div>
 
       <p className="ar-vh" role="status">
-        {phase === "loading" ? "Hvězdy se soustředí." : phase === "done" ? "Roast je hotový." : ""}
+        {phase === "loading" ? c.statusLoading : phase === "done" ? c.statusDone : ""}
       </p>
 
       <div ref={resultRef} className="ar-result-slot">
@@ -281,41 +278,41 @@ export function Generator() {
             <span className="ar-orb" aria-hidden="true">
               🔮
             </span>
-            <p>{loadingLine}</p>
+            <p>{c.loadingLines[loadingIdx % c.loadingLines.length]}</p>
           </div>
         )}
 
-        {phase === "done" && result && resultSign && (
-          <div key={result.code} className="ar-result" data-level={result.roast.input.level}>
-            <RoastCard roast={result.roast} sign={resultSign} />
+        {phase === "done" && result && roast && resultSign && (
+          <div key={result.code} className="ar-result" data-level={roast.input.level}>
+            <RoastCard roast={roast} sign={resultSign} copy={copy} />
 
             <ShareBar
               kind="roast"
               code={result.code}
-              headline={result.roast.headline}
-              target={result.roast.input.target}
+              headline={roast.headline}
+              target={roast.input.target}
             />
             <FakeDoors variant="inline" placement="result" />
 
             <div className="ar-again">
-              <button type="button" className="ar-btn ar-btn-ghost" onClick={() => run(result.roast.input.level)}>
-                <span aria-hidden="true">🎲</span> Ještě jednou
+              <button type="button" className="ar-btn ar-btn-ghost" onClick={() => run(roast.input.level)}>
+                <span aria-hidden="true">🎲</span> {c.again}
               </button>
               <button
                 type="button"
                 className="ar-btn ar-btn-hot"
                 disabled={!canPush}
-                onClick={() => run((result.roast.input.level + 1) as Level)}
+                onClick={() => run((roast.input.level + 1) as Level)}
               >
                 {canPush ? (
                   <>
-                    Přitlač <span aria-hidden="true">🌶️</span>
+                    {c.push} <span aria-hidden="true">🌶️</span>
                   </>
                 ) : friendLockedAtMax ? (
-                  "U kámoše už víc nejde"
+                  c.friendMax
                 ) : (
                   <>
-                    Víc už nejde <span aria-hidden="true">🔥</span>
+                    {c.maxed} <span aria-hidden="true">🔥</span>
                   </>
                 )}
               </button>

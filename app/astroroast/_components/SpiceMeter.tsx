@@ -1,8 +1,8 @@
 "use client";
 
 import { useId, useRef, type KeyboardEvent } from "react";
-import { LEVEL_NAMES, type Level } from "@/astroroast/types";
-import { LEVEL_BLURB } from "../_lib/helpers";
+import type { Level } from "@/astroroast/types";
+import { useCopy } from "./ModelProvider";
 
 const LEVELS: Level[] = [1, 2, 3, 4, 5];
 
@@ -16,7 +16,10 @@ interface SpiceMeterProps {
   label?: string;
 }
 
-export function SpiceMeter({ value, max = 5, onChange, onBlocked, label = "Pálivost" }: SpiceMeterProps) {
+export function SpiceMeter({ value, max = 5, onChange, onBlocked, label }: SpiceMeterProps) {
+  const copy = useCopy();
+  const names = copy.common.levelNames;
+  const shownLabel = label ?? copy.spice.label;
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const labelId = useId();
 
@@ -54,10 +57,10 @@ export function SpiceMeter({ value, max = 5, onChange, onBlocked, label = "Páli
     <div className="ar-spice" data-level={value}>
       <div className="ar-spice-head">
         <span className="ar-label" id={labelId}>
-          {label}
+          {shownLabel}
         </span>
         <span className="ar-spice-readout" aria-live="polite">
-          <b>{value}/5</b> {LEVEL_NAMES[value]}
+          <b>{value}/5</b> {names[value]}
         </span>
       </div>
       <div
@@ -79,7 +82,7 @@ export function SpiceMeter({ value, max = 5, onChange, onBlocked, label = "Páli
               role="radio"
               aria-checked={value === n}
               aria-disabled={locked || undefined}
-              aria-label={`${n} z 5: ${LEVEL_NAMES[n]}${locked ? " (zamčeno)" : ""}`}
+              aria-label={copy.spice.levelAria(n, names[n], locked)}
               tabIndex={value === n ? 0 : -1}
               className={`ar-chili${lit ? " is-lit" : ""}${locked ? " is-locked" : ""}`}
               data-n={n}
@@ -101,10 +104,10 @@ export function SpiceMeter({ value, max = 5, onChange, onBlocked, label = "Páli
           );
         })}
       </div>
-      <p className="ar-spice-blurb">{LEVEL_BLURB[value]}</p>
+      <p className="ar-spice-blurb">{copy.common.levelBlurb[value]}</p>
       {value === 5 && (
         <p className="ar-spice-doom" aria-hidden="true">
-          <span>🔥</span> KOSMICKÁ POPRAVA <span>🔥</span>
+          <span>🔥</span> {copy.common.doom} <span>🔥</span>
         </p>
       )}
     </div>

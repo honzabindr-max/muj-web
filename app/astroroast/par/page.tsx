@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CoupleGenerator } from "../_components/CoupleGenerator";
 import { CrossSell } from "../_components/CrossSell";
 import { OG_DEFAULT_IMAGE } from "../_lib/helpers";
+import { T } from "../_components/T";
 
 export const metadata: Metadata = {
   title: "Astro Battle: roast pro dva",
@@ -27,16 +28,24 @@ export default function CouplePage() {
     <>
       <section className="ar-hero">
         <div className="ar-wrap">
-          <p className="ar-badge ar-badge-lime">
-            <span aria-hidden="true">⚔️</span> Astro Battle
-          </p>
-          <h1 className="ar-h1">
-            Dvě znamení. <span className="ar-h1-hot">Jedna hádka.</span>
-          </h1>
-          <p className="ar-lead">
-            Zadej sebe a toho druhého (partner, kámoš, kolega, soused s vrtačkou). Hvězdy napíšou scénu,
-            ve které oba dostanou úplně stejně.
-          </p>
+          <T as="p" className="ar-badge ar-badge-lime">
+            {(c) => (
+              <>
+                <span aria-hidden="true">⚔️</span> {c.couplePage.badge}
+              </>
+            )}
+          </T>
+          <T as="h1" className="ar-h1">
+            {(c) => (
+              <>
+                {c.couplePage.h1Before}
+                <span className="ar-h1-hot">{c.couplePage.h1Hot}</span>
+              </>
+            )}
+          </T>
+          <T as="p" className="ar-lead">
+            {(c) => c.couplePage.lead}
+          </T>
           <CoupleGenerator />
         </div>
       </section>

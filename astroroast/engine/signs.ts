@@ -1,4 +1,5 @@
-import { SIGN_IDS, type SignId, type SignInfo } from "../types";
+import { DEFAULT_MODEL, SIGN_IDS, type ModelId, type SignId, type SignInfo, type SignText } from "../types";
+import { CONTENT } from "../content";
 
 // Tropická data (inkluzivní, "MM-DD"). Hranice se každý rok liší o den, proto resolveSign hlásí cusp.
 export const SIGNS: Record<SignId, SignInfo> = {
@@ -11,14 +12,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "ohen",
     from: "03-21",
     to: "04-19",
-    tagline: "Nejdřív skočí, pak se zeptá, jestli tam byla voda.",
-    motifs: [
-      "nedokončené projekty",
-      "netrpělivost",
-      "soutěživost",
-      "první a nejhlasitější",
-      "vztek na pomalé lidi",
-    ],
   },
   byk: {
     id: "byk",
@@ -29,14 +22,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "zeme",
     from: "04-20",
     to: "05-20",
-    tagline: "Nehne se. A ani se nehodlá omlouvat.",
-    motifs: [
-      "gauč jako životní filozofie",
-      "jídlo",
-      "tvrdohlavost",
-      "rutina",
-      "odpor ke změnám",
-    ],
   },
   blizenci: {
     id: "blizenci",
@@ -47,14 +32,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "vzduch",
     from: "05-21",
     to: "06-20",
-    tagline: "Dvě osobnosti, jedna rozdělaná věta.",
-    motifs: [
-      "dvě osobnosti",
-      "otevřené záložky",
-      "nedokončené věty",
-      "zvědavost",
-      "měnící se názory",
-    ],
   },
   rak: {
     id: "rak",
@@ -65,14 +42,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "voda",
     from: "06-21",
     to: "07-22",
-    tagline: "Skořápka s pocity a velkým archivem nostalgie.",
-    motifs: [
-      "skořápka",
-      "nálady jako příliv",
-      "domácí polévka",
-      "dlouhá paměť na drobnosti",
-      "pasivní agrese",
-    ],
   },
   lev: {
     id: "lev",
@@ -83,14 +52,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "ohen",
     from: "07-23",
     to: "08-22",
-    tagline: "Svět je jeho jeviště. Publikum ještě není na místě? Počká.",
-    motifs: [
-      "potřeba publika",
-      "selfie",
-      "drama",
-      "velkorysost",
-      "ego s vlastní oběžnou dráhou",
-    ],
   },
   panna: {
     id: "panna",
@@ -101,14 +62,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "zeme",
     from: "08-23",
     to: "09-22",
-    tagline: "Má seznam. A seznam seznamů.",
-    motifs: [
-      "seznamy",
-      "perfekcionismus",
-      "barevné záložky",
-      "oprava cizích překlepů",
-      "dokonalý pořádek",
-    ],
   },
   vahy: {
     id: "vahy",
@@ -119,14 +72,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "vzduch",
     from: "09-23",
     to: "10-22",
-    tagline: "Rozhodnou se hned. Za tři týdny. Možná.",
-    motifs: [
-      "nerozhodnost",
-      "estetika",
-      "vyhýbání se konfliktům",
-      "diplomacie",
-      "„je mi to jedno“",
-    ],
   },
   stir: {
     id: "stir",
@@ -137,14 +82,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "voda",
     from: "10-23",
     to: "11-21",
-    tagline: "Nic neříká. Všechno si pamatuje.",
-    motifs: [
-      "intenzita",
-      "tajemství",
-      "dlouhý pohled",
-      "paměť na křivdy",
-      "pomalá pomsta",
-    ],
   },
   strelec: {
     id: "strelec",
@@ -155,14 +92,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "ohen",
     from: "11-22",
     to: "12-21",
-    tagline: "Upřímnost bez brzd a letenka bez návratu.",
-    motifs: [
-      "cestování",
-      "upřímnost bez filtru",
-      "strach ze závazků",
-      "optimismus",
-      "vlastní časové pásmo",
-    ],
   },
   kozoroh: {
     id: "kozoroh",
@@ -173,14 +102,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "zeme",
     from: "12-22",
     to: "01-19",
-    tagline: "Dovolená je pro něj položka v kalendáři mezi dvěma schůzkami.",
-    motifs: [
-      "kariéra",
-      "pětiletý plán",
-      "suchý humor",
-      "schůzky",
-      "zapomenutá dovolená",
-    ],
   },
   vodnar: {
     id: "vodnar",
@@ -191,14 +112,6 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "vzduch",
     from: "01-20",
     to: "02-18",
-    tagline: "Je jiný než všichni ostatní. Jako všichni ostatní Vodnáři.",
-    motifs: [
-      "revoluční nápady",
-      "být jiný",
-      "citová odtažitost",
-      "nezávislost",
-      "nedokončené revoluce",
-    ],
   },
   ryby: {
     id: "ryby",
@@ -209,16 +122,13 @@ export const SIGNS: Record<SignId, SignInfo> = {
     element: "voda",
     from: "02-19",
     to: "03-20",
-    tagline: "Žije v oblacích. Wi-Fi tam nechytá, a to je záměr.",
-    motifs: [
-      "snění",
-      "ztracené věci",
-      "soucit",
-      "zpoždění „za chvilku“",
-      "pláč u reklamy",
-    ],
   },
 };
+
+/** Texty znamení (tagline, motivy) podle modelu. Jména, glyfy a data jsou model-nezávislé v SIGNS. */
+export function signText(sign: SignId, model: ModelId = DEFAULT_MODEL): SignText {
+  return CONTENT[model].signText[sign];
+}
 
 /** Znamení v pořadí zvěrokruhu (Beran první). */
 export const SIGN_LIST: SignInfo[] = SIGN_IDS.map((id) => SIGNS[id]);

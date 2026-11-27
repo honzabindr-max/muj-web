@@ -12,6 +12,9 @@ import { Analytics } from "@vercel/analytics/next";
 import "./astroroast.css";
 import { SiteHeader } from "./_components/SiteHeader";
 import { SiteFooter } from "./_components/SiteFooter";
+import { ModelProvider } from "./_components/ModelProvider";
+import { ModelToggle } from "./_components/ModelToggle";
+import { T } from "./_components/T";
 import { OG_DEFAULT_IMAGE } from "./_lib/helpers";
 
 const DESCRIPTION =
@@ -58,17 +61,22 @@ export const viewport: Viewport = {
 
 export default function AstroRoastLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="ar">
-      <a className="ar-skip" href="#obsah">
-        Přeskočit na obsah
-      </a>
+    <ModelProvider>
+      <T>
+        {(c) => (
+          <a className="ar-skip" href="#obsah">
+            {c.common.skipToContent}
+          </a>
+        )}
+      </T>
       <div className="ar-sky" aria-hidden="true" />
+      <ModelToggle />
       <SiteHeader />
       <main id="obsah" className="ar-main">
         {children}
       </main>
       <SiteFooter />
       <Analytics />
-    </div>
+    </ModelProvider>
   );
 }

@@ -1,11 +1,11 @@
-import { SIGN_IDS, type SignId } from "../types";
-import { FRAGMENTS } from "../content/fragments";
+import { DEFAULT_MODEL, SIGN_IDS, type ModelId, type SignId } from "../types";
+import { CONTENT } from "../content";
 import { hashString } from "./rng";
 
-/** Pool denních jednovětek znamení: 12 psaných na míru + hlavičky úrovní 2-3. Pálivé hlášky (4-5) do denního roastu nepatří. */
-export function dailyPool(sign: SignId): string[] {
-  const f = FRAGMENTS[sign];
-  return [...f.daily, ...f.headlines[2], ...f.headlines[3]];
+/** Pool denních jednovětek znamení: jen řádky psané přímo na "dnes" (d), žádné hlavičky úrovní. */
+export function dailyPool(sign: SignId, model: ModelId = DEFAULT_MODEL): string[] {
+  const f = CONTENT[model].fragments[sign];
+  return [...f.daily];
 }
 
 function gcd(a: number, b: number): number {
@@ -30,9 +30,9 @@ function dayNumber(isoDate: string): number {
  * kde krok je nesoudělný s N, takže se hláška neopakuje dřív než za N dní a po sobě jdoucí dny
  * jsou od sebe tematicky daleko. Stejné vstupy = stejný výstup (server i klient ukážou totéž).
  */
-export function dailyRoast(sign: SignId, isoDate: string): string {
+export function dailyRoast(sign: SignId, isoDate: string, model: ModelId = DEFAULT_MODEL): string {
   if (!(SIGN_IDS as readonly string[]).includes(sign)) throw new RangeError("Neznámé znamení");
-  const pool = dailyPool(sign);
+  const pool = dailyPool(sign, model);
   const n = pool.length;
   const day = dayNumber(isoDate);
   const stride = [7, 11, 13, 17, 19, 23, 29].find((s) => gcd(s, n) === 1) ?? 1;
