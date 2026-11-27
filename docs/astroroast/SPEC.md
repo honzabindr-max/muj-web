@@ -76,13 +76,24 @@ Content library (`astroroast/content/`): `catalog.ts` (CatalogJoke[], ≥ 8 per 
 Payments, accounts, LLM generation, email capture, i18n, audio/video.
 
 ## Text models (internal comparison tool)
-Every user-facing text exists in two variants: `claude` and `codex` (Codex rewrites its copy later). A sticky strip
-"interní · Texty píše: [Claude | Codex]" switches them instantly. The choice is `?m=claude|codex` (wins), then
-`localStorage["ar-model"]`, else Claude. Share codes (v1), `/r`, `/p`, OG and karta stay Claude-only. No analytics event.
+Every user-facing text exists in three variants. The id stays stable (used by `?m=` and `localStorage`); the label says who
+really wrote it (`MODEL_LABELS` in `astroroast/types.ts`, verified from agent transcripts and `codex exec` headers):
+
+| id | Label | Who wrote it |
+|---|---|---|
+| `claude` | Sonnet 5.5 · high + medium | `claude-sonnet-5-5`: UI copy and catalog at effort high (MVP), roasts after the humor expansion at effort medium. No writing skills. |
+| `codex` | GPT-6.1-sol · xhigh | Codex CLI 0.166.0, `gpt-6.1-sol`, reasoning effort xhigh. |
+| `skills` | Sonnet 5.5 · high + skills | `claude-sonnet-5-5` effort high, rewriting the claude draft with the skills `cesky-humor`, `humanizer-czech` (konverzační), `anti-slop-writing`, `copywriting` 2.3.6. |
+
+A sticky strip "interní · Texty píše: [...]" switches them instantly. The choice is `?m=claude|codex|skills` (wins), then
+`localStorage["ar-model"]`, else `claude`. Share codes (v1), `/r`, `/p`, OG and karta stay claude-only. No analytics event.
 - Content: `astroroast/content/<model>/{signs/<sign>.ts, shared.ts, catalog.ts, signinfo.ts}`, assembled in
   `astroroast/content/index.ts` (`CONTENT[model]`). Topics are per level: `t: Record<Topic, Five<string[]>>`.
-- UI copy: `astroroast/copy/{types,claude,codex,index}.ts` (`COPY[model]`, typed by `UiCopy`).
+- UI copy: `astroroast/copy/{types,claude,codex,skills,index}.ts` (`COPY[model]`, typed by `UiCopy`).
 - Engine: `generateRoast(input)` reads `input.model`, `generateCouple(a,b,level,seed,model)`, `dailyRoast(sign,iso,model)`, `signText(sign,model)`.
+- Copy lint: `npm run lint:astroroast-copy` (typopo `cs` typography + cspell `cs-cz` spelling, offline, per model). Project words in
+  `astroroast/cspell.json`. Report only, not in CI yet: typopo also flags missing non-breaking spaces (fix at render time later)
+  and has false positives (it moves a full stop inside quotes after a fragment).
 
 ### How to remove the model toggle
 1. Quick off: set `MODEL_TOGGLE_ENABLED = false` in `astroroast/copy/index.ts`. No toggle is rendered, the model is always

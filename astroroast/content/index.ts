@@ -1,5 +1,5 @@
 // AstroRoast.ai: registr obsahu. CONTENT[model] skládá per-model soubory (signs/*, shared, catalog, signinfo).
-// Oba modely musí mít shodnou strukturu (hlídá test). Codex složka je zatím kopie claude.
+// Všechny modely musí mít shodnou strukturu (hlídá test). Kdo co napsal: MODEL_LABELS v ../types.ts.
 
 import { DEFAULT_MODEL, SIGN_IDS, type CatalogJoke, type ModelId, type SignId } from "../types";
 import { toSignFragments } from "./build";
@@ -35,6 +35,21 @@ import codex_ryby from "./codex/signs/ryby";
 import * as codexShared from "./codex/shared";
 import * as codexCatalog from "./codex/catalog";
 import { SIGN_TEXT as codexSignText } from "./codex/signinfo";
+import skills_beran from "./skills/signs/beran";
+import skills_byk from "./skills/signs/byk";
+import skills_blizenci from "./skills/signs/blizenci";
+import skills_rak from "./skills/signs/rak";
+import skills_lev from "./skills/signs/lev";
+import skills_panna from "./skills/signs/panna";
+import skills_vahy from "./skills/signs/vahy";
+import skills_stir from "./skills/signs/stir";
+import skills_strelec from "./skills/signs/strelec";
+import skills_kozoroh from "./skills/signs/kozoroh";
+import skills_vodnar from "./skills/signs/vodnar";
+import skills_ryby from "./skills/signs/ryby";
+import * as skillsShared from "./skills/shared";
+import * as skillsCatalog from "./skills/catalog";
+import { SIGN_TEXT as skillsSignText } from "./skills/signinfo";
 
 function assemble(
   raws: Record<SignId, RawSign>,
@@ -88,9 +103,25 @@ const codexRaws: Record<SignId, RawSign> = {
   ryby: codex_ryby,
 };
 
+const skillsRaws: Record<SignId, RawSign> = {
+  beran: skills_beran,
+  byk: skills_byk,
+  blizenci: skills_blizenci,
+  rak: skills_rak,
+  lev: skills_lev,
+  panna: skills_panna,
+  vahy: skills_vahy,
+  stir: skills_stir,
+  strelec: skills_strelec,
+  kozoroh: skills_kozoroh,
+  vodnar: skills_vodnar,
+  ryby: skills_ryby,
+};
+
 export const CONTENT: Record<ModelId, ModelContent> = {
   claude: assemble(claudeRaws, claudeShared, claudeCatalog, claudeSignText),
   codex: assemble(codexRaws, codexShared, codexCatalog, codexSignText),
+  skills: assemble(skillsRaws, skillsShared, skillsCatalog, skillsSignText),
 };
 
 export { COMPAT_BASE } from "./compat";
