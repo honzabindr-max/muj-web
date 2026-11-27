@@ -4,8 +4,8 @@
 // Provides the active text model to client components and owns the `.ar` root element (data-model attribute).
 // With MODEL_TOGGLE_ENABLED = false the model is always "claude" and nothing is persisted or read.
 
-import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { COPY, MODEL_TOGGLE_ENABLED, type UiCopy } from "@/astroroast/copy";
 import { DEFAULT_MODEL, MODEL_IDS, type ModelId } from "@/astroroast/types";
 
@@ -89,13 +89,19 @@ const ModelContext = createContext<ModelContextValue>({ model: DEFAULT_MODEL, se
 // Nastaví data-model dřív, než se stránka vykreslí (bez probliknutí claude -> codex u uložené volby).
 const EARLY_SCRIPT = `try{var m=new URLSearchParams(location.search).get("m");if(m!=="claude"&&m!=="codex")m=localStorage.getItem("${STORAGE_KEY}");if(m==="codex"){var e=document.querySelector(".ar");if(e)e.setAttribute("data-model","codex")}}catch(e){}`;
 
+/** Po každé klientské navigaci (cesta i samotné query) znovu přečte ?m=. Suspense: useSearchParams nesmí shodit statický render. */
+function UrlSync() {
+  const pathname = usePathname();
+  const m = useSearchParams().get("m");
+  useEffect(() => {
+    syncFromUrl();
+  }, [pathname, m]);
+  return null;
+}
+
 export function ModelProvider({ children }: { children: ReactNode }) {
   const stored = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const model: ModelId = MODEL_TOGGLE_ENABLED ? stored : DEFAULT_MODEL;
-  const pathname = usePathname();
-  useEffect(() => {
-    if (MODEL_TOGGLE_ENABLED) syncFromUrl();
-  }, [pathname]);
   const value = useMemo<ModelContextValue>(
     () => ({ model, setModel: MODEL_TOGGLE_ENABLED ? setStored : () => {} }),
     [model],
@@ -104,6 +110,11 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     <ModelContext.Provider value={value}>
       <div className="ar" data-model={model} suppressHydrationWarning>
         {children}
+        {MODEL_TOGGLE_ENABLED && (
+          <Suspense fallback={null}>
+            <UrlSync />
+          </Suspense>
+        )}
         {MODEL_TOGGLE_ENABLED && (
           <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: EARLY_SCRIPT }} />
         )}
