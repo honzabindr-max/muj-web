@@ -1,0 +1,18 @@
+{
+  "version": "0.2",
+  "language": "cs",
+  "import": ["@cspell/dict-cs-cz/cspell-ext.json"],
+  "dictionaries": ["cs-cz"],
+  "caseSensitive": true,
+  "ignoreRegExpList": ["/\\b[A-Z0-9]{2,}\\b/g", "/\\d+/g"],
+  "words": [
+    "AstroRoast", "roast", "roasty", "roastu", "roastem", "roastnuly", "roastne", "roastovat", "roastnout",
+    "Vodnář", "Vodnáře", "Vodnářů", "Vodnářovi", "Štír", "Štíra", "Štírů", "Štírovi",
+    "Střelec", "Střelce", "Střelců", "Kozoroh", "Kozoroha", "Kozorohů", "Kozorohovi",
+    "Blíženci", "Blíženců", "Blížencům", "Panna", "Panny", "Panen", "Váhy", "Vah", "Býk", "Býka", "Býků",
+    "Beran", "Berana", "Beranů", "Ryby", "Ryb", "Lev", "Lva", "Lvů", "Rak", "Raka", "Raků",
+    "Merkur", "retrográd", "retrográdu", "horoskop", "horoskopu", "horoskopy",
+    "Instagram", "Instagramu", "WhatsApp", "WhatsAppu", "TikTok", "TikToku", "Excel", "Excelu", "Netflix", "Netflixu",
+    "spotify", "story", "OK", "emoji", "meme", "lajk", "lajky", "lajků", "playlist", "playlistu"
+  ]
+}

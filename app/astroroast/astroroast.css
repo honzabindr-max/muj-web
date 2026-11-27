@@ -1188,8 +1188,9 @@ body:has(.ar) {
    ====================================================================================== */
 
 /* Server-rendered text exists in both variants; the inactive one is hidden. */
-.ar:not([data-model="codex"]) [data-m="codex"],
-.ar[data-model="codex"] [data-m="claude"] {
+.ar:not([data-model="codex"]):not([data-model="skills"]) [data-m]:not([data-m="claude"]),
+.ar[data-model="codex"] [data-m]:not([data-m="codex"]),
+.ar[data-model="skills"] [data-m]:not([data-m="skills"]) {
   display: none !important;
 }
 /* Layout-neutral wrapper used by <T> when no element is given. */
@@ -1245,9 +1246,14 @@ html:has(.ar-modelbar) {
 }
 .ar-modelseg-btn {
   position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-width: 64px;
-  height: 30px;
-  padding: 0 12px;
+  height: 34px;
+  padding: 0 10px;
+  line-height: 1.05;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -1258,11 +1264,21 @@ html:has(.ar-modelbar) {
   cursor: pointer;
   touch-action: manipulation;
 }
+.ar-modelseg-name {
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+.ar-modelseg-effort {
+  font-size: 0.62rem;
+  font-weight: 500;
+  opacity: 0.8;
+  white-space: nowrap;
+}
 /* Invisible extension of the hit area to 44px tall. */
 .ar-modelseg-btn::before {
   content: "";
   position: absolute;
-  inset: -7px 0;
+  inset: -5px 0;
 }
 .ar-modelseg-btn[aria-pressed="true"] {
   background: var(--ar-lime);
@@ -1272,9 +1288,21 @@ html:has(.ar-modelbar) {
   outline: 3px solid var(--ar-lime);
   outline-offset: 2px;
 }
-@media (max-width: 420px) {
+@media (max-width: 560px) {
   .ar-modelbar-label {
     display: none;
+  }
+}
+@media (max-width: 420px) {
+  .ar-modelbar-tag {
+    display: none;
+  }
+  .ar-modelseg-btn {
+    min-width: 0;
+    padding: 0 7px;
+  }
+  .ar-modelbar-in {
+    justify-content: center;
   }
 }
 /* ====== END INTERNAL MODEL TOGGLE ====== */

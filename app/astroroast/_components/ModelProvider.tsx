@@ -87,7 +87,7 @@ interface ModelContextValue {
 const ModelContext = createContext<ModelContextValue>({ model: DEFAULT_MODEL, setModel: () => {} });
 
 // Nastaví data-model dřív, než se stránka vykreslí (bez probliknutí claude -> codex u uložené volby).
-const EARLY_SCRIPT = `try{var m=new URLSearchParams(location.search).get("m");if(m!=="claude"&&m!=="codex")m=localStorage.getItem("${STORAGE_KEY}");if(m==="codex"){var e=document.querySelector(".ar");if(e)e.setAttribute("data-model","codex")}}catch(e){}`;
+const EARLY_SCRIPT = `try{var m=new URLSearchParams(location.search).get("m");if(m!=="claude"&&m!=="codex"&&m!=="skills")m=localStorage.getItem("${STORAGE_KEY}");if(m==="codex"||m==="skills"){var e=document.querySelector(".ar");if(e)e.setAttribute("data-model",m)}}catch(e){}`;
 
 /** Po každé klientské navigaci (cesta i samotné query) znovu přečte ?m=. Suspense: useSearchParams nesmí shodit statický render. */
 function UrlSync() {

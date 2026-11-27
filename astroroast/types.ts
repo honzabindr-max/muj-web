@@ -10,10 +10,30 @@ export type SignId = (typeof SIGN_IDS)[number];
 export type Element = "ohen" | "zeme" | "vzduch" | "voda";
 
 /** Which language model wrote the texts. Internal comparison tool: see MODEL_TOGGLE_ENABLED in copy/index.ts. */
-export const MODEL_IDS = ["claude", "codex"] as const;
+export const MODEL_IDS = ["claude", "codex", "skills"] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 export const DEFAULT_MODEL: ModelId = "claude";
-export const MODEL_LABELS: Record<ModelId, string> = { claude: "Claude", codex: "Codex" };
+/**
+ * Kdo texty skutečně napsal (model + reasoning effort), ověřeno z přepisů agentů a hlaviček `codex exec`.
+ * id (claude/codex/skills) zůstává kvůli ?m= a localStorage, mění se jen popisky.
+ */
+export const MODEL_LABELS: Record<ModelId, { name: string; effort: string; detail: string }> = {
+  claude: {
+    name: "Sonnet 5.5",
+    effort: "high + medium",
+    detail: "claude-sonnet-5-5: UI texty a katalog effort high (MVP), roasty po rozšíření humoru effort medium",
+  },
+  codex: {
+    name: "GPT-6.1-sol",
+    effort: "xhigh",
+    detail: "Codex CLI 0.166.0, model gpt-6.1-sol, reasoning effort xhigh",
+  },
+  skills: {
+    name: "Sonnet 5.5",
+    effort: "high + skills",
+    detail: "claude-sonnet-5-5 effort high se skilly cesky-humor, humanizer-czech, anti-slop-writing, copywriting 2.3.6",
+  },
+};
 
 /** Per-sign texts that differ per model (content/<model>/signinfo.ts). */
 export interface SignText {
